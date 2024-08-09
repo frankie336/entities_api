@@ -4,10 +4,11 @@ from typing import List, Dict, Any, Optional
 from pydantic import ValidationError
 from services.identifier_service import IdentifierService
 from services.loggin_service import LoggingUtility
-from api.v1.schemas import Run, RunStatusUpdate  # Import the relevant Pydantic models
+from entities_api.v1.schemas import Run, RunStatusUpdate  # Import the relevant Pydantic models
 
 # Initialize logging utility
 logging_utility = LoggingUtility()
+
 
 class RunService:
     def __init__(self, base_url: str, api_key: str):

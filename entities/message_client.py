@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 import httpx
 from pydantic import ValidationError
 
-from api.v1.schemas import MessageCreate, MessageRead, MessageUpdate  # Import the relevant Pydantic models
+from entities_api.v1.schemas import MessageCreate, MessageRead, MessageUpdate  # Import the relevant Pydantic models
 from services.loggin_service import LoggingUtility
 
 # Initialize logging utility

@@ -1,4 +1,4 @@
-# entities/new_ollama_client.py
+# entities/client.py
 import json
 import os
 import time
