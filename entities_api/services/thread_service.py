@@ -1,8 +1,8 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from models.models import Thread, User, Message
-from api.v1.schemas import ThreadCreate, ThreadReadDetailed, UserBase, MessageRead
-from services.identifier_service import IdentifierService
+from api.v1.schemas import ThreadCreate, ThreadReadDetailed, UserBase
+from entities_api.services.identifier_service import IdentifierService
 import json
 import time
 from typing import List

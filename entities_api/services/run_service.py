@@ -2,7 +2,7 @@ from fastapi import HTTPException
 
 from models.models import Run  # Ensure Run is imported
 from pydantic import parse_obj_as
-from services.identifier_service import IdentifierService
+from entities_api.services.identifier_service import IdentifierService
 from api.v1.schemas import Tool
 from sqlalchemy.orm import Session
 from typing import List

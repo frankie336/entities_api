@@ -1,8 +1,8 @@
 import pytest
 import os
-from entities.thread_client import ThreadService
+from entities_api.thread_client import ThreadService
 
-from entities.user_client import UserService  # Assume you have a UserService client
+from entities_api.user_client import UserService  # Assume you have a UserService client
 
 base_url = "http://localhost:8000"
 api_key = os.getenv("API_KEY")  # Make sure to set this in your environment

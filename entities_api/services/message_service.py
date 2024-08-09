@@ -3,7 +3,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from models.models import Message, Thread, User
 from api.v1.schemas import MessageCreate, MessageRead
-from services.identifier_service import IdentifierService
+from entities_api.services.identifier_service import IdentifierService
 import json
 import time
 import logging

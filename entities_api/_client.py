@@ -1,17 +1,16 @@
-# entities/client.py
+# new_clients/_client.py
 import json
 import os
-import time
 
 from dotenv import load_dotenv
 
-from entities.assistant_client import AssistantService
-from entities.message_client import MessageService
-from entities.run_client import RunService
-from entities.thread_client import ThreadService
-from entities.user_client import UserService
+from .assistant_client import AssistantService
+from .message_client import MessageService
+from .run_client import RunService
+from .thread_client import ThreadService
+from .user_client import UserService
 from ollama import Client
-from services.loggin_service import LoggingUtility
+from entities_api.services.loggin_service import LoggingUtility
 
 # Load environment variables from .env file
 load_dotenv()
@@ -117,7 +116,6 @@ if __name__ == "__main__":
     logging_utility.info("Created user with ID: %s", userid)
 
     assistant = client.assistant_service.create_assistant(
-        user_id="user_DiXa7RJ99MXNXygdXNKUSk",
         name='Mathy',
         description='My helpful maths tutor',
         model='llama3.1',

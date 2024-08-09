@@ -1,8 +1,8 @@
-from entities.user_client import UserService
-from entities.assistant_client import AssistantService
-from entities.thread_client import ThreadService
-from entities.message_client import MessageService
-from entities.run_client import RunService
+from entities_api.user_client import UserService
+from entities_api.assistant_client import AssistantService
+from entities_api.thread_client import ThreadService
+from entities_api.message_client import MessageService
+from entities_api.run_client import RunService
 
 
 class OllamaClient:

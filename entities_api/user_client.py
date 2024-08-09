@@ -1,6 +1,5 @@
 import httpx
-from typing import Dict, Any
-from services.loggin_service import LoggingUtility
+from entities_api.services.loggin_service import LoggingUtility
 from pydantic import ValidationError
 from entities_api.v1.schemas import UserRead, UserCreate, UserUpdate, UserDeleteResponse
 

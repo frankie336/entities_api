@@ -2,7 +2,7 @@ import json
 import time
 import httpx
 import argparse
-from services.loggin_service import LoggingUtility
+from entities_api.services.loggin_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 

@@ -1,4 +1,4 @@
-from entities.assistant_client import AssistantService
+from entities_api.assistant_client import AssistantService
 import os
 
 base_url = "http://localhost:8000"

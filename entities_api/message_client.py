@@ -5,7 +5,7 @@ import httpx
 from pydantic import ValidationError
 
 from entities_api.v1.schemas import MessageCreate, MessageRead, MessageUpdate  # Import the relevant Pydantic models
-from services.loggin_service import LoggingUtility
+from entities_api.services.loggin_service import LoggingUtility
 
 # Initialize logging utility
 logging_utility = LoggingUtility()
