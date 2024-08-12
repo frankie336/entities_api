@@ -1,7 +1,7 @@
 from http.client import HTTPException
 from sqlalchemy.orm import Session
 from models.models import Assistant, User
-from api.v1.schemas import AssistantCreate, AssistantRead, AssistantUpdate
+from entities_api.v1.schemas import AssistantCreate, AssistantRead, AssistantUpdate
 from entities_api.services.identifier_service import IdentifierService
 import json
 import time

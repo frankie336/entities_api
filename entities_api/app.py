@@ -2,7 +2,7 @@ import os
 from fastapi import FastAPI
 from sqlalchemy import create_engine, text, inspect
 from models.models import Base
-from api.v1.routers import router as api_router
+from entities_api.v1.routers import router as api_router
 from entities_api.services.loggin_service import LoggingUtility
 
 # Initialize the logging utility

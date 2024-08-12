@@ -1,5 +1,5 @@
 from starlette.testclient import TestClient
-from api.app import create_test_app
+from entities_api.app import create_test_app
 import time
 
 app = create_test_app()

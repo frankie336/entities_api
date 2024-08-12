@@ -4,11 +4,11 @@ import os
 
 from dotenv import load_dotenv
 
-from .assistant_client import AssistantService
-from .message_client import MessageService
-from .run_client import RunService
-from .thread_client import ThreadService
-from .user_client import UserService
+from entities_api.assistant_client import AssistantService
+from entities_api.message_client import MessageService
+from entities_api.run_client import RunService
+from entities_api.thread_client import ThreadService
+from entities_api.user_client import UserService
 from ollama import Client
 from entities_api.services.loggin_service import LoggingUtility
 
@@ -115,13 +115,13 @@ if __name__ == "__main__":
     userid = user1.id
     logging_utility.info("Created user with ID: %s", userid)
 
-    assistant = client.assistant_service.create_assistant(
-        name='Mathy',
-        description='My helpful maths tutor',
-        model='llama3.1',
-        instructions='Be as kind, intelligent, and helpful',
-        tools=[{"type": "code_interpreter"}]
-    )
+    #assistant = client.assistant_service.create_assistant(
+    #    name='Mathy',
+    #    description='My helpful maths tutor',
+    #    model='llama3.1',
+    #    instructions='Be as kind, intelligent, and helpful',
+    #    tools=[{"type": "code_interpreter"}]
+    #)
 
     # assistant_id = assistant['id']
     assistant_id = "asst_FuirCRmKlUvz4uNVVottMv"

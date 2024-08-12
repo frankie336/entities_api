@@ -12,7 +12,7 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/frankie336/entities_api",
-    packages=find_packages(include=['entities', 'entities.*', 'entities_api', 'entities_api.*']),
+    packages=find_packages(include=['entities_api', 'entities_api.*']),
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
@@ -50,7 +50,6 @@ setup(
         "typer",
         "flask",
         "flask-sqlalchemy",
-        "spacy",
         "weasel",
     ],
     extras_require={
