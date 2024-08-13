@@ -28,3 +28,4 @@ starlette
 tomli
 typing_extensions
 uvicorn
+ollama
