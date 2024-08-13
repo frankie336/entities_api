@@ -1,15 +1,10 @@
-version: '3.8'
-
 services:
   db:
     image: mysql:8.0
     container_name: my_mysql_cosmic_catalyst
     restart: always
-    environment:
-      MYSQL_ROOT_PASSWORD: v5C9UurE3wmqix2C
-      MYSQL_DATABASE: cosmic_catalyst
-      MYSQL_USER: ollama
-      MYSQL_PASSWORD: 3e4Qv5uo2Cg31zC1
+    env_file:
+      - .env
     ports:
       - "3307:3306"
     volumes:
@@ -20,13 +15,13 @@ services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile.api
+      dockerfile: Dockerfile
     container_name: fastapi_cosmic_catalyst
     restart: always
     environment:
-      - DATABASE_URL=mysql+pymysql://ollama:3e4Qv5uo2Cg31zC1@db:3306/cosmic_catalyst
+      - DATABASE_URL=mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@db:3306/${MYSQL_DATABASE}
     ports:
-      - "9000:9000"
+      - "9090:9090"
     depends_on:
       - db
     networks:
