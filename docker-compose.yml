@@ -1,23 +1,8 @@
-services:
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
-    container_name: fastapi_cosmic_catalyst
-    restart: always
-    ports:
-      - "9000:9000"
-    environment:
-      - DATABASE_URL=mysql+pymysql://ollama:3e4Qv5uo2Cg31zC1@db:3307/cosmic_catalyst
-    depends_on:
-      - db
-    networks:
-      - custom_network
+version: '3.8'
 
+services:
   db:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: mysql:8.0
     container_name: my_mysql_cosmic_catalyst
     restart: always
     environment:
@@ -29,18 +14,27 @@ services:
       - mysql_data:/var/lib/mysql
     ports:
       - "3307:3306"
-    networks:
-      - custom_network
-    command: --port=3307
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-networks:
-  custom_network:
-    driver: bridge
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: fastapi_cosmic_catalyst
+    restart: always
+    environment:
+      - DATABASE_URL=mysql+pymysql://ollama:3e4Qv5uo2Cg31zC1@db:3306/cosmic_catalyst
+    ports:
+      - "9000:9000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["./wait-for-it.sh", "db:3306", "--", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9000"]
 
 volumes:
   mysql_data:
     driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${HOME}/.ollama/mysql_data

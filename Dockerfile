@@ -1,13 +1,14 @@
-# Use the official MySQL image
-FROM mysql:8.0
+# Use the latest MySQL image as the base
+FROM mysql:latest
 
-# Set the working directory
-WORKDIR /docker-entrypoint-initdb.d/
+# Copy the entrypoint script to the appropriate directory inside the container
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 
-# Copy any SQL files or scripts for initialization
-COPY ./sql-scripts/ .
+# Make the script executable
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# Expose the default MySQL port
-EXPOSE 3306
+# Override the default entrypoint with our custom entrypoint script
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
-# The CMD instruction is not needed as it's provided by the base image
+# Start the MySQL daemon
+CMD ["mysqld"]
