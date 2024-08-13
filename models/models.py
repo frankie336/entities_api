@@ -10,6 +10,7 @@ thread_participants = Table(
     Column('user_id', String(64), ForeignKey('users.id'), primary_key=True)
 )
 
+
 class User(Base):
     __tablename__ = "users"
 

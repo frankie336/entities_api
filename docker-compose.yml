@@ -1,40 +1,35 @@
 services:
-  db:
-    image: mysql:8.0
-    container_name: my_mysql_cosmic_catalyst
-    restart: always
-    env_file:
-      - .env
-    ports:
-      - "3307:3306"
-    volumes:
-      - mysql_data:/var/lib/mysql
-    networks:
-      - custom_network
-
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
     container_name: fastapi_cosmic_catalyst
     restart: always
-    environment:
-      - DATABASE_URL=mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@db:3306/${MYSQL_DATABASE}
     ports:
       - "9090:9090"
+    environment:
+      - DATABASE_URL=mysql+pymysql://root:rootpassword@db:3307/cosmic_catalyst
     depends_on:
       - db
     networks:
-      - custom_network
+      - api_network
+
+  db:
+    image: mysql:8.0
+    container_name: mysql_cosmic_catalyst
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: cosmic_catalyst
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3307:3306"
+    networks:
+      - api_network
+    command: --port=3307
 
 networks:
-  custom_network:
-    driver: bridge
+  api_network:
+    name: api_network
 
 volumes:
   mysql_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${HOME}/.ollama/mysql_data

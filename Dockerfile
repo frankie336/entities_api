@@ -1,14 +1,17 @@
-# Use the latest MySQL image as the base
-FROM mysql:latest
+# Use an official Python runtime as a parent image
+FROM python:3.8-slim
 
-# Copy the entrypoint script to the appropriate directory inside the container
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+# Set the working directory in the container
+WORKDIR /app
 
-# Make the script executable
-RUN chmod +x /usr/local/bin/entrypoint.sh
+# Copy the current directory contents into the container at /app
+COPY . /app
 
-# Override the default entrypoint with our custom entrypoint script
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+# Install any needed packages specified in requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Start the MySQL daemon
-CMD ["mysqld"]
+# Make port 9090 available to the world outside this container
+EXPOSE 9090
+
+# Run app.py when the container launches
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9090"]
