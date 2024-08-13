@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "entities_api"
+dynamic = ["version"]
+description = "A client for interacting with Ollama models"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Your Name", email = "your.email@example.com"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+]
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "sqlalchemy",
+    "pymysql",
+    "python-dotenv",
+    "alembic",
+    "ollama",
+    # Add other dependencies from your requirements.txt
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/entities_api"
+"Bug Tracker" = "https://github.com/yourusername/entities_api/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["entities_api*"]
+exclude = ["tests*"]
+
+[tool.setuptools_scm]
+write_to = "entities_api/_version.py"
+
+[tool.pytest.ini_options]
+addopts = "--cov=entities_api"
+testpaths = [
+    "tests",
+]

@@ -3,7 +3,7 @@ from typing import List, Dict, Any, Optional
 from pydantic import ValidationError
 from services.loggin_service import LoggingUtility
 
-#from ..v1.schemas import AssistantCreate, AssistantRead, AssistantUpdate
+from schemas import AssistantCreate, AssistantRead, AssistantUpdate
 
 # Initialize logging utility
 logging_utility = LoggingUtility()
