@@ -1,11 +1,3 @@
 include README.md
 include requirements.txt
-include alembic.ini
-include LICENSE
-include pyproject.toml
-recursive-include entities_api *.py
-recursive-include db *.py *.txt
-recursive-include models *.py
-recursive-include new_clients *.py
-recursive-include services *.py
-recursive-include utils *.py
+recursive-include entities_api *
