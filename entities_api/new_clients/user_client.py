@@ -1,9 +1,8 @@
 import httpx
-from typing import Dict, Any
-from services.loggin_service import LoggingUtility
+from entities_api.services.loggin_service import LoggingUtility
 from pydantic import ValidationError
 
-from schemas import UserRead, UserCreate, UserUpdate, UserDeleteResponse
+from entities_api.schemas import UserRead, UserCreate, UserUpdate, UserDeleteResponse
 
 # Initialize logging utility
 logging_utility = LoggingUtility()

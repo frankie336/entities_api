@@ -1,17 +1,16 @@
 # new_clients/new_ollama_client.py
 import json
 import os
-import time
 
 from dotenv import load_dotenv
 
-from new_clients.assistant_client import AssistantService
-from new_clients.message_client import MessageService
-from new_clients.run_client import RunService
-from new_clients.thread_client import ThreadService
-from new_clients.user_client import UserService
+from entities_api.new_clients.assistant_client import AssistantService
+from entities_api.new_clients.message_client import MessageService
+from entities_api.new_clients.run_client import RunService
+from entities_api.new_clients.thread_client import ThreadService
+from entities_api.new_clients.user_client import UserService
 from ollama import Client
-from services.loggin_service import LoggingUtility
+from entities_api.services.loggin_service import LoggingUtility
 
 # Load environment variables from .env file
 load_dotenv()

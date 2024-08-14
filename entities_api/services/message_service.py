@@ -2,8 +2,8 @@ from typing import List, Optional, Dict, Any
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from models.models import Message, Thread, User
-from schemas import MessageCreate, MessageRead
-from services.identifier_service import IdentifierService
+from entities_api.schemas import MessageCreate, MessageRead
+from entities_api.services.identifier_service import IdentifierService
 import json
 import time
 import logging

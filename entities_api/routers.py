@@ -3,18 +3,18 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 
-from schemas import (
+from entities_api.schemas import (
     UserCreate, UserRead, UserUpdate, ThreadCreate, ThreadRead, MessageCreate, MessageRead, Run, AssistantCreate,
     AssistantRead, RunStatusUpdate, AssistantUpdate, ThreadIds
 )
 
 from db.database import get_db
-from services.assistant_service import AssistantService
-from services.loggin_service import LoggingUtility
-from services.message_service import MessageService
-from services.run_service import RunService
-from services.thread_service import ThreadService
-from services.user_service import UserService
+from entities_api.services.assistant_service import AssistantService
+from entities_api.services.loggin_service import LoggingUtility
+from entities_api.services.message_service import MessageService
+from entities_api.services.run_service import RunService
+from entities_api.services.thread_service import ThreadService
+from entities_api.services.user_service import UserService
 
 logging_utility = LoggingUtility()
 

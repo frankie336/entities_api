@@ -1,5 +1,3 @@
-from new_clients.new_ollama_client import OllamaClient
-
 __all__ = ['OllamaClient']
 
 try:

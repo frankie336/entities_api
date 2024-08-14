@@ -1,9 +1,9 @@
 import httpx
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from pydantic import ValidationError
-from services.loggin_service import LoggingUtility
+from entities_api.services.loggin_service import LoggingUtility
 
-from schemas import AssistantCreate, AssistantRead, AssistantUpdate
+from entities_api.schemas import AssistantCreate, AssistantRead, AssistantUpdate
 
 # Initialize logging utility
 logging_utility = LoggingUtility()

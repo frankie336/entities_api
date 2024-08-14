@@ -16,9 +16,9 @@ from typing import Any, AnyStr, Union, Optional, Sequence, Mapping, Literal, ove
 import sys
 
 if sys.version_info < (3, 9):
-    from typing import Iterator, AsyncIterator
+    from typing import Iterator
 else:
-    from collections.abc import Iterator, AsyncIterator
+    from collections.abc import Iterator
 
 from importlib import metadata
 
@@ -29,7 +29,7 @@ except metadata.PackageNotFoundError:
 
 from ollama._types import Message, Options, RequestError, ResponseError, Tool
 
-from services.loggin_service import LoggingUtility
+from entities_api.services.loggin_service import LoggingUtility
 
 # Initialize logging utility
 logging_utility = LoggingUtility()
