@@ -3,6 +3,7 @@ from entities_api.new_clients.assistant_client import AssistantService
 from entities_api.new_clients.thread_client import ThreadService
 from entities_api.new_clients.message_client import MessageService
 from entities_api.new_clients.run_client import RunService
+from entities_api.new_clients.runner import Runner
 
 
 class OllamaClient:
@@ -12,9 +13,10 @@ class OllamaClient:
         self.api_key = api_key
         self.user_service = UserService(base_url, api_key)
         self.assistant_service = AssistantService(base_url, api_key)
-        self.thead_service = ThreadService(base_url, api_key)
+        self.thread_service = ThreadService(base_url, api_key)
         self.message_service = MessageService(base_url, api_key)
         self.run_service = RunService(base_url, api_key)
+        self.runner = Runner(base_url, api_key)
 
     def user_service(self):
         return self.user_service
@@ -22,8 +24,9 @@ class OllamaClient:
     def assistant_service(self):
         return self.assistant_service
 
-    def thead_service(self):
-        return self.thead_service
+    def thread_service(self):
+        return self.thread_service
+
     def message_service(self):
 
         return self.message_service
@@ -42,10 +45,14 @@ class OllamaClient:
             }
         ]
 
-
-
         message = self.message_service.create_message(thread_id=thread_id, content=data, role=role)
         return message
+
+    def runner(self):
+        return self.runner
+
+
+
 
 
 if __name__ == "__main__":

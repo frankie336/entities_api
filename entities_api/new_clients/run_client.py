@@ -9,6 +9,7 @@ from entities_api.schemas import Run, RunStatusUpdate  # Import the relevant Pyd
 # Initialize logging utility
 logging_utility = LoggingUtility()
 
+
 class RunService:
     def __init__(self, base_url: str, api_key: str):
         self.base_url = base_url

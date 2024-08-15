@@ -1,4 +1,4 @@
-# new_clients/new_ollama_client.py
+# new_clients/ex_new_ollama_client.py
 import json
 import os
 
@@ -117,6 +117,7 @@ if __name__ == "__main__":
 
     assistant = client.assistant_service.create_assistant(
         name='Mathy',
+        user_id="user_KZFThFWl5I5w335fWyYi1L",
         description='My helpful maths tutor',
         model='llama3.1',
         instructions='Be as kind, intelligent, and helpful',
@@ -134,11 +135,16 @@ if __name__ == "__main__":
     thread = client.thread_service.create_thread(participant_ids=[userid], meta_data={"topic": "Test Thread"})
     logging_utility.info("Created thread with ID: %s", thread.id)
 
+
     user_message = "Hello, can you help me with a math problem?"
     client.message_service.create_message(thread_id=thread.id,
                                           content=user_message,
                                           role='user',
                                           sender_id=userid)
+
+
+
+
     logging_utility.info("Created user message in thread: %s", thread.id)
 
     run = client.run_service.create_run(thread_id=thread.id,
