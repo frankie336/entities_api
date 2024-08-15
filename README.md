@@ -173,7 +173,7 @@ except ollama.ResponseError as e:
     ollama.pull(model)
 ```
 
-## Assistants API v1 Beta
+## Entities API v1 Beta
 
 The Assistants API is an extension providing integrated state management, similar to the @OpenAI Assistants API. 
 
