@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from entities_api.schemas import (
     UserCreate, UserRead, UserUpdate, ThreadCreate, ThreadRead, MessageCreate, MessageRead, Run, AssistantCreate,
-    AssistantRead, RunStatusUpdate, AssistantUpdate, ThreadIds
+    AssistantRead, RunStatusUpdate, AssistantUpdate, ThreadIds, ThreadUpdate, ThreadReadDetailed
 )
 
 from db.database import get_db
@@ -46,11 +46,20 @@ def delete_user(user_id: str, db: Session = Depends(get_db)):
     return {"detail": "User deleted successfully"}
 
 
-@router.post("/threads", response_model=ThreadRead)
+@router.post("/threads", response_model=ThreadReadDetailed)
 def create_thread(thread: ThreadCreate, db: Session = Depends(get_db)):
+    logging_utility.info("Received request to create a new thread")
     thread_service = ThreadService(db)
-    return thread_service.create_thread(thread)
-
+    try:
+        new_thread = thread_service.create_thread(thread)
+        logging_utility.info(f"Successfully created thread with ID: {new_thread.id}")
+        return new_thread
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error occurred while creating thread: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"An error occurred while creating thread: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 @router.get("/threads/{thread_id}", response_model=ThreadRead)
 def get_thread(thread_id: str, db: Session = Depends(get_db)):
@@ -174,3 +183,27 @@ def save_assistant_message(message: MessageCreate, db: Session = Depends(get_db)
         content=message.content,
         is_last_chunk=True  # Assuming we're always sending the complete message
     )
+
+
+
+
+@router.put("/threads/{thread_id}", response_model=ThreadReadDetailed)
+@router.post("/threads/{thread_id}", response_model=ThreadReadDetailed)
+def update_thread(thread_id: str, thread_update: ThreadUpdate, db: Session = Depends(get_db)):
+    logging_utility.info(f"Received request to update thread with ID: {thread_id}")
+    thread_service = ThreadService(db)
+    try:
+        updated_thread = thread_service.update_thread(thread_id, thread_update)
+        logging_utility.info(f"Successfully updated thread with ID: {thread_id}")
+        return updated_thread
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error occurred while updating thread: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"An error occurred while updating thread: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+
+@router.get("/test")
+async def test_route():
+    return {"message": "Test route is working"}

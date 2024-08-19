@@ -1,5 +1,7 @@
 import os
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
+from httpx import Request
 from sqlalchemy import create_engine, text, inspect
 from models.models import Base
 from entities_api.routers import router as api_router
@@ -41,11 +43,38 @@ def update_messages_content_column():
         except Exception as e:
             logging_utility.error(f"Error updating messages.content column: {str(e)}")
 
+
+class StarletteHTTPException:
+    pass
+
+
 def create_app(init_db=True):
     logging_utility.info("Creating FastAPI app")
     app = FastAPI()
 
-    # Include API routers
+    @app.middleware("http")
+    async def log_requests(request: Request, call_next):
+        logging_utility.info(f"Received {request.method} request to {request.url}")
+        response = await call_next(request)
+        logging_utility.info(f"Returning response with status code {response.status_code}")
+        return response
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(request, exc):
+        logging_utility.error(f"HTTP error occurred: {exc.detail}")
+        return {"detail": exc.detail}
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request, exc):
+        logging_utility.error(f"Validation error occurred: {exc}")
+        return {"detail": str(exc)}
+
+    @app.exception_handler(Exception)
+    async def general_exception_handler(request, exc):
+        logging_utility.error(f"An unexpected error occurred: {str(exc)}")
+        return {"detail": "An unexpected error occurred"}
+
+    logging_utility.info("Including API router with prefix /v1")
     app.include_router(api_router, prefix="/v1")
 
     @app.get("/")
@@ -55,13 +84,10 @@ def create_app(init_db=True):
 
     if init_db:
         logging_utility.info("Initializing database")
-        # Create database tables
         create_tables()
-        # Update messages.content column
         update_messages_content_column()
 
     return app
-
 app = create_app()
 
 def create_test_app():

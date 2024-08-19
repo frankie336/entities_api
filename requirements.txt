@@ -29,3 +29,4 @@ tomli
 typing_extensions
 uvicorn
 ollama
+typing==4.0.0

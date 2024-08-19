@@ -1,9 +1,11 @@
+import time
+
 import httpx
 from typing import List, Dict, Any, Optional
 from pydantic import ValidationError
 from entities_api.services.loggin_service import LoggingUtility
-
-from entities_api.schemas import UserCreate, UserRead, ThreadCreate, ThreadRead, ThreadUpdate, ThreadIds
+from entities_api.schemas import UserCreate, UserRead, ThreadCreate, ThreadRead, ThreadUpdate, ThreadIds, \
+    ThreadReadDetailed
 
 # Initialize logging utility
 logging_utility = LoggingUtility()
@@ -79,24 +81,47 @@ class ThreadService:
             logging_utility.error("An error occurred while retrieving thread: %s", str(e))
             raise
 
-    def update_thread(self, thread_id: str, **updates) -> ThreadRead:
-        logging_utility.info("Updating thread with id: %s", thread_id)
+    def update_thread(self, thread_id: str, **updates) -> ThreadReadDetailed:
+
+        #logging_utility(f"Updating thread with id: {thread_id}")
+
         try:
-            validated_updates = ThreadUpdate(**updates)  # Validate data using Pydantic model
-            response = self.client.put(f"/v1/threads/{thread_id}", json=validated_updates.model_dump())
+            validated_updates = ThreadUpdate(**updates)
+            response = self.client.post(f"/v1/threads/{thread_id}", json=validated_updates.model_dump())
             response.raise_for_status()
             updated_thread = response.json()
-            validated_thread = ThreadRead(**updated_thread)  # Validate data using Pydantic model
-            logging_utility.info("Thread updated successfully")
-            return validated_thread
-        except ValidationError as e:
-            logging_utility.error("Validation error: %s", e.json())
-            raise ValueError(f"Validation error: {e}")
+            return ThreadReadDetailed(**updated_thread)
         except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error occurred while updating thread: %s", str(e))
+            logging_utility.error(f"HTTP error occurred while updating thread: {e}")
+            logging_utility.error(f"Response content: {e.response.content}")
             raise
         except Exception as e:
-            logging_utility.error("An error occurred while updating thread: %s", str(e))
+            logging_utility.error(f"An error occurred while updating thread: {e}")
+            raise
+
+    def update_thread_metadata(self, thread_id: str, new_metadata: Dict[str, Any]) -> ThreadRead:
+        """
+        Updates the metadata for a specific thread by its ID.
+        """
+        logging_utility.info("Updating metadata for thread with id: %s", thread_id)
+        try:
+            # Retrieve the existing thread to ensure it exists and get current metadata
+            thread = self.retrieve_thread(thread_id)
+            current_metadata = thread.meta_data
+
+            # Update the metadata
+            current_metadata.update(new_metadata)
+
+            # Send the update request
+            return self.update_thread(thread_id, meta_data=current_metadata)
+        except ValidationError as e:
+            logging_utility.error("Validation error while updating thread metadata: %s", e.json())
+            raise ValueError(f"Validation error: {e}")
+        except httpx.HTTPStatusError as e:
+            logging_utility.error("HTTP error occurred while updating thread metadata: %s", str(e))
+            raise
+        except Exception as e:
+            logging_utility.error("An error occurred while updating thread metadata: %s", str(e))
             raise
 
     def list_threads(self, user_id: str) -> List[str]:
@@ -163,9 +188,14 @@ if __name__ == "__main__":
         retrieved_thread = thread_service.retrieve_thread(thread_id)
         logging_utility.info("Retrieved thread: %s", retrieved_thread)
 
-        # List threads for user1
-        thread_ids_user1 = thread_service.list_threads(user1_id)
-        logging_utility.info("List of thread ids for user1: %s", thread_ids_user1)
+        # Update the thread metadata
+        updated_thread = thread_service.update_thread_metadata(thread_id, new_metadata={"topic": "Updated Topic"})
+
+        logging_utility.info("Updated thread metadata: %s", updated_thread.meta_data)
+
+        # Optionally, retrieve the updated thread to verify changes
+        updated_retrieved_thread = thread_service.retrieve_thread(thread_id)
+        logging_utility.info("Retrieved updated thread: %s", updated_retrieved_thread.meta_data)
 
     except Exception as e:
         logging_utility.error("An error occurred during ThreadService test: %s", str(e))

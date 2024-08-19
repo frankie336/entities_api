@@ -1,7 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 
-
 class UserBase(BaseModel):
     id: str
     name: str
@@ -9,10 +8,8 @@ class UserBase(BaseModel):
     class Config:
         from_attributes = True
 
-
 class UserCreate(BaseModel):
     name: Optional[str] = "Anonymous User"
-
 
 class UserRead(UserBase):
     pass
@@ -20,16 +17,13 @@ class UserRead(UserBase):
 class UserUpdate(BaseModel):
     name: Optional[str] = None
 
-
 class UserDeleteResponse(BaseModel):
     success: bool
     message: Optional[str] = None
 
-
 class ThreadCreate(BaseModel):
     participant_ids: List[str] = Field(..., description="List of participant IDs")
     meta_data: Optional[Dict[str, Any]] = {}
-
 
 class ThreadRead(BaseModel):
     id: str
@@ -43,11 +37,12 @@ class ThreadRead(BaseModel):
 
 
 class ThreadUpdate(BaseModel):
-    participant_ids: Optional[List[str]]
-    meta_data: Optional[Dict[str, Any]]
+    participant_ids: Optional[List[str]] = None  # Make this field optional
+    meta_data: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
+
 
 class ThreadParticipant(UserBase):
     pass
