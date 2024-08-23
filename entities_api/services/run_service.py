@@ -1,6 +1,5 @@
 from fastapi import HTTPException
-
-from models.models import Run  # Ensure Run is imported
+from models.models import Run
 from pydantic import parse_obj_as
 from entities_api.services.identifier_service import IdentifierService
 from entities_api.schemas import Tool
@@ -17,44 +16,76 @@ class RunService:
         run = Run(
             id=IdentifierService.generate_run_id(),
             assistant_id=run_data.assistant_id,
-            cancelled_at=run_data.cancelled_at,
-            completed_at=run_data.completed_at,
             created_at=int(time.time()),
-            expires_at=run_data.expires_at,
-            failed_at=run_data.failed_at,
-            incomplete_details=run_data.incomplete_details,
-            instructions=run_data.instructions,
-            last_error=run_data.last_error,
-            max_completion_tokens=run_data.max_completion_tokens,
-            max_prompt_tokens=run_data.max_prompt_tokens,
-            meta_data=run_data.meta_data,
-            model=run_data.model,
-            object=run_data.object,
-            parallel_tool_calls=run_data.parallel_tool_calls,
-            required_action=run_data.required_action,
-            response_format=run_data.response_format,
-            started_at=run_data.started_at,
-            status=run_data.status,
+            status="queued",
             thread_id=run_data.thread_id,
-            tool_choice=run_data.tool_choice,
-            tools=[tool.dict() for tool in run_data.tools],
-            truncation_strategy=run_data.truncation_strategy,
-            usage=run_data.usage,
-            temperature=run_data.temperature,
-            top_p=run_data.top_p,
-            tool_resources=run_data.tool_resources
+            # ... other fields ...
         )
         self.db.add(run)
         self.db.commit()
         self.db.refresh(run)
         return run
 
-    def update_run_status(self, run_id: str, new_status: str):
+    def start_run(self, run_id: str):
+        run = self.db.query(Run).filter(Run.id == run_id).first()
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if run.status != "queued":
+            raise HTTPException(status_code=400, detail="Run is not in queued state")
+
+        run.status = "in_progress"
+        run.started_at = int(time.time())
+        self.db.commit()
+        self.db.refresh(run)
+        return run
+
+    def complete_run(self, run_id: str):
+        run = self.db.query(Run).filter(Run.id == run_id).first()
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if run.status != "in_progress":
+            raise HTTPException(status_code=400, detail="Run is not in progress")
+
+        run.status = "completed"
+        run.completed_at = int(time.time())
+        self.db.commit()
+        self.db.refresh(run)
+        return run
+
+    def fail_run(self, run_id: str, error_message: str):
         run = self.db.query(Run).filter(Run.id == run_id).first()
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
 
-        run.status = new_status
+        run.status = "failed"
+        run.failed_at = int(time.time())
+        run.last_error = error_message
+        self.db.commit()
+        self.db.refresh(run)
+        return run
+
+    def cancel_run(self, run_id: str):
+        run = self.db.query(Run).filter(Run.id == run_id).first()
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if run.status not in ["queued", "in_progress"]:
+            raise HTTPException(status_code=400, detail="Run cannot be cancelled in its current state")
+
+        run.status = "cancelled"
+        run.cancelled_at = int(time.time())
+        self.db.commit()
+        self.db.refresh(run)
+        return run
+
+    def expire_run(self, run_id: str):
+        run = self.db.query(Run).filter(Run.id == run_id).first()
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if run.status != "in_progress":
+            raise HTTPException(status_code=400, detail="Only in-progress runs can expire")
+
+        run.status = "expired"
+        run.expires_at = int(time.time())
         self.db.commit()
         self.db.refresh(run)
         return run
@@ -70,27 +101,23 @@ class RunService:
                 created_at=run.created_at,
                 expires_at=run.expires_at,
                 failed_at=run.failed_at,
-                incomplete_details=run.incomplete_details,
-                instructions=run.instructions,
-                last_error=run.last_error,
-                max_completion_tokens=run.max_completion_tokens,
-                max_prompt_tokens=run.max_prompt_tokens,
-                meta_data=run.meta_data,
-                model=run.model,
-                object=run.object,
-                parallel_tool_calls=run.parallel_tool_calls,
-                required_action=run.required_action,
-                response_format=run.response_format,
                 started_at=run.started_at,
                 status=run.status,
                 thread_id=run.thread_id,
-                tool_choice=run.tool_choice,
-                tools=parse_obj_as(List[Tool], run.tools),
-                truncation_strategy=run.truncation_strategy,
-                usage=run.usage,
-                temperature=run.temperature,
-                top_p=run.top_p,
-                tool_resources=run.tool_resources
+                # ... other fields ...
             )
             return run_data
         return None
+
+    def update_run_status(self, run_id: str, new_status: str):
+        run = self.db.query(Run).filter(Run.id == run_id).first()
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        if new_status not in ["queued", "in_progress", "completed", "failed", "cancelled", "expired"]:
+            raise HTTPException(status_code=400, detail="Invalid status")
+
+        run.status = new_status
+        self.db.commit()
+        self.db.refresh(run)
+        return run

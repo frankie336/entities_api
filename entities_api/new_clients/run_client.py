@@ -4,9 +4,8 @@ from typing import List, Dict, Any, Optional
 from pydantic import ValidationError
 from entities_api.services.identifier_service import IdentifierService
 from entities_api.services.loggin_service import LoggingUtility
-from entities_api.schemas import Run, RunStatusUpdate  # Import the relevant Pydantic models
+from entities_api.schemas import Run, RunStatusUpdate
 
-# Initialize logging utility
 logging_utility = LoggingUtility()
 
 
@@ -40,7 +39,7 @@ class RunService:
             "required_action": None,
             "response_format": "text",
             "started_at": None,
-            "status": "pending",
+            "status": "queued",  # Changed from "pending" to "queued"
             "tool_choice": "none",
             "tools": [],
             "truncation_strategy": {},
@@ -52,7 +51,7 @@ class RunService:
         logging_utility.info("Creating run for assistant_id: %s, thread_id: %s", assistant_id, thread_id)
         logging_utility.debug("Run data: %s", run_data)
         try:
-            validated_data = Run(**run_data)  # Validate data using Pydantic model
+            validated_data = Run(**run_data)
             response = self.client.post("/v1/runs", json=validated_data.dict())
             response.raise_for_status()
             created_run = response.json()
@@ -74,7 +73,7 @@ class RunService:
             response = self.client.get(f"/v1/runs/{run_id}")
             response.raise_for_status()
             run = response.json()
-            validated_run = Run(**run)  # Validate data using Pydantic model
+            validated_run = Run(**run)
             logging_utility.info("Run retrieved successfully")
             return validated_run
         except ValidationError as e:
@@ -87,17 +86,35 @@ class RunService:
             logging_utility.error("An error occurred while retrieving run: %s", str(e))
             raise
 
+    def start_run(self, run_id: str) -> Run:
+        return self.update_run_status(run_id, "in_progress")
+
+    def complete_run(self, run_id: str) -> Run:
+        return self.update_run_status(run_id, "completed")
+
+    def fail_run(self, run_id: str, error_message: str) -> Run:
+        run = self.update_run_status(run_id, "failed")
+        self.update_run_details(run_id, {"last_error": error_message})
+        return run
+
+    def cancel_run(self, run_id: str) -> Run:
+        return self.update_run_status(run_id, "cancelled")
+
+    def expire_run(self, run_id: str) -> Run:
+        return self.update_run_status(run_id, "expired")
+
     def update_run_status(self, run_id: str, new_status: str) -> Run:
         logging_utility.info("Updating run status for run_id: %s to %s", run_id, new_status)
-        update_data = {
-            "status": new_status
-        }
+        if new_status not in ["queued", "in_progress", "completed", "failed", "cancelled", "expired"]:
+            raise ValueError(f"Invalid status: {new_status}")
+
+        update_data = {"status": new_status}
         try:
-            validated_data = RunStatusUpdate(**update_data)  # Validate data using Pydantic model
+            validated_data = RunStatusUpdate(**update_data)
             response = self.client.put(f"/v1/runs/{run_id}/status", json=validated_data.dict())
             response.raise_for_status()
             updated_run = response.json()
-            validated_run = Run(**updated_run)  # Validate data using Pydantic model
+            validated_run = Run(**updated_run)
             logging_utility.info("Run status updated successfully")
             return validated_run
         except ValidationError as e:
@@ -110,6 +127,25 @@ class RunService:
             logging_utility.error("An error occurred while updating run status: %s", str(e))
             raise
 
+    def update_run_details(self, run_id: str, details: Dict[str, Any]) -> Run:
+        logging_utility.info("Updating run details for run_id: %s", run_id)
+        try:
+            response = self.client.patch(f"/v1/runs/{run_id}", json=details)
+            response.raise_for_status()
+            updated_run = response.json()
+            validated_run = Run(**updated_run)
+            logging_utility.info("Run details updated successfully")
+            return validated_run
+        except ValidationError as e:
+            logging_utility.error("Validation error: %s", e.json())
+            raise ValueError(f"Validation error: {e}")
+        except httpx.HTTPStatusError as e:
+            logging_utility.error("HTTP error occurred while updating run details: %s", str(e))
+            raise
+        except Exception as e:
+            logging_utility.error("An error occurred while updating run details: %s", str(e))
+            raise
+
     def list_runs(self, limit: int = 20, order: str = "asc") -> List[Run]:
         logging_utility.info("Listing runs with limit: %d, order: %s", limit, order)
         params = {
@@ -120,7 +156,7 @@ class RunService:
             response = self.client.get("/v1/runs", params=params)
             response.raise_for_status()
             runs = response.json()
-            validated_runs = [Run(**run) for run in runs]  # Validate data using Pydantic model
+            validated_runs = [Run(**run) for run in runs]
             logging_utility.info("Retrieved %d runs", len(validated_runs))
             return validated_runs
         except ValidationError as e:
@@ -152,6 +188,9 @@ class RunService:
         logging_utility.info("Generating content for run_id: %s, model: %s", run_id, model)
         try:
             run = self.retrieve_run(run_id)
+            if run.status != "in_progress":
+                self.start_run(run_id)
+
             response = self.client.post(
                 "/api/generate",
                 json={
@@ -165,19 +204,26 @@ class RunService:
             )
             response.raise_for_status()
             result = response.json()
+
+            self.complete_run(run_id)
             logging_utility.info("Content generated successfully")
             return result
         except httpx.HTTPStatusError as e:
             logging_utility.error("HTTP error occurred while generating content: %s", str(e))
+            self.fail_run(run_id, str(e))
             raise
         except Exception as e:
             logging_utility.error("An error occurred while generating content: %s", str(e))
+            self.fail_run(run_id, str(e))
             raise
 
     def chat(self, run_id: str, model: str, messages: List[Dict[str, Any]], stream: bool = False) -> Dict[str, Any]:
         logging_utility.info("Chatting for run_id: %s, model: %s", run_id, model)
         try:
             run = self.retrieve_run(run_id)
+            if run.status != "in_progress":
+                self.start_run(run_id)
+
             response = self.client.post(
                 "/api/chat",
                 json={
@@ -191,11 +237,15 @@ class RunService:
             )
             response.raise_for_status()
             result = response.json()
+
+            self.complete_run(run_id)
             logging_utility.info("Chat completed successfully")
             return result
         except httpx.HTTPStatusError as e:
             logging_utility.error("HTTP error occurred during chat: %s", str(e))
+            self.fail_run(run_id, str(e))
             raise
         except Exception as e:
             logging_utility.error("An error occurred during chat: %s", str(e))
+            self.fail_run(run_id, str(e))
             raise

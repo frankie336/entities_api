@@ -86,6 +86,9 @@ class Runner:
         return self.streamed_response_helper(messages, thread_id, run_id, model)
 
 
+
+
+
 if __name__ == "__main__":
     logging_utility.info("Starting OllamaClient main script")
     client = OllamaClient()
