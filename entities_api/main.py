@@ -1,9 +1,13 @@
 import os
 from fastapi import FastAPI
 from sqlalchemy import create_engine, text, inspect
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 from models.models import Base
 from entities_api.routers import router as api_router
 from entities_api.services.loggin_service import LoggingUtility
+from entities_api.services.run_monitor_service import RunMonitorService
+from db.database import SessionLocal
 
 # Initialize the logging utility
 logging_utility = LoggingUtility()
@@ -12,7 +16,6 @@ logging_utility = LoggingUtility()
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 engine = create_engine(DATABASE_URL)
-
 
 def drop_constraints():
     logging_utility.info("Dropping constraints")
@@ -25,16 +28,13 @@ def drop_constraints():
                 logging_utility.info("Dropping foreign key %s from table %s", fk_name, table_name)
                 connection.execute(text(f"ALTER TABLE {table_name} DROP FOREIGN KEY {fk_name}"))
 
-
 def drop_tables():
     logging_utility.info("Dropping all tables")
     Base.metadata.drop_all(bind=engine)
 
-
 def create_tables():
     logging_utility.info("Creating all tables")
     Base.metadata.create_all(bind=engine)
-
 
 def update_messages_content_column():
     logging_utility.info("Updating messages.content column to TEXT")
@@ -45,6 +45,13 @@ def update_messages_content_column():
         except Exception as e:
             logging_utility.error(f"Error updating messages.content column: {str(e)}")
 
+def run_monitor_job():
+    db = SessionLocal()
+    try:
+        monitor = RunMonitorService(db)
+        monitor.check_and_update_runs()
+    finally:
+        db.close()
 
 def create_app(init_db=True):
     logging_utility.info("Creating FastAPI app")
@@ -64,6 +71,18 @@ def create_app(init_db=True):
         create_tables()
         # Update messages.content column
         update_messages_content_column()
+
+    @app.on_event("startup")
+    def start_scheduler():
+        scheduler = BackgroundScheduler()
+        scheduler.add_job(
+            run_monitor_job,
+            IntervalTrigger(minutes=5),
+            id="run_monitor_job",
+            name="Check and update expired runs",
+            replace_existing=True,
+        )
+        scheduler.start()
 
     return app
 

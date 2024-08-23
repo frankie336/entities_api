@@ -3,6 +3,7 @@ from models.models import Run
 from pydantic import parse_obj_as
 from entities_api.services.identifier_service import IdentifierService
 from entities_api.schemas import Tool
+from entities_api.services.thread_service import ThreadService
 from sqlalchemy.orm import Session
 from typing import List
 import time
@@ -11,6 +12,7 @@ import time
 class RunService:
     def __init__(self, db: Session):
         self.db = db
+        self.thread_service = ThreadService(db)
 
     def create_run(self, run_data):
         run = Run(
@@ -33,11 +35,14 @@ class RunService:
         if run.status != "queued":
             raise HTTPException(status_code=400, detail="Run is not in queued state")
 
-        run.status = "in_progress"
-        run.started_at = int(time.time())
-        self.db.commit()
-        self.db.refresh(run)
-        return run
+        if self.thread_service.check_and_set_active_run(run.thread_id, run_id):
+            run.status = "in_progress"
+            run.started_at = int(time.time())
+            self.db.commit()
+            self.db.refresh(run)
+            return run
+        else:
+            raise HTTPException(status_code=409, detail="Another run is already in progress for this thread")
 
     def complete_run(self, run_id: str):
         run = self.db.query(Run).filter(Run.id == run_id).first()
@@ -116,6 +121,10 @@ class RunService:
 
         if new_status not in ["queued", "in_progress", "completed", "failed", "cancelled", "expired"]:
             raise HTTPException(status_code=400, detail="Invalid status")
+
+        if new_status == "in_progress":
+            if not self.thread_service.check_and_set_active_run(run.thread_id, run_id):
+                raise HTTPException(status_code=409, detail="Another run is already in progress for this thread")
 
         run.status = new_status
         self.db.commit()

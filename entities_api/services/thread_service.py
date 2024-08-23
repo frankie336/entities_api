@@ -1,11 +1,14 @@
-from fastapi import HTTPException
-from sqlalchemy.orm import Session
-from models.models import Thread, User, Message
-from entities_api.schemas import ThreadCreate, ThreadReadDetailed, UserBase
-from entities_api.services.identifier_service import IdentifierService
 import json
 import time
 from typing import List
+
+from fastapi import HTTPException
+from sqlalchemy import and_, text
+from sqlalchemy.orm import Session
+
+from entities_api.schemas import ThreadCreate, ThreadReadDetailed, UserBase
+from entities_api.services.identifier_service import IdentifierService
+from models.models import Thread, User, Message, Run
 
 
 class ThreadService:
@@ -78,3 +81,25 @@ class ThreadService:
     def list_threads_by_user(self, user_id: str) -> List[str]:
         threads = self.db.query(Thread).join(Thread.participants).filter(User.id == user_id).all()
         return [thread.id for thread in threads]
+
+    def check_and_set_active_run(self, thread_id: str, run_id: str) -> bool:
+        """
+        Check if the thread has no active runs and set the given run as active.
+        Returns True if successful, False if there's already an active run.
+        """
+        with self.db.begin():
+            # Check if there's any in_progress run for this thread
+            active_run = self.db.query(Run).filter(
+                and_(Run.thread_id == thread_id, Run.status == 'in_progress')
+            ).first()
+
+            if active_run:
+                return False
+
+            # Set the new run as in_progress
+            self.db.execute(
+                text("UPDATE runs SET status = 'in_progress' WHERE id = :run_id"),
+                {'run_id': run_id}
+            )
+
+        return True

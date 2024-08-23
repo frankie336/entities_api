@@ -39,7 +39,7 @@ class RunService:
             "required_action": None,
             "response_format": "text",
             "started_at": None,
-            "status": "queued",  # Changed from "pending" to "queued"
+            "status": "queued",
             "tool_choice": "none",
             "tools": [],
             "truncation_strategy": {},
@@ -87,7 +87,13 @@ class RunService:
             raise
 
     def start_run(self, run_id: str) -> Run:
-        return self.update_run_status(run_id, "in_progress")
+        try:
+            return self.update_run_status(run_id, "in_progress")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 409:
+                logging_utility.warning("Another run is already in progress for this thread")
+                raise ValueError("Another run is already in progress for this thread")
+            raise
 
     def complete_run(self, run_id: str) -> Run:
         return self.update_run_status(run_id, "completed")
@@ -121,6 +127,9 @@ class RunService:
             logging_utility.error("Validation error: %s", e.json())
             raise ValueError(f"Validation error: {e}")
         except httpx.HTTPStatusError as e:
+            if e.response.status_code == 409 and new_status == "in_progress":
+                logging_utility.warning("Another run is already in progress for this thread")
+                raise ValueError("Another run is already in progress for this thread")
             logging_utility.error("HTTP error occurred while updating run status: %s", str(e))
             raise
         except Exception as e:
