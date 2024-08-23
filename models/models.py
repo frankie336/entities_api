@@ -31,6 +31,7 @@ class Thread(Base):
     tool_resources = Column(JSON, nullable=False, default={})
 
     participants = relationship('User', secondary=thread_participants, back_populates='threads')
+    messages = relationship('Message', back_populates='thread')  # Add this line
     runs = relationship('Run', back_populates='thread')
 
 
@@ -54,7 +55,7 @@ class Message(Base):
     sender_id = Column(String(64), ForeignKey('users.id'), nullable=False)
 
     run = relationship('Run', back_populates='messages')
-    thread = relationship('Thread', back_populates='messages')
+    thread = relationship('Thread', back_populates='messages')  # Add this line
     sender = relationship('User')
 
 
