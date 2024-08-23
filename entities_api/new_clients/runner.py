@@ -29,7 +29,7 @@ class Runner:
         self.message_service = MessageService(self.base_url, self.api_key)
         self.run_service = RunService(self.base_url, self.api_key)
         self.ollama_client = Client()
-        logging_utility.info("OllamaClient initialized with base_url: %s", self.base_url)
+        logging_utility.info("Runner initialized with base_url: %s", self.base_url)
 
     def streamed_response_helper(self, messages, thread_id, run_id, model='llama3.1'):
         logging_utility.info("Starting streamed response for thread_id: %s, run_id: %s, model: %s", thread_id, run_id, model)
@@ -47,6 +47,7 @@ class Runner:
                 content = chunk['message']['content']
                 full_response += content
                 logging_utility.debug("Received chunk: %s", content)
+                self.run_service.update_run_activity(run_id)  # Update run activity for each chunk
                 yield content
 
             logging_utility.info("Finished yielding all chunks")
@@ -60,7 +61,7 @@ class Runner:
             else:
                 logging_utility.warning("Failed to save assistant message")
 
-            updated_run = self.run_service.update_run_status(run_id, "completed")
+            updated_run = self.run_service.complete_run(run_id)
             if updated_run:
                 logging_utility.info("Run status updated to completed for run_id: %s", run_id)
             else:
@@ -68,69 +69,32 @@ class Runner:
 
         except Exception as e:
             logging_utility.error("Error in streamed_response_helper: %s", str(e), exc_info=True)
+            self.run_service.fail_run(run_id, str(e))
             yield json.dumps({"error": "An error occurred while generating the response"})
 
         logging_utility.info("Exiting streamed_response_helper")
 
     def process_conversation(self, thread_id, run_id, assistant_id, model='llama3.1'):
-        logging_utility.info("Processing conversation for thread_id: %s, run_id: %s, model: %s", thread_id, run_id,
-                             model)
+        logging_utility.info("Processing conversation for thread_id: %s, run_id: %s, model: %s", thread_id, run_id, model)
 
-        assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
+        try:
+            self.run_service.start_run(run_id)
 
-        logging_utility.info("Retrieved assistant: id=%s, name=%s, model=%s",
-                             assistant.id, assistant.name, assistant.model)
+            assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
+            logging_utility.info("Retrieved assistant: id=%s, name=%s, model=%s",
+                                 assistant.id, assistant.name, assistant.model)
 
-        messages = self.message_service.get_formatted_messages(thread_id, system_message=assistant.instructions)
-        logging_utility.debug("Formatted messages: %s", messages)
-        return self.streamed_response_helper(messages, thread_id, run_id, model)
+            messages = self.message_service.get_formatted_messages(thread_id, system_message=assistant.instructions)
+            logging_utility.debug("Formatted messages: %s", messages)
+
+            for chunk in self.streamed_response_helper(messages, thread_id, run_id, model):
+                yield chunk
+
+        except Exception as e:
+            logging_utility.error("Error in process_conversation: %s", str(e), exc_info=True)
+            self.run_service.fail_run(run_id, str(e))
+            yield json.dumps({"error": "An error occurred while processing the conversation"})
+
+        logging_utility.info("Conversation processed successfully")
 
 
-
-
-
-if __name__ == "__main__":
-    logging_utility.info("Starting OllamaClient main script")
-    client = OllamaClient()
-
-    user1 = client.user_service.create_user(name='Test')
-    userid = user1.id
-    logging_utility.info("Created user with ID: %s", userid)
-
-    assistant = client.assistant_service.create_assistant(
-        name='Mathy',
-        user_id="user_KZFThFWl5I5w335fWyYi1L",
-        description='My helpful maths tutor',
-        model='llama3.1',
-        instructions='Be as kind, intelligent, and helpful',
-        tools=[{"type": "code_interpreter"}]
-    )
-
-    # assistant_id = assistant['id']
-    assistant_id = "asst_FuirCRmKlUvz4uNVVottMv"
-
-    logging_utility.info("Created assistant with ID: %s", assistant_id)
-
-    #assistant = client.assistant_service.retrieve_assistant(assistant_id=assistant_id)
-    #logging_utility.info("Retrieved assistant: %s", assistant)
-
-    thread = client.thread_service.create_thread(participant_ids=[userid], meta_data={"topic": "Test Thread"})
-    logging_utility.info("Created thread with ID: %s", thread.id)
-
-    user_message = "Hello, can you help me with a math problem?"
-    client.message_service.create_message(thread_id=thread.id,
-                                          content=user_message,
-                                          role='user',
-                                          sender_id=userid)
-    logging_utility.info("Created user message in thread: %s", thread.id)
-
-    run = client.run_service.create_run(thread_id=thread.id,
-                                        assistant_id=userid)
-    run_id = run['id']
-    logging_utility.info("Created run with ID: %s", run_id)
-
-    logging_utility.info("Processing conversation")
-    for chunk in client.process_conversation(thread_id=thread.id, run_id=run_id, assistant_id=assistant_id):
-        logging_utility.debug("Received chunk: %s", chunk)
-
-    logging_utility.info("Conversation processed successfully")

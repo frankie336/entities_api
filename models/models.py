@@ -18,7 +18,7 @@ class User(Base):
     name = Column(String(128), index=True)
 
     threads = relationship('Thread', secondary=thread_participants, back_populates='participants')
-    assistants = relationship('Assistant', back_populates='user')  # Add this line
+    assistants = relationship('Assistant', back_populates='user')
 
 
 class Thread(Base):
@@ -31,37 +31,43 @@ class Thread(Base):
     tool_resources = Column(JSON, nullable=False, default={})
 
     participants = relationship('User', secondary=thread_participants, back_populates='threads')
+    runs = relationship('Run', back_populates='thread')
 
 
 class Message(Base):
     __tablename__ = "messages"
+
     id = Column(String(64), primary_key=True, index=True)
     assistant_id = Column(String(64), index=True)
     attachments = Column(JSON, default=[])
     completed_at = Column(Integer, nullable=True)
-    content = Column(Text, nullable=False)  # Changed from JSON to Text
+    content = Column(Text, nullable=False)
     created_at = Column(Integer, nullable=False)
     incomplete_at = Column(Integer, nullable=True)
     incomplete_details = Column(JSON, nullable=True)
     meta_data = Column(JSON, nullable=False, default={})
     object = Column(String(64), nullable=False)
     role = Column(String(32), nullable=False)
-    run_id = Column(String(64), nullable=True)
+    run_id = Column(String(64), ForeignKey('runs.id'), nullable=True)
     status = Column(String(32), nullable=True)
-    thread_id = Column(String(64), nullable=False)
-    sender_id = Column(String(64), nullable=False)
+    thread_id = Column(String(64), ForeignKey('threads.id'), nullable=False)
+    sender_id = Column(String(64), ForeignKey('users.id'), nullable=False)
+
+    run = relationship('Run', back_populates='messages')
+    thread = relationship('Thread', back_populates='messages')
+    sender = relationship('User')
 
 
 class Run(Base):
     __tablename__ = "runs"
 
     id = Column(String(64), primary_key=True)
-    assistant_id = Column(String(64), nullable=False)
-    cancelled_at = Column(DateTime, nullable=True)
-    completed_at = Column(DateTime, nullable=True)
+    assistant_id = Column(String(64), ForeignKey('assistants.id'), nullable=False)
+    cancelled_at = Column(Integer, nullable=True)
+    completed_at = Column(Integer, nullable=True)
     created_at = Column(Integer, default=lambda: int(time.time()))
     expires_at = Column(Integer, nullable=True)
-    failed_at = Column(DateTime, nullable=True)
+    failed_at = Column(Integer, nullable=True)
     incomplete_details = Column(String(256), nullable=True)
     instructions = Column(String(1024), nullable=True)
     last_error = Column(String(256), nullable=True)
@@ -73,9 +79,9 @@ class Run(Base):
     parallel_tool_calls = Column(Boolean, default=False)
     required_action = Column(String(256), nullable=True)
     response_format = Column(String(64), nullable=True)
-    started_at = Column(DateTime, nullable=True)
+    started_at = Column(Integer, nullable=True)
     status = Column(String(32), nullable=False)
-    thread_id = Column(String(64), nullable=False)
+    thread_id = Column(String(64), ForeignKey('threads.id'), nullable=False)
     tool_choice = Column(String(64), nullable=True)
     tools = Column(JSON, nullable=True)
     truncation_strategy = Column(JSON, nullable=True)
@@ -83,6 +89,11 @@ class Run(Base):
     temperature = Column(Integer, nullable=True)
     top_p = Column(Integer, nullable=True)
     tool_resources = Column(JSON, nullable=True)
+    last_activity_at = Column(Integer, nullable=True)  # New field for tracking last activity
+
+    assistant = relationship('Assistant', back_populates='runs')
+    thread = relationship('Thread', back_populates='runs')
+    messages = relationship('Message', back_populates='run')
 
 
 class Assistant(Base):
@@ -103,3 +114,4 @@ class Assistant(Base):
     response_format = Column(String(64), nullable=True)
 
     user = relationship('User', back_populates='assistants')
+    runs = relationship('Run', back_populates='assistant')

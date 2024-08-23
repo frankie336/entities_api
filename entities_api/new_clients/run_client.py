@@ -95,9 +95,6 @@ class RunService:
                 raise ValueError("Another run is already in progress for this thread")
             raise
 
-    def complete_run(self, run_id: str) -> Run:
-        return self.update_run_status(run_id, "completed")
-
     def fail_run(self, run_id: str, error_message: str) -> Run:
         run = self.update_run_status(run_id, "failed")
         self.update_run_details(run_id, {"last_error": error_message})
@@ -114,7 +111,8 @@ class RunService:
         if new_status not in ["queued", "in_progress", "completed", "failed", "cancelled", "expired"]:
             raise ValueError(f"Invalid status: {new_status}")
 
-        update_data = {"status": new_status}
+        current_time = int(time.time())
+        update_data = {"status": new_status, "last_activity_at": current_time}
         try:
             validated_data = RunStatusUpdate(**update_data)
             response = self.client.put(f"/v1/runs/{run_id}/status", json=validated_data.dict())
@@ -134,6 +132,27 @@ class RunService:
             raise
         except Exception as e:
             logging_utility.error("An error occurred while updating run status: %s", str(e))
+            raise
+
+    def update_run_activity(self, run_id: str) -> Run:
+        logging_utility.info("Updating run activity for run_id: %s", run_id)
+        current_time = int(time.time())
+        update_data = {"last_activity_at": current_time}
+        try:
+            response = self.client.patch(f"/v1/runs/{run_id}", json=update_data)
+            response.raise_for_status()
+            updated_run = response.json()
+            validated_run = Run(**updated_run)
+            logging_utility.info("Run activity updated successfully")
+            return validated_run
+        except ValidationError as e:
+            logging_utility.error("Validation error: %s", e.json())
+            raise ValueError(f"Validation error: {e}")
+        except httpx.HTTPStatusError as e:
+            logging_utility.error("HTTP error occurred while updating run activity: %s", str(e))
+            raise
+        except Exception as e:
+            logging_utility.error("An error occurred while updating run activity: %s", str(e))
             raise
 
     def update_run_details(self, run_id: str, details: Dict[str, Any]) -> Run:

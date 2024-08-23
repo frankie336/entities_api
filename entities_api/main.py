@@ -45,6 +45,7 @@ def update_messages_content_column():
         except Exception as e:
             logging_utility.error(f"Error updating messages.content column: {str(e)}")
 
+
 def run_monitor_job():
     db = SessionLocal()
     try:
@@ -52,6 +53,7 @@ def run_monitor_job():
         monitor.check_and_update_runs()
     finally:
         db.close()
+
 
 def create_app(init_db=True):
     logging_utility.info("Creating FastAPI app")
