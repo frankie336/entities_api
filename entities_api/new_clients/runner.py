@@ -32,11 +32,11 @@ class Runner:
         logging_utility.info("OllamaClient initialized with base_url: %s", self.base_url)
 
     def streamed_response_helper(self, messages, thread_id, run_id, model='llama3.1'):
-
         logging_utility.info("Starting streamed response for thread_id: %s, run_id: %s, model: %s", thread_id, run_id,
                              model)
 
         try:
+            # Update the status to 'in_progress' as processing begins
             updated_run = self.run_service.update_run_status(run_id, "in_progress")
             if updated_run:
                 logging_utility.info("Run status updated to in_progress for run_id: %s", run_id)
@@ -52,28 +52,57 @@ class Runner:
 
             logging_utility.info("Response received from Ollama client")
             full_response = ""
+
             for chunk in response:
+                # Check if the run has been cancelled
+
+                get_run = self.run_service.retrieve_run(run_id=run_id)
+
+                if get_run.status == "cancelling":
+                    logging_utility.info("Run %s is being cancelled, stopping generation", run_id)
+
+                    # Save the partial response before cancelling
+                    saved_message = self.message_service.save_assistant_message_chunk(thread_id, full_response,
+                                                                                      is_last_chunk=True)
+
+                    if saved_message:
+                        logging_utility.info("Partial assistant message saved successfully")
+                    else:
+                        logging_utility.warning("Failed to save partial assistant message")
+
+                    # Update the run status to 'cancelled'
+                    updated_run = self.run_service.update_run_status(run_id, "cancelled")
+                    if updated_run:
+                        logging_utility.info("Run status updated to cancelled for run_id: %s", run_id)
+                    else:
+                        logging_utility.warning("Failed to update run status to cancelled for run_id: %s", run_id)
+
+                    # Exit the loop and stop the generator
+                    break
+
                 content = chunk['message']['content']
                 full_response += content
                 logging_utility.debug("Received chunk: %s", content)
                 yield content
 
-            logging_utility.info("Finished yielding all chunks")
-            logging_utility.debug("Full response: %s", full_response)
+            # If the run was not cancelled, finish normally
+            if get_run.status != "cancelled":
+                logging_utility.info("Finished yielding all chunks")
+                logging_utility.debug("Full response: %s", full_response)
 
-            saved_message = self.message_service.save_assistant_message_chunk(thread_id, full_response,
-                                                                              is_last_chunk=True)
+                saved_message = self.message_service.save_assistant_message_chunk(thread_id, full_response,
+                                                                                  is_last_chunk=True)
 
-            if saved_message:
-                logging_utility.info("Assistant message saved successfully")
-            else:
-                logging_utility.warning("Failed to save assistant message")
+                if saved_message:
+                    logging_utility.info("Assistant message saved successfully")
+                else:
+                    logging_utility.warning("Failed to save assistant message")
 
-            updated_run = self.run_service.update_run_status(run_id, "completed")
-            if updated_run:
-                logging_utility.info("Run status updated to completed for run_id: %s", run_id)
-            else:
-                logging_utility.warning("Failed to update run status for run_id: %s", run_id)
+                updated_run = self.run_service.update_run_status(run_id, "completed")
+                if updated_run:
+                    logging_utility.info("Run status updated to completed for run_id: %s", run_id)
+                else:
+                    logging_utility.warning("Failed to update run status for run_id: %s", run_id)
 
         except Exception as e:
             logging_utility.error("Error in streamed_response_helper: %s", str(e), exc_info=True)
@@ -95,48 +124,3 @@ class Runner:
         return self.streamed_response_helper(messages, thread_id, run_id, model)
 
 
-if __name__ == "__main__":
-    logging_utility.info("Starting OllamaClient main script")
-    client = OllamaClient()
-
-    user1 = client.user_service.create_user(name='Test')
-    userid = user1.id
-    logging_utility.info("Created user with ID: %s", userid)
-
-    assistant = client.assistant_service.create_assistant(
-        name='Mathy',
-        user_id="user_KZFThFWl5I5w335fWyYi1L",
-        description='My helpful maths tutor',
-        model='llama3.1',
-        instructions='Be as kind, intelligent, and helpful',
-        tools=[{"type": "code_interpreter"}]
-    )
-
-    # assistant_id = assistant['id']
-    assistant_id = "asst_FuirCRmKlUvz4uNVVottMv"
-
-    logging_utility.info("Created assistant with ID: %s", assistant_id)
-
-    #assistant = client.assistant_service.retrieve_assistant(assistant_id=assistant_id)
-    #logging_utility.info("Retrieved assistant: %s", assistant)
-
-    thread = client.thread_service.create_thread(participant_ids=[userid], meta_data={"topic": "Test Thread"})
-    logging_utility.info("Created thread with ID: %s", thread.id)
-
-    user_message = "Hello, can you help me with a math problem?"
-    client.message_service.create_message(thread_id=thread.id,
-                                          content=user_message,
-                                          role='user',
-                                          sender_id=userid)
-    logging_utility.info("Created user message in thread: %s", thread.id)
-
-    run = client.run_service.create_run(thread_id=thread.id,
-                                        assistant_id=userid)
-    run_id = run['id']
-    logging_utility.info("Created run with ID: %s", run_id)
-
-    logging_utility.info("Processing conversation")
-    for chunk in client.process_conversation(thread_id=thread.id, run_id=run_id, assistant_id=assistant_id):
-        logging_utility.debug("Received chunk: %s", chunk)
-
-    logging_utility.info("Conversation processed successfully")

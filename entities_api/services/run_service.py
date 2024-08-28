@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import HTTPException
 
 from models.models import Run  # Ensure Run is imported
@@ -95,3 +97,28 @@ class RunService:
             )
             return run_data
         return None
+
+    def cancel_run(self, run_id: str):
+        run = self.db.query(Run).filter(Run.id == run_id).first()
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        if run.status not in ["completed", "cancelled"]:
+            run.status = "cancelling"
+            self.db.commit()
+            self.db.refresh(run)
+
+            # Check if the run is already being processed
+            if run.status == "in_progress":
+                # Implement logic to stop the ongoing process
+                pass
+
+            # Finally, set the status to cancelled
+            run.status = "cancelled"
+            run.cancelled_at = datetime.utcnow()
+            self.db.commit()
+            self.db.refresh(run)
+            return run
+        else:
+            raise HTTPException(status_code=400, detail="Cannot cancel a completed or already cancelled run")
+

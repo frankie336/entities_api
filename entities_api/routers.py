@@ -61,6 +61,7 @@ def create_thread(thread: ThreadCreate, db: Session = Depends(get_db)):
         logging_utility.error(f"An error occurred while creating thread: {str(e)}")
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
+
 @router.get("/threads/{thread_id}", response_model=ThreadRead)
 def get_thread(thread_id: str, db: Session = Depends(get_db)):
     thread_service = ThreadService(db)
@@ -136,6 +137,18 @@ def update_run_status(run_id: str, status_update: RunStatusUpdate, db: Session =
     try:
         updated_run = run_service.update_run_status(run_id, status_update.status)
         return updated_run
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+
+@router.post("/runs/{run_id}/cancel", response_model=Run)
+def cancel_run(run_id: str, db: Session = Depends(get_db)):
+    run_service = RunService(db)
+    try:
+        cancelled_run = run_service.cancel_run(run_id)
+        return cancelled_run
     except HTTPException as e:
         raise e
     except Exception as e:

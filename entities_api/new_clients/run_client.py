@@ -1,5 +1,4 @@
 import json
-
 import httpx
 import time
 from typing import List, Dict, Any, Optional
@@ -204,4 +203,17 @@ class RunService:
             logging_utility.error("An error occurred during chat: %s", str(e))
             raise
 
-
+    def cancel_run(self, run_id: str) -> Dict[str, Any]:
+        logging_utility.info(f"Cancelling run with id: {run_id}")
+        try:
+            response = self.client.post(f"/v1/runs/{run_id}/cancel")
+            response.raise_for_status()
+            result = response.json()
+            logging_utility.info(f"Run {run_id} cancelled successfully")
+            return result
+        except httpx.HTTPStatusError as e:
+            logging_utility.error(f"HTTP error occurred while cancelling run {run_id}: {str(e)}")
+            raise
+        except Exception as e:
+            logging_utility.error(f"An error occurred while cancelling run {run_id}: {str(e)}")
+            raise
