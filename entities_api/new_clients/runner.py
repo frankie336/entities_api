@@ -33,9 +33,16 @@ class Runner:
 
     def streamed_response_helper(self, messages, thread_id, run_id, model='llama3.1'):
 
-        logging_utility.info("Starting streamed response for thread_id: %s, run_id: %s, model: %s", thread_id, run_id, model)
+        logging_utility.info("Starting streamed response for thread_id: %s, run_id: %s, model: %s", thread_id, run_id,
+                             model)
 
         try:
+            updated_run = self.run_service.update_run_status(run_id, "in_progress")
+            if updated_run:
+                logging_utility.info("Run status updated to in_progress for run_id: %s", run_id)
+            else:
+                logging_utility.warning("Failed to update run status to in_progress for run_id: %s", run_id)
+
             response = self.ollama_client.chat(
                 model=model,
                 messages=messages,

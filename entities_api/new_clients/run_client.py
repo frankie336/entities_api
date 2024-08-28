@@ -1,3 +1,5 @@
+import json
+
 import httpx
 import time
 from typing import List, Dict, Any, Optional
@@ -49,8 +51,10 @@ class RunService:
             "top_p": 0.9,
             "tool_resources": {}
         }
+
         logging_utility.info("Creating run for assistant_id: %s, thread_id: %s", assistant_id, thread_id)
         logging_utility.debug("Run data: %s", run_data)
+
         try:
             validated_data = Run(**run_data)  # Validate data using Pydantic model
             response = self.client.post("/v1/runs", json=validated_data.dict())
@@ -199,3 +203,5 @@ class RunService:
         except Exception as e:
             logging_utility.error("An error occurred during chat: %s", str(e))
             raise
+
+

@@ -11,6 +11,7 @@ import time
 
 class RunService:
     def __init__(self, db: Session):
+
         self.db = db
 
     def create_run(self, run_data):
