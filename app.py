@@ -90,6 +90,7 @@ def create_app(init_db=True):
     return app
 app = create_app()
 
+
 def create_test_app():
     logging_utility.info("Creating test app")
     # Drop constraints, drop tables, and recreate tables for a clean test environment

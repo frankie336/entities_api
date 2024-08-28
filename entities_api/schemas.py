@@ -77,6 +77,7 @@ class MessageCreate(BaseModel):
             }
         }
 
+
 class MessageRead(BaseModel):
     id: str
     assistant_id: Optional[str]

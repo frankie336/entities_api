@@ -34,7 +34,7 @@ class RunService:
             required_action=run_data.required_action,
             response_format=run_data.response_format,
             started_at=run_data.started_at,
-            status=run_data.status,
+            status="queued",  # Set the initial status to "queued"
             thread_id=run_data.thread_id,
             tool_choice=run_data.tool_choice,
             tools=[tool.dict() for tool in run_data.tools],

@@ -32,7 +32,9 @@ class Runner:
         logging_utility.info("OllamaClient initialized with base_url: %s", self.base_url)
 
     def streamed_response_helper(self, messages, thread_id, run_id, model='llama3.1'):
+
         logging_utility.info("Starting streamed response for thread_id: %s, run_id: %s, model: %s", thread_id, run_id, model)
+
         try:
             response = self.ollama_client.chat(
                 model=model,

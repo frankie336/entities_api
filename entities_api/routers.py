@@ -175,6 +175,7 @@ def get_formatted_messages(thread_id: str, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
+
 @router.post("/messages/assistant", response_model=MessageRead)
 def save_assistant_message(message: MessageCreate, db: Session = Depends(get_db)):
     message_service = MessageService(db)
@@ -187,23 +188,3 @@ def save_assistant_message(message: MessageCreate, db: Session = Depends(get_db)
 
 
 
-@router.put("/threads/{thread_id}", response_model=ThreadReadDetailed)
-@router.post("/threads/{thread_id}", response_model=ThreadReadDetailed)
-def update_thread(thread_id: str, thread_update: ThreadUpdate, db: Session = Depends(get_db)):
-    logging_utility.info(f"Received request to update thread with ID: {thread_id}")
-    thread_service = ThreadService(db)
-    try:
-        updated_thread = thread_service.update_thread(thread_id, thread_update)
-        logging_utility.info(f"Successfully updated thread with ID: {thread_id}")
-        return updated_thread
-    except HTTPException as e:
-        logging_utility.error(f"HTTP error occurred while updating thread: {str(e)}")
-        raise e
-    except Exception as e:
-        logging_utility.error(f"An error occurred while updating thread: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
-
-
-@router.get("/test")
-async def test_route():
-    return {"message": "Test route is working"}
