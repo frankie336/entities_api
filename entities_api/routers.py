@@ -10,7 +10,7 @@ from entities_api.schemas import (
 
 from db.database import get_db
 from entities_api.services.assistant_service import AssistantService
-from entities_api.services.loggin_service import LoggingUtility
+from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.message_service import MessageService
 from entities_api.services.run_service import RunService
 from entities_api.services.thread_service import ThreadService

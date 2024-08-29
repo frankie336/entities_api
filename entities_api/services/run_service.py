@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from fastapi import HTTPException
-
+from entities_api.services.logging_service import LoggingUtility
 from models.models import Run  # Ensure Run is imported
 from pydantic import parse_obj_as
 from entities_api.services.identifier_service import IdentifierService
@@ -15,6 +15,7 @@ class RunService:
     def __init__(self, db: Session):
 
         self.db = db
+        self.logger = LoggingUtility()
 
     def create_run(self, run_data):
         run = Run(
@@ -99,26 +100,44 @@ class RunService:
         return None
 
     def cancel_run(self, run_id: str):
-        run = self.db.query(Run).filter(Run.id == run_id).first()
-        if not run:
-            raise HTTPException(status_code=404, detail="Run not found")
+        self.logger.info("Attempting to cancel run with ID: %s", run_id)
 
-        if run.status not in ["completed", "cancelled"]:
+        try:
+            # Fetch the run object from the database
+            run = self.db.query(Run).filter(Run.id == run_id).first()
+            if not run:
+                self.logger.error("Run with ID %s not found", run_id)
+                raise HTTPException(status_code=404, detail="Run not found")
+
+            self.logger.info("Run with ID %s found. Current status: %s", run_id, run.status)
+
+            # Check if the run can be cancelled
+            if run.status in ["completed", "cancelled"]:
+                self.logger.warning("Cannot cancel run with ID %s because it is already %s", run_id, run.status)
+                raise HTTPException(status_code=400, detail="Cannot cancel a completed or already cancelled run")
+
+            # Set the status to 'cancelling'
+            self.logger.info("Setting status to 'cancelling' for run ID %s", run_id)
             run.status = "cancelling"
             self.db.commit()
             self.db.refresh(run)
+            self.logger.info("Run ID %s status set to 'cancelling'", run_id)
 
-            # Check if the run is already being processed
-            if run.status == "in_progress":
-                # Implement logic to stop the ongoing process
-                pass
-
-            # Finally, set the status to cancelled
+            # Now, set the status to 'cancelled'
+            self.logger.info("Setting status to 'cancelled' for run ID %s", run_id)
             run.status = "cancelled"
-            run.cancelled_at = datetime.utcnow()
+
+            #run.cancelled_at = datetime.utcnow()  # Use datetime object instead of Unix timestamp
+
             self.db.commit()
             self.db.refresh(run)
+            self.logger.info("Run ID %s successfully cancelled", run_id)
+
             return run
-        else:
-            raise HTTPException(status_code=400, detail="Cannot cancel a completed or already cancelled run")
+
+        except Exception as e:
+            self.logger.error("Failed to cancel run with ID %s. Error: %s", run_id, str(e))
+            self.db.rollback()  # Rollback in case of error
+            raise HTTPException(status_code=500, detail=f"Failed to cancel run: {str(e)}")
+
 

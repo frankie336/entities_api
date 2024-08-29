@@ -4,7 +4,7 @@ import time
 from typing import List, Dict, Any, Optional
 from pydantic import ValidationError
 from entities_api.services.identifier_service import IdentifierService
-from entities_api.services.loggin_service import LoggingUtility
+from entities_api.services.logging_service import LoggingUtility
 from entities_api.schemas import Run, RunStatusUpdate  # Import the relevant Pydantic models
 
 # Initialize logging utility
