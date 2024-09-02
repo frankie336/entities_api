@@ -37,11 +37,9 @@ class Runner:
 
         try:
             # Update the status to 'in_progress' as processing begins
-            updated_run = self.run_service.update_run_status(run_id, "in_progress")
-            if updated_run:
-                logging_utility.info("Run status updated to in_progress for run_id: %s", run_id)
-            else:
-                logging_utility.warning("Failed to update run status to in_progress for run_id: %s", run_id)
+            if not self.run_service.update_run_status(run_id, "in_progress"):
+                logging_utility.error("Failed to update run status to in_progress for run_id: %s", run_id)
+                return
 
             response = self.ollama_client.chat(
                 model=model,
@@ -55,29 +53,10 @@ class Runner:
 
             for chunk in response:
                 # Check if the run has been cancelled
+                current_run_status = self.run_service.retrieve_run(run_id=run_id).status
 
-                get_run = self.run_service.retrieve_run(run_id=run_id)
-
-                if get_run.status == "cancelling":
-                    logging_utility.info("Run %s is being cancelled, stopping generation", run_id)
-
-                    # Save the partial response before cancelling
-                    saved_message = self.message_service.save_assistant_message_chunk(thread_id, full_response,
-                                                                                      is_last_chunk=True)
-
-                    if saved_message:
-                        logging_utility.info("Partial assistant message saved successfully")
-                    else:
-                        logging_utility.warning("Failed to save partial assistant message")
-
-                    # Update the run status to 'cancelled'
-                    updated_run = self.run_service.update_run_status(run_id, "cancelled")
-                    if updated_run:
-                        logging_utility.info("Run status updated to cancelled for run_id: %s", run_id)
-                    else:
-                        logging_utility.warning("Failed to update run status to cancelled for run_id: %s", run_id)
-
-                    # Exit the loop and stop the generator
+                if current_run_status in ["cancelling", "cancelled"]:
+                    logging_utility.info("Run %s is being cancelled or already cancelled, stopping generation", run_id)
                     break
 
                 content = chunk['message']['content']
@@ -85,28 +64,29 @@ class Runner:
                 logging_utility.debug("Received chunk: %s", content)
                 yield content
 
-            # If the run was not cancelled, finish normally
-            if get_run.status != "cancelled":
+            # After the loop, check the final status
+            final_run_status = self.run_service.retrieve_run(run_id=run_id).status
+
+            if final_run_status in ["cancelling", "cancelled"]:
+                logging_utility.info("Run was cancelled during processing")
+                status_to_set = "cancelled"
+            else:
                 logging_utility.info("Finished yielding all chunks")
-                logging_utility.debug("Full response: %s", full_response)
+                status_to_set = "completed"
 
-                saved_message = self.message_service.save_assistant_message_chunk(thread_id, full_response,
-                                                                                  is_last_chunk=True)
+            # Save the message (partial or complete)
+            if not self.message_service.save_assistant_message_chunk(thread_id, full_response, is_last_chunk=True):
+                logging_utility.error("Failed to save assistant message for thread_id: %s", thread_id)
 
-                if saved_message:
-                    logging_utility.info("Assistant message saved successfully")
-                else:
-                    logging_utility.warning("Failed to save assistant message")
-
-                updated_run = self.run_service.update_run_status(run_id, "completed")
-                if updated_run:
-                    logging_utility.info("Run status updated to completed for run_id: %s", run_id)
-                else:
-                    logging_utility.warning("Failed to update run status for run_id: %s", run_id)
+            # Update the final run status
+            if not self.run_service.update_run_status(run_id, status_to_set):
+                logging_utility.error("Failed to update run status to %s for run_id: %s", status_to_set, run_id)
 
         except Exception as e:
             logging_utility.error("Error in streamed_response_helper: %s", str(e), exc_info=True)
             yield json.dumps({"error": "An error occurred while generating the response"})
+            # Ensure run status is updated to failed in case of exception
+            self.run_service.update_run_status(run_id, "failed")
 
         logging_utility.info("Exiting streamed_response_helper")
 
