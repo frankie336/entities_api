@@ -6,7 +6,7 @@ from entities_api.services.identifier_service import IdentifierService
 import json
 import time
 from typing import List, Dict, Any
-from entities_api.services.loggin_service import LoggingUtility
+from entities_api.services.logging_service import LoggingUtility
 
 logging_utility= LoggingUtility()
 class ThreadService:

@@ -10,7 +10,7 @@ from entities_api.new_clients.run_client import RunService
 from entities_api.new_clients.thread_client import ThreadService
 from entities_api.new_clients.user_client import UserService
 from ollama import Client
-from entities_api.services.loggin_service import LoggingUtility
+from entities_api.services.logging_service import LoggingUtility
 
 # Load environment variables from .env file
 load_dotenv()

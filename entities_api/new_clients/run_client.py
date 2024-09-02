@@ -1,9 +1,10 @@
+import json
 import httpx
 import time
 from typing import List, Dict, Any, Optional
 from pydantic import ValidationError
 from entities_api.services.identifier_service import IdentifierService
-from entities_api.services.loggin_service import LoggingUtility
+from entities_api.services.logging_service import LoggingUtility
 from entities_api.schemas import Run, RunStatusUpdate  # Import the relevant Pydantic models
 
 # Initialize logging utility
@@ -49,8 +50,10 @@ class RunService:
             "top_p": 0.9,
             "tool_resources": {}
         }
+
         logging_utility.info("Creating run for assistant_id: %s, thread_id: %s", assistant_id, thread_id)
         logging_utility.debug("Run data: %s", run_data)
+
         try:
             validated_data = Run(**run_data)  # Validate data using Pydantic model
             response = self.client.post("/v1/runs", json=validated_data.dict())
@@ -198,4 +201,19 @@ class RunService:
             raise
         except Exception as e:
             logging_utility.error("An error occurred during chat: %s", str(e))
+            raise
+
+    def cancel_run(self, run_id: str) -> Dict[str, Any]:
+        logging_utility.info(f"Cancelling run with id: {run_id}")
+        try:
+            response = self.client.post(f"/v1/runs/{run_id}/cancel")
+            response.raise_for_status()
+            result = response.json()
+            logging_utility.info(f"Run {run_id} cancelled successfully")
+            return result
+        except httpx.HTTPStatusError as e:
+            logging_utility.error(f"HTTP error occurred while cancelling run {run_id}: {str(e)}")
+            raise
+        except Exception as e:
+            logging_utility.error(f"An error occurred while cancelling run {run_id}: {str(e)}")
             raise
