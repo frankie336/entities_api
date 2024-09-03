@@ -1,4 +1,5 @@
-from pydantic import BaseModel, Field
+# entities_api/schemas.py
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any
 
 
@@ -6,8 +7,7 @@ class UserBase(BaseModel):
     id: str
     name: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserCreate(BaseModel):
@@ -39,16 +39,14 @@ class ThreadRead(BaseModel):
     object: str
     tool_resources: Dict[str, Any]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ThreadUpdate(BaseModel):
-    participant_ids: Optional[List[str]] = None  # Make this field optional
+    participant_ids: Optional[List[str]] = None
     meta_data: Optional[Dict[str, Any]] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ThreadParticipant(UserBase):
@@ -58,15 +56,15 @@ class ThreadParticipant(UserBase):
 class ThreadReadDetailed(ThreadRead):
     participants: List[UserBase]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
 
 
 class ThreadIds(BaseModel):
     thread_ids: List[str]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
 
 
 class MessageCreate(BaseModel):
@@ -76,8 +74,8 @@ class MessageCreate(BaseModel):
     role: str = "user"
     meta_data: Optional[Dict[str, Any]] = {}
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "content": "Hello, this is a test message.",
                 "thread_id": "example_thread_id",
@@ -86,7 +84,7 @@ class MessageCreate(BaseModel):
                 "role": "user"
             }
         }
-
+    )
 
 class MessageRead(BaseModel):
     id: str
@@ -105,8 +103,7 @@ class MessageRead(BaseModel):
     thread_id: str
     sender_id: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MessageUpdate(BaseModel):
@@ -114,8 +111,7 @@ class MessageUpdate(BaseModel):
     meta_data: Optional[Dict[str, Any]]
     status: Optional[str]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Tool(BaseModel):
@@ -154,8 +150,7 @@ class RunCreate(BaseModel):
     top_p: float = 0.9
     tool_resources: Dict[str, Any] = {}
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Run(BaseModel):
@@ -188,8 +183,7 @@ class Run(BaseModel):
     top_p: float
     tool_resources: Dict[str, Any]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RunStatusUpdate(BaseModel):
@@ -224,8 +218,7 @@ class AssistantRead(BaseModel):
     temperature: float
     response_format: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AssistantUpdate(BaseModel):
@@ -238,5 +231,32 @@ class AssistantUpdate(BaseModel):
     top_p: Optional[float]
     temperature: Optional[float]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+class ToolFunction(BaseModel):
+    name: str
+    description: str
+    parameters: Optional[dict] = None
+
+class Tool(BaseModel):
+    id: str
+    type: str
+    function: Optional[ToolFunction]
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ToolCreate(BaseModel):
+    type: str
+    function: Optional[ToolFunction]
+
+class ToolRead(Tool):
+    pass
+
+class ToolUpdate(BaseModel):
+    type: Optional[str] = None
+    function: Optional[ToolFunction] = None
+
+class ToolList(BaseModel):
+    tools: List[ToolRead]
+
+    model_config = ConfigDict(from_attributes=True)

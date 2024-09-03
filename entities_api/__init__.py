@@ -1,5 +1,5 @@
 from entities_api.new_clients.assistant_client import AssistantService
-from entities_api.new_clients.new_client import OllamaClient
+from entities_api.new_clients.client import OllamaClient
 
 #from services.loggin_service import LoggingUtility
 

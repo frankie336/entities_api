@@ -1,3 +1,4 @@
+# entities_api/main.py
 import os
 from fastapi import FastAPI
 from sqlalchemy import create_engine, text, inspect

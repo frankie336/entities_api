@@ -46,6 +46,11 @@ class IdentifierService:
         return IdentifierService.generate_id("asst")
 
     @staticmethod
+    def generate_tool_id() -> str:
+        """Generate an assistant ID in the specified format."""
+        return IdentifierService.generate_id("tool")
+
+    @staticmethod
     def generate_run_id() -> str:
         """Generate an assistant ID in the specified format."""
         return IdentifierService.generate_id("run")

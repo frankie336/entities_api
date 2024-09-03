@@ -19,7 +19,7 @@ class User(Base):
     name = Column(String(128), index=True)
 
     threads = relationship('Thread', secondary=thread_participants, back_populates='participants')
-    assistants = relationship('Assistant', back_populates='user')  # Add this line
+    assistants = relationship('Assistant', back_populates='user')
 
 
 class Thread(Base):
@@ -40,7 +40,7 @@ class Message(Base):
     assistant_id = Column(String(64), index=True)
     attachments = Column(JSON, default=[])
     completed_at = Column(Integer, nullable=True)
-    content = Column(Text, nullable=False)  # Changed from JSON to Text
+    content = Column(Text, nullable=False)
     created_at = Column(Integer, nullable=False)
     incomplete_at = Column(Integer, nullable=True)
     incomplete_details = Column(JSON, nullable=True)
@@ -85,6 +85,10 @@ class Run(Base):
     top_p = Column(Integer, nullable=True)
     tool_resources = Column(JSON, nullable=True)
 
+assistant_tools = Table('assistant_tools', Base.metadata,
+    Column('assistant_id', String(64), ForeignKey('assistants.id')),
+    Column('tool_id', String(64), ForeignKey('tools.id'))
+)
 
 class Assistant(Base):
     __tablename__ = "assistants"
@@ -92,15 +96,25 @@ class Assistant(Base):
     id = Column(String(64), primary_key=True, index=True)
     user_id = Column(String(64), ForeignKey('users.id'), nullable=False)
     object = Column(String(64), nullable=False)
-    created_at = Column(Integer, nullable=False, default=lambda: int(time.time()))
+    created_at = Column(Integer, nullable=False)
     name = Column(String(128), nullable=False)
     description = Column(String(256), nullable=True)
     model = Column(String(64), nullable=False)
     instructions = Column(String(1024), nullable=True)
-    tools = Column(JSON, nullable=True)
     meta_data = Column(JSON, nullable=True)
     top_p = Column(Integer, nullable=True)
     temperature = Column(Integer, nullable=True)
     response_format = Column(String(64), nullable=True)
 
-    user = relationship('User', back_populates='assistants')
+    tools = relationship("Tool", secondary=assistant_tools, back_populates="assistants")
+    user = relationship("User", back_populates="assistants")
+
+
+class Tool(Base):
+    __tablename__ = "tools"
+
+    id = Column(String(64), primary_key=True, index=True)
+    type = Column(String(64), nullable=False)
+    function = Column(JSON, nullable=True)
+
+    assistants = relationship("Assistant", secondary=assistant_tools, back_populates="tools")

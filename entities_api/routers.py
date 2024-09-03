@@ -1,19 +1,21 @@
+# entities_api/routers.py
 from typing import Dict, Any, List
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-
+from db.database import get_db
+from entities_api.schemas import ToolCreate, ToolRead, ToolUpdate, ToolList
 from entities_api.schemas import (
     UserCreate, UserRead, UserUpdate, ThreadCreate, ThreadRead, MessageCreate, MessageRead, Run, AssistantCreate,
-    AssistantRead, RunStatusUpdate, AssistantUpdate, ThreadIds, ThreadUpdate, ThreadReadDetailed
+    AssistantRead, RunStatusUpdate, AssistantUpdate, ThreadIds, ThreadReadDetailed
 )
-
-from db.database import get_db
 from entities_api.services.assistant_service import AssistantService
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.message_service import MessageService
 from entities_api.services.run_service import RunService
 from entities_api.services.thread_service import ThreadService
+from entities_api.services.tool_service import ToolService
 from entities_api.services.user_service import UserService
 
 logging_utility = LoggingUtility()
@@ -199,5 +201,41 @@ def save_assistant_message(message: MessageCreate, db: Session = Depends(get_db)
     )
 
 
+@router.post("/tools", response_model=ToolRead)
+def create_tool(tool: ToolCreate, db: Session = Depends(get_db)):
+    tool_service = ToolService(db)
+    return tool_service.create_tool(tool)
 
 
+@router.post("/assistants/{assistant_id}/tools/{tool_id}")
+def associate_tool_with_assistant(assistant_id: str, tool_id: str, db: Session = Depends(get_db)):
+    tool_service = ToolService(db)
+    tool_service.associate_tool_with_assistant(tool_id, assistant_id)
+    return {"message": "Tool associated with assistant successfully"}
+
+
+@router.get("/tools/{tool_id}", response_model=ToolRead)
+def get_tool(tool_id: str, db: Session = Depends(get_db)):
+    tool_service = ToolService(db)
+    return tool_service.get_tool(tool_id)
+
+
+@router.put("/tools/{tool_id}", response_model=ToolRead)
+def update_tool(tool_id: str, tool_update: ToolUpdate, db: Session = Depends(get_db)):
+    tool_service = ToolService(db)
+    return tool_service.update_tool(tool_id, tool_update)
+
+
+@router.delete("/tools/{tool_id}", status_code=204)
+def delete_tool(tool_id: str, db: Session = Depends(get_db)):
+    tool_service = ToolService(db)
+    tool_service.delete_tool(tool_id)
+    return {"detail": "Tool deleted successfully"}
+
+
+@router.get("/tools", response_model=ToolList)
+@router.get("/assistants/{assistant_id}/tools", response_model=ToolList)
+def list_tools(assistant_id: str = None, db: Session = Depends(get_db)):
+    tool_service = ToolService(db)
+    tools = tool_service.list_tools(assistant_id)
+    return ToolList(tools=tools)

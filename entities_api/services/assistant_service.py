@@ -18,18 +18,18 @@ class AssistantService:
             raise HTTPException(status=404, detail="User not found")
 
         assistant_id = IdentifierService.generate_assistant_id()
-        tools_json = json.dumps([tool.dict(exclude_unset=True) for tool in assistant.tools])  # Convert list of Tool objects to JSON
+        tools_json = json.dumps(assistant.tools)  # Convert list of tool dicts to JSON string
         db_assistant = Assistant(
             id=assistant_id,
             user_id=assistant.user_id,
-            object="assistant",  # Set the object field
+            object="assistant",
             created_at=int(time.time()),
             name=assistant.name,
             description=assistant.description,
             model=assistant.model,
             instructions=assistant.instructions,
-            tools=tools_json,  # Store JSON string
-            meta_data=json.dumps(assistant.meta_data),  # Convert dict to JSON string
+            tools=tools_json,
+            meta_data=json.dumps(assistant.meta_data),
             top_p=assistant.top_p,
             temperature=assistant.temperature,
             response_format=assistant.response_format
@@ -53,9 +53,9 @@ class AssistantService:
 
         update_data = assistant_update.dict(exclude_unset=True)
         if 'tools' in update_data:
-            update_data['tools'] = json.dumps([tool.dict(exclude_unset=True) for tool in assistant_update.tools])
+            update_data['tools'] = json.dumps(update_data['tools'])
         if 'meta_data' in update_data:
-            update_data['meta_data'] = json.dumps(assistant_update.meta_data)
+            update_data['meta_data'] = json.dumps(update_data['meta_data'])
 
         for key, value in update_data.items():
             setattr(db_assistant, key, value)
