@@ -19,7 +19,7 @@ class User(Base):
     name = Column(String(128), index=True)
 
     threads = relationship('Thread', secondary=thread_participants, back_populates='participants')
-    assistants = relationship('Assistant', back_populates='user')  # Add this line
+    assistants = relationship('Assistant', back_populates='user')
 
 
 class Thread(Base):
@@ -40,7 +40,7 @@ class Message(Base):
     assistant_id = Column(String(64), index=True)
     attachments = Column(JSON, default=[])
     completed_at = Column(Integer, nullable=True)
-    content = Column(Text, nullable=False)  # Changed from JSON to Text
+    content = Column(Text, nullable=False)
     created_at = Column(Integer, nullable=False)
     incomplete_at = Column(Integer, nullable=True)
     incomplete_details = Column(JSON, nullable=True)
@@ -104,3 +104,15 @@ class Assistant(Base):
     response_format = Column(String(64), nullable=True)
 
     user = relationship('User', back_populates='assistants')
+    tool_instances = relationship('Tool', back_populates='assistant')
+
+
+class Tool(Base):
+    __tablename__ = "tools"
+
+    id = Column(String(64), primary_key=True, index=True)
+    type = Column(String(64), nullable=False)
+    function = Column(JSON, nullable=True)
+    assistant_id = Column(String(64), ForeignKey('assistants.id'), nullable=False)
+
+    assistant = relationship("Assistant", back_populates="tool_instances")
