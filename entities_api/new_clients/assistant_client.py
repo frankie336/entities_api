@@ -17,9 +17,12 @@ class AssistantService:
         logging_utility.info("AssistantService initialized with base_url: %s", self.base_url)
 
     def create_assistant(self, user_id: str, model: str, name: str = "", description: str = "", instructions: str = "",
-                         tools: List[Dict[str, Any]] = None) -> AssistantRead:
+                         tools: List[Dict[str, Any]] = None, meta_data: Dict[str, Any] = None,
+                         top_p: float = 1.0, temperature: float = 1.0, response_format: str = "auto") -> AssistantRead:
         if tools is None:
             tools = []
+        if meta_data is None:
+            meta_data = {}
 
         assistant_data = {
             "user_id": user_id,
@@ -28,10 +31,10 @@ class AssistantService:
             "model": model,
             "instructions": instructions,
             "tools": tools,
-            "meta_data": {},
-            "top_p": 1.0,
-            "temperature": 1.0,
-            "response_format": "auto"
+            "meta_data": meta_data,
+            "top_p": top_p,
+            "temperature": temperature,
+            "response_format": response_format
         }
 
         try:
@@ -141,31 +144,3 @@ class AssistantService:
         except Exception as e:
             logging_utility.error("An error occurred while deleting assistant: %s", str(e))
             raise
-
-
-if __name__ == "__main__":
-    # Replace with your actual base URL and API key
-    base_url = "http://localhost:9000"
-    api_key = "your_api_key"
-
-    logging_utility.info("Starting AssistantService test")
-
-    # Initialize the client
-    assistant_service = AssistantService(base_url, api_key)
-
-    try:
-        # Create an assistant
-        user_id = "user_zFu5VPLgtpzGIqMN30eccb"
-        created_assistant = assistant_service.create_assistant(user_id=user_id, model="gpt-3", name="Test Assistant")
-        logging_utility.info("Created assistant: %s", created_assistant)
-
-        # Retrieve the assistant
-        retrieved_assistant = assistant_service.retrieve_assistant(created_assistant.id)
-        logging_utility.info("Retrieved assistant: %s", retrieved_assistant)
-
-        # Update the assistant with only the fields we want to change
-        updated_assistant = assistant_service.update_assistant(retrieved_assistant.id, name="Updated Test Assistant")
-        logging_utility.info("Updated assistant: %s", updated_assistant)
-
-    except Exception as e:
-        logging_utility.error("An error occurred during AssistantService test: %s", str(e))

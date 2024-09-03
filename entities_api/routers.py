@@ -201,10 +201,17 @@ def save_assistant_message(message: MessageCreate, db: Session = Depends(get_db)
     )
 
 
-@router.post("/assistants/{assistant_id}/tools", response_model=ToolRead)
-def create_tool(assistant_id: str, tool: ToolCreate, db: Session = Depends(get_db)):
+@router.post("/tools", response_model=ToolRead)
+def create_tool(tool: ToolCreate, db: Session = Depends(get_db)):
     tool_service = ToolService(db)
-    return tool_service.create_tool(tool, assistant_id)
+    return tool_service.create_tool(tool)
+
+
+@router.post("/assistants/{assistant_id}/tools/{tool_id}")
+def associate_tool_with_assistant(assistant_id: str, tool_id: str, db: Session = Depends(get_db)):
+    tool_service = ToolService(db)
+    tool_service.associate_tool_with_assistant(tool_id, assistant_id)
+    return {"message": "Tool associated with assistant successfully"}
 
 
 @router.get("/tools/{tool_id}", response_model=ToolRead)
@@ -226,8 +233,9 @@ def delete_tool(tool_id: str, db: Session = Depends(get_db)):
     return {"detail": "Tool deleted successfully"}
 
 
+@router.get("/tools", response_model=ToolList)
 @router.get("/assistants/{assistant_id}/tools", response_model=ToolList)
-def list_tools(assistant_id: str, db: Session = Depends(get_db)):
+def list_tools(assistant_id: str = None, db: Session = Depends(get_db)):
     tool_service = ToolService(db)
     tools = tool_service.list_tools(assistant_id)
     return ToolList(tools=tools)

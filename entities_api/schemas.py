@@ -12,19 +12,24 @@ class UserBase(BaseModel):
 class UserCreate(BaseModel):
     name: Optional[str] = "Anonymous User"
 
+
 class UserRead(UserBase):
     pass
 
+
 class UserUpdate(BaseModel):
     name: Optional[str] = None
+
 
 class UserDeleteResponse(BaseModel):
     success: bool
     message: Optional[str] = None
 
+
 class ThreadCreate(BaseModel):
     participant_ids: List[str] = Field(..., description="List of participant IDs")
     meta_data: Optional[Dict[str, Any]] = {}
+
 
 class ThreadRead(BaseModel):
     id: str
@@ -35,24 +40,29 @@ class ThreadRead(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class ThreadUpdate(BaseModel):
     participant_ids: Optional[List[str]] = None
     meta_data: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class ThreadParticipant(UserBase):
     pass
+
 
 class ThreadReadDetailed(ThreadRead):
     participants: List[UserBase]
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class ThreadIds(BaseModel):
     thread_ids: List[str]
 
     model_config = ConfigDict(from_attributes=True)
+
 
 class MessageCreate(BaseModel):
     content: str
