@@ -149,6 +149,7 @@ class ToolService:
             "type": tool.type,
             "function": tool.function  # Assuming function is stored as a dictionary or JSON-like structure
         }
+
     def _get_tool_or_404(self, tool_id: str) -> Tool:
             logging_utility.debug("Fetching tool with ID: %s", tool_id)
             db_tool = self.db.query(Tool).filter(Tool.id == tool_id).first()
