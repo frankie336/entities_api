@@ -146,6 +146,7 @@ class RunCreate(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class Run(BaseModel):
     id: str
     assistant_id: str
@@ -178,8 +179,10 @@ class Run(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class RunStatusUpdate(BaseModel):
     status: str
+
 
 class AssistantCreate(BaseModel):
     user_id: str
@@ -193,6 +196,7 @@ class AssistantCreate(BaseModel):
     temperature: Optional[float] = 1.0
     response_format: Optional[str] = "auto"
 
+
 class AssistantRead(BaseModel):
     id: str
     user_id: str
@@ -202,13 +206,13 @@ class AssistantRead(BaseModel):
     description: Optional[str]
     model: str
     instructions: Optional[str]
-    tools: Optional[List[Tool]]
-    meta_data: Dict[str, Any]
+    meta_data: Optional[Dict[str, Any]] = None  # Making meta_data optional
     top_p: float
     temperature: float
     response_format: str
 
     model_config = ConfigDict(from_attributes=True)
+
 
 class AssistantUpdate(BaseModel):
     name: Optional[str]
@@ -222,10 +226,12 @@ class AssistantUpdate(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class ToolFunction(BaseModel):
     name: str
     description: str
     parameters: Optional[dict] = None
+
 
 class Tool(BaseModel):
     id: str
@@ -234,16 +240,20 @@ class Tool(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class ToolCreate(BaseModel):
     type: str
     function: Optional[ToolFunction]
 
+
 class ToolRead(Tool):
     pass
+
 
 class ToolUpdate(BaseModel):
     type: Optional[str] = None
     function: Optional[ToolFunction] = None
+
 
 class ToolList(BaseModel):
     tools: List[ToolRead]

@@ -11,6 +11,10 @@ thread_participants = Table(
     Column('user_id', String(64), ForeignKey('users.id'), primary_key=True)
 )
 
+assistant_tools = Table('assistant_tools', Base.metadata,
+    Column('assistant_id', String(64), ForeignKey('assistants.id')),
+    Column('tool_id', String(64), ForeignKey('tools.id'))
+)
 
 class User(Base):
     __tablename__ = "users"
@@ -20,7 +24,6 @@ class User(Base):
 
     threads = relationship('Thread', secondary=thread_participants, back_populates='participants')
     assistants = relationship('Assistant', back_populates='user')
-
 
 class Thread(Base):
     __tablename__ = "threads"
@@ -32,7 +35,6 @@ class Thread(Base):
     tool_resources = Column(JSON, nullable=False, default={})
 
     participants = relationship('User', secondary=thread_participants, back_populates='threads')
-
 
 class Message(Base):
     __tablename__ = "messages"
@@ -51,7 +53,6 @@ class Message(Base):
     status = Column(String(32), nullable=True)
     thread_id = Column(String(64), nullable=False)
     sender_id = Column(String(64), nullable=False)
-
 
 class Run(Base):
     __tablename__ = "runs"
@@ -85,10 +86,6 @@ class Run(Base):
     top_p = Column(Integer, nullable=True)
     tool_resources = Column(JSON, nullable=True)
 
-assistant_tools = Table('assistant_tools', Base.metadata,
-    Column('assistant_id', String(64), ForeignKey('assistants.id')),
-    Column('tool_id', String(64), ForeignKey('tools.id'))
-)
 
 class Assistant(Base):
     __tablename__ = "assistants"
@@ -108,7 +105,6 @@ class Assistant(Base):
 
     tools = relationship("Tool", secondary=assistant_tools, back_populates="assistants")
     user = relationship("User", back_populates="assistants")
-
 
 class Tool(Base):
     __tablename__ = "tools"
