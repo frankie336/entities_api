@@ -1,5 +1,4 @@
-# entities_api/schemas.py
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, validator, ConfigDict
 from typing import List, Optional, Dict, Any
 
 
@@ -8,6 +7,7 @@ class UserBase(BaseModel):
     name: str
 
     model_config = ConfigDict(from_attributes=True)
+
 
 class UserCreate(BaseModel):
     name: Optional[str] = "Anonymous User"
@@ -83,6 +83,7 @@ class MessageCreate(BaseModel):
         }
     )
 
+
 class MessageRead(BaseModel):
     id: str
     assistant_id: Optional[str]
@@ -102,6 +103,7 @@ class MessageRead(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class MessageUpdate(BaseModel):
     content: Optional[str]
     meta_data: Optional[Dict[str, Any]]
@@ -109,10 +111,49 @@ class MessageUpdate(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+class ToolFunction(BaseModel):
+    name: str
+    description: str
+    parameters: Optional[dict] = None
+
+
 class Tool(BaseModel):
+    id: str
     type: str
-    function: Optional[Dict[str, Any]] = None
-    file_search: Optional[Any] = None
+    function: Optional[ToolFunction]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ToolCreate(BaseModel):
+    type: str
+    function: Optional[ToolFunction]
+
+
+class ToolRead(Tool):
+    @validator('function', pre=True, always=True)
+    def parse_function(cls, v):
+        if isinstance(v, dict):
+            return ToolFunction(**v)
+        elif v is None:
+            return None
+        else:
+            raise ValueError("Invalid function format")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ToolUpdate(BaseModel):
+    type: Optional[str] = None
+    function: Optional[ToolFunction] = None
+
+
+class ToolList(BaseModel):
+    tools: List[ToolRead]
+
+    model_config = ConfigDict(from_attributes=True)
+
 
 class RunCreate(BaseModel):
     id: str
@@ -206,7 +247,7 @@ class AssistantRead(BaseModel):
     description: Optional[str]
     model: str
     instructions: Optional[str]
-    meta_data: Optional[Dict[str, Any]] = None  # Making meta_data optional
+    meta_data: Optional[Dict[str, Any]] = None
     top_p: float
     temperature: float
     response_format: str
@@ -223,39 +264,5 @@ class AssistantUpdate(BaseModel):
     meta_data: Optional[Dict[str, Any]]
     top_p: Optional[float]
     temperature: Optional[float]
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class ToolFunction(BaseModel):
-    name: str
-    description: str
-    parameters: Optional[dict] = None
-
-
-class Tool(BaseModel):
-    id: str
-    type: str
-    function: Optional[ToolFunction]
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class ToolCreate(BaseModel):
-    type: str
-    function: Optional[ToolFunction]
-
-
-class ToolRead(Tool):
-    pass
-
-
-class ToolUpdate(BaseModel):
-    type: Optional[str] = None
-    function: Optional[ToolFunction] = None
-
-
-class ToolList(BaseModel):
-    tools: List[ToolRead]
 
     model_config = ConfigDict(from_attributes=True)

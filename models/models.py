@@ -1,20 +1,24 @@
-# models/models.py
 from sqlalchemy import Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, Text
 from sqlalchemy.orm import relationship, declarative_base
 import time
 
 Base = declarative_base()
 
+# Association table for thread participants (Many-to-Many relationship)
 thread_participants = Table(
     'thread_participants', Base.metadata,
     Column('thread_id', String(64), ForeignKey('threads.id'), primary_key=True),
     Column('user_id', String(64), ForeignKey('users.id'), primary_key=True)
 )
 
-assistant_tools = Table('assistant_tools', Base.metadata,
+# Association table for assistant and tools (Many-to-Many relationship)
+assistant_tools = Table(
+    'assistant_tools', Base.metadata,
     Column('assistant_id', String(64), ForeignKey('assistants.id')),
     Column('tool_id', String(64), ForeignKey('tools.id'))
 )
+
+# User model
 
 class User(Base):
     __tablename__ = "users"
@@ -22,9 +26,11 @@ class User(Base):
     id = Column(String(64), primary_key=True, index=True)
     name = Column(String(128), index=True)
 
+    # Relationships
     threads = relationship('Thread', secondary=thread_participants, back_populates='participants')
     assistants = relationship('Assistant', back_populates='user')
 
+# Thread model
 class Thread(Base):
     __tablename__ = "threads"
 
@@ -34,10 +40,13 @@ class Thread(Base):
     object = Column(String(64), nullable=False)
     tool_resources = Column(JSON, nullable=False, default={})
 
+    # Relationship with participants (users)
     participants = relationship('User', secondary=thread_participants, back_populates='threads')
 
+# Message model
 class Message(Base):
     __tablename__ = "messages"
+
     id = Column(String(64), primary_key=True, index=True)
     assistant_id = Column(String(64), index=True)
     attachments = Column(JSON, default=[])
@@ -54,6 +63,7 @@ class Message(Base):
     thread_id = Column(String(64), nullable=False)
     sender_id = Column(String(64), nullable=False)
 
+# Run model
 class Run(Base):
     __tablename__ = "runs"
 
@@ -86,6 +96,9 @@ class Run(Base):
     top_p = Column(Integer, nullable=True)
     tool_resources = Column(JSON, nullable=True)
 
+# Assistant model
+
+from sqlalchemy.orm import relationship, joinedload
 
 class Assistant(Base):
     __tablename__ = "assistants"
@@ -103,14 +116,18 @@ class Assistant(Base):
     temperature = Column(Integer, nullable=True)
     response_format = Column(String(64), nullable=True)
 
-    tools = relationship("Tool", secondary=assistant_tools, back_populates="assistants")
+    # Eager load tools using joinedload to avoid lazy loading issues
+    tools = relationship("Tool", secondary=assistant_tools, back_populates="assistants", lazy="joined")
     user = relationship("User", back_populates="assistants")
+
+# Tool model
 
 class Tool(Base):
     __tablename__ = "tools"
 
     id = Column(String(64), primary_key=True, index=True)
     type = Column(String(64), nullable=False)
-    function = Column(JSON, nullable=True)
+    function = Column(JSON, nullable=True)  # JSON field for storing function data
 
+    # Many-to-many relationship with assistants
     assistants = relationship("Assistant", secondary=assistant_tools, back_populates="tools")
