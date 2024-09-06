@@ -2,7 +2,6 @@ import httpx
 from typing import List, Dict, Any
 from pydantic import ValidationError
 from entities_api.services.logging_service import LoggingUtility
-
 from entities_api.schemas import AssistantCreate, AssistantRead, AssistantUpdate
 
 # Initialize logging utility
@@ -17,12 +16,8 @@ class AssistantService:
         logging_utility.info("AssistantService initialized with base_url: %s", self.base_url)
 
     def create_assistant(self, user_id: str, model: str, name: str = "", description: str = "", instructions: str = "",
-                         tools: List[Dict[str, Any]] = None, meta_data: Dict[str, Any] = None,
+                         meta_data: Dict[str, Any] = None,
                          top_p: float = 1.0, temperature: float = 1.0, response_format: str = "auto") -> AssistantRead:
-        if tools is None:
-            tools = []
-        if meta_data is None:
-            meta_data = {}
 
         assistant_data = {
             "user_id": user_id,
@@ -30,7 +25,6 @@ class AssistantService:
             "description": description,
             "model": model,
             "instructions": instructions,
-            "tools": tools,
             "meta_data": meta_data,
             "top_p": top_p,
             "temperature": temperature,
@@ -38,14 +32,14 @@ class AssistantService:
         }
 
         try:
-            validated_data = AssistantCreate(**assistant_data)  # Validate data using Pydantic model
+            validated_data = AssistantCreate(**assistant_data)
             logging_utility.info("Creating assistant with model: %s, name: %s", model, name)
 
             response = self.client.post("/v1/assistants", json=validated_data.model_dump())
 
             response.raise_for_status()
             created_assistant = response.json()
-            validated_response = AssistantRead(**created_assistant)  # Validate response using Pydantic model
+            validated_response = AssistantRead(**created_assistant)
             logging_utility.info("Assistant created successfully with id: %s", validated_response.id)
             return validated_response
         except ValidationError as e:
@@ -64,7 +58,7 @@ class AssistantService:
             response = self.client.get(f"/v1/assistants/{assistant_id}")
             response.raise_for_status()
             assistant = response.json()
-            validated_data = AssistantRead(**assistant)  # Validate data using Pydantic model
+            validated_data = AssistantRead(**assistant)
             logging_utility.info("Assistant retrieved successfully")
             return validated_data
         except ValidationError as e:
@@ -80,21 +74,17 @@ class AssistantService:
     def update_assistant(self, assistant_id: str, **updates) -> AssistantRead:
         logging_utility.info("Updating assistant with id: %s", assistant_id)
         try:
-            # Fetch the current state of the assistant
             current_assistant = self.retrieve_assistant(assistant_id)
-
-            # Merge the updates with the current state
             assistant_data = current_assistant.model_dump()
             assistant_data.update(updates)
 
-            # Validate the merged data
-            validated_data = AssistantUpdate(**assistant_data)  # Validate data using Pydantic model
+            validated_data = AssistantUpdate(**assistant_data)
 
             response = self.client.put(f"/v1/assistants/{assistant_id}",
                                        json=validated_data.model_dump(exclude_unset=True))
             response.raise_for_status()
             updated_assistant = response.json()
-            validated_response = AssistantRead(**updated_assistant)  # Validate response using Pydantic model
+            validated_response = AssistantRead(**updated_assistant)
             logging_utility.info("Assistant updated successfully")
             return validated_response
         except ValidationError as e:
@@ -117,7 +107,7 @@ class AssistantService:
             response = self.client.get("/v1/assistants", params=params)
             response.raise_for_status()
             assistants = response.json()
-            validated_assistants = [AssistantRead(**assistant) for assistant in assistants]  # Validate response using Pydantic model
+            validated_assistants = [AssistantRead(**assistant) for assistant in assistants]
             logging_utility.info("Retrieved %d assistants", len(validated_assistants))
             return validated_assistants
         except ValidationError as e:
