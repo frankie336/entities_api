@@ -11,7 +11,6 @@ from typing import List, Optional
 
 logging_utility = LoggingUtility()
 
-
 class ToolService:
     def __init__(self, db: Session):
         self.db = db
@@ -117,8 +116,7 @@ class ToolService:
             logging_utility.error("Error deleting tool: %s", str(e))
             raise HTTPException(status_code=500, detail="An error occurred while deleting the tool")
 
-    # TODO: pydentic validation - not the end of the world!
-    def list_tools(self, assistant_id: Optional[str] = None) -> List[dict]:
+    def list_tools(self, assistant_id: Optional[str] = None, restructure: bool = False) -> List[dict]:
         logging_utility.info("Listing tools for assistant ID: %s", assistant_id)
         try:
             if assistant_id:
@@ -130,17 +128,60 @@ class ToolService:
                     raise HTTPException(status_code=404, detail=f"Assistant with id {assistant_id} not found")
 
                 tools = assistant.tools
-                logging_utility.debug("Tools found: %s", tools)
             else:
                 tools = self.db.query(Tool).all()
-                logging_utility.debug("All tools: %s", tools)
 
             logging_utility.info("Found %d tools", len(tools))
+
             # Convert ORM objects to dictionaries manually
-            return [self._tool_to_dict(tool) for tool in tools]
+            tool_list = [self._tool_to_dict(tool) for tool in tools]
+
+            # Optionally restructure tools
+            if restructure:
+                tool_list = self.restructure_tools({'tools': tool_list})
+
+            return tool_list
         except Exception as e:
             logging_utility.error("Error listing tools: %s", str(e))
             raise HTTPException(status_code=500, detail="An error occurred while listing the tools")
+
+    def restructure_tools(self, assistant_tools):
+        """Restructure the tools to handle dynamic function structures."""
+
+        def parse_parameters(parameters):
+            """Recursively parse parameters and handle different structures."""
+            if isinstance(parameters, dict):
+                parsed = {}
+                for key, value in parameters.items():
+                    # If the value is a dict, recursively parse it
+                    if isinstance(value, dict):
+                        parsed[key] = parse_parameters(value)
+                    else:
+                        parsed[key] = value
+                return parsed
+            return parameters
+
+        restructured_tools = []
+
+        for tool in assistant_tools['tools']:
+            function_info = tool['function']
+
+            # Check if the 'function' key is nested and extract accordingly
+            if 'function' in function_info:
+                function_info = function_info['function']
+
+            # Dynamically handle all function information
+            restructured_tool = {
+                'type': tool['type'],  # Keep the type information
+                'name': function_info.get('name', 'Unnamed tool'),
+                'description': function_info.get('description', 'No description provided'),
+                'parameters': parse_parameters(function_info.get('parameters', {})),  # Recursively parse parameters
+            }
+
+            # Add the restructured tool to the list
+            restructured_tools.append(restructured_tool)
+
+        return restructured_tools
 
     def _tool_to_dict(self, tool: Tool) -> dict:
         # Manually convert the ORM Tool object to a dictionary
@@ -151,10 +192,10 @@ class ToolService:
         }
 
     def _get_tool_or_404(self, tool_id: str) -> Tool:
-            logging_utility.debug("Fetching tool with ID: %s", tool_id)
-            db_tool = self.db.query(Tool).filter(Tool.id == tool_id).first()
-            if not db_tool:
-                logging_utility.warning("Tool not found with ID: %s", tool_id)
-                raise HTTPException(status_code=404, detail="Tool not found")
-            logging_utility.debug("Tool with ID %s found", tool_id)
-            return db_tool
+        logging_utility.debug("Fetching tool with ID: %s", tool_id)
+        db_tool = self.db.query(Tool).filter(Tool.id == tool_id).first()
+        if not db_tool:
+            logging_utility.warning("Tool not found with ID: %s", tool_id)
+            raise HTTPException(status_code=404, detail="Tool not found")
+        logging_utility.debug("Tool with ID %s found", tool_id)
+        return db_tool

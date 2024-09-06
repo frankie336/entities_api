@@ -11,6 +11,8 @@ new_tool = client.tool_service.create_tool(
     function={"name": "get_weather", "description": "Get weather information"},
     assistant_id="asst_n7ngrdIhuweP4Ud6vMg4VV"
 )
+
+
 print("New tool created:")
 print(f"ID: {new_tool.id}")
 print(f"Type: {new_tool.type}")
@@ -73,9 +75,9 @@ except Exception as e:
 assistant_tools = client.tool_service.list_tools("asst_n7ngrdIhuweP4Ud6vMg4VV")
 
 #time.sleep(1000)
-#print("\nTools for assistant:")
-#for tool in assistant_tools:
-    #print(f"- {tool.id}: {tool.function.name}")
+print("\nTools for assistant:")
+for tool in assistant_tools:
+    print(f"- {tool.id}: {tool.function.name}")
 
 
 

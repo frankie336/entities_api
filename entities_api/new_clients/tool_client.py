@@ -106,15 +106,73 @@ class ClientToolService:
             logging_utility.error("Unexpected error during tool deletion: %s", str(e))
             raise
 
-    #TODO: pydentic validation - not the end of the world!
-    def list_tools(self, assistant_id: Optional[str] = None) -> List[dict]:
+    def parse_parameters(self, parameters):
+        """Recursively parse parameters and handle different structures."""
+        if isinstance(parameters, dict):
+            parsed = {}
+            for key, value in parameters.items():
+                if isinstance(value, dict):
+                    parsed[key] = self.parse_parameters(value)
+                else:
+                    parsed[key] = value
+            return parsed
+        return parameters
+
+    def restructure_tools(self, assistant_tools):
+        """Restructure the tools to match the target structure."""
+
+        def parse_parameters(parameters):
+            """Recursively parse parameters and handle different structures."""
+            if isinstance(parameters, dict):
+                parsed = {}
+                for key, value in parameters.items():
+                    # If the value is a dict, recursively parse it
+                    if isinstance(value, dict):
+                        parsed[key] = parse_parameters(value)
+                    else:
+                        parsed[key] = value
+                return parsed
+            return parameters
+
+        restructured_tools = []
+
+        for tool in assistant_tools['tools']:
+            function_info = tool['function']
+
+            # Check if the 'function' key is nested and extract accordingly
+            if 'function' in function_info:
+                function_info = function_info['function']
+
+            # Restructure the tool to match the target structure
+            restructured_tool = {
+                'type': tool['type'],  # Keep the type information
+                'function': {
+                    'name': function_info.get('name', 'Unnamed tool'),
+                    'description': function_info.get('description', 'No description provided'),
+                    'parameters': parse_parameters(function_info.get('parameters', {})),  # Recursively parse parameters
+                }
+            }
+
+            # Add the restructured tool to the list
+            restructured_tools.append(restructured_tool)
+
+        return restructured_tools
+
+    def list_tools(self, assistant_id: Optional[str] = None, restructure: bool = False) -> List[dict]:
+        """List tools for a given assistant and optionally restructure them."""
         url = f"/v1/assistants/{assistant_id}/tools" if assistant_id else "/v1/tools"
         logging_utility.info("Listing tools")
         try:
             response = self.client.get(url)
             response.raise_for_status()
             tools = response.json()  # Return raw JSON data as a list of dictionaries
-            logging_utility.info("Retrieved %d tools", len(tools))
+
+            logging_utility.info("Retrieved %d tools", len(tools['tools']))
+
+            # Optionally restructure tools
+            if restructure:
+                tools = self.restructure_tools(tools)
+
             return tools
         except httpx.HTTPStatusError as e:
             logging_utility.error("HTTP error while listing tools: %s | Response: %s", str(e), e.response.text)
