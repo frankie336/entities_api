@@ -16,7 +16,6 @@ load_dotenv()
 # Initialize logging utility
 logging_utility = LoggingUtility()
 
-
 # Simulated API call to get flight times
 def get_flight_times(departure: str, arrival: str) -> str:
     flights = {
@@ -50,12 +49,10 @@ class Runner:
         logging_utility.info("Starting streamed response for thread_id: %s, run_id: %s, model: %s", thread_id, run_id, model)
 
         try:
-            # Update the status to 'in_progress' as processing begins
             if not self.run_service.update_run_status(run_id, "in_progress"):
                 logging_utility.error("Failed to update run status to in_progress for run_id: %s", run_id)
                 return
 
-            # Define available functions
             available_functions = {
                 'get_flight_times': get_flight_times
             }
@@ -67,57 +64,75 @@ class Runner:
                 options={'num_ctx': 4096},
                 stream=True
             )
-            logging_utility.debug("This is the inbound tools: %s", tools)
 
+            logging_utility.debug("This is the inbound tools: %s", tools)
             logging_utility.info("Response received from Ollama client")
             full_response = ""
+            buffer = ""
+            is_in_function_call = False
+            accumulated_function_call = {}
 
             for chunk in response:
-                # Check if the run has been cancelled
                 current_run_status = self.run_service.retrieve_run(run_id=run_id).status
-
                 if current_run_status in ["cancelling", "cancelled"]:
                     logging_utility.info("Run %s is being cancelled or already cancelled, stopping generation", run_id)
                     break
 
-                # Add the model's response to the conversation history
-                messages.append(chunk['message'])
+                # Log the raw chunk to understand its structure
+                logging_utility.debug(f"Raw chunk: {chunk}")
 
-                # Check if the model decided to use a function
-                if not chunk['message'].get('tool_calls'):
-                    logging_utility.debug("The model didn't use the function. Streaming its response.")
-                    yield chunk['message']['content']
-                    continue
+                # If chunk is a dict, process accordingly (inspect the structure here)
+                if isinstance(chunk, dict) and 'message' in chunk:
+                    message_content = chunk['message'].get('content', '')
+                    buffer += message_content
 
-                # Process function calls made by the model
-                if chunk['message'].get('tool_calls'):
-                    logging_utility.debug("Processing tool calls.")
-                    for tool_call in chunk['message']['tool_calls']:
-                        function_name = tool_call['function']['name']
-                        function_args = tool_call['function']['arguments']
+                    # Try to parse the chunk into JSON to detect if it's a valid tool call
+                    try:
+                        parsed_chunk = json.loads(buffer)
 
-                        # Log the specific tool that was triggered and its arguments
-                        logging_utility.info(f"Tool triggered: {function_name} with arguments: {function_args}")
+                        # Detect a tool call
+                        if 'tool_calls' in parsed_chunk['message']:
+                            is_in_function_call = True
+                            accumulated_function_call.update(parsed_chunk['message']['tool_calls'])
+                            logging_utility.debug(f"Accumulated response: {accumulated_function_call}")
 
-                        if function_name in available_functions:
-                            logging_utility.debug(f"Invoking function: {function_name}")
-                            # Call the function with its arguments
-                            function_response = available_functions[function_name](
-                                function_args['departure'],
-                                function_args['arrival']
-                            )
+                        # If we have a complete tool call
+                        if is_in_function_call and 'parameters' in accumulated_function_call:
+                            function_name = accumulated_function_call['name']
+                            function_args = accumulated_function_call['parameters']
 
-                            # Stream the function's response
-                            logging_utility.debug(f"Function {function_name} response: {function_response}")
-                            yield function_response
+                            # If the tool call is complete, invoke the function
+                            if function_name in available_functions:
+                                logging_utility.debug(f"Invoking function: {function_name}")
+                                function_response = available_functions[function_name](
+                                    function_args['departure'],
+                                    function_args['arrival']
+                                )
 
-                            # Add the function response to the messages so the model can process it
-                            messages.append({'role': 'tool', 'content': function_response})
-                            break
+                                logging_utility.debug(f"Function {function_name} response: {function_response}")
+                                yield function_response
 
-            # After the loop, check the final status
+                                messages.append({'role': 'tool', 'content': function_response})
+                                is_in_function_call = False
+                                buffer = ""  # Clear buffer for next response
+                                accumulated_function_call = {}
+
+                    except json.JSONDecodeError:
+                        # Keep buffering until we have a complete JSON
+                        continue
+
+                    # If no function call, stream normally
+                    if not is_in_function_call:
+                        full_response += buffer
+                        buffer = ""  # Reset buffer after processing
+                        yield message_content
+
+                else:
+                    # Handle other possible chunk types if they are not dictionaries
+                    logging_utility.error(f"Unexpected chunk format: {chunk}")
+                    yield json.dumps({"error": "Unexpected response format"})
+
             final_run_status = self.run_service.retrieve_run(run_id=run_id).status
-
             if final_run_status in ["cancelling", "cancelled"]:
                 logging_utility.info("Run was cancelled during processing")
                 status_to_set = "cancelled"
@@ -125,18 +140,15 @@ class Runner:
                 logging_utility.info("Finished yielding all chunks")
                 status_to_set = "completed"
 
-            # Save the message (partial or complete)
             if not self.message_service.save_assistant_message_chunk(thread_id, full_response, is_last_chunk=True):
                 logging_utility.error("Failed to save assistant message for thread_id: %s", thread_id)
 
-            # Update the final run status
             if not self.run_service.update_run_status(run_id, status_to_set):
                 logging_utility.error("Failed to update run status to %s for run_id: %s", status_to_set, run_id)
 
         except Exception as e:
             logging_utility.error("Error in streamed_response_helper: %s", str(e), exc_info=True)
             yield json.dumps({"error": "An error occurred while generating the response"})
-            # Ensure run status is updated to failed in case of exception
             self.run_service.update_run_status(run_id, "failed")
 
         logging_utility.info("Exiting streamed_response_helper")
@@ -145,9 +157,7 @@ class Runner:
         logging_utility.info("Processing conversation for thread_id: %s, run_id: %s, model: %s", thread_id, run_id, model)
 
         assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
-
-        logging_utility.info("Retrieved assistant: id=%s, name=%s, model=%s",
-                             assistant.id, assistant.name, assistant.model)
+        logging_utility.info("Retrieved assistant: id=%s, name=%s, model=%s", assistant.id, assistant.name, assistant.model)
 
         messages = self.message_service.get_formatted_messages(thread_id, system_message=assistant.instructions)
         logging_utility.debug("Formatted messages: %s", messages)
