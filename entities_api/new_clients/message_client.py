@@ -4,7 +4,8 @@ from typing import List, Dict, Any, Optional
 import httpx
 from pydantic import ValidationError
 
-from entities_api.schemas import MessageCreate, MessageRead, MessageUpdate  # Import the relevant Pydantic models
+from entities_api.schemas import MessageCreate, MessageRead, MessageUpdate, \
+    ToolMessageCreate  # Import the relevant Pydantic models
 from entities_api.services.logging_service import LoggingUtility
 
 # Initialize logging utility
@@ -151,6 +152,32 @@ class MessageService:
             logging_utility.error("An error occurred: %s", str(e))
             raise RuntimeError(f"An error occurred: {str(e)}")
 
+    def get_messages_without_system_message(self, thread_id: str) -> List[Dict[str, Any]]:
+        logging_utility.info("Getting formatted messages for thread_id: %s", thread_id)
+        try:
+            response = self.client.get(f"/v1/threads/{thread_id}/formatted_messages")
+            response.raise_for_status()
+            formatted_messages = response.json()
+
+            if not isinstance(formatted_messages, list):
+                raise ValueError("Expected a list of messages")
+
+            logging_utility.debug("Retrieved formatted messages: %s", formatted_messages)
+
+            logging_utility.info("Retrieved %d formatted messages", len(formatted_messages))
+            return formatted_messages
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                logging_utility.error("Thread not found: %s", thread_id)
+                raise ValueError(f"Thread not found: {thread_id}")
+            else:
+                logging_utility.error("HTTP error occurred: %s", str(e))
+                raise RuntimeError(f"HTTP error occurred: {e}")
+        except Exception as e:
+            logging_utility.error("An error occurred: %s", str(e))
+            raise RuntimeError(f"An error occurred: {str(e)}")
+
+
     def delete_message(self, message_id: str) -> Dict[str, Any]:
         logging_utility.info("Deleting message with id: %s", message_id)
         try:
@@ -188,3 +215,23 @@ class MessageService:
         except Exception as e:
             logging_utility.error("An error occurred while saving assistant message chunk: %s", str(e))
             return None
+
+    def add_tool_message(self, message_id: str, content: str) -> MessageRead:
+        logging_utility.info("Adding tool message for message_id: %s", message_id)
+        try:
+            tool_message_data = ToolMessageCreate(content=content)
+            response = self.client.post(f"/v1/messages/{message_id}/tool", json=tool_message_data.model_dump())
+            response.raise_for_status()
+            tool_message = response.json()
+            validated_message = MessageRead(**tool_message)  # Validate response using Pydantic model
+            logging_utility.info("Tool message added successfully with id: %s", validated_message.id)
+            return validated_message
+        except ValidationError as e:
+            logging_utility.error("Validation error: %s", e.json())
+            raise ValueError(f"Validation error: {e}")
+        except httpx.HTTPStatusError as e:
+            logging_utility.error("HTTP error occurred while adding tool message: %s", str(e))
+            raise
+        except Exception as e:
+            logging_utility.error("An error occurred while adding tool message: %s", str(e))
+            raise
