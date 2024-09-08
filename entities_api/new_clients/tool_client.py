@@ -162,12 +162,19 @@ class ClientToolService:
         """List tools for a given assistant and optionally restructure them."""
         url = f"/v1/assistants/{assistant_id}/tools" if assistant_id else "/v1/tools"
         logging_utility.info("Listing tools")
+
         try:
             response = self.client.get(url)
             response.raise_for_status()
-            tools = response.json()  # Return raw JSON data as a list of dictionaries
 
-            logging_utility.info("Retrieved %d tools", len(tools['tools']))
+            # Fetch the list of tools and log it
+            tools_list = response.json()
+            logging_utility.info(f"Fetched tool list: {tools_list}")
+
+            # Extract the actual tools from the response data
+            tools = tools_list['tools']
+
+            logging_utility.info("Retrieved %d tools", len(tools))
 
             # Optionally restructure tools
             if restructure:

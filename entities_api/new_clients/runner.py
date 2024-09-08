@@ -7,6 +7,8 @@ from entities_api.new_clients.message_client import MessageService
 from entities_api.new_clients.run_client import RunService
 from entities_api.new_clients.thread_client import ThreadService
 from entities_api.new_clients.user_client import UserService
+from entities_api.new_clients.tool_client import ClientToolService
+
 from ollama import Client
 from entities_api.services.logging_service import LoggingUtility
 from typing import Optional
@@ -80,11 +82,16 @@ class Runner:
         self.message_service = MessageService(self.base_url, self.api_key)
         self.run_service = RunService(self.base_url, self.api_key)
         self.ollama_client = Client()
+        self.tool_service = ClientToolService(self.base_url, self.api_key)
+
         logging_utility.info("OllamaClient initialized with base_url: %s", self.base_url)
 
     def streamed_response_helper(self, messages, message_id, thread_id, run_id, model='llama3.1'):
         logging_utility.info("Starting streamed response for thread_id: %s, run_id: %s, model: %s", thread_id, run_id,
                              model)
+
+        get_tools = self.tool_service.list_tools(assistant_id='asst_likBry4di6AglrEq3sQdUI')
+        #logging_utility.info("Fetched tools for thread_id: %s, run_id: %s, model: %s", get_tools)
 
         try:
             if not self.run_service.update_run_status(run_id, "in_progress"):
