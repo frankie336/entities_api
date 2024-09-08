@@ -8,7 +8,7 @@ from db.database import get_db
 from entities_api.schemas import ToolCreate, ToolRead, ToolUpdate, ToolList
 from entities_api.schemas import (
     UserCreate, UserRead, UserUpdate, ThreadCreate, ThreadRead, MessageCreate, MessageRead, Run, AssistantCreate,
-    AssistantRead, RunStatusUpdate, AssistantUpdate, ThreadIds, ThreadReadDetailed
+    AssistantRead, RunStatusUpdate, AssistantUpdate, ThreadIds, ThreadReadDetailed, ToolMessageCreate
 )
 from entities_api.services.assistant_service import AssistantService
 from entities_api.services.logging_service import LoggingUtility
@@ -200,6 +200,15 @@ def save_assistant_message(message: MessageCreate, db: Session = Depends(get_db)
         is_last_chunk=True  # Assuming we're always sending the complete message
     )
 
+@router.post("/messages/{message_id}/tool", response_model=MessageRead)
+def add_tool_message(message_id: str, tool_message: ToolMessageCreate, db: Session = Depends(get_db)):
+    message_service = MessageService(db)
+    try:
+        return message_service.add_tool_message(message_id, tool_message.content)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 @router.post("/tools", response_model=ToolRead)
 def create_tool(tool: ToolCreate, db: Session = Depends(get_db)):

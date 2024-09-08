@@ -7,7 +7,6 @@ from entities_api.new_clients.message_client import MessageService
 from entities_api.new_clients.run_client import RunService
 from entities_api.new_clients.thread_client import ThreadService
 from entities_api.new_clients.user_client import UserService
-from entities_api.new_clients.tool_client import ClientToolService
 from ollama import Client
 from entities_api.services.logging_service import LoggingUtility
 
@@ -18,7 +17,6 @@ load_dotenv()
 logging_utility = LoggingUtility()
 
 # Simulates an API call to get flight times
-
 def get_flight_times(departure: str, arrival: str) -> str:
     flights = {
         'NYC-LAX': {'departure': '08:00 AM', 'arrival': '11:30 AM', 'duration': '5h 30m'},
@@ -31,7 +29,6 @@ def get_flight_times(departure: str, arrival: str) -> str:
     key = f'{departure}-{arrival}'.upper()
     return json.dumps(flights.get(key, {'error': 'Flight not found'}))
 
-
 class Runner:
     def __init__(self, base_url=os.getenv('ASSISTANTS_BASE_URL'), api_key='your api key'):
         self.base_url = base_url or os.getenv('ASSISTANTS_BASE_URL')
@@ -41,13 +38,10 @@ class Runner:
         self.thread_service = ThreadService(self.base_url, self.api_key)
         self.message_service = MessageService(self.base_url, self.api_key)
         self.run_service = RunService(self.base_url, self.api_key)
-        self.tool_service = ClientToolService(self.base_url, self.api_key)
-
-
         self.ollama_client = Client()
         logging_utility.info("OllamaClient initialized with base_url: %s", self.base_url)
 
-    def streamed_response_helper(self, assistant_id, messages, thread_id, run_id, model='llama3.1'):
+    def streamed_response_helper(self, messages, message_id, thread_id, run_id, model='llama3.1'):
         logging_utility.info("Starting streamed response for thread_id: %s, run_id: %s, model: %s", thread_id, run_id, model)
 
         try:
@@ -84,10 +78,6 @@ class Runner:
                         },
                     },
                 ],
-
-
-
-
             )
 
             # Check if the model decided to use the provided function
@@ -139,18 +129,27 @@ class Runner:
                         if not departure or not arrival:
                             raise ValueError("Missing required arguments: departure and arrival")
 
+
+
+                        # Get current messages on the thread
+                        current_messages_on_thread =  self.message_service.get_messages_without_system_message(thread_id=thread_id)
+                        logging_utility.info("current messages on thread_id: %s",
+                                             current_messages_on_thread)
+
+                        # statefully add the tool response to thread message history
+
                         function_response = function_to_call(departure, arrival)
+                        self.message_service.add_tool_message(
+                            message_id=message_id,
+                            content=function_response
+                        )
+
+                        #messages.append({
+                        #    'role': 'tool',
+                        #    'content': function_response,
+                        #})
 
 
-                        # stateful way to retrieve current messages in thread
-                        assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
-                        messages = self.message_service.get_formatted_messages(thread_id,
-                                                                               system_message=assistant.instructions)
-
-                        messages.append({
-                            'role': 'tool',
-                            'content': function_response,
-                        })
 
 
 
@@ -193,7 +192,7 @@ class Runner:
 
         logging_utility.info("Exiting streamed_response_helper")
 
-    def process_conversation(self, thread_id, run_id, assistant_id, model='llama3.1'):
+    def process_conversation(self, thread_id, message_id, run_id, assistant_id, model='llama3.1'):
         logging_utility.info("Processing conversation for thread_id: %s, run_id: %s, model: %s", thread_id, run_id, model)
 
         assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
@@ -203,5 +202,5 @@ class Runner:
 
         messages = self.message_service.get_formatted_messages(thread_id, system_message=assistant.instructions)
         logging_utility.debug("Formatted messages: %s", messages)
-        return self.streamed_response_helper(assistant_id, messages, thread_id, run_id, model)
+        return self.streamed_response_helper(messages, message_id, thread_id,  run_id, model)
 

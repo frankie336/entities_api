@@ -97,6 +97,19 @@ class MessageUpdate(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+# New schema for creating tool messages
+class ToolMessageCreate(BaseModel):
+    content: str
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "content": "This is the content of the tool message."
+            }
+        }
+    )
+
 class ToolFunction(BaseModel):
     function: Optional[dict]  # Handle the nested 'function' structure
 

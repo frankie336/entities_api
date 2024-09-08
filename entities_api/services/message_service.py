@@ -206,3 +206,59 @@ class MessageService:
             })
 
         return formatted_messages
+
+    def add_tool_message(self, existing_message_id: str, content: str) -> MessageRead:
+        logger.info(f"Adding tool message for existing message ID: {existing_message_id}")
+
+        # Retrieve the existing message
+        existing_message = self.db.query(Message).filter(Message.id == existing_message_id).first()
+        if not existing_message:
+            logger.error(f"Existing message not found: {existing_message_id}")
+            raise HTTPException(status_code=404, detail="Existing message not found")
+
+        # Create a new message with role "tool"
+        new_message = Message(
+            id=IdentifierService.generate_message_id(),
+            assistant_id=existing_message.assistant_id,
+            attachments=[],
+            completed_at=int(time.time()),
+            content=content,
+            created_at=int(time.time()),
+            incomplete_at=None,
+            incomplete_details=None,
+            meta_data=json.dumps({}),
+            object="message",
+            role="tool",
+            run_id=existing_message.run_id,
+            status=None,
+            thread_id=existing_message.thread_id,
+            sender_id="tool"  # Or you might want to use a specific tool identifier here
+        )
+
+        try:
+            self.db.add(new_message)
+            self.db.commit()
+            self.db.refresh(new_message)
+            logger.info(f"Tool message added successfully: {new_message.id}")
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Error adding tool message: {str(e)}")
+            raise HTTPException(status_code=500, detail="Failed to add tool message")
+
+        return MessageRead(
+            id=new_message.id,
+            assistant_id=new_message.assistant_id,
+            attachments=new_message.attachments,
+            completed_at=new_message.completed_at,
+            content=new_message.content,
+            created_at=new_message.created_at,
+            incomplete_at=new_message.incomplete_at,
+            incomplete_details=new_message.incomplete_details,
+            meta_data=json.loads(new_message.meta_data),
+            object=new_message.object,
+            role=new_message.role,
+            run_id=new_message.run_id,
+            status=new_message.status,
+            thread_id=new_message.thread_id,
+            sender_id=new_message.sender_id
+        )
