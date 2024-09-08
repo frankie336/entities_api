@@ -65,13 +65,13 @@ new_tool = client.tool_service.create_tool(
             },
         }
     },
-    assistant_id='asst_J1F14S0bKn6ybLANJEwUqv'
+    assistant_id='asst_QKUiiKLMz1fUXGP4xTLgbx'
 )
 
 # Associate the tool with an assistant
 client.tool_service.associate_tool_with_assistant(
     tool_id=new_tool.id,
-    assistant_id='asst_J1F14S0bKn6ybLANJEwUqv'
+    assistant_id='asst_QKUiiKLMz1fUXGP4xTLgbx'
 )
 
 print("New tool created:")
@@ -79,7 +79,7 @@ print(f"ID: {new_tool.id}")
 print(new_tool)
 
 # List tools associated with the assistant
-assistant_tools = client.tool_service.list_tools("asst_J1F14S0bKn6ybLANJEwUqv")
+assistant_tools = client.tool_service.list_tools("asst_QKUiiKLMz1fUXGP4xTLgbx")
 
 
 # Use the robust helper function to restructure the tools
@@ -90,4 +90,4 @@ for restructured_tool in restructured_tools:
     print(restructured_tool)
     print('-' * 40)
 
-assistant_tools = client.tool_service.list_tools("asst_J1F14S0bKn6ybLANJEwUqv")
+assistant_tools = client.tool_service.list_tools("asst_QKUiiKLMz1fUXGP4xTLgbx")
