@@ -17,9 +17,11 @@ load_dotenv()
 logging_utility = LoggingUtility()
 
 # Simulates an API call to get flight times
+
+
 def get_flight_times(departure: str, arrival: str) -> str:
     flights = {
-        'NYC-LAX': {'departure': '08:00 AM', 'arrival': '11:30 AM', 'duration': '5h 30m'},
+        'NYC-LAX': {'departure': '08:00 AM', 'arrival': '11:30 AM', 'duration': '6h 30m'},
         'LAX-NYC': {'departure': '02:00 PM', 'arrival': '10:30 PM', 'duration': '5h 30m'},
         'LHR-JFK': {'departure': '10:00 AM', 'arrival': '01:00 PM', 'duration': '8h 00m'},
         'JFK-LHR': {'departure': '09:00 PM', 'arrival': '09:00 AM', 'duration': '7h 00m'},
@@ -42,7 +44,8 @@ class Runner:
         logging_utility.info("OllamaClient initialized with base_url: %s", self.base_url)
 
     def streamed_response_helper(self, messages, message_id, thread_id, run_id, model='llama3.1'):
-        logging_utility.info("Starting streamed response for thread_id: %s, run_id: %s, model: %s", thread_id, run_id, model)
+        logging_utility.info("Starting streamed response for thread_id: %s, run_id: %s, model: %s", thread_id, run_id,
+                             model)
 
         try:
             # Update the status to 'in_progress' as processing begins
@@ -77,43 +80,51 @@ class Runner:
                             },
                         },
                     },
+
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "getAnnouncedPrefixes",
+                            "description": "Retrieves the announced prefixes for a given ASN",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "resource": {
+                                        "type": "string",
+                                        "description": "The ASN for which to retrieve the announced prefixes"
+                                    },
+                                    "starttime": {
+                                        "type": "string",
+                                        "description": "The start time for the query (ISO8601 or Unix timestamp)"
+                                    },
+                                    "endtime": {
+                                        "type": "string",
+                                        "description": "The end time for the query (ISO8601 or Unix timestamp)"
+                                    },
+                                    "min_peers_seeing": {
+                                        "type": "integer",
+                                        "description": "Minimum number of RIS peers seeing the prefix for it to be included in the results"
+                                    }
+                                },
+                                "required": ["resource"]
+                            }
+                        }
+                    },
+
                 ],
             )
 
-            # Check if the model decided to use the provided function
-            if not response['message'].get('tool_calls'):
-                logging_utility.info("No tool calls detected. Streaming response.")
-                streaming_response = self.ollama_client.chat(
-                    model=model,
-                    messages=messages,
-                    options={'num_ctx': 4096},
-                    stream=True
-                )
-
-                full_response = ""
-                for chunk in streaming_response:
-                    # Check if the run has been cancelled
-                    current_run_status = self.run_service.retrieve_run(run_id=run_id).status
-                    if current_run_status in ["cancelling", "cancelled"]:
-                        logging_utility.info("Run %s is being cancelled or already cancelled, stopping generation", run_id)
-                        break
-
-                    content = chunk['message']['content']
-                    full_response += content
-                    logging_utility.debug("Received chunk: %s", content)
-                    yield content
-
-            else:
+            if response['message'].get('tool_calls'):
+                logging_utility.info("Function call triggered for run_id: %s", response['message'].get('tool_calls'))
                 # Process function calls made by the model
                 available_functions = {
                     'get_flight_times': get_flight_times,
                 }
 
-                logging_utility.debug("Available functions: %s", list(available_functions.keys()))
-
                 for tool in response['message'].get('tool_calls', []):
                     try:
                         function_name = tool['function']['name']
+                        logging_utility.info("Calling function: %s for run_id: %s", function_name, run_id)
                         function_to_call = available_functions.get(function_name)
                         if function_to_call is None:
                             raise ValueError(f"Unknown function: {function_name}")
@@ -129,29 +140,19 @@ class Runner:
                         if not departure or not arrival:
                             raise ValueError("Missing required arguments: departure and arrival")
 
-
-
-                        # Get current messages on the thread
-                        current_messages_on_thread =  self.message_service.get_messages_without_system_message(thread_id=thread_id)
-                        logging_utility.info("current messages on thread_id: %s",
-                                             current_messages_on_thread)
-
-                        # statefully add the tool response to thread message history
-
+                        logging_utility.info("Function call arguments - departure: %s, arrival: %s", departure, arrival)
                         function_response = function_to_call(departure, arrival)
+                        logging_utility.info("Function call response: %s", function_response)
+
                         self.message_service.add_tool_message(
                             message_id=message_id,
                             content=function_response
                         )
 
-                        #messages.append({
-                        #    'role': 'tool',
-                        #    'content': function_response,
-                        #})
-
-
-
-
+                        messages.append({
+                            'role': 'tool',
+                            'content': function_response,
+                        })
 
                     except Exception as e:
                         logging_utility.error(f"Error processing function call: {str(e)}")
@@ -159,12 +160,30 @@ class Runner:
                             'role': 'tool',
                             'content': json.dumps({"error": f"Error processing function call: {str(e)}"}),
                         })
+            else:
+                logging_utility.info("No function call triggered for run_id: %s", run_id)
 
-                # Second API call: Get final response from the model
-                final_response = self.ollama_client.chat(model=model, messages=messages)
-                full_response = final_response['message']['content']
-                logging_utility.info("Function call response: %s", full_response)
-                yield full_response
+            # Stream the response, regardless of whether a tool call was made or not
+            logging_utility.info("Starting streaming response for run_id: %s", run_id)
+            streaming_response = self.ollama_client.chat(
+                model=model,
+                messages=messages,
+                options={'num_ctx': 4096},
+                stream=True
+            )
+
+            full_response = ""
+            for chunk in streaming_response:
+                # Check if the run has been cancelled
+                current_run_status = self.run_service.retrieve_run(run_id=run_id).status
+                if current_run_status in ["cancelling", "cancelled"]:
+                    logging_utility.info("Run %s is being cancelled or already cancelled, stopping generation", run_id)
+                    break
+
+                content = chunk['message']['content']
+                full_response += content
+                logging_utility.debug("Received chunk: %s", content)
+                yield content
 
             # After the loop, check the final status
             final_run_status = self.run_service.retrieve_run(run_id=run_id).status
@@ -191,6 +210,7 @@ class Runner:
             self.run_service.update_run_status(run_id, "failed")
 
         logging_utility.info("Exiting streamed_response_helper")
+
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id, model='llama3.1'):
         logging_utility.info("Processing conversation for thread_id: %s, run_id: %s, model: %s", thread_id, run_id, model)
