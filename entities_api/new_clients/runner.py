@@ -214,7 +214,10 @@ class Runner:
 
                     except Exception as e:
                         logging_utility.error(f"Error processing function call: {str(e)}")
-                        # Don't append error messages to the conversation
+                        messages.append({
+                            'role': 'tool',
+                            'content': json.dumps({"error": f"Error processing function call: {str(e)}"}),
+                        })
             else:
                 logging_utility.info("No function call triggered for run_id: %s", run_id)
 
