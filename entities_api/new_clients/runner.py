@@ -1,6 +1,6 @@
-# new_clients/runner.py
 import json
 import os
+import requests
 from dotenv import load_dotenv
 from entities_api.new_clients.assistant_client import AssistantService
 from entities_api.new_clients.message_client import MessageService
@@ -9,6 +9,7 @@ from entities_api.new_clients.thread_client import ThreadService
 from entities_api.new_clients.user_client import UserService
 from ollama import Client
 from entities_api.services.logging_service import LoggingUtility
+from typing import Optional
 
 # Load environment variables from .env file
 load_dotenv()
@@ -16,9 +17,8 @@ load_dotenv()
 # Initialize logging utility
 logging_utility = LoggingUtility()
 
+
 # Simulates an API call to get flight times
-
-
 def get_flight_times(departure: str, arrival: str) -> str:
     flights = {
         'NYC-LAX': {'departure': '08:00 AM', 'arrival': '11:30 AM', 'duration': '6h 30m'},
@@ -30,6 +30,50 @@ def get_flight_times(departure: str, arrival: str) -> str:
     }
     key = f'{departure}-{arrival}'.upper()
     return json.dumps(flights.get(key, {'error': 'Flight not found'}))
+
+
+# New function to get announced prefixes
+def getAnnouncedPrefixes(resource: str, starttime: Optional[str] = None, endtime: Optional[str] = None,
+                         min_peers_seeing: int = 10) -> str:
+    logging_utility.info(f'Retrieving announced prefixes for ASN: {resource}')
+
+    base_url = "https://stat.ripe.net/data/announced-prefixes/data.json"
+    params = {
+        "resource": resource,
+        "starttime": starttime,
+        "endtime": endtime,
+        "min_peers_seeing": min_peers_seeing
+    }
+
+    try:
+        response = requests.get(base_url, params=params)
+        response.raise_for_status()
+        prefixes_data = response.json()
+
+        if prefixes_data.get('status') == 'ok':
+            response_text = "Announced Prefixes:\n\n"
+            prefixes = prefixes_data.get('data', {}).get('prefixes', [])
+            for prefix_data in prefixes:
+                prefix = prefix_data.get('prefix', '')
+                timelines = prefix_data.get('timelines', [])
+                response_text += f"Prefix: {prefix}\n"
+                response_text += "Timelines:\n"
+                for timeline in timelines:
+                    starttime = timeline.get('starttime', '')
+                    endtime = timeline.get('endtime', '')
+                    response_text += f"- Start: {starttime}, End: {endtime}\n"
+                response_text += "\n"
+            response_text += "---\n"
+        else:
+            logging_utility.warning('Failed to retrieve announced prefixes')
+            response_text = "Failed to retrieve announced prefixes."
+
+        return json.dumps({"result": response_text})
+
+    except requests.RequestException as e:
+        logging_utility.error(f"Error retrieving announced prefixes: {str(e)}")
+        return json.dumps({"error": f"Error retrieving announced prefixes: {str(e)}"})
+
 
 class Runner:
     def __init__(self, base_url=os.getenv('ASSISTANTS_BASE_URL'), api_key='your api key'):
@@ -80,7 +124,6 @@ class Runner:
                             },
                         },
                     },
-
                     {
                         "type": "function",
                         "function": {
@@ -110,7 +153,6 @@ class Runner:
                             }
                         }
                     },
-
                 ],
             )
 
@@ -119,6 +161,7 @@ class Runner:
                 # Process function calls made by the model
                 available_functions = {
                     'get_flight_times': get_flight_times,
+                    'getAnnouncedPrefixes': getAnnouncedPrefixes,
                 }
 
                 for tool in response['message'].get('tool_calls', []):
@@ -135,13 +178,28 @@ class Runner:
                         elif not isinstance(function_args, dict):
                             raise ValueError(f"Unexpected argument type: {type(function_args)}")
 
-                        departure = function_args.get('departure')
-                        arrival = function_args.get('arrival')
-                        if not departure or not arrival:
-                            raise ValueError("Missing required arguments: departure and arrival")
+                        if function_name == 'get_flight_times':
+                            departure = function_args.get('departure')
+                            arrival = function_args.get('arrival')
+                            if not departure or not arrival:
+                                raise ValueError("Missing required arguments: departure and arrival")
+                            logging_utility.info("Function call arguments - departure: %s, arrival: %s", departure,
+                                                 arrival)
+                            function_response = function_to_call(departure, arrival)
+                        elif function_name == 'getAnnouncedPrefixes':
+                            resource = function_args.get('resource')
+                            if not resource:
+                                raise ValueError("Missing required argument: resource")
+                            logging_utility.info("Function call arguments - resource: %s", resource)
+                            function_response = function_to_call(
+                                resource,
+                                function_args.get('starttime'),
+                                function_args.get('endtime'),
+                                function_args.get('min_peers_seeing', 10)
+                            )
+                        else:
+                            raise ValueError(f"Unexpected function name: {function_name}")
 
-                        logging_utility.info("Function call arguments - departure: %s, arrival: %s", departure, arrival)
-                        function_response = function_to_call(departure, arrival)
                         logging_utility.info("Function call response: %s", function_response)
 
                         self.message_service.add_tool_message(
@@ -211,9 +269,9 @@ class Runner:
 
         logging_utility.info("Exiting streamed_response_helper")
 
-
     def process_conversation(self, thread_id, message_id, run_id, assistant_id, model='llama3.1'):
-        logging_utility.info("Processing conversation for thread_id: %s, run_id: %s, model: %s", thread_id, run_id, model)
+        logging_utility.info("Processing conversation for thread_id: %s, run_id: %s, model: %s", thread_id, run_id,
+                             model)
 
         assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
 
@@ -222,5 +280,4 @@ class Runner:
 
         messages = self.message_service.get_formatted_messages(thread_id, system_message=assistant.instructions)
         logging_utility.debug("Formatted messages: %s", messages)
-        return self.streamed_response_helper(messages, message_id, thread_id,  run_id, model)
-
+        return self.streamed_response_helper(messages, message_id, thread_id, run_id, model)
