@@ -17,8 +17,6 @@ load_dotenv()
 # Initialize logging utility
 logging_utility = LoggingUtility()
 
-
-# Simulates an API call to get flight times
 def get_flight_times(departure: str, arrival: str) -> str:
     flights = {
         'NYC-LAX': {'departure': '08:00 AM', 'arrival': '11:30 AM', 'duration': '6h 30m'},
@@ -31,11 +29,8 @@ def get_flight_times(departure: str, arrival: str) -> str:
     key = f'{departure}-{arrival}'.upper()
     return json.dumps(flights.get(key, {'error': 'Flight not found'}))
 
-
-# New function to get announced prefixes
-def getAnnouncedPrefixes(resource: str, starttime: Optional[str] = None, endtime: Optional[str] = None,
-                         min_peers_seeing: int = 10) -> str:
-    logging_utility.info(f'Retrieving announced prefixes for ASN: {resource}')
+def getAnnouncedPrefixes(resource: str, starttime: Optional[str] = None, endtime: Optional[str] = None, min_peers_seeing: int = 10) -> str:
+    logging_utility.info('Retrieving announced prefixes for ASN: %s', resource)
 
     base_url = "https://stat.ripe.net/data/announced-prefixes/data.json"
     params = {
@@ -71,9 +66,9 @@ def getAnnouncedPrefixes(resource: str, starttime: Optional[str] = None, endtime
         return json.dumps({"result": response_text})
 
     except requests.RequestException as e:
-        logging_utility.error(f"Error retrieving announced prefixes: {str(e)}")
-        return json.dumps({"error": f"Error retrieving announced prefixes: {str(e)}"})
-
+        error_message = f"Error retrieving announced prefixes: {str(e)}"
+        logging_utility.error(error_message)
+        return json.dumps({"error": error_message})
 
 class Runner:
     def __init__(self, base_url=os.getenv('ASSISTANTS_BASE_URL'), api_key='your api key'):
@@ -92,12 +87,10 @@ class Runner:
                              model)
 
         try:
-            # Update the status to 'in_progress' as processing begins
             if not self.run_service.update_run_status(run_id, "in_progress"):
                 logging_utility.error("Failed to update run status to in_progress for run_id: %s", run_id)
                 return
 
-            # First API call: Send the query and function description to the model
             response = self.ollama_client.chat(
                 model=model,
                 messages=messages,
@@ -158,7 +151,6 @@ class Runner:
 
             if response['message'].get('tool_calls'):
                 logging_utility.info("Function call triggered for run_id: %s", response['message'].get('tool_calls'))
-                # Process function calls made by the model
                 available_functions = {
                     'get_flight_times': get_flight_times,
                     'getAnnouncedPrefixes': getAnnouncedPrefixes,
@@ -167,61 +159,46 @@ class Runner:
                 for tool in response['message'].get('tool_calls', []):
                     try:
                         function_name = tool['function']['name']
-                        logging_utility.info("Calling function: %s for run_id: %s", function_name, run_id)
-                        function_to_call = available_functions.get(function_name)
-                        if function_to_call is None:
+                        function_args = tool['function']['arguments']
+
+                        if function_name not in available_functions:
                             raise ValueError(f"Unknown function: {function_name}")
 
-                        function_args = tool['function']['arguments']
                         if isinstance(function_args, str):
                             function_args = json.loads(function_args)
                         elif not isinstance(function_args, dict):
                             raise ValueError(f"Unexpected argument type: {type(function_args)}")
 
-                        if function_name == 'get_flight_times':
-                            departure = function_args.get('departure')
-                            arrival = function_args.get('arrival')
-                            if not departure or not arrival:
-                                raise ValueError("Missing required arguments: departure and arrival")
-                            logging_utility.info("Function call arguments - departure: %s, arrival: %s", departure,
-                                                 arrival)
-                            function_response = function_to_call(departure, arrival)
-                        elif function_name == 'getAnnouncedPrefixes':
-                            resource = function_args.get('resource')
-                            if not resource:
-                                raise ValueError("Missing required argument: resource")
-                            logging_utility.info("Function call arguments - resource: %s", resource)
-                            function_response = function_to_call(
-                                resource,
-                                function_args.get('starttime'),
-                                function_args.get('endtime'),
-                                function_args.get('min_peers_seeing', 10)
+                        function_to_call = available_functions[function_name]
+                        logging_utility.info("Executing function call: %s", function_name)
+
+                        function_response = function_to_call(**function_args)
+
+                        # Parse the function response
+                        parsed_response = json.loads(function_response)
+
+                        # Check if the response contains valid data (not an error)
+                        if 'error' not in parsed_response:
+                            self.message_service.add_tool_message(
+                                message_id=message_id,
+                                content=function_response
                             )
+                            messages.append({
+                                'role': 'tool',
+                                'content': function_response,
+                            })
                         else:
-                            raise ValueError(f"Unexpected function name: {function_name}")
-
-                        logging_utility.info("Function call response: %s", function_response)
-
-                        self.message_service.add_tool_message(
-                            message_id=message_id,
-                            content=function_response
-                        )
-
-                        messages.append({
-                            'role': 'tool',
-                            'content': function_response,
-                        })
+                            logging_utility.warning(
+                                f"Filtered out error response from {function_name}: {parsed_response['error']}")
 
                     except Exception as e:
-                        logging_utility.error(f"Error processing function call: {str(e)}")
-                        messages.append({
-                            'role': 'tool',
-                            'content': json.dumps({"error": f"Error processing function call: {str(e)}"}),
-                        })
-            else:
-                logging_utility.info("No function call triggered for run_id: %s", run_id)
+                        error_message = f"Error executing function {function_name}: {str(e)}"
+                        logging_utility.error(error_message)
+                        # We don't add error messages to the dialogue anymore
 
-            # Stream the response, regardless of whether a tool call was made or not
+            else:
+                logging_utility.info("No function calls for run_id: %s", run_id)
+
             logging_utility.info("Starting streaming response for run_id: %s", run_id)
             streaming_response = self.ollama_client.chat(
                 model=model,
@@ -232,7 +209,6 @@ class Runner:
 
             full_response = ""
             for chunk in streaming_response:
-                # Check if the run has been cancelled
                 current_run_status = self.run_service.retrieve_run(run_id=run_id).status
                 if current_run_status in ["cancelling", "cancelled"]:
                     logging_utility.info("Run %s is being cancelled or already cancelled, stopping generation", run_id)
@@ -243,7 +219,6 @@ class Runner:
                 logging_utility.debug("Received chunk: %s", content)
                 yield content
 
-            # After the loop, check the final status
             final_run_status = self.run_service.retrieve_run(run_id=run_id).status
 
             if final_run_status in ["cancelling", "cancelled"]:
@@ -253,25 +228,21 @@ class Runner:
                 logging_utility.info("Finished yielding all chunks")
                 status_to_set = "completed"
 
-            # Save the message (partial or complete)
             if not self.message_service.save_assistant_message_chunk(thread_id, full_response, is_last_chunk=True):
                 logging_utility.error("Failed to save assistant message for thread_id: %s", thread_id)
 
-            # Update the final run status
             if not self.run_service.update_run_status(run_id, status_to_set):
                 logging_utility.error("Failed to update run status to %s for run_id: %s", status_to_set, run_id)
 
         except Exception as e:
             logging_utility.error("Error in streamed_response_helper: %s", str(e), exc_info=True)
             yield json.dumps({"error": "An error occurred while generating the response"})
-            # Ensure run status is updated to failed in case of exception
             self.run_service.update_run_status(run_id, "failed")
 
         logging_utility.info("Exiting streamed_response_helper")
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id, model='llama3.1'):
-        logging_utility.info("Processing conversation for thread_id: %s, run_id: %s, model: %s", thread_id, run_id,
-                             model)
+        logging_utility.info("Processing conversation for thread_id: %s, run_id: %s, model: %s", thread_id, run_id, model)
 
         assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
 
