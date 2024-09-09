@@ -90,44 +90,57 @@ class Runner:
 
         logging_utility.info("OllamaClient initialized with base_url: %s", self.base_url)
 
-    def streamed_response_helper(self, messages, message_id, thread_id, run_id, model='llama3.1'):
+    def create_tool_filtering_messages(self, messages):
+        logging_utility.info("Creating tool filtering messages")
+        logging_utility.debug("Original messages: %s", messages)
+
+        system_message = next((msg for msg in messages if msg['role'] == 'system'), None)
+        last_user_message = next((msg for msg in reversed(messages) if msg['role'] == 'user'), None)
+
+        if not system_message or not last_user_message:
+            logging_utility.warning("Could not find necessary messages for filtering. Using original messages.")
+            return messages  # Return original if we can't find necessary messages
+
+        filtered_messages = [system_message, last_user_message]
+        logging_utility.info("Created filtered messages for tool calls")
+        logging_utility.debug("Filtered messages: %s", filtered_messages)
+
+        return filtered_messages
+
+    def streamed_response_helper(self, messages, tool_filtering_messages, message_id, thread_id, run_id,
+                                 model='llama3.1'):
         logging_utility.info("Starting streamed response for thread_id: %s, run_id: %s, model: %s", thread_id, run_id,
                              model)
 
-        logging_utility.info("Here are the inbound messages:",
-                             messages)
 
         try:
             if not self.run_service.update_run_status(run_id, "in_progress"):
                 logging_utility.error("Failed to update run status to in_progress for run_id: %s", run_id)
                 return
 
-            # Fetch and restructure tools
             try:
                 assistant_id = 'asst_likBry4di6AglrEq3sQdUI'  # Replace with actual assistant ID or fetch dynamically
                 tools = self.tool_service.list_tools(assistant_id)
                 logging_utility.info("Fetched and restructured %d tools for assistant %s", len(tools), assistant_id)
             except Exception as e:
                 logging_utility.error("Error fetching tools: %s", str(e))
-                tools = []  # Fallback to empty list if there's an error
+                tools = []
 
+            # Use tool_filtering_messages for the initial chat call
             response = self.ollama_client.chat(
                 model=model,
-                messages=messages,
+                messages=tool_filtering_messages,
                 options={'num_ctx': 4096},
                 tools=tools,
             )
 
             if response['message'].get('tool_calls'):
-                # Set run status to "requires_action" when a function call is triggered
                 if not self.run_service.update_run_status(run_id, "requires_action"):
                     logging_utility.error("Failed to update run status to requires_action for run_id: %s", run_id)
 
                 logging_utility.info("Function call triggered. Run status set to requires_action for run_id: %s",
                                      run_id)
 
-                # Comment: Function call processing block
-                # This block handles the execution of tool calls made by the model
                 available_functions = {
                     'get_flight_times': get_flight_times,
                     'getAnnouncedPrefixes': getAnnouncedPrefixes,
@@ -151,10 +164,8 @@ class Runner:
 
                         function_response = function_to_call(**function_args)
 
-                        # Parse the function response
                         parsed_response = json.loads(function_response)
 
-                        # Check if the response contains valid data (not an error)
                         if 'error' not in parsed_response:
                             self.message_service.add_tool_message(
                                 message_id=message_id,
@@ -171,9 +182,6 @@ class Runner:
                     except Exception as e:
                         error_message = f"Error executing function {function_name}: {str(e)}"
                         logging_utility.error(error_message)
-                        # We don't add error messages to the dialogue anymore
-
-                # End of function call processing block
 
             else:
                 logging_utility.info("No function calls for run_id: %s", run_id)
@@ -230,5 +238,10 @@ class Runner:
                              assistant.id, assistant.name, assistant.model)
 
         messages = self.message_service.get_formatted_messages(thread_id, system_message=assistant.instructions)
-        logging_utility.debug("Formatted messages: %s", messages)
-        return self.streamed_response_helper(messages, message_id, thread_id, run_id, model)
+        logging_utility.debug("Original formatted messages: %s", messages)
+
+        # Create modified messages for tool filtering
+        tool_filtering_messages = self.create_tool_filtering_messages(messages)
+        logging_utility.debug("Modified messages for tool filtering: %s", tool_filtering_messages)
+
+        return self.streamed_response_helper(messages, tool_filtering_messages, message_id, thread_id, run_id, model)
