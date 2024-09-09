@@ -111,7 +111,8 @@ class Runner:
                                  model='llama3.1'):
         logging_utility.info("Starting streamed response for thread_id: %s, run_id: %s, model: %s", thread_id, run_id,
                              model)
-
+        logging_utility.debug("Original messages: %s", messages)
+        logging_utility.debug("Tool filtering messages: %s", tool_filtering_messages)
 
         try:
             if not self.run_service.update_run_status(run_id, "in_progress"):
@@ -121,7 +122,7 @@ class Runner:
             try:
                 assistant_id = 'asst_likBry4di6AglrEq3sQdUI'  # Replace with actual assistant ID or fetch dynamically
                 tools = self.tool_service.list_tools(assistant_id)
-                logging_utility.info("Fetched and restructured %d tools for assistant %s", len(tools), assistant_id)
+                logging_utility.info("Fetched %d tools for assistant %s", len(tools), assistant_id)
             except Exception as e:
                 logging_utility.error("Error fetching tools: %s", str(e))
                 tools = []
@@ -133,13 +134,13 @@ class Runner:
                 options={'num_ctx': 4096},
                 tools=tools,
             )
+            logging_utility.debug("Initial chat response: %s", response)
 
             if response['message'].get('tool_calls'):
                 if not self.run_service.update_run_status(run_id, "requires_action"):
                     logging_utility.error("Failed to update run status to requires_action for run_id: %s", run_id)
 
-                logging_utility.info("Function call triggered. Run status set to requires_action for run_id: %s",
-                                     run_id)
+                logging_utility.info("Function call triggered for run_id: %s", run_id)
 
                 available_functions = {
                     'get_flight_times': get_flight_times,
@@ -160,36 +161,52 @@ class Runner:
                             raise ValueError(f"Unexpected argument type: {type(function_args)}")
 
                         function_to_call = available_functions[function_name]
-                        logging_utility.info("Executing function call: %s", function_name)
+                        logging_utility.info("Executing function call: %s with args: %s", function_name, function_args)
 
                         function_response = function_to_call(**function_args)
+                        logging_utility.debug("Function response: %s", function_response)
 
                         parsed_response = json.loads(function_response)
 
+                        # Always save the tool response to the thread, regardless of whether it contains an error
+                        if self.message_service.save_assistant_message_chunk(thread_id, function_response,
+                                                                             is_last_chunk=True):
+                            logging_utility.info("Saved tool response to thread: %s", thread_id)
+                        else:
+                            logging_utility.error("Failed to save tool response to thread: %s", thread_id)
+
+                        # Only add non-error responses to the messages list
                         if 'error' not in parsed_response:
-                            self.message_service.add_tool_message(
-                                message_id=message_id,
-                                content=function_response
-                            )
                             messages.append({
                                 'role': 'tool',
                                 'content': function_response,
                             })
+                            logging_utility.info("Added tool response to messages list")
+                            logging_utility.debug("Updated messages: %s", messages)
                         else:
                             logging_utility.warning(
                                 "Filtered out error response from %s: %s", function_name, parsed_response['error'])
 
                     except Exception as e:
                         error_message = f"Error executing function {function_name}: {str(e)}"
-                        logging_utility.error(error_message)
+                        logging_utility.error(error_message, exc_info=True)
+                        # Save the error message as a tool response to the thread, but don't add it to messages
+                        error_response = json.dumps({"error": error_message})
+                        if self.message_service.save_assistant_message_chunk(thread_id, error_response,
+                                                                             is_last_chunk=True):
+                            logging_utility.info("Saved error response to thread: %s", thread_id)
+                        else:
+                            logging_utility.error("Failed to save error response to thread: %s", thread_id)
 
             else:
                 logging_utility.info("No function calls for run_id: %s", run_id)
 
-            logging_utility.info("Starting streaming response for run_id: %s", run_id)
+            # Generate the final response using the updated messages (including non-error tool responses)
+            logging_utility.info("Generating final response with updated message history")
+            logging_utility.debug("Final messages for response generation: %s", messages)
             streaming_response = self.ollama_client.chat(
                 model=model,
-                messages=messages,
+                messages=messages,  # Use the updated messages list
                 options={'num_ctx': 4096},
                 stream=True
             )
