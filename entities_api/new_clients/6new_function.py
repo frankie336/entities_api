@@ -50,27 +50,34 @@ new_tool = client.tool_service.create_tool(
     type='function',
 
     function={
-                'type': 'function',
-                'function': {
-                    'name': 'get_flight_times',
-                    'description': 'Get the flight times between two cities',
-                    'parameters': {
-                        'type': 'object',
-                        'properties': {
-                            'departure': {
-                                'type': 'string',
-                                'description': 'The departure city (airport code)',
+                "type": "function",
+                "function": {
+                    "name": "getAnnouncedPrefixes",
+                    "description": "Retrieves the announced prefixes for a given ASN",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "resource": {
+                                "type": "string",
+                                "description": "The ASN for which to retrieve the announced prefixes"
                             },
-                            'arrival': {
-                                'type': 'string',
-                                'description': 'The arrival city (airport code)',
+                            "starttime": {
+                                "type": "string",
+                                "description": "The start time for the query (ISO8601 or Unix timestamp)"
                             },
+                            "endtime": {
+                                "type": "string",
+                                "description": "The end time for the query (ISO8601 or Unix timestamp)"
+                            },
+                            "min_peers_seeing": {
+                                "type": "integer",
+                                "description": "Minimum number of RIS peers seeing the prefix for it to be included in the results"
+                            }
                         },
-                        'required': ['departure', 'arrival'],
-                    },
-                },
+                        "required": ["resource"]
+                    }
+                }
             },
-
 
     assistant_id='asst_likBry4di6AglrEq3sQdUI'
 

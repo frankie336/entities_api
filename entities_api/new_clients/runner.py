@@ -19,6 +19,7 @@ load_dotenv()
 # Initialize logging utility
 logging_utility = LoggingUtility()
 
+
 def get_flight_times(departure: str, arrival: str) -> str:
     flights = {
         'NYC-LAX': {'departure': '08:00 AM', 'arrival': '11:30 AM', 'duration': '6h 30m'},
@@ -31,7 +32,9 @@ def get_flight_times(departure: str, arrival: str) -> str:
     key = f'{departure}-{arrival}'.upper()
     return json.dumps(flights.get(key, {'error': 'Flight not found'}))
 
-def getAnnouncedPrefixes(resource: str, starttime: Optional[str] = None, endtime: Optional[str] = None, min_peers_seeing: int = 10) -> str:
+
+def getAnnouncedPrefixes(resource: str, starttime: Optional[str] = None, endtime: Optional[str] = None,
+                         min_peers_seeing: int = 10) -> str:
     logging_utility.info('Retrieving announced prefixes for ASN: %s', resource)
 
     base_url = "https://stat.ripe.net/data/announced-prefixes/data.json"
@@ -72,6 +75,7 @@ def getAnnouncedPrefixes(resource: str, starttime: Optional[str] = None, endtime
         logging_utility.error(error_message)
         return json.dumps({"error": error_message})
 
+
 class Runner:
     def __init__(self, base_url=os.getenv('ASSISTANTS_BASE_URL'), api_key='your api key'):
         self.base_url = base_url or os.getenv('ASSISTANTS_BASE_URL')
@@ -90,74 +94,40 @@ class Runner:
         logging_utility.info("Starting streamed response for thread_id: %s, run_id: %s, model: %s", thread_id, run_id,
                              model)
 
-        get_tools = self.tool_service.list_tools(assistant_id='asst_likBry4di6AglrEq3sQdUI')
-        #logging_utility.info("Fetched tools for thread_id: %s, run_id: %s, model: %s", get_tools)
+        logging_utility.info("Here are the inbound messages:",
+                             messages)
 
         try:
             if not self.run_service.update_run_status(run_id, "in_progress"):
                 logging_utility.error("Failed to update run status to in_progress for run_id: %s", run_id)
                 return
 
+            # Fetch and restructure tools
+            try:
+                assistant_id = 'asst_likBry4di6AglrEq3sQdUI'  # Replace with actual assistant ID or fetch dynamically
+                tools = self.tool_service.list_tools(assistant_id)
+                logging_utility.info("Fetched and restructured %d tools for assistant %s", len(tools), assistant_id)
+            except Exception as e:
+                logging_utility.error("Error fetching tools: %s", str(e))
+                tools = []  # Fallback to empty list if there's an error
+
             response = self.ollama_client.chat(
                 model=model,
                 messages=messages,
                 options={'num_ctx': 4096},
-                tools=[
-                    {
-                        'type': 'function',
-                        'function': {
-                            'name': 'get_flight_times',
-                            'description': 'Get the flight times between two cities',
-                            'parameters': {
-                                'type': 'object',
-                                'properties': {
-                                    'departure': {
-                                        'type': 'string',
-                                        'description': 'The departure city (airport code)',
-                                    },
-                                    'arrival': {
-                                        'type': 'string',
-                                        'description': 'The arrival city (airport code)',
-                                    },
-                                },
-                                'required': ['departure', 'arrival'],
-                            },
-                        },
-                    },
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": "getAnnouncedPrefixes",
-                            "description": "Retrieves the announced prefixes for a given ASN",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "resource": {
-                                        "type": "string",
-                                        "description": "The ASN for which to retrieve the announced prefixes"
-                                    },
-                                    "starttime": {
-                                        "type": "string",
-                                        "description": "The start time for the query (ISO8601 or Unix timestamp)"
-                                    },
-                                    "endtime": {
-                                        "type": "string",
-                                        "description": "The end time for the query (ISO8601 or Unix timestamp)"
-                                    },
-                                    "min_peers_seeing": {
-                                        "type": "integer",
-                                        "description": "Minimum number of RIS peers seeing the prefix for it to be included in the results"
-                                    }
-                                },
-                                "required": ["resource"]
-                            }
-                        }
-                    },
-                ],
+                tools=tools,
             )
 
             if response['message'].get('tool_calls'):
-                logging_utility.info("Function call triggered for run_id: %s", response['message'].get('tool_calls'))
+                # Set run status to "requires_action" when a function call is triggered
+                if not self.run_service.update_run_status(run_id, "requires_action"):
+                    logging_utility.error("Failed to update run status to requires_action for run_id: %s", run_id)
+
+                logging_utility.info("Function call triggered. Run status set to requires_action for run_id: %s",
+                                     run_id)
+
+                # Comment: Function call processing block
+                # This block handles the execution of tool calls made by the model
                 available_functions = {
                     'get_flight_times': get_flight_times,
                     'getAnnouncedPrefixes': getAnnouncedPrefixes,
@@ -196,12 +166,14 @@ class Runner:
                             })
                         else:
                             logging_utility.warning(
-                                f"Filtered out error response from {function_name}: {parsed_response['error']}")
+                                "Filtered out error response from %s: %s", function_name, parsed_response['error'])
 
                     except Exception as e:
                         error_message = f"Error executing function {function_name}: {str(e)}"
                         logging_utility.error(error_message)
                         # We don't add error messages to the dialogue anymore
+
+                # End of function call processing block
 
             else:
                 logging_utility.info("No function calls for run_id: %s", run_id)
@@ -249,7 +221,8 @@ class Runner:
         logging_utility.info("Exiting streamed_response_helper")
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id, model='llama3.1'):
-        logging_utility.info("Processing conversation for thread_id: %s, run_id: %s, model: %s", thread_id, run_id, model)
+        logging_utility.info("Processing conversation for thread_id: %s, run_id: %s, model: %s", thread_id, run_id,
+                             model)
 
         assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
 

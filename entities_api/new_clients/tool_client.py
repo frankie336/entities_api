@@ -118,48 +118,29 @@ class ClientToolService:
             return parsed
         return parameters
 
-    def restructure_tools(self, assistant_tools):
+    def restructure_tools(self, tools):
         """Restructure the tools to match the target structure."""
-
-        def parse_parameters(parameters):
-            """Recursively parse parameters and handle different structures."""
-            if isinstance(parameters, dict):
-                parsed = {}
-                for key, value in parameters.items():
-                    # If the value is a dict, recursively parse it
-                    if isinstance(value, dict):
-                        parsed[key] = parse_parameters(value)
-                    else:
-                        parsed[key] = value
-                return parsed
-            return parameters
-
         restructured_tools = []
-
-        for tool in assistant_tools['tools']:
+        for tool in tools:
             function_info = tool['function']
 
-            # Check if the 'function' key is nested and extract accordingly
+            # The function details are nested one level deeper
             if 'function' in function_info:
                 function_info = function_info['function']
 
-            # Restructure the tool to match the target structure
             restructured_tool = {
-                'type': tool['type'],  # Keep the type information
+                'type': 'function',
                 'function': {
                     'name': function_info.get('name', 'Unnamed tool'),
                     'description': function_info.get('description', 'No description provided'),
-                    'parameters': parse_parameters(function_info.get('parameters', {})),  # Recursively parse parameters
+                    'parameters': function_info.get('parameters', {})
                 }
             }
-
-            # Add the restructured tool to the list
             restructured_tools.append(restructured_tool)
-
         return restructured_tools
 
-    def list_tools(self, assistant_id: Optional[str] = None, restructure: bool = False) -> List[dict]:
-        """List tools for a given assistant and optionally restructure them."""
+    def list_tools(self, assistant_id: Optional[str] = None) -> List[dict]:
+        """List tools for a given assistant and restructure them."""
         url = f"/v1/assistants/{assistant_id}/tools" if assistant_id else "/v1/tools"
         logging_utility.info("Listing tools")
 
@@ -176,11 +157,12 @@ class ClientToolService:
 
             logging_utility.info("Retrieved %d tools", len(tools))
 
-            # Optionally restructure tools
-            if restructure:
-                tools = self.restructure_tools(tools)
+            # Always restructure tools
+            restructured_tools = self.restructure_tools(tools)
 
-            return tools
+            logging_utility.info("Restructured tools: %s", restructured_tools)
+
+            return restructured_tools
         except httpx.HTTPStatusError as e:
             logging_utility.error("HTTP error while listing tools: %s | Response: %s", str(e), e.response.text)
             raise
