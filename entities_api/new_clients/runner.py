@@ -168,12 +168,13 @@ class Runner:
 
                         parsed_response = json.loads(function_response)
 
-                        # Always save the tool response to the thread, regardless of whether it contains an error
-                        if self.message_service.save_assistant_message_chunk(thread_id, function_response,
-                                                                             is_last_chunk=True):
-                            logging_utility.info("Saved tool response to thread: %s", thread_id)
-                        else:
-                            logging_utility.error("Failed to save tool response to thread: %s", thread_id)
+                        # Always save the tool response using add_tool_message
+                        try:
+                            tool_message = self.message_service.add_tool_message(message_id, function_response)
+                            logging_utility.info("Saved tool response to thread: %s with tool message id: %s",
+                                                 thread_id, tool_message.id)
+                        except Exception as e:
+                            logging_utility.error("Failed to save tool response: %s", str(e))
 
                         # Only add non-error responses to the messages list
                         if 'error' not in parsed_response:
@@ -190,13 +191,14 @@ class Runner:
                     except Exception as e:
                         error_message = f"Error executing function {function_name}: {str(e)}"
                         logging_utility.error(error_message, exc_info=True)
-                        # Save the error message as a tool response to the thread, but don't add it to messages
+                        # Save the error message as a tool response, but don't add it to messages
                         error_response = json.dumps({"error": error_message})
-                        if self.message_service.save_assistant_message_chunk(thread_id, error_response,
-                                                                             is_last_chunk=True):
-                            logging_utility.info("Saved error response to thread: %s", thread_id)
-                        else:
-                            logging_utility.error("Failed to save error response to thread: %s", thread_id)
+                        try:
+                            tool_message = self.message_service.add_tool_message(message_id, error_response)
+                            logging_utility.info("Saved error response to thread: %s with tool message id: %s",
+                                                 thread_id, tool_message.id)
+                        except Exception as save_error:
+                            logging_utility.error("Failed to save error response: %s", str(save_error))
 
             else:
                 logging_utility.info("No function calls for run_id: %s", run_id)
