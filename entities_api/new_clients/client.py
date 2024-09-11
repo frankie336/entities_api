@@ -1,10 +1,11 @@
-from entities_api.new_clients.user_client import UserService
+from entities_api.new_clients.actions_client import ClientActionService
 from entities_api.new_clients.assistant_client import AssistantService
-from entities_api.new_clients.thread_client import ThreadService
 from entities_api.new_clients.message_client import MessageService
 from entities_api.new_clients.run_client import RunService
-from entities_api.new_clients.tool_client import ClientToolService
 from entities_api.new_clients.runner import Runner
+from entities_api.new_clients.thread_client import ThreadService
+from entities_api.new_clients.tool_client import ClientToolService
+from entities_api.new_clients.user_client import UserService
 
 
 class OllamaClient:
@@ -19,6 +20,7 @@ class OllamaClient:
         self.message_service = MessageService(base_url, api_key)
         self.run_service = RunService(base_url, api_key)
         self.runner = Runner(base_url, api_key)
+        self.actions_service = ClientActionService(base_url, api_key)
 
     def user_service(self):
         return self.user_service
@@ -38,6 +40,10 @@ class OllamaClient:
 
     def run_service(self):
         return self.run_service
+
+    def action_service(self):
+        return self.actions_service
+
 
     def create_message(self, thread_id, content, role):
         data = [

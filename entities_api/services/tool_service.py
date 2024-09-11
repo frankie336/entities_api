@@ -1,13 +1,13 @@
-import httpx
-from pydantic import ValidationError
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy.exc import IntegrityError
+from typing import List, Optional
+
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, joinedload
+
 from entities_api.schemas import ToolCreate, ToolUpdate, ToolRead
-from models.models import Tool, Assistant
 from entities_api.services.identifier_service import IdentifierService
 from entities_api.services.logging_service import LoggingUtility
-from typing import List, Optional
+from models.models import Tool, Assistant
 
 logging_utility = LoggingUtility()
 
@@ -19,11 +19,18 @@ class ToolService:
     def create_tool(self, tool: ToolCreate) -> ToolRead:
         logging_utility.info("Starting create_tool with ToolCreate: %s", tool)
         try:
+            # Check if a tool with the same name already exists
+            existing_tool = self.db.query(Tool).filter(Tool.name == tool.name).first()
+            if existing_tool:
+                logging_utility.warning("Tool with name %s already exists.", tool.name)
+                raise HTTPException(status_code=400, detail=f"Tool with name {tool.name} already exists")
+
             tool_id = IdentifierService.generate_tool_id()
             logging_utility.debug("Generated tool ID: %s", tool_id)
 
             db_tool = Tool(
                 id=tool_id,
+                name=tool.name,  # Use the new unique name field
                 type=tool.type,
                 function=tool.function.dict() if tool.function else None
             )
@@ -36,7 +43,7 @@ class ToolService:
         except IntegrityError as e:
             self.db.rollback()
             logging_utility.error("IntegrityError during tool creation: %s", str(e))
-            raise HTTPException(status_code=400, detail="Invalid tool data or duplicate tool ID")
+            raise HTTPException(status_code=400, detail="Invalid tool data or duplicate tool name")
         except Exception as e:
             self.db.rollback()
             logging_utility.error("Unexpected error during tool creation: %s", str(e))
@@ -73,6 +80,21 @@ class ToolService:
         except HTTPException as e:
             logging_utility.error("HTTPException: %s", str(e))
             raise
+        except Exception as e:
+            logging_utility.error("Unexpected error retrieving tool: %s", str(e))
+            raise HTTPException(status_code=500, detail="An error occurred while retrieving the tool")
+
+    def get_tool_by_name(self, name: str) -> ToolRead:
+        """Retrieve a tool by its name."""
+        logging_utility.info("Retrieving tool by name: %s", name)
+        try:
+            db_tool = self.db.query(Tool).filter(Tool.name == name).first()
+            if not db_tool:
+                logging_utility.warning("Tool with name %s not found", name)
+                raise HTTPException(status_code=404, detail=f"Tool with name {name} not found")
+
+            logging_utility.info("Tool retrieved successfully: %s", db_tool)
+            return ToolRead.model_validate(db_tool)
         except Exception as e:
             logging_utility.error("Unexpected error retrieving tool: %s", str(e))
             raise HTTPException(status_code=500, detail="An error occurred while retrieving the tool")
@@ -187,6 +209,7 @@ class ToolService:
         # Manually convert the ORM Tool object to a dictionary
         return {
             "id": tool.id,
+            "name": tool.name,  # Include the new name field
             "type": tool.type,
             "function": tool.function  # Assuming function is stored as a dictionary or JSON-like structure
         }

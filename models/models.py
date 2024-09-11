@@ -20,6 +20,7 @@ assistant_tools = Table(
 
 # User model
 
+
 class User(Base):
     __tablename__ = "users"
 
@@ -31,6 +32,8 @@ class User(Base):
     assistants = relationship('Assistant', back_populates='user')
 
 # Thread model
+
+
 class Thread(Base):
     __tablename__ = "threads"
 
@@ -44,6 +47,9 @@ class Thread(Base):
     participants = relationship('User', secondary=thread_participants, back_populates='threads')
 
 # Message model
+
+
+
 class Message(Base):
     __tablename__ = "messages"
 
@@ -64,6 +70,8 @@ class Message(Base):
     sender_id = Column(String(64), nullable=False)
 
 # Run model
+
+
 class Run(Base):
     __tablename__ = "runs"
 
@@ -96,9 +104,11 @@ class Run(Base):
     top_p = Column(Integer, nullable=True)
     tool_resources = Column(JSON, nullable=True)
 
+    # One-to-many relationship with actions
+    actions = relationship("Action", back_populates="run")
+
 # Assistant model
 
-from sqlalchemy.orm import relationship, joinedload
 
 class Assistant(Base):
     __tablename__ = "assistants"
@@ -122,12 +132,39 @@ class Assistant(Base):
 
 # Tool model
 
+
 class Tool(Base):
     __tablename__ = "tools"
 
     id = Column(String(64), primary_key=True, index=True)
+    name = Column(String(128), unique=True, nullable=False)  # <-- New name field, unique
     type = Column(String(64), nullable=False)
-    function = Column(JSON, nullable=True)  # JSON field for storing function data
+    function = Column(JSON, nullable=True)  # JSON field for storing function data, including the name
 
     # Many-to-many relationship with assistants
     assistants = relationship("Assistant", secondary=assistant_tools, back_populates="tools")
+
+    # One-to-many relationship with actions
+    actions = relationship("Action", back_populates="tool")
+
+# Action model
+
+
+class Action(Base):
+    __tablename__ = "actions"
+
+    id = Column(String(64), primary_key=True, index=True)  # ID column
+    run_id = Column(String(64), ForeignKey('runs.id'), nullable=False)  # Reference to the run that triggered this action
+    triggered_at = Column(DateTime, default=lambda: time.strftime('%Y-%m-%d %H:%M:%S'))  # When the tool was triggered
+    expires_at = Column(DateTime, nullable=True)  # When the action expires, if applicable
+    is_processed = Column(Boolean, default=False)  # Flag to check if the action has been processed
+    processed_at = Column(DateTime, nullable=True)  # Timestamp when the action was processed
+    status = Column(String(32), nullable=False, default="pending")  # Status: pending, processing, completed, failed
+    function_args = Column(JSON, nullable=True)  # Store the function arguments passed to the tool's function
+    result = Column(JSON, nullable=True)  # Store the result of the tool call
+
+    # Relationship with the tool
+    tool = relationship("Tool", back_populates="actions")
+
+    # Relationship with the run
+    run = relationship("Run", back_populates="actions")

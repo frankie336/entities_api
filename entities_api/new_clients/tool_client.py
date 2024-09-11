@@ -6,7 +6,6 @@ from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 
-
 class ClientToolService:
     def __init__(self, base_url: str, api_key: str):
         self.base_url = base_url
@@ -55,10 +54,31 @@ class ClientToolService:
             logging_utility.error("Unexpected error during tool-assistant association: %s", str(e))
             raise
 
-    def get_tool(self, tool_id: str) -> ToolRead:
+    def get_tool_by_id(self, tool_id: str) -> ToolRead:
+        """Retrieve a tool by its ID."""
         logging_utility.info("Retrieving tool with id: %s", tool_id)
         try:
             response = self.client.get(f"/v1/tools/{tool_id}")
+            response.raise_for_status()
+            tool = response.json()
+            validated_tool = ToolRead.model_validate(tool)
+            logging_utility.info("Tool retrieved successfully")
+            return validated_tool
+        except ValidationError as e:
+            logging_utility.error("Validation error during tool retrieval: %s", e.json())
+            raise ValueError(f"Validation error: {e}")
+        except httpx.HTTPStatusError as e:
+            logging_utility.error("HTTP error during tool retrieval: %s | Response: %s", str(e), e.response.text)
+            raise
+        except Exception as e:
+            logging_utility.error("Unexpected error during tool retrieval: %s", str(e))
+            raise
+
+    def get_tool_by_name(self, name: str) -> ToolRead:
+        """Retrieve a tool by its name."""
+        logging_utility.info("Retrieving tool with name: %s", name)
+        try:
+            response = self.client.get(f"/v1/tools/name/{name}")
             response.raise_for_status()
             tool = response.json()
             validated_tool = ToolRead.model_validate(tool)
@@ -118,62 +138,51 @@ class ClientToolService:
             return parsed
         return parameters
 
-    def restructure_tools(self, assistant_tools):
+    def restructure_tools(self, tools):
         """Restructure the tools to match the target structure."""
-
-        def parse_parameters(parameters):
-            """Recursively parse parameters and handle different structures."""
-            if isinstance(parameters, dict):
-                parsed = {}
-                for key, value in parameters.items():
-                    # If the value is a dict, recursively parse it
-                    if isinstance(value, dict):
-                        parsed[key] = parse_parameters(value)
-                    else:
-                        parsed[key] = value
-                return parsed
-            return parameters
-
         restructured_tools = []
-
-        for tool in assistant_tools['tools']:
+        for tool in tools:
             function_info = tool['function']
 
-            # Check if the 'function' key is nested and extract accordingly
+            # The function details are nested one level deeper
             if 'function' in function_info:
                 function_info = function_info['function']
 
-            # Restructure the tool to match the target structure
             restructured_tool = {
-                'type': tool['type'],  # Keep the type information
+                'type': 'function',
                 'function': {
                     'name': function_info.get('name', 'Unnamed tool'),
                     'description': function_info.get('description', 'No description provided'),
-                    'parameters': parse_parameters(function_info.get('parameters', {})),  # Recursively parse parameters
+                    'parameters': function_info.get('parameters', {})
                 }
             }
-
-            # Add the restructured tool to the list
             restructured_tools.append(restructured_tool)
-
         return restructured_tools
 
-    def list_tools(self, assistant_id: Optional[str] = None, restructure: bool = False) -> List[dict]:
-        """List tools for a given assistant and optionally restructure them."""
+    def list_tools(self, assistant_id: Optional[str] = None) -> List[dict]:
+        """List tools for a given assistant and restructure them."""
         url = f"/v1/assistants/{assistant_id}/tools" if assistant_id else "/v1/tools"
         logging_utility.info("Listing tools")
+
         try:
             response = self.client.get(url)
             response.raise_for_status()
-            tools = response.json()  # Return raw JSON data as a list of dictionaries
 
-            logging_utility.info("Retrieved %d tools", len(tools['tools']))
+            # Fetch the list of tools and log it
+            tools_list = response.json()
+            logging_utility.info(f"Fetched tool list: {tools_list}")
 
-            # Optionally restructure tools
-            if restructure:
-                tools = self.restructure_tools(tools)
+            # Extract the actual tools from the response data
+            tools = tools_list['tools']
 
-            return tools
+            logging_utility.info("Retrieved %d tools", len(tools))
+
+            # Always restructure tools
+            restructured_tools = self.restructure_tools(tools)
+
+            logging_utility.info("Restructured tools: %s", restructured_tools)
+
+            return restructured_tools
         except httpx.HTTPStatusError as e:
             logging_utility.error("HTTP error while listing tools: %s | Response: %s", str(e), e.response.text)
             raise
