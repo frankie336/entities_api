@@ -14,15 +14,16 @@ class ClientToolService:
         self.client = httpx.Client(
             base_url=base_url,
             headers={"Authorization": f"Bearer {api_key}"},
-            timeout=10.0
+            timeout=10.0  # Add a timeout of 10 seconds
         )
         logging_utility.info("ClientToolService initialized with base_url: %s", self.base_url)
 
     def __del__(self):
+        # Close the client when the instance is destroyed to prevent resource leaks
         self.client.close()
 
     def create_tool(self, **tool_data) -> ToolRead:
-        logging_utility.info("Creating new tool with data: %s", tool_data)
+        logging_utility.info("Creating new tool")
         try:
             tool = ToolCreate(**tool_data)
             response = self.client.post("/v1/tools", json=tool.model_dump())
@@ -105,16 +106,63 @@ class ClientToolService:
             logging_utility.error("Unexpected error during tool deletion: %s", str(e))
             raise
 
+    def parse_parameters(self, parameters):
+        """Recursively parse parameters and handle different structures."""
+        if isinstance(parameters, dict):
+            parsed = {}
+            for key, value in parameters.items():
+                if isinstance(value, dict):
+                    parsed[key] = self.parse_parameters(value)
+                else:
+                    parsed[key] = value
+            return parsed
+        return parameters
+
+    def restructure_tools(self, tools):
+        """Restructure the tools to match the target structure."""
+        restructured_tools = []
+        for tool in tools:
+            function_info = tool['function']
+
+            # The function details are nested one level deeper
+            if 'function' in function_info:
+                function_info = function_info['function']
+
+            restructured_tool = {
+                'type': 'function',
+                'function': {
+                    'name': function_info.get('name', 'Unnamed tool'),
+                    'description': function_info.get('description', 'No description provided'),
+                    'parameters': function_info.get('parameters', {})
+                }
+            }
+            restructured_tools.append(restructured_tool)
+        return restructured_tools
+
     def list_tools(self, assistant_id: Optional[str] = None) -> List[dict]:
+        """List tools for a given assistant and restructure them."""
         url = f"/v1/assistants/{assistant_id}/tools" if assistant_id else "/v1/tools"
-        logging_utility.info("Listing tools for assistant_id: %s", assistant_id)
+        logging_utility.info("Listing tools")
+
         try:
             response = self.client.get(url)
             response.raise_for_status()
+
+            # Fetch the list of tools and log it
             tools_list = response.json()
+            logging_utility.info(f"Fetched tool list: {tools_list}")
+
+            # Extract the actual tools from the response data
             tools = tools_list['tools']
+
             logging_utility.info("Retrieved %d tools", len(tools))
-            return tools
+
+            # Always restructure tools
+            restructured_tools = self.restructure_tools(tools)
+
+            logging_utility.info("Restructured tools: %s", restructured_tools)
+
+            return restructured_tools
         except httpx.HTTPStatusError as e:
             logging_utility.error("HTTP error while listing tools: %s | Response: %s", str(e), e.response.text)
             raise
