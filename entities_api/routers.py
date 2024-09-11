@@ -215,8 +215,11 @@ def add_tool_message(message_id: str, tool_message: ToolMessageCreate, db: Sessi
 @router.post("/tools", response_model=ToolRead)
 def create_tool(tool: ToolCreate, db: Session = Depends(get_db)):
     tool_service = ToolService(db)
-    # Convert ToolCreate to dictionary and pass as keyword arguments
-    return tool_service.create_tool(**tool.dict())
+    return tool_service.create_tool(tool)
+
+
+
+
 
 
 @router.post("/assistants/{assistant_id}/tools/{tool_id}")
@@ -231,6 +234,10 @@ def get_tool(tool_id: str, db: Session = Depends(get_db)):
     tool_service = ToolService(db)
     return tool_service.get_tool(tool_id)
 
+@router.get("/tools/name/{name}", response_model=ToolRead)
+def get_tool_by_name(name: str, db: Session = Depends(get_db)):
+    tool_service = ToolService(db)
+    return tool_service.get_tool_by_name(name)
 
 @router.put("/tools/{tool_id}", response_model=ToolRead)
 def update_tool(tool_id: str, tool_update: ToolUpdate, db: Session = Depends(get_db)):

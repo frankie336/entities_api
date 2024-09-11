@@ -1,5 +1,4 @@
-from datetime import datetime
-
+from datetime import datetime  # Import datetime directly
 from pydantic import BaseModel, Field, validator, ConfigDict
 from typing import List, Optional, Dict, Any
 
@@ -105,6 +104,7 @@ class MessageRead(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class MessageUpdate(BaseModel):
     content: Optional[str]
     meta_data: Optional[Dict[str, Any]]
@@ -125,6 +125,7 @@ class ToolMessageCreate(BaseModel):
         }
     )
 
+
 class ToolFunction(BaseModel):
     function: Optional[dict]  # Handle the nested 'function' structure
 
@@ -136,23 +137,29 @@ class ToolFunction(BaseModel):
             return v['function']  # Extract nested function dict
         raise ValueError("Invalid function format")
 
+
 class Tool(BaseModel):
     id: str
     type: str
+    name: Optional[str]  # Added name field
     function: Optional[ToolFunction]
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class ToolCreate(BaseModel):
+    name: str  # Add the 'name' attribute
     type: str
     function: Optional[ToolFunction]
 
     @validator('function', pre=True, always=True)
     def parse_function(cls, v):
+        if isinstance(v, ToolFunction):
+            return v
         if isinstance(v, dict) and 'function' in v:
-            # If it's nested, pass only the inner function dictionary
             return ToolFunction(function=v['function'])
         return ToolFunction(**v)
+
 
 class ToolRead(Tool):
     @validator('function', pre=True, always=True)
@@ -166,14 +173,18 @@ class ToolRead(Tool):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class ToolUpdate(BaseModel):
     type: Optional[str] = None
+    name: Optional[str] = None  # Allow updating the name
     function: Optional[ToolFunction] = None
+
 
 class ToolList(BaseModel):
     tools: List[ToolRead]
 
     model_config = ConfigDict(from_attributes=True)
+
 
 class RunCreate(BaseModel):
     id: str
@@ -207,6 +218,7 @@ class RunCreate(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class Run(BaseModel):
     id: str
     assistant_id: str
@@ -239,8 +251,10 @@ class Run(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class RunStatusUpdate(BaseModel):
     status: str
+
 
 class AssistantCreate(BaseModel):
     user_id: str
@@ -253,6 +267,7 @@ class AssistantCreate(BaseModel):
     top_p: Optional[float] = 1.0
     temperature: Optional[float] = 1.0
     response_format: Optional[str] = "auto"
+
 
 class AssistantRead(BaseModel):
     id: str
@@ -270,6 +285,7 @@ class AssistantRead(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class AssistantUpdate(BaseModel):
     name: Optional[str]
     description: Optional[str]
@@ -283,13 +299,15 @@ class AssistantUpdate(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-# New Action schema
+from datetime import datetime
+from pydantic import BaseModel, Field, validator, ConfigDict
+from typing import List, Optional, Dict, Any
+
 class ActionBase(BaseModel):
     id: str
-    tool_id: str
     run_id: str
-    triggered_at: datetime
-    expires_at: Optional[datetime] = None
+    triggered_at: datetime  # Use datetime for the timestamp
+    expires_at: Optional[datetime] = None  # This now accepts a datetime
     is_processed: bool
     processed_at: Optional[datetime] = None
     status: str = "pending"
@@ -300,15 +318,22 @@ class ActionBase(BaseModel):
 
 
 class ActionCreate(BaseModel):
-    tool_id: str
+    id: Optional[str] = None
+    tool_name: Optional[str] = None
     run_id: str
     function_args: Optional[Dict[str, Any]] = {}
-    expires_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None  # Use datetime directly
+
+    @validator('tool_name', pre=True, always=True)
+    def validate_tool_fields(cls, v):
+        if not v:
+            raise ValueError('Tool name must be provided.')
+        return v
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "tool_id": "example_tool_id",
+                "tool_name": "example_tool_name",
                 "run_id": "example_run_id",
                 "function_args": {"arg1": "value1", "arg2": "value2"},
                 "expires_at": "2024-09-10T12:00:00Z"
@@ -316,16 +341,19 @@ class ActionCreate(BaseModel):
         }
     )
 
-class ActionRead(ActionBase):
-    pass
+
+class ActionRead(BaseModel):
+    id: str
+    status: str
+    result: Optional[Dict[str, Any]] = None  # Make result optional
+
+
+class ActionList(BaseModel):
+    actions: List[ActionRead]
+
 
 class ActionUpdate(BaseModel):
     status: str
     result: Optional[Dict[str, Any]] = None
-
-    model_config = ConfigDict(from_attributes=True)
-
-class ActionList(BaseModel):
-    actions: List[ActionRead]
 
     model_config = ConfigDict(from_attributes=True)

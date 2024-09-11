@@ -17,21 +17,21 @@ class ActionService:
         logging_utility.info("ActionService initialized with database session.")
 
     def create_action(self, action_data: ActionCreate) -> ActionRead:
-        """Create a new action for a tool call."""
-        logging_utility.info("Creating action for tool_id: %s, run_id: %s", action_data.tool_id, action_data.run_id)
+        """Create a new action for a tool call, by searching tool by name."""
+        logging_utility.info("Creating action for tool_name: %s, run_id: %s", action_data.tool_name, action_data.run_id)
         try:
-            # Validate that the tool_id exists in the tools table
-            tool = self.db.query(Tool).filter(Tool.id == action_data.tool_id).first()
+            # Validate that the tool_name exists in the tools table
+            tool = self.db.query(Tool).filter(Tool.name == action_data.tool_name).first()
             if not tool:
-                logging_utility.warning("Tool with ID %s not found.", action_data.tool_id)
-                raise HTTPException(status_code=404, detail=f"Tool with id {action_data.tool_id} not found")
+                logging_utility.warning("Tool with name %s not found.", action_data.tool_name)
+                raise HTTPException(status_code=404, detail=f"Tool with name {action_data.tool_name} not found")
 
             action_id = IdentifierService.generate_action_id()  # Generate action ID using IdentifierService
             logging_utility.debug("Generated action ID: %s", action_id)
 
             new_action = Action(
                 id=action_id,  # Use generated action ID
-                tool_id=action_data.tool_id,
+                tool_id=tool.id,  # Use tool's ID from the tool lookup
                 run_id=action_data.run_id,
                 triggered_at=datetime.now(),
                 expires_at=action_data.expires_at,

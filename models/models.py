@@ -137,6 +137,7 @@ class Tool(Base):
     __tablename__ = "tools"
 
     id = Column(String(64), primary_key=True, index=True)
+    name = Column(String(128), unique=True, nullable=False)  # <-- New name field, unique
     type = Column(String(64), nullable=False)
     function = Column(JSON, nullable=True)  # JSON field for storing function data, including the name
 
@@ -153,7 +154,6 @@ class Action(Base):
     __tablename__ = "actions"
 
     id = Column(String(64), primary_key=True, index=True)  # ID column
-    tool_id = Column(String(64), ForeignKey('tools.id'), nullable=False)  # Reference to the tool
     run_id = Column(String(64), ForeignKey('runs.id'), nullable=False)  # Reference to the run that triggered this action
     triggered_at = Column(DateTime, default=lambda: time.strftime('%Y-%m-%d %H:%M:%S'))  # When the tool was triggered
     expires_at = Column(DateTime, nullable=True)  # When the action expires, if applicable

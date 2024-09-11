@@ -1,14 +1,24 @@
+# Tool creation and association functions
 import time
 from entities_api.new_clients.client import OllamaClient
 from entities_api.schemas import ToolFunction, ToolUpdate
 
 
+from entities_api.schemas import ToolFunction  # Import ToolFunction
+
 def create_and_associate_tools(client, function_definitions, assistant_id):
     for func_def in function_definitions:
-        # Create a new tool
+        # Extract the tool name from the function definition
+        tool_name = func_def['function']['name']
+
+        # Wrap the function definition in ToolFunction
+        tool_function = ToolFunction(function=func_def['function'])
+
+        # Create a new tool with the name included
         new_tool = client.tool_service.create_tool(
+            name=tool_name,  # Pass the tool name explicitly
             type='function',
-            function=func_def,
+            function=tool_function,  # Pass the wrapped ToolFunction
             assistant_id=assistant_id
         )
 
@@ -18,12 +28,8 @@ def create_and_associate_tools(client, function_definitions, assistant_id):
             assistant_id=assistant_id
         )
 
-        print(f"New tool created: ID: {new_tool.id}")
+        print(f"New tool created: Name: {tool_name}, ID: {new_tool.id}")
         print(new_tool)
-
-    # List tools associated with the assistant
-    assistant_tools = client.tool_service.list_tools(assistant_id=assistant_id)
-    print(assistant_tools)
 
 
 def setup_assistant_with_tools(user_name, assistant_name, assistant_description,
@@ -49,6 +55,7 @@ def setup_assistant_with_tools(user_name, assistant_name, assistant_description,
     create_and_associate_tools(client, function_definitions, assistant.id)
 
     return assistant
+
 
 # Example usage
 if __name__ == "__main__":

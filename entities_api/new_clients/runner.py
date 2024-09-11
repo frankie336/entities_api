@@ -9,10 +9,11 @@ from entities_api.new_clients.thread_client import ThreadService
 from entities_api.new_clients.user_client import UserService
 from entities_api.new_clients.tool_client import ClientToolService
 from entities_api.new_clients.actions_client import ClientActionService
-
+from entities_api.schemas import ActionCreate
 from ollama import Client
 from entities_api.services.logging_service import LoggingUtility
 from typing import Optional
+
 
 # Load environment variables from .env file
 load_dotenv()
@@ -117,19 +118,22 @@ class Runner:
         logging_utility.debug("Tool filtering messages: %s", tool_filtering_messages)
 
         try:
+            # Update run status to in_progress
             if not self.run_service.update_run_status(run_id, "in_progress"):
                 logging_utility.error("Failed to update run status to in_progress for run_id: %s", run_id)
                 return
 
+            # Fetch tools for the assistant
             try:
-                assistant_id = 'asst_bsGolKsyIfdmNOlfKmQApa'  # Replace with actual assistant ID or fetch dynamically
+                assistant_id = 'asst_Hlq5Vj7BPwq1HN1T28qMxh'  # Replace with dynamic assistant ID if needed
+
                 tools = self.tool_service.list_tools(assistant_id)
                 logging_utility.info("Fetched %d tools for assistant %s", len(tools), assistant_id)
             except Exception as e:
                 logging_utility.error("Error fetching tools: %s", str(e))
                 tools = []
 
-            # Use tool_filtering_messages for the initial chat call.
+            # Use tool_filtering_messages for the initial chat call
             response = self.ollama_client.chat(
                 model=model,
                 messages=tool_filtering_messages,
@@ -139,6 +143,7 @@ class Runner:
             logging_utility.debug("Initial chat response: %s", response)
 
             if response['message'].get('tool_calls'):
+                # Update run status to requires_action
                 if not self.run_service.update_run_status(run_id, "requires_action"):
                     logging_utility.error("Failed to update run status to requires_action for run_id: %s", run_id)
 
@@ -149,6 +154,7 @@ class Runner:
                     'getAnnouncedPrefixes': getAnnouncedPrefixes,
                 }
 
+                # Loop through the tool calls
                 for tool in response['message'].get('tool_calls', []):
                     try:
                         function_name = tool['function']['name']
@@ -157,13 +163,29 @@ class Runner:
                         logging_utility.info("Function call name for run_id: %s, function_name: %s", run_id,
                                              function_name)
 
-                        # Create action entry for the tool call
-                        action_data = {
-                            'tool_id': function_name,
-                            'run_id': run_id,
-                            'function_args': function_args
-                        }
-                        action_response = self.action_service.create_action(**action_data)
+                        # Look up tool ID based on the function name (tool_name)
+                        tool_record = self.tool_service.get_tool_by_name(
+                            function_name)  # Lookup the tool using its name
+
+                        if not tool_record:
+                            raise ValueError(f"Tool with name '{function_name}' not found")
+
+                        tool_id = tool_record.id  # Use tool_id
+
+                        # Construct action data as a Pydantic ActionCreate object using tool_id
+                        action_data = ActionCreate(
+                            tool_id=tool_id,  # Now pass the tool_id instead of tool_name
+                            run_id=run_id,
+                            function_args=function_args
+                        )
+
+                        # Create the action and handle its response
+
+
+                        action_response = self.action_service.create_action(action_data)
+
+
+
                         logging_utility.info("Created action for function call: %s", action_response.id)
 
                         # Process the function call
@@ -175,6 +197,7 @@ class Runner:
                         elif not isinstance(function_args, dict):
                             raise ValueError(f"Unexpected argument type: {type(function_args)}")
 
+                        # Execute the corresponding function
                         function_to_call = available_functions[function_name]
                         logging_utility.info("Executing function call: %s with args: %s", function_name, function_args)
 
@@ -191,7 +214,7 @@ class Runner:
                         except Exception as e:
                             logging_utility.error("Failed to save tool response: %s", str(e))
 
-                        # Only add non-error responses to the messages list
+                        # Add non-error responses to the messages list
                         if 'error' not in parsed_response:
                             messages.append({'role': 'tool', 'content': function_response})
                             logging_utility.info("Added tool response to messages list")
@@ -223,9 +246,12 @@ class Runner:
                         except Exception as save_error:
                             logging_utility.error("Failed to save error response: %s", str(save_error))
 
-                        # Update action status to "failed"
-                        self.action_service.update_action_status(action_response.id, status="failed",
-                                                                 result={"error": str(e)})
+                        # Update action status to "failed" only if action_response exists
+                        if 'action_response' in locals():
+                            self.action_service.update_action_status(action_response.id, status="failed",
+                                                                     result={"error": str(e)})
+                        else:
+                            logging_utility.error("Action could not be created, skipping status update")
 
             else:
                 logging_utility.info("No function calls for run_id: %s", run_id)

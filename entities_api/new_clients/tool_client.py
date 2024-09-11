@@ -6,7 +6,6 @@ from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 
-
 class ClientToolService:
     def __init__(self, base_url: str, api_key: str):
         self.base_url = base_url
@@ -55,10 +54,31 @@ class ClientToolService:
             logging_utility.error("Unexpected error during tool-assistant association: %s", str(e))
             raise
 
-    def get_tool(self, tool_id: str) -> ToolRead:
+    def get_tool_by_id(self, tool_id: str) -> ToolRead:
+        """Retrieve a tool by its ID."""
         logging_utility.info("Retrieving tool with id: %s", tool_id)
         try:
             response = self.client.get(f"/v1/tools/{tool_id}")
+            response.raise_for_status()
+            tool = response.json()
+            validated_tool = ToolRead.model_validate(tool)
+            logging_utility.info("Tool retrieved successfully")
+            return validated_tool
+        except ValidationError as e:
+            logging_utility.error("Validation error during tool retrieval: %s", e.json())
+            raise ValueError(f"Validation error: {e}")
+        except httpx.HTTPStatusError as e:
+            logging_utility.error("HTTP error during tool retrieval: %s | Response: %s", str(e), e.response.text)
+            raise
+        except Exception as e:
+            logging_utility.error("Unexpected error during tool retrieval: %s", str(e))
+            raise
+
+    def get_tool_by_name(self, name: str) -> ToolRead:
+        """Retrieve a tool by its name."""
+        logging_utility.info("Retrieving tool with name: %s", name)
+        try:
+            response = self.client.get(f"/v1/tools/name/{name}")
             response.raise_for_status()
             tool = response.json()
             validated_tool = ToolRead.model_validate(tool)
