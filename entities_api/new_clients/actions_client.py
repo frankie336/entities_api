@@ -70,7 +70,8 @@ class ClientActionService:
             payload = ActionUpdate(status=status, result=result).dict(exclude_none=True)
             logging_utility.debug("Payload for action update: %s", payload)
 
-            response = self.client.put(f"/actions/{action_id}", json=payload)
+            # Ensure the URL includes the /v1 prefix
+            response = self.client.put(f"/v1/actions/{action_id}", json=payload)
             response.raise_for_status()
 
             response_data = response.json()

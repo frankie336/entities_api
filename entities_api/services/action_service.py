@@ -80,15 +80,14 @@ class ActionService:
             raise HTTPException(status_code=500, detail="An error occurred while retrieving the action")
 
     def update_action_status(self, action_id: str, action_update: ActionUpdate) -> ActionRead:
-        """Update the status of an action (e.g., processing, completed, failed) and store the result."""
-        logging_utility.info("Updating action with ID: %s to status: %s", action_id, action_update.status)
+        """Update the status of an action and store the result."""
         try:
             action = self.db.query(Action).filter(Action.id == action_id).first()
 
             if not action:
-                logging_utility.warning("Action with ID %s not found", action_id)
-                raise HTTPException(status_code=404, detail=f"Action with id {action_id} not found")
+                raise HTTPException(status_code=404, detail=f"Action with ID {action_id} not found")
 
+            # Update action status and result
             action.status = action_update.status
             if action_update.result:
                 action.result = action_update.result
@@ -99,11 +98,17 @@ class ActionService:
             self.db.commit()
             self.db.refresh(action)
 
-            logging_utility.info("Action with ID %s updated successfully to status: %s", action_id, action_update.status)
-            return ActionRead.model_validate(action)
+            # Convert SQLAlchemy object to dictionary and pass it to Pydantic for validation
+            action_dict = {
+                "id": action.id,
+                "status": action.status,
+                "result": action.result
+            }
+
+            return ActionRead(**action_dict)  # Pydantic validation
         except Exception as e:
             self.db.rollback()
-            logging_utility.error("Error updating action status: %s", str(e))
+            logging_utility.error(f"Error updating action status: {str(e)}")
             raise HTTPException(status_code=500, detail="An error occurred while updating the action status")
 
     def list_actions_for_run(self, run_id: str) -> ActionList:
