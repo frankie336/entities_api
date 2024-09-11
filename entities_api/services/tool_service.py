@@ -1,11 +1,9 @@
 import httpx
 from typing import List, Optional
-
 from fastapi import HTTPException
 from pydantic import ValidationError
 from requests import Session
 from sqlalchemy.orm import joinedload
-
 from entities_api.schemas import ToolCreate, ToolRead, ToolUpdate
 from entities_api.services.logging_service import LoggingUtility
 from models.models import Assistant, Tool
@@ -16,6 +14,7 @@ logging_utility = LoggingUtility()
 class ToolService:
     def __init__(self, db: Session):
         self.db = db
+        self.client = httpx.Client()  # Initialize the httpx client
         logging_utility.info("ToolService initialized with database session.")
 
     def create_tool(self, **tool_data) -> ToolRead:
@@ -149,7 +148,6 @@ class ToolService:
             if isinstance(parameters, dict):
                 parsed = {}
                 for key, value in parameters.items():
-                    # If the value is a dict, recursively parse it
                     if isinstance(value, dict):
                         parsed[key] = parse_parameters(value)
                     else:
@@ -166,21 +164,18 @@ class ToolService:
             if 'function' in function_info:
                 function_info = function_info['function']
 
-            # Dynamically handle all function information
             restructured_tool = {
-                'type': tool['type'],  # Keep the type information
+                'type': tool['type'],
                 'name': function_info.get('name', 'Unnamed tool'),
                 'description': function_info.get('description', 'No description provided'),
-                'parameters': parse_parameters(function_info.get('parameters', {})),  # Recursively parse parameters
+                'parameters': parse_parameters(function_info.get('parameters', {})),
             }
 
-            # Add the restructured tool to the list
             restructured_tools.append(restructured_tool)
 
         return restructured_tools
 
     def _tool_to_dict(self, tool: Tool) -> dict:
-        # Manually convert the ORM Tool object to a dictionary
         return {
             "id": tool.id,
             "type": tool.type,
