@@ -1,6 +1,7 @@
-from datetime import datetime  # Import datetime directly
-from pydantic import BaseModel, Field, validator, ConfigDict
+from datetime import datetime
 from typing import List, Optional, Dict, Any
+
+from pydantic import BaseModel, Field, validator, ConfigDict
 
 
 class UserBase(BaseModel):
@@ -299,10 +300,6 @@ class AssistantUpdate(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-from datetime import datetime
-from pydantic import BaseModel, Field, validator, ConfigDict
-from typing import List, Optional, Dict, Any
-
 class ActionBase(BaseModel):
     id: str
     run_id: str
@@ -322,7 +319,7 @@ class ActionCreate(BaseModel):
     tool_name: Optional[str] = None
     run_id: str
     function_args: Optional[Dict[str, Any]] = {}
-    expires_at: Optional[datetime] = None  # Use datetime directly
+    expires_at: Optional[datetime] = None
 
     @validator('tool_name', pre=True, always=True)
     def validate_tool_fields(cls, v):
@@ -341,11 +338,10 @@ class ActionCreate(BaseModel):
         }
     )
 
-
 class ActionRead(BaseModel):
     id: str
     status: str
-    result: Optional[Dict[str, Any]] = None  # Make result optional
+    result: Optional[Dict[str, Any]] = None
 
 
 class ActionList(BaseModel):

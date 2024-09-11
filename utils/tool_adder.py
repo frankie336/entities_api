@@ -6,6 +6,7 @@ from entities_api.schemas import ToolFunction, ToolUpdate
 
 from entities_api.schemas import ToolFunction  # Import ToolFunction
 
+
 def create_and_associate_tools(client, function_definitions, assistant_id):
     for func_def in function_definitions:
         # Extract the tool name from the function definition

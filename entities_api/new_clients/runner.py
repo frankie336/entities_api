@@ -125,7 +125,7 @@ class Runner:
 
             # Fetch tools for the assistant
             try:
-                assistant_id = 'asst_Hlq5Vj7BPwq1HN1T28qMxh'  # Replace with dynamic assistant ID if needed
+                assistant_id = 'asst_CiXHcBwHVzo3CMzniixE8N'  # Replace with dynamic assistant ID if needed
 
                 tools = self.tool_service.list_tools(assistant_id)
                 logging_utility.info("Fetched %d tools for assistant %s", len(tools), assistant_id)

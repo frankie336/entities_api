@@ -38,12 +38,19 @@ class ActionService:
                 function_args=action_data.function_args,
                 status="pending"
             )
+            logging_utility.debug("New action to be added to the database: %s", new_action)
+
             self.db.add(new_action)
             self.db.commit()
             self.db.refresh(new_action)
 
             logging_utility.info("Action created successfully with ID: %s", new_action.id)
-            return ActionRead.model_validate(new_action)
+            return ActionRead(
+                id=new_action.id,
+                status=new_action.status,
+                result=new_action.result
+            )
+
         except IntegrityError as e:
             self.db.rollback()
             logging_utility.error("IntegrityError during action creation: %s", str(e))
