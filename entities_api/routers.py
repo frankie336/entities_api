@@ -5,11 +5,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from db.database import get_db
-from entities_api.schemas import ToolCreate, ToolRead, ToolUpdate, ToolList
+from entities_api.schemas import ToolCreate, ToolRead, ToolUpdate, ToolList, ActionUpdate, ActionRead, ActionList, \
+    ActionCreate
 from entities_api.schemas import (
     UserCreate, UserRead, UserUpdate, ThreadCreate, ThreadRead, MessageCreate, MessageRead, Run, AssistantCreate,
     AssistantRead, RunStatusUpdate, AssistantUpdate, ThreadIds, ThreadReadDetailed, ToolMessageCreate
 )
+from entities_api.services.action_service import ActionService
 from entities_api.services.assistant_service import AssistantService
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.message_service import MessageService
@@ -213,7 +215,8 @@ def add_tool_message(message_id: str, tool_message: ToolMessageCreate, db: Sessi
 @router.post("/tools", response_model=ToolRead)
 def create_tool(tool: ToolCreate, db: Session = Depends(get_db)):
     tool_service = ToolService(db)
-    return tool_service.create_tool(tool)
+    # Convert ToolCreate to dictionary and pass as keyword arguments
+    return tool_service.create_tool(**tool.dict())
 
 
 @router.post("/assistants/{assistant_id}/tools/{tool_id}")
@@ -248,3 +251,35 @@ def list_tools(assistant_id: str = None, db: Session = Depends(get_db)):
     tool_service = ToolService(db)
     tools = tool_service.list_tools(assistant_id)
     return ToolList(tools=tools)
+
+@router.post("/actions", response_model=ActionRead)
+def create_action(action: ActionCreate, db: Session = Depends(get_db)):
+    action_service = ActionService(db)
+    return action_service.create_action(action)
+
+@router.get("/actions/{action_id}", response_model=ActionRead)
+def get_action(action_id: str, db: Session = Depends(get_db)):
+    action_service = ActionService(db)
+    return action_service.get_action(action_id)
+
+@router.put("/actions/{action_id}", response_model=ActionRead)
+def update_action_status(action_id: str, action_update: ActionUpdate, db: Session = Depends(get_db)):
+    action_service = ActionService(db)
+    return action_service.update_action_status(action_id, action_update)
+
+@router.get("/runs/{run_id}/actions", response_model=ActionList)
+def list_actions_for_run(run_id: str, db: Session = Depends(get_db)):
+    action_service = ActionService(db)
+    return action_service.list_actions_for_run(run_id)
+
+@router.post("/actions/expire", response_model=dict)
+def expire_actions(db: Session = Depends(get_db)):
+    action_service = ActionService(db)
+    count = action_service.expire_actions()
+    return {"expired_count": count}
+
+@router.delete("/actions/{action_id}", status_code=204)
+def delete_action(action_id: str, db: Session = Depends(get_db)):
+    action_service = ActionService(db)
+    action_service.delete_action(action_id)
+    return {"detail": "Action deleted successfully"}

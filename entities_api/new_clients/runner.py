@@ -8,6 +8,7 @@ from entities_api.new_clients.run_client import RunService
 from entities_api.new_clients.thread_client import ThreadService
 from entities_api.new_clients.user_client import UserService
 from entities_api.new_clients.tool_client import ClientToolService
+from entities_api.new_clients.actions_client import ClientActionService
 
 from ollama import Client
 from entities_api.services.logging_service import LoggingUtility
@@ -87,6 +88,7 @@ class Runner:
         self.run_service = RunService(self.base_url, self.api_key)
         self.ollama_client = Client()
         self.tool_service = ClientToolService(self.base_url, self.api_key)
+        self.action_service = ClientActionService(self.base_url, self.api_key)
 
         logging_utility.info("OllamaClient initialized with base_url: %s", self.base_url)
 
@@ -120,14 +122,14 @@ class Runner:
                 return
 
             try:
-                assistant_id = 'asst_likBry4di6AglrEq3sQdUI'  # Replace with actual assistant ID or fetch dynamically
+                assistant_id = 'asst_bsGolKsyIfdmNOlfKmQApa'  # Replace with actual assistant ID or fetch dynamically
                 tools = self.tool_service.list_tools(assistant_id)
                 logging_utility.info("Fetched %d tools for assistant %s", len(tools), assistant_id)
             except Exception as e:
                 logging_utility.error("Error fetching tools: %s", str(e))
                 tools = []
 
-            # Use tool_filtering_messages for the initial chat call
+            # Use tool_filtering_messages for the initial chat call.
             response = self.ollama_client.chat(
                 model=model,
                 messages=tool_filtering_messages,
@@ -152,6 +154,19 @@ class Runner:
                         function_name = tool['function']['name']
                         function_args = tool['function']['arguments']
 
+                        logging_utility.info("Function call name for run_id: %s, function_name: %s", run_id,
+                                             function_name)
+
+                        # Create action entry for the tool call
+                        action_data = {
+                            'tool_id': function_name,
+                            'run_id': run_id,
+                            'function_args': function_args
+                        }
+                        action_response = self.action_service.create_action(**action_data)
+                        logging_utility.info("Created action for function call: %s", action_response.id)
+
+                        # Process the function call
                         if function_name not in available_functions:
                             raise ValueError(f"Unknown function: {function_name}")
 
@@ -168,7 +183,7 @@ class Runner:
 
                         parsed_response = json.loads(function_response)
 
-                        # Always save the tool response using add_tool_message
+                        # Save the tool response
                         try:
                             tool_message = self.message_service.add_tool_message(message_id, function_response)
                             logging_utility.info("Saved tool response to thread: %s with tool message id: %s",
@@ -178,20 +193,28 @@ class Runner:
 
                         # Only add non-error responses to the messages list
                         if 'error' not in parsed_response:
-                            messages.append({
-                                'role': 'tool',
-                                'content': function_response,
-                            })
+                            messages.append({'role': 'tool', 'content': function_response})
                             logging_utility.info("Added tool response to messages list")
                             logging_utility.debug("Updated messages: %s", messages)
+
+                            # Update action status to "completed"
+                            self.action_service.update_action_status(action_response.id, status="completed",
+                                                                     result=parsed_response)
+                            logging_utility.info("Updated action status to 'completed' for action ID: %s",
+                                                 action_response.id)
                         else:
-                            logging_utility.warning(
-                                "Filtered out error response from %s: %s", function_name, parsed_response['error'])
+                            logging_utility.warning("Filtered out error response from %s: %s", function_name,
+                                                    parsed_response['error'])
+
+                            # Update action status to "failed"
+                            self.action_service.update_action_status(action_response.id, status="failed",
+                                                                     result=parsed_response)
 
                     except Exception as e:
                         error_message = f"Error executing function {function_name}: {str(e)}"
                         logging_utility.error(error_message, exc_info=True)
-                        # Save the error message as a tool response, but don't add it to messages
+
+                        # Save the error message as a tool response
                         error_response = json.dumps({"error": error_message})
                         try:
                             tool_message = self.message_service.add_tool_message(message_id, error_response)
@@ -199,6 +222,10 @@ class Runner:
                                                  thread_id, tool_message.id)
                         except Exception as save_error:
                             logging_utility.error("Failed to save error response: %s", str(save_error))
+
+                        # Update action status to "failed"
+                        self.action_service.update_action_status(action_response.id, status="failed",
+                                                                 result={"error": str(e)})
 
             else:
                 logging_utility.info("No function calls for run_id: %s", run_id)

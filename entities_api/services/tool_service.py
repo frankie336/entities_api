@@ -1,46 +1,42 @@
 import httpx
-from pydantic import ValidationError
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy.exc import IntegrityError
-from fastapi import HTTPException
-from entities_api.schemas import ToolCreate, ToolUpdate, ToolRead
-from models.models import Tool, Assistant
-from entities_api.services.identifier_service import IdentifierService
-from entities_api.services.logging_service import LoggingUtility
 from typing import List, Optional
 
+from fastapi import HTTPException
+from pydantic import ValidationError
+from requests import Session
+from sqlalchemy.orm import joinedload
+
+from entities_api.schemas import ToolCreate, ToolRead, ToolUpdate
+from entities_api.services.logging_service import LoggingUtility
+from models.models import Assistant, Tool
+
 logging_utility = LoggingUtility()
+
 
 class ToolService:
     def __init__(self, db: Session):
         self.db = db
         logging_utility.info("ToolService initialized with database session.")
 
-    def create_tool(self, tool: ToolCreate) -> ToolRead:
-        logging_utility.info("Starting create_tool with ToolCreate: %s", tool)
+    def create_tool(self, **tool_data) -> ToolRead:
+        logging_utility.info("Creating new tool")
         try:
-            tool_id = IdentifierService.generate_tool_id()
-            logging_utility.debug("Generated tool ID: %s", tool_id)
-
-            db_tool = Tool(
-                id=tool_id,
-                type=tool.type,
-                function=tool.function.dict() if tool.function else None
-            )
-            self.db.add(db_tool)
-            self.db.commit()
-            self.db.refresh(db_tool)
-
-            logging_utility.info("Tool created successfully with ID: %s", tool_id)
-            return ToolRead.model_validate(db_tool)
-        except IntegrityError as e:
-            self.db.rollback()
-            logging_utility.error("IntegrityError during tool creation: %s", str(e))
-            raise HTTPException(status_code=400, detail="Invalid tool data or duplicate tool ID")
+            tool = ToolCreate(**tool_data)
+            response = self.client.post("/v1/tools", json=tool.model_dump())
+            response.raise_for_status()
+            created_tool = response.json()
+            validated_tool = ToolRead.model_validate(created_tool)
+            logging_utility.info("Tool created successfully with id: %s", validated_tool.id)
+            return validated_tool
+        except ValidationError as e:
+            logging_utility.error("Validation error during tool creation: %s", e.json())
+            raise ValueError(f"Validation error: {e}")
+        except httpx.HTTPStatusError as e:
+            logging_utility.error("HTTP error during tool creation: %s | Response: %s", str(e), e.response.text)
+            raise
         except Exception as e:
-            self.db.rollback()
             logging_utility.error("Unexpected error during tool creation: %s", str(e))
-            raise HTTPException(status_code=500, detail="An error occurred while creating the tool")
+            raise
 
     def associate_tool_with_assistant(self, tool_id: str, assistant_id: str) -> None:
         logging_utility.info("Associating tool with ID %s to assistant with ID %s", tool_id, assistant_id)

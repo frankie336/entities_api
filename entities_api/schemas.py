@@ -1,5 +1,8 @@
+from datetime import datetime
+
 from pydantic import BaseModel, Field, validator, ConfigDict
 from typing import List, Optional, Dict, Any
+
 
 class UserBase(BaseModel):
     id: str
@@ -7,22 +10,28 @@ class UserBase(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class UserCreate(BaseModel):
     name: Optional[str] = "Anonymous User"
+
 
 class UserRead(UserBase):
     pass
 
+
 class UserUpdate(BaseModel):
     name: Optional[str] = None
+
 
 class UserDeleteResponse(BaseModel):
     success: bool
     message: Optional[str] = None
 
+
 class ThreadCreate(BaseModel):
     participant_ids: List[str] = Field(..., description="List of participant IDs")
     meta_data: Optional[Dict[str, Any]] = {}
+
 
 class ThreadRead(BaseModel):
     id: str
@@ -33,24 +42,29 @@ class ThreadRead(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class ThreadUpdate(BaseModel):
     participant_ids: Optional[List[str]] = None
     meta_data: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class ThreadParticipant(UserBase):
     pass
+
 
 class ThreadReadDetailed(ThreadRead):
     participants: List[UserBase]
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class ThreadIds(BaseModel):
     thread_ids: List[str]
 
     model_config = ConfigDict(from_attributes=True)
+
 
 class MessageCreate(BaseModel):
     content: str
@@ -70,6 +84,7 @@ class MessageCreate(BaseModel):
             }
         }
     )
+
 
 class MessageRead(BaseModel):
     id: str
@@ -264,5 +279,53 @@ class AssistantUpdate(BaseModel):
     meta_data: Optional[Dict[str, Any]]
     top_p: Optional[float]
     temperature: Optional[float]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# New Action schema
+class ActionBase(BaseModel):
+    id: str
+    tool_id: str
+    run_id: str
+    triggered_at: datetime
+    expires_at: Optional[datetime] = None
+    is_processed: bool
+    processed_at: Optional[datetime] = None
+    status: str = "pending"
+    function_args: Optional[Dict[str, Any]] = None
+    result: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ActionCreate(BaseModel):
+    tool_id: str
+    run_id: str
+    function_args: Optional[Dict[str, Any]] = {}
+    expires_at: Optional[datetime] = None
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "tool_id": "example_tool_id",
+                "run_id": "example_run_id",
+                "function_args": {"arg1": "value1", "arg2": "value2"},
+                "expires_at": "2024-09-10T12:00:00Z"
+            }
+        }
+    )
+
+class ActionRead(ActionBase):
+    pass
+
+class ActionUpdate(BaseModel):
+    status: str
+    result: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+class ActionList(BaseModel):
+    actions: List[ActionRead]
 
     model_config = ConfigDict(from_attributes=True)
