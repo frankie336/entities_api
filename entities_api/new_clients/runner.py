@@ -180,11 +180,8 @@ class Runner:
                         )
 
                         # Create the action and handle its response
-
-
-                        action_response = self.action_service.create_action(action_data)
-
-
+                        action_response = self.action_service.create_action(tool_name=function_name,
+                                                                            run_id=run_id)
 
                         logging_utility.info("Created action for function call: %s", action_response.id)
 
@@ -221,8 +218,8 @@ class Runner:
                             logging_utility.debug("Updated messages: %s", messages)
 
                             # Update action status to "completed"
-                            self.action_service.update_action_status(action_response.id, status="completed",
-                                                                     result=parsed_response)
+                            #self.action_service.update_action_status(action_response.id, status="completed",
+                                                                     #result=parsed_response)
                             logging_utility.info("Updated action status to 'completed' for action ID: %s",
                                                  action_response.id)
                         else:
@@ -230,8 +227,8 @@ class Runner:
                                                     parsed_response['error'])
 
                             # Update action status to "failed"
-                            self.action_service.update_action_status(action_response.id, status="failed",
-                                                                     result=parsed_response)
+                            #self.action_service.update_action_status(action_response.id, status="failed",
+                                                                     #result=parsed_response)
 
                     except Exception as e:
                         error_message = f"Error executing function {function_name}: {str(e)}"
@@ -248,8 +245,8 @@ class Runner:
 
                         # Update action status to "failed" only if action_response exists
                         if 'action_response' in locals():
-                            self.action_service.update_action_status(action_response.id, status="failed",
-                                                                     result={"error": str(e)})
+                            #self.action_service.update_action_status(action_response.id, status="failed",
+                            pass                                          #result={"error": str(e)})
                         else:
                             logging_utility.error("Action could not be created, skipping status update")
 

@@ -47,22 +47,25 @@ class ClientActionService:
             logging_utility.error("HTTP error during action creation: %s", str(e))
             raise ValueError(f"HTTP error during action creation: {str(e)}")
 
-    def get_action(self, action_id: str) -> ActionRead:
-        """Retrieve a specific action by its ID."""
+    def get_action(self, action_id: str) -> Dict[str, Any]:
+        """Retrieve a specific action by its ID without Pydantic validation."""
         try:
             logging_utility.debug("Retrieving action with ID: %s", action_id)
 
-            response = self.client.get(f"/actions/{action_id}")
+            response = self.client.get(f"/v1/actions/{action_id}")
             response.raise_for_status()
 
             response_data = response.json()
-            validated_action = ActionRead(**response_data)
             logging_utility.info("Action retrieved successfully with ID: %s", action_id)
-            return validated_action
+            return response_data  # Return raw JSON data
 
         except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error during action retrieval: %s", str(e))
-            raise ValueError(f"HTTP error during action retrieval: {str(e)}")
+            if e.response.status_code == 404:
+                logging_utility.error("Action with ID %s not found: %s", action_id, str(e))
+                return None  # Return None or handle it as you wish
+            else:
+                logging_utility.error("HTTP error during action retrieval: %s", str(e))
+                raise ValueError(f"HTTP error during action retrieval: {str(e)}")
 
     def update_action(self, action_id: str, status: str, result: Optional[Dict[str, Any]] = None) -> ActionRead:
         """Update an action's status and result."""
@@ -82,3 +85,21 @@ class ClientActionService:
         except httpx.HTTPStatusError as e:
             logging_utility.error("HTTP error during action update: %s", str(e))
             raise ValueError(f"HTTP error during action update: {str(e)}")
+
+    def delete_action(self, action_id: str) -> None:
+        """Delete an action by its ID."""
+        logging_utility.info(f"Deleting action with ID: {action_id}")
+        try:
+            # Ensure the URL includes the /v1 prefix
+            response = self.client.delete(f"/v1/actions/{action_id}")
+            response.raise_for_status()
+
+            logging_utility.info(f"Action with ID {action_id} deleted successfully.")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                logging_utility.error(f"Action with ID {action_id} not found: {str(e)}")
+                raise ValueError(f"Action with ID {action_id} not found")
+            else:
+                logging_utility.error(f"HTTP error during action deletion: {str(e)}")
+                raise ValueError(f"HTTP error during action deletion: {str(e)}")
+

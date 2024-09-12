@@ -13,12 +13,11 @@ userid = user.id
 thread = client.thread_service.create_thread(participant_ids=[userid], meta_data={"topic": ""})
 thread_id = thread.id
 
-run = client.run_service.create_run(assistant_id='asst_pwzRlijT9aLPWvet21qIfa',
+run = client.run_service.create_run(assistant_id='asst_lq88oYUTUG6u3VeEdPk8eb',
                                     thread_id = thread_id,
 
 
                                     )
-
 
 
 action = client.actions_service.create_action(
@@ -32,9 +31,14 @@ action_id = action.id
 print(action_id)
 
 
-
 update = client.actions_service.update_action(
     action_id=action_id,
     status='complete'
 )
 
+
+get_action = client.actions_service.get_action(action_id=action_id)
+print(get_action)
+
+
+delete_action = client.actions_service.delete_action(action_id=action_id)

@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from models.models import Action, Tool, Run
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.schemas import ActionCreate, ActionRead, ActionUpdate, ActionList
 from datetime import datetime
@@ -71,7 +71,21 @@ class ActionService:
                 raise HTTPException(status_code=404, detail=f"Action with id {action_id} not found")
 
             logging_utility.info("Action retrieved successfully: %s", action)
-            return ActionRead.model_validate(action)
+
+            # Properly convert the SQLAlchemy action object to a Pydantic model
+            # Ensuring that all required fields are populated and no Pydantic internals are exposed
+            return ActionRead(
+                id=action.id,
+                run_id=action.run_id,
+                triggered_at=action.triggered_at,
+                expires_at=action.expires_at,
+                is_processed=action.is_processed,
+                processed_at=action.processed_at,
+                status=action.status,
+                function_args=action.function_args,
+                result=action.result
+            )
+
         except HTTPException as e:
             logging_utility.error("HTTPException: %s", str(e))
             raise
@@ -110,18 +124,6 @@ class ActionService:
             self.db.rollback()
             logging_utility.error(f"Error updating action status: {str(e)}")
             raise HTTPException(status_code=500, detail="An error occurred while updating the action status")
-
-    def list_actions_for_run(self, run_id: str) -> ActionList:
-        """List all actions associated with a specific run."""
-        logging_utility.info("Listing actions for run_id: %s", run_id)
-        try:
-            actions = self.db.query(Action).filter(Action.run_id == run_id).all()
-
-            logging_utility.info("Found %d actions for run_id: %s", len(actions), run_id)
-            return ActionList(actions=[ActionRead.model_validate(action) for action in actions])
-        except Exception as e:
-            logging_utility.error("Error listing actions for run: %s", str(e))
-            raise HTTPException(status_code=500, detail="An error occurred while listing the actions for the run")
 
     def expire_actions(self) -> int:
         """Expire all actions that are past their expiration date."""
