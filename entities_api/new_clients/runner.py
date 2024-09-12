@@ -234,7 +234,6 @@ class Runner:
                     for action in pending_actions:
                         logging_utility.info(f"Pending action found: {action['id']}, attempting to update to 'ready'")
 
-
                         # Deal with function calls here
                         # We can use dependency injection
                         # to handle an aspect of function
