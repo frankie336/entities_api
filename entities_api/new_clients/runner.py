@@ -1,5 +1,6 @@
 import json
 import os
+import time
 import requests
 from dotenv import load_dotenv
 from entities_api.new_clients.assistant_client import AssistantService
@@ -13,7 +14,6 @@ from entities_api.schemas import ActionCreate
 from ollama import Client
 from entities_api.services.logging_service import LoggingUtility
 from typing import Optional
-
 
 # Load environment variables from .env file
 load_dotenv()
@@ -110,6 +110,31 @@ class Runner:
 
         return filtered_messages
 
+    def wait_for_tool_call(self, run_id: str, timeout: int = 5, check_interval: int = 1):
+        """
+        Wait for the tool call to complete or timeout after a specified period.
+        """
+        logging_utility.info(f"Waiting for tool call status to change for run_id: {run_id}")
+
+        elapsed_time = 0
+
+        while elapsed_time < timeout:
+            # Fetch the pending actions
+            pending_actions = self.action_service.get_actions_by_status(run_id=run_id, status='pending')
+
+            # If no pending actions, assume the tool call is complete
+            if not pending_actions:
+                logging_utility.info(f"Tool call completed for run_id: {run_id}")
+                return True  # Status changed
+
+            # Wait for the specified interval before checking again
+            time.sleep(check_interval)
+            elapsed_time += check_interval
+
+        # Timeout case
+        logging_utility.warning(f"Timeout reached for tool call status for run_id: {run_id}")
+        return False  # Timeout occurred
+
     def streamed_response_helper(self, messages, tool_filtering_messages, message_id, thread_id, run_id,
                                  model='llama3.1'):
         logging_utility.info("Starting streamed response for thread_id: %s, run_id: %s, model: %s", thread_id, run_id,
@@ -124,188 +149,49 @@ class Runner:
                 return
 
             # Fetch tools for the assistant
-            try:
-                assistant_id = 'asst_lq88oYUTUG6u3VeEdPk8eb'  # Replace with dynamic assistant ID if needed
+            tools = self.tool_service.list_tools('asst_tOavLvJ3IosygwTfzdxfGf')
+            logging_utility.info(f"Fetched {len(tools)} tools")
 
-                tools = self.tool_service.list_tools(assistant_id)
-                logging_utility.info("Fetched %d tools for assistant %s", len(tools), assistant_id)
-            except Exception as e:
-                logging_utility.error("Error fetching tools: %s", str(e))
-                tools = []
-
-            # Use tool_filtering_messages for the initial chat call
-            response = self.ollama_client.chat(
-                model=model,
-                messages=tool_filtering_messages,
-                options={'num_ctx': 4096},
-                tools=tools,
-            )
+            # Initial chat response using tool filtering messages
+            response = self.ollama_client.chat(model=model, messages=tool_filtering_messages, options={'num_ctx': 4096},
+                                               tools=tools)
             logging_utility.debug("Initial chat response: %s", response)
 
+            # If there are tool calls in the response
             if response['message'].get('tool_calls'):
-                # Update run status to requires_action
                 if not self.run_service.update_run_status(run_id, "requires_action"):
-                    logging_utility.error("Failed to update run status to requires_action for run_id: %s", run_id)
+                    logging_utility.error(f"Failed to update run status to requires_action for run_id: {run_id}")
 
-                logging_utility.info("Function call triggered for run_id: %s", run_id)
-
-                available_functions = {
-                    'get_flight_times': get_flight_times,
-                    'getAnnouncedPrefixes': getAnnouncedPrefixes,
-                }
-
-                # Loop through the tool calls
                 for tool in response['message'].get('tool_calls', []):
-                    try:
-                        function_name = tool['function']['name']
-                        function_args = tool['function']['arguments']
+                    function_name = tool['function']['name']
+                    function_args = tool['function']['arguments']
 
-                        logging_utility.info("Function call name for run_id: %s, function_name: %s", run_id,
-                                             function_name)
+                    logging_utility.info(f"Tool call triggered: {function_name}, args: {function_args}")
 
-                        # Look up tool ID based on the function name (tool_name)
-                        tool_record = self.tool_service.get_tool_by_name(
-                            function_name)  # Lookup the tool using its name
+                    # Create an action for the tool call
+                    action = self.action_service.create_action(tool_name=function_name, run_id=run_id,
+                                                               function_args=function_args)
+                    logging_utility.info(f"Action created: {action.id}")
 
-                        if not tool_record:
-                            raise ValueError(f"Tool with name '{function_name}' not found")
-
-                        tool_id = tool_record.id  # Use tool_id
-
-                        # Tracking the state of triggered tools
-                        action = self.action_service.create_action(
-                            tool_name=function_name,
-                            run_id=run_id,
-                            function_args={"departure": "NYC", "arrival": "LAX"},
-
-                        )
-                        logging_utility.info("Created action for function call: %s", action.id)
-
-                        update = self.action_service.update_action(
-                            action_id=action.id,
-                            status='pending'
-                        )
-                        logging_utility.info("Updated action status to 'pending' for action ID: %s",
-                                             action.id)
-
-
-                        # Process the function call
-                        if function_name not in available_functions:
-                            raise ValueError(f"Unknown function: {function_name}")
-
-                        if isinstance(function_args, str):
-                            function_args = json.loads(function_args)
-                        elif not isinstance(function_args, dict):
-                            raise ValueError(f"Unexpected argument type: {type(function_args)}")
-
-                        # Execute the corresponding function
-                        function_to_call = available_functions[function_name]
-                        logging_utility.info("Executing function call: %s with args: %s", function_name, function_args)
-
-                        function_response = function_to_call(**function_args)
-                        logging_utility.debug("Function response: %s", function_response)
-
-                        parsed_response = json.loads(function_response)
-
-                        # Save the tool response
-                        try:
-                            tool_message = self.message_service.add_tool_message(message_id, function_response)
-                            logging_utility.info("Saved tool response to thread: %s with tool message id: %s",
-                                                 thread_id, tool_message.id)
-                        except Exception as e:
-                            logging_utility.error("Failed to save tool response: %s", str(e))
-
-                        # Add non-error responses to the messages list
-                        if 'error' not in parsed_response:
-                            messages.append({'role': 'tool', 'content': function_response})
-                            logging_utility.info("Added tool response to messages list")
-                            logging_utility.debug("Updated messages: %s", messages)
-
-                            # Update action status to "completed"
-                            update = self.action_service.update_action(
-                                action_id=action.id,
-                                status='complete'
-                            )
-
-                            logging_utility.info("Updated action status to 'completed' for action ID: %s",
-                                                 action.id)
-                        else:
-                            logging_utility.warning("Filtered out error response from %s: %s", function_name,
-                                                    parsed_response['error'])
-
-
-                            # Update action status to "failed"
-                            update = self.action_service.update_action(
-                                action_id=action.id,
-                                status='failed'
-                            )
-
-                    except Exception as e:
-                        error_message = f"Error executing function {function_name}: {str(e)}"
-                        logging_utility.error(error_message, exc_info=True)
-
-                        # Save the error message as a tool response
-                        error_response = json.dumps({"error": error_message})
-                        try:
-                            tool_message = self.message_service.add_tool_message(message_id, error_response)
-                            logging_utility.info("Saved error response to thread: %s with tool message id: %s",
-                                                 thread_id, tool_message.id)
-                        except Exception as save_error:
-                            logging_utility.error("Failed to save error response: %s", str(save_error))
-
-                        # Update action status to "failed" only if action_response exists
-                        if 'action_response' in locals():
-                            #self.action_service.update_action_status(action_response.id, status="failed",
-                            pass                                          #result={"error": str(e)})
-                        else:
-                            logging_utility.error("Action could not be created, skipping status update")
+                    # Wait for the tool call to complete or timeout
+                    if self.wait_for_tool_call(run_id, timeout=60):
+                        logging_utility.info(f"Tool call for run_id: {run_id} completed")
+                    else:
+                        logging_utility.warning(f"Tool call for run_id: {run_id} timed out")
 
             else:
-                logging_utility.info("No function calls for run_id: %s", run_id)
+                logging_utility.info("No tool calls in initial response")
 
-            # Generate the final response using the updated messages (including non-error tool responses)
-            logging_utility.info("Generating final response with updated message history")
-            logging_utility.debug("Final messages for response generation: %s", messages)
-            streaming_response = self.ollama_client.chat(
-                model=model,
-                messages=messages,  # Use the updated messages list
-                options={'num_ctx': 4096},
-                stream=True
-            )
-
-            full_response = ""
-            for chunk in streaming_response:
-                current_run_status = self.run_service.retrieve_run(run_id=run_id).status
-                if current_run_status in ["cancelling", "cancelled"]:
-                    logging_utility.info("Run %s is being cancelled or already cancelled, stopping generation", run_id)
-                    break
-
-                content = chunk['message']['content']
-                full_response += content
-                logging_utility.debug("Received chunk: %s", content)
-                yield content
-
-            final_run_status = self.run_service.retrieve_run(run_id=run_id).status
-
-            if final_run_status in ["cancelling", "cancelled"]:
-                logging_utility.info("Run was cancelled during processing")
-                status_to_set = "cancelled"
-            else:
-                logging_utility.info("Finished yielding all chunks")
-                status_to_set = "completed"
-
-            if not self.message_service.save_assistant_message_chunk(thread_id, full_response, is_last_chunk=True):
-                logging_utility.error("Failed to save assistant message for thread_id: %s", thread_id)
-
-            if not self.run_service.update_run_status(run_id, status_to_set):
-                logging_utility.error("Failed to update run status to %s for run_id: %s", status_to_set, run_id)
+            # Generate the final response and continue
+            final_response = self.ollama_client.chat(model=model, messages=messages, options={'num_ctx': 4096},
+                                                     stream=True)
+            for chunk in final_response:
+                yield chunk['message']['content']
 
         except Exception as e:
-            logging_utility.error("Error in streamed_response_helper: %s", str(e), exc_info=True)
-            yield json.dumps({"error": "An error occurred while generating the response"})
+            logging_utility.error(f"Error during streamed response: {e}", exc_info=True)
             self.run_service.update_run_status(run_id, "failed")
-
-        logging_utility.info("Exiting streamed_response_helper")
+            yield json.dumps({"error": "An error occurred while processing the tool call"})
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id, model='llama3.1'):
         logging_utility.info("Processing conversation for thread_id: %s, run_id: %s, model: %s", thread_id, run_id,
