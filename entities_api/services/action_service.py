@@ -125,23 +125,32 @@ class ActionService:
             logging_utility.error(f"Error updating action status: {str(e)}")
             raise HTTPException(status_code=500, detail="An error occurred while updating the action status")
 
-    def expire_actions(self) -> int:
-        """Expire all actions that are past their expiration date."""
-        logging_utility.info("Expiring outdated actions")
+    def get_actions_by_status(self, run_id: str, status: Optional[str] = "pending") -> List[ActionRead]:
+        """Retrieve actions by run_id and status."""
+        logging_utility.info(f"Retrieving actions for run_id: {run_id} with status: {status}")
         try:
-            now = datetime.now()
-            expired_actions = self.db.query(Action).filter(Action.expires_at <= now, Action.is_processed == False).all()
-            count = 0
-            for action in expired_actions:
-                action.status = "expired"
-                self.db.commit()
-                count += 1
-            logging_utility.info("Expired %d actions", count)
-            return count
+            actions = self.db.query(Action).filter(Action.run_id == run_id, Action.status == status).all()
+
+            if not actions:
+                logging_utility.info(f"No actions found for run_id {run_id} with status {status}.")
+                return []
+
+            logging_utility.info(f"Retrieved {len(actions)} actions for run_id {run_id} with status {status}.")
+            return [ActionRead(
+                id=action.id,
+                run_id=action.run_id,
+                triggered_at=action.triggered_at,
+                expires_at=action.expires_at,
+                is_processed=action.is_processed,
+                processed_at=action.processed_at,
+                status=action.status,
+                function_args=action.function_args,
+                result=action.result
+            ) for action in actions]
+
         except Exception as e:
-            self.db.rollback()
-            logging_utility.error("Error expiring actions: %s", str(e))
-            raise HTTPException(status_code=500, detail="An error occurred while expiring actions")
+            logging_utility.error(f"Error retrieving actions for run {run_id} with status {status}: {str(e)}")
+            raise HTTPException(status_code=500, detail="An error occurred while retrieving the actions.")
 
     def delete_action(self, action_id: str) -> None:
         """Delete an action by its ID."""

@@ -1,5 +1,5 @@
 # entities_api/routers.py
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -212,14 +212,11 @@ def add_tool_message(message_id: str, tool_message: ToolMessageCreate, db: Sessi
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
+
 @router.post("/tools", response_model=ToolRead)
 def create_tool(tool: ToolCreate, db: Session = Depends(get_db)):
     tool_service = ToolService(db)
     return tool_service.create_tool(tool)
-
-
-
-
 
 
 @router.post("/assistants/{assistant_id}/tools/{tool_id}")
@@ -289,16 +286,21 @@ def update_action_status(action_id: str, action_update: ActionUpdate, db: Sessio
     action_service = ActionService(db)
     return action_service.update_action_status(action_id, action_update)
 
-@router.get("/runs/{run_id}/actions", response_model=ActionList)
-def list_actions_for_run(run_id: str, db: Session = Depends(get_db)):
-    action_service = ActionService(db)
-    return action_service.list_actions_for_run(run_id)
 
-@router.post("/actions/expire", response_model=dict)
-def expire_actions(db: Session = Depends(get_db)):
+@router.get("/runs/{run_id}/actions/status", response_model=List[ActionRead])
+def get_actions_by_status(run_id: str, status: Optional[str] = "pending", db: Session = Depends(get_db)):
+    """Retrieve actions by run_id and status."""
     action_service = ActionService(db)
-    count = action_service.expire_actions()
-    return {"expired_count": count}
+    try:
+        actions = action_service.get_actions_by_status(run_id, status)
+        return actions
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error while retrieving actions for run_id {run_id} with status {status}: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"Unexpected error while retrieving actions for run_id {run_id} with status {status}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
 
 @router.delete("/actions/{action_id}", status_code=204)
 def delete_action(action_id: str, db: Session = Depends(get_db)):

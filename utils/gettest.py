@@ -13,7 +13,7 @@ userid = user.id
 thread = client.thread_service.create_thread(participant_ids=[userid], meta_data={"topic": ""})
 thread_id = thread.id
 
-run = client.run_service.create_run(assistant_id='asst_lq88oYUTUG6u3VeEdPk8eb',
+run = client.run_service.create_run(assistant_id='asst_Trgq0F6r629l64OwmG8RmS',
                                     thread_id = thread_id,
 
 
@@ -37,8 +37,13 @@ update = client.actions_service.update_action(
 )
 
 
-get_action = client.actions_service.get_action(action_id=action_id)
-print(get_action)
+status = client.actions_service.get_actions_by_status(
+    run_id=run['id'],
+    status='complete'
+)
 
+print(status)
 
-delete_action = client.actions_service.delete_action(action_id=action_id)
+#get_action = client.actions_service.get_action(action_id=action_id)
+#print(get_action)
+#delete_action = client.actions_service.delete_action(action_id=action_id)

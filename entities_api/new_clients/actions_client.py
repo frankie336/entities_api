@@ -86,6 +86,23 @@ class ClientActionService:
             logging_utility.error("HTTP error during action update: %s", str(e))
             raise ValueError(f"HTTP error during action update: {str(e)}")
 
+    def get_actions_by_status(self, run_id: str, status: Optional[str] = "pending") -> List[Dict[str, Any]]:
+        """Retrieve actions by run_id and status."""
+        try:
+            logging_utility.debug(f"Retrieving actions for run_id: {run_id} with status: {status}")
+
+            # Make a GET request with run_id and optional status query parameter
+            response = self.client.get(f"/v1/runs/{run_id}/actions/status", params={"status": status})
+            response.raise_for_status()
+
+            response_data = response.json()
+            logging_utility.info(f"Actions retrieved successfully for run_id: {run_id} with status: {status}")
+            return response_data  # Return raw JSON data
+
+        except httpx.HTTPStatusError as e:
+            logging_utility.error(f"HTTP error during actions retrieval for run_id {run_id} with status {status}: {str(e)}")
+            raise ValueError(f"HTTP error during actions retrieval: {str(e)}")
+
     def delete_action(self, action_id: str) -> None:
         """Delete an action by its ID."""
         logging_utility.info(f"Deleting action with ID: {action_id}")
