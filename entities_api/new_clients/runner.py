@@ -15,6 +15,7 @@ from ollama import Client
 from entities_api.services.logging_service import LoggingUtility
 from typing import Optional
 
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -110,103 +111,154 @@ class Runner:
 
         return filtered_messages
 
-    def wait_for_tool_call(self, run_id: str, timeout: int = 5, check_interval: int = 1):
+    def process_tool_calls(self, run_id, tool_calls, message_id, thread_id):
         """
-        Wait for the tool call to complete or timeout after a specified period.
+        Processes tool calls and waits for status to change to 'ready'.
+        Returns the response of tool functions.
         """
-        logging_utility.info(f"Waiting for tool call status to change for run_id: {run_id}")
-
-        elapsed_time = 0
-
-        while elapsed_time < timeout:
-            # Fetch the pending actions
-            pending_actions = self.action_service.get_actions_by_status(run_id=run_id, status='pending')
-
-            # If no pending actions, assume the tool call is complete
-            if not pending_actions:
-                logging_utility.info(f"Tool call completed for run_id: {run_id}")
-                return True  # Status changed
-
-            # Wait for the specified interval before checking again
-            time.sleep(check_interval)
-            elapsed_time += check_interval
-
-        # Timeout case
-        logging_utility.warning(f"Timeout reached for tool call status for run_id: {run_id}")
-        return False  # Timeout occurred
-
-    def streamed_response_helper(self, messages, tool_filtering_messages, message_id, thread_id, run_id,
-                                 model='llama3.1'):
-        logging_utility.info("Starting streamed response for thread_id: %s, run_id: %s, model: %s", thread_id, run_id,
-                             model)
-        logging_utility.debug("Original messages: %s", messages)
-        logging_utility.debug("Tool filtering messages: %s", tool_filtering_messages)
+        available_functions = {
+            'get_flight_times': get_flight_times,
+            'getAnnouncedPrefixes': getAnnouncedPrefixes,
+        }
 
         try:
-            # Update run status to in_progress
-            if not self.run_service.update_run_status(run_id, "in_progress"):
-                logging_utility.error("Failed to update run status to in_progress for run_id: %s", run_id)
-                return
+            for tool in tool_calls:
+                function_name = tool['function']['name']
+                function_args = tool['function']['arguments']
 
-            # Fetch tools for the assistant
-            tools = self.tool_service.list_tools('asst_tOavLvJ3IosygwTfzdxfGf')
-            logging_utility.info(f"Fetched {len(tools)} tools")
+                logging_utility.info(f"Function call triggered for run_id: {run_id}, function_name: {function_name}")
 
-            # Initial chat response using tool filtering messages
-            response = self.ollama_client.chat(model=model, messages=tool_filtering_messages, options={'num_ctx': 4096},
-                                               tools=tools)
-            logging_utility.debug("Initial chat response: %s", response)
+                # Look up tool by name
+                tool_record = self.tool_service.get_tool_by_name(function_name)
+                if not tool_record:
+                    raise ValueError(f"Tool with name '{function_name}' not found")
 
-            # If there are tool calls in the response
-            if response['message'].get('tool_calls'):
-                if not self.run_service.update_run_status(run_id, "requires_action"):
-                    logging_utility.error(f"Failed to update run status to requires_action for run_id: {run_id}")
+                tool_id = tool_record.id  # Use tool_id
 
-                for tool in response['message'].get('tool_calls', []):
-                    function_name = tool['function']['name']
-                    function_args = tool['function']['arguments']
+                # Create the action for the tool call
+                action_response = self.action_service.create_action(
+                    tool_name=function_name,
+                    run_id=run_id,
+                    function_args=function_args
+                )
 
-                    logging_utility.info(f"Tool call triggered: {function_name}, args: {function_args}")
+                logging_utility.info(f"Created action for function call: {action_response.id}")
 
-                    # Create an action for the tool call
-                    action = self.action_service.create_action(tool_name=function_name, run_id=run_id,
-                                                               function_args=function_args)
-                    logging_utility.info(f"Action created: {action.id}")
+                # Wait for tool call status to change to 'ready'
+                #elapsed_time = 0
+                #timeout = 10
+                #check_interval = 1
+                #while elapsed_time < timeout:
+                    #pending_actions = self.action_service.get_actions_by_status(run_id=run_id, status='pending')
 
-                    # Wait for the tool call to complete or timeout
-                    if self.wait_for_tool_call(run_id, timeout=5):
-                        logging_utility.info(f"Tool call for run_id: {run_id} completed")
-                    else:
-                        logging_utility.warning(f"Tool call for run_id: {run_id} timed out")
+                    #if not pending_actions:
+                        #logging_utility.info(f"Tool call completed for run_id: {run_id}")
+                        #break  # Tool is ready
 
-            else:
-                logging_utility.info("No tool calls in initial response")
+                    #time.sleep(check_interval)
+                    #elapsed_time += check_interval
 
-            # Generate the final response and continue
-            final_response = self.ollama_client.chat(model=model, messages=messages, options={'num_ctx': 4096},
-                                                     stream=True)
-            for chunk in final_response:
-                yield chunk['message']['content']
+                #if elapsed_time >= timeout:
+                    #logging_utility.warning(f"Timeout reached for tool call status for run_id: {run_id}")
+                    #continue  # Timeout occurred, skip this tool call
+
+                # Execute the corresponding function
+                if function_name in available_functions:
+                    function_to_call = available_functions[function_name]
+                    function_response = function_to_call(**function_args)
+                    parsed_response = json.loads(function_response)
+
+                    # Save the tool response
+                    self.message_service.add_tool_message(message_id, function_response)
+                    logging_utility.info(f"Tool response saved to thread: {thread_id}")
+
+                    return parsed_response  # Return the result to be injected into final conversation
 
         except Exception as e:
-            logging_utility.error(f"Error during streamed response: {e}", exc_info=True)
-            self.run_service.update_run_status(run_id, "failed")
-            yield json.dumps({"error": "An error occurred while processing the tool call"})
+            logging_utility.error(f"Error in process_tool_calls: {str(e)}", exc_info=True)
+
+        return None  # Return None if the tool call fails or times out
+
+    def generate_final_response(self, thread_id, message_id, run_id, tool_results, messages, model):
+        """
+        Generates the final assistant response, incorporating tool results.
+        """
+        logging_utility.info(f"Generating final response for run_id: {run_id}")
+
+        # Inject tool results into the conversation
+        if tool_results:
+            for result in tool_results:
+                if result:
+                    messages.append({'role': 'tool', 'content': json.dumps(result)})
+
+        # Generate final response using updated messages
+        streaming_response = self.ollama_client.chat(
+            model=model,
+            messages=messages,
+            options={'num_ctx': 4096},
+            stream=True
+        )
+
+        full_response = ""
+        for chunk in streaming_response:
+            content = chunk['message']['content']
+            full_response += content
+            yield content
+
+        # Finalize the run
+        final_run_status = self.run_service.retrieve_run(run_id=run_id).status
+        status_to_set = "completed" if final_run_status not in ["cancelling", "cancelled"] else "cancelled"
+
+        self.message_service.save_assistant_message_chunk(thread_id, full_response, is_last_chunk=True)
+        self.run_service.update_run_status(run_id, status_to_set)
+
+        logging_utility.info(f"Run {run_id} marked as {status_to_set}")
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id, model='llama3.1'):
-        logging_utility.info("Processing conversation for thread_id: %s, run_id: %s, model: %s", thread_id, run_id,
-                             model)
+        logging_utility.info("Processing conversation for thread_id: %s, run_id: %s, model: %s", thread_id, run_id, model)
 
         assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
-
-        logging_utility.info("Retrieved assistant: id=%s, name=%s, model=%s",
-                             assistant.id, assistant.name, assistant.model)
+        logging_utility.info("Retrieved assistant: id=%s, name=%s, model=%s", assistant.id, assistant.name, assistant.model)
 
         messages = self.message_service.get_formatted_messages(thread_id, system_message=assistant.instructions)
         logging_utility.debug("Original formatted messages: %s", messages)
 
-        # Create modified messages for tool filtering
         tool_filtering_messages = self.create_tool_filtering_messages(messages)
-        logging_utility.debug("Modified messages for tool filtering: %s", tool_filtering_messages)
+        tool_results = []
 
-        return self.streamed_response_helper(messages, tool_filtering_messages, message_id, thread_id, run_id, model)
+        # Initial chat call
+        response = self.ollama_client.chat(
+            model=model,
+            messages=tool_filtering_messages,
+            options={'num_ctx': 4096},
+            tools=self.tool_service.list_tools(assistant_id)
+        )
+        logging_utility.debug("Initial chat response: %s", response)
+
+        if response['message'].get('tool_calls'):
+            tool_results.append(
+                self.process_tool_calls(run_id, response['message']['tool_calls'], message_id, thread_id))
+
+            from entities_api.new_clients.client import OllamaClient
+
+            check_interval = 1  # Check every second
+
+            while True:
+                pending_actions = self.action_service.get_actions_by_status(run_id=run_id, status='pending')
+                logging_utility.info(f"Pending actions retrieved: {len(pending_actions)} for run_id: {run_id}")
+
+                if pending_actions:
+                    for action in pending_actions:
+                        logging_utility.info(f"Pending action found: {action['id']}, attempting to update to 'ready'")
+
+                if not pending_actions:
+                    logging_utility.info(f"Tool call completed for run_id: {run_id}")
+                    break  # Tool is ready
+
+                logging_utility.info(
+                    f"Pending actions still in progress for run_id: {run_id}. Retrying in {check_interval} seconds.")
+
+                time.sleep(check_interval)
+
+        # Generate and stream the final response
+        return self.generate_final_response(thread_id, message_id, run_id, tool_results, messages, model)

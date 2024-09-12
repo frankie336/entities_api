@@ -44,6 +44,6 @@ status = client.actions_service.get_actions_by_status(
 
 print(status)
 
-#get_action = client.actions_service.get_action(action_id=action_id)
+get_action = client.actions_service.get_action(action_id=action_id)
 #print(get_action)
 #delete_action = client.actions_service.delete_action(action_id=action_id)
