@@ -125,7 +125,7 @@ class Runner:
 
             # Fetch tools for the assistant
             try:
-                assistant_id = 'asst_CiXHcBwHVzo3CMzniixE8N'  # Replace with dynamic assistant ID if needed
+                assistant_id = 'asst_lq88oYUTUG6u3VeEdPk8eb'  # Replace with dynamic assistant ID if needed
 
                 tools = self.tool_service.list_tools(assistant_id)
                 logging_utility.info("Fetched %d tools for assistant %s", len(tools), assistant_id)
@@ -172,18 +172,22 @@ class Runner:
 
                         tool_id = tool_record.id  # Use tool_id
 
-                        # Construct action data as a Pydantic ActionCreate object using tool_id
-                        action_data = ActionCreate(
-                            tool_id=tool_id,  # Now pass the tool_id instead of tool_name
+                        # Tracking the state of triggered tools
+                        action = self.action_service.create_action(
+                            tool_name=function_name,
                             run_id=run_id,
-                            function_args=function_args
+                            function_args={"departure": "NYC", "arrival": "LAX"},
+
                         )
+                        logging_utility.info("Created action for function call: %s", action.id)
 
-                        # Create the action and handle its response
-                        action_response = self.action_service.create_action(tool_name=function_name,
-                                                                            run_id=run_id)
+                        update = self.action_service.update_action(
+                            action_id=action.id,
+                            status='pending'
+                        )
+                        logging_utility.info("Updated action status to 'pending' for action ID: %s",
+                                             action.id)
 
-                        logging_utility.info("Created action for function call: %s", action_response.id)
 
                         # Process the function call
                         if function_name not in available_functions:
@@ -218,17 +222,23 @@ class Runner:
                             logging_utility.debug("Updated messages: %s", messages)
 
                             # Update action status to "completed"
-                            #self.action_service.update_action_status(action_response.id, status="completed",
-                                                                     #result=parsed_response)
+                            update = self.action_service.update_action(
+                                action_id=action.id,
+                                status='complete'
+                            )
+
                             logging_utility.info("Updated action status to 'completed' for action ID: %s",
-                                                 action_response.id)
+                                                 action.id)
                         else:
                             logging_utility.warning("Filtered out error response from %s: %s", function_name,
                                                     parsed_response['error'])
 
+
                             # Update action status to "failed"
-                            #self.action_service.update_action_status(action_response.id, status="failed",
-                                                                     #result=parsed_response)
+                            update = self.action_service.update_action(
+                                action_id=action.id,
+                                status='failed'
+                            )
 
                     except Exception as e:
                         error_message = f"Error executing function {function_name}: {str(e)}"
