@@ -144,24 +144,6 @@ class Runner:
 
                 logging_utility.info(f"Created action for function call: {action_response.id}")
 
-                # Wait for tool call status to change to 'ready'
-                #elapsed_time = 0
-                #timeout = 10
-                #check_interval = 1
-                #while elapsed_time < timeout:
-                    #pending_actions = self.action_service.get_actions_by_status(run_id=run_id, status='pending')
-
-                    #if not pending_actions:
-                        #logging_utility.info(f"Tool call completed for run_id: {run_id}")
-                        #break  # Tool is ready
-
-                    #time.sleep(check_interval)
-                    #elapsed_time += check_interval
-
-                #if elapsed_time >= timeout:
-                    #logging_utility.warning(f"Timeout reached for tool call status for run_id: {run_id}")
-                    #continue  # Timeout occurred, skip this tool call
-
                 # Execute the corresponding function
                 if function_name in available_functions:
                     function_to_call = available_functions[function_name]
@@ -240,6 +222,7 @@ class Runner:
                 self.process_tool_calls(run_id, response['message']['tool_calls'], message_id, thread_id))
 
             from entities_api.new_clients.client import OllamaClient
+            client = OllamaClient()
 
             check_interval = 1  # Check every second
 
@@ -250,6 +233,22 @@ class Runner:
                 if pending_actions:
                     for action in pending_actions:
                         logging_utility.info(f"Pending action found: {action['id']}, attempting to update to 'ready'")
+
+
+                        # Deal with function calls here
+                        # We can use dependency injection
+                        # to handle an aspect of function
+                        # calling and tooling
+                        def deal_with_tools():
+
+                            update = client.actions_service.update_action(
+                                action_id=action['id'],
+                                status='ready'
+                            )
+
+                        deal_with_tools()
+
+
 
                 if not pending_actions:
                     logging_utility.info(f"Tool call completed for run_id: {run_id}")

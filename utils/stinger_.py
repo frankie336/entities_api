@@ -10,13 +10,7 @@ client = OllamaClient()
 
 
 update = client.actions_service.update_action(
-    action_id='act_q4Xprv0RhAdX0374xtzGyF',
+    action_id='act_UakvDNondmrbswmJTjR0xh',
     status='ready'
 )
 
-
-#get_action = client.actions_service.get_action(action_id=action_id)
-#print(status)
-#get_action = client.actions_service.get_action(action_id=action_id)
-#print(get_action)
-#delete_action = client.actions_service.delete_action(action_id=action_id)
