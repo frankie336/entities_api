@@ -174,7 +174,7 @@ class Runner:
                     logging_utility.info(f"Action created: {action.id}")
 
                     # Wait for the tool call to complete or timeout
-                    if self.wait_for_tool_call(run_id, timeout=60):
+                    if self.wait_for_tool_call(run_id, timeout=5):
                         logging_utility.info(f"Tool call for run_id: {run_id} completed")
                     else:
                         logging_utility.warning(f"Tool call for run_id: {run_id} timed out")
