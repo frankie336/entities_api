@@ -36,7 +36,7 @@ class Runner:
         self.action_service = ClientActionService(self.base_url, self.api_key)
         self.available_functions = available_functions or {}
 
-        logging_utility.info("Runner initialized with base_url: %s", self.base_url)
+        logging_utility.info("OllamaClient initialized with base_url: %s", self.base_url)
 
     def create_tool_filtering_messages(self, messages):
         logging_utility.info("Creating tool filtering messages")
@@ -129,8 +129,7 @@ class Runner:
             yield content
 
         # Finalize the run
-        final_run = self.run_service.retrieve_run(run_id=run_id)
-        final_run_status = final_run.status
+        final_run_status = self.run_service.retrieve_run(run_id=run_id).status
         status_to_set = "completed" if final_run_status not in ["cancelling", "cancelled"] else "cancelled"
 
         self.message_service.save_assistant_message_chunk(thread_id, full_response, is_last_chunk=True)
@@ -139,12 +138,20 @@ class Runner:
         logging_utility.info(f"Run {run_id} marked as {status_to_set}")
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id, model='llama3.1'):
-        logging_utility.info("Processing conversation for thread_id: %s, run_id: %s, model: %s", thread_id, run_id, model)
+        logging_utility.info(
+            "Processing conversation for thread_id: %s, run_id: %s, model: %s",
+            thread_id, run_id, model
+        )
 
         assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
-        logging_utility.info("Retrieved assistant: id=%s, name=%s, model=%s", assistant.id, assistant.name, assistant.model)
+        logging_utility.info(
+            "Retrieved assistant: id=%s, name=%s, model=%s",
+            assistant.id, assistant.name, assistant.model
+        )
 
-        messages = self.message_service.get_formatted_messages(thread_id, system_message=assistant.instructions)
+        messages = self.message_service.get_formatted_messages(
+            thread_id, system_message=assistant.instructions
+        )
         logging_utility.debug("Original formatted messages: %s", messages)
 
         tool_filtering_messages = self.create_tool_filtering_messages(messages)
@@ -161,32 +168,53 @@ class Runner:
 
         if response['message'].get('tool_calls'):
             tool_results.append(
-                self.process_tool_calls(run_id, response['message']['tool_calls'], message_id, thread_id))
+                self.process_tool_calls(
+                    run_id, response['message']['tool_calls'], message_id, thread_id
+                )
+            )
+
+            from entities_api.new_clients.client import OllamaClient
+            client = OllamaClient()
 
             check_interval = 1  # Check every second
 
             while True:
-                pending_actions = self.action_service.get_actions_by_status(run_id=run_id, status='pending')
-                logging_utility.info(f"Pending actions retrieved: {len(pending_actions)} for run_id: {run_id}")
+                pending_actions = self.action_service.get_actions_by_status(
+                    run_id=run_id, status='pending'
+                )
+                logging_utility.info(
+                    f"Pending actions retrieved: {len(pending_actions)} for run_id: {run_id}"
+                )
 
                 if pending_actions:
                     for action in pending_actions:
-                        logging_utility.info(f"Pending action found: {action['id']}, attempting to update to 'ready'")
-
-                        # Update action status to 'ready'
-                        self.action_service.update_action(
-                            action_id=action['id'],
-                            status='ready'
+                        logging_utility.info(
+                            f"Pending action found: {action['id']}, attempting to update to 'ready'"
                         )
+
+                        # Deal with function calls here
+                        # We can use dependency injection
+                        # to handle an aspect of function
+                        # calling and tooling
+                        def deal_with_tools():
+                            update = client.actions_service.update_action(
+                                action_id=action['id'],
+                                status='ready'
+                            )
+
+                        deal_with_tools()
 
                 if not pending_actions:
                     logging_utility.info(f"Tool call completed for run_id: {run_id}")
                     break  # Tool is ready
 
                 logging_utility.info(
-                    f"Pending actions still in progress for run_id: {run_id}. Retrying in {check_interval} seconds.")
+                    f"Pending actions still in progress for run_id: {run_id}. Retrying in {check_interval} seconds."
+                )
 
                 time.sleep(check_interval)
 
         # Generate and stream the final response
-        return self.generate_final_response(thread_id, message_id, run_id, tool_results, messages, model)
+        return self.generate_final_response(
+            thread_id, message_id, run_id, tool_results, messages, model
+        )
