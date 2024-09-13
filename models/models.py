@@ -1,5 +1,6 @@
 from sqlalchemy import Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, Text
 from sqlalchemy.orm import relationship, declarative_base
+from datetime import datetime
 import time
 
 Base = declarative_base()
@@ -49,7 +50,6 @@ class Thread(Base):
 # Message model
 
 
-
 class Message(Base):
     __tablename__ = "messages"
 
@@ -70,8 +70,6 @@ class Message(Base):
     sender_id = Column(String(64), nullable=False)
 
 # Run model
-
-
 class Run(Base):
     __tablename__ = "runs"
 
@@ -108,8 +106,6 @@ class Run(Base):
     actions = relationship("Action", back_populates="run")
 
 # Assistant model
-
-
 class Assistant(Base):
     __tablename__ = "assistants"
 
@@ -130,16 +126,16 @@ class Assistant(Base):
     tools = relationship("Tool", secondary=assistant_tools, back_populates="assistants", lazy="joined")
     user = relationship("User", back_populates="assistants")
 
-# Tool model
 
+# Tool model
 
 class Tool(Base):
     __tablename__ = "tools"
 
     id = Column(String(64), primary_key=True, index=True)
-    name = Column(String(128), unique=True, nullable=False)  # <-- New name field, unique
+    name = Column(String(128), unique=True, nullable=False)
     type = Column(String(64), nullable=False)
-    function = Column(JSON, nullable=True)  # JSON field for storing function data, including the name
+    function = Column(JSON, nullable=True)
 
     # Many-to-many relationship with assistants
     assistants = relationship("Assistant", secondary=assistant_tools, back_populates="tools")
@@ -153,15 +149,16 @@ class Tool(Base):
 class Action(Base):
     __tablename__ = "actions"
 
-    id = Column(String(64), primary_key=True, index=True)  # ID column
-    run_id = Column(String(64), ForeignKey('runs.id'), nullable=False)  # Reference to the run that triggered this action
-    triggered_at = Column(DateTime, default=lambda: time.strftime('%Y-%m-%d %H:%M:%S'))  # When the tool was triggered
-    expires_at = Column(DateTime, nullable=True)  # When the action expires, if applicable
-    is_processed = Column(Boolean, default=False)  # Flag to check if the action has been processed
-    processed_at = Column(DateTime, nullable=True)  # Timestamp when the action was processed
-    status = Column(String(32), nullable=False, default="pending")  # Status: pending, processing, completed, failed
-    function_args = Column(JSON, nullable=True)  # Store the function arguments passed to the tool's function
-    result = Column(JSON, nullable=True)  # Store the result of the tool call
+    id = Column(String(64), primary_key=True, index=True)
+    run_id = Column(String(64), ForeignKey('runs.id'), nullable=True)  # Reference to the run that triggered this action
+    tool_id = Column(String(64), ForeignKey('tools.id'), nullable=True)  # Reference to the tool that this action uses
+    triggered_at = Column(DateTime, default=datetime.utcnow)  # Corrected to use datetime object
+    expires_at = Column(DateTime, nullable=True)
+    is_processed = Column(Boolean, default=False)
+    processed_at = Column(DateTime, nullable=True)
+    status = Column(String(32), nullable=False, default="pending")
+    function_args = Column(JSON, nullable=True)
+    result = Column(JSON, nullable=True)
 
     # Relationship with the tool
     tool = relationship("Tool", back_populates="actions")

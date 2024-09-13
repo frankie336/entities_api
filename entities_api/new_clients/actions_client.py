@@ -1,140 +1,122 @@
-import requests
+import httpx
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel
 from entities_api.schemas import ActionRead, ActionUpdate, ActionCreate
 from entities_api.services.identifier_service import IdentifierService
+from entities_api.services.logging_service import LoggingUtility
+
+logging_utility = LoggingUtility()
+
 
 class ClientActionService:
     def __init__(self, base_url: str, api_key: str):
         """Initialize with base URL and API key for authentication."""
-        self.base_url = base_url
-        self.api_key = api_key
-
-    def _headers(self) -> Dict[str, str]:
-        """Helper method to return headers including the API key."""
-        return {
-            'Authorization': f'Bearer {self.api_key}',
-            'Content-Type': 'application/json'
-        }
+        self.client = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"})
+        logging_utility.info("ClientActionService initialized with base_url: %s", base_url)
 
     def create_action(self, tool_name: str, run_id: str, function_args: Optional[Dict[str, Any]] = None,
                       expires_at: Optional[datetime] = None) -> ActionRead:
         """Create a new action using the provided tool_name, run_id, and function_args."""
         try:
-            # Generate an action ID using IdentifierService
             action_id = IdentifierService.generate_action_id()
 
-            # Create the payload with the generated action ID
+            # Convert expires_at to ISO 8601 string format if provided
+            expires_at_iso = expires_at.isoformat() if expires_at else None
+
             payload = ActionCreate(
-                id=action_id,  # Use the generated action_id
+                id=action_id,
                 tool_name=tool_name,
                 run_id=run_id,
                 function_args=function_args or {},
-                expires_at=expires_at
-            )
+                expires_at=expires_at_iso  # Use the ISO 8601 format for datetime
+            ).dict()
 
-            # Mock response for action creation (replace with actual request logic)
-            response = {
-                "id": action_id,
-                "status": "success"
-            }
+            logging_utility.debug("Payload for action creation: %s", payload)
 
-            # Validate and return the action created
-            validated_action = ActionRead(**response)
-            return validated_action
-
-        except Exception as e:
-            raise ValueError(f"Unexpected error during action creation: {str(e)}")
-
-    def get_action(self, action_id: str) -> ActionRead:
-        """Retrieve a specific action by its ID."""
-        try:
-            # Make a GET request to retrieve the action with headers
-            response = requests.get(f"{self.base_url}/actions/{action_id}", headers=self._headers())
-
-            # Check for HTTP errors
+            # Correct the URL to include /v1 prefix
+            response = self.client.post("/v1/actions", json=payload)
             response.raise_for_status()
 
-            # Parse the response JSON and validate it using ActionRead
             response_data = response.json()
             validated_action = ActionRead(**response_data)
-
+            logging_utility.info("Action created successfully with ID: %s", action_id)
             return validated_action
 
-        except requests.exceptions.RequestException as e:
-            # Handle errors related to the HTTP request
-            raise ValueError(f"HTTP error during action retrieval: {str(e)}")
+        except httpx.HTTPStatusError as e:
+            logging_utility.error("HTTP error during action creation: %s", str(e))
+            raise ValueError(f"HTTP error during action creation: {str(e)}")
 
-        except Exception as e:
-            # Catch any other exceptions
-            raise ValueError(f"Unexpected error during action retrieval: {str(e)}")
+    def get_action(self, action_id: str) -> Dict[str, Any]:
+        """Retrieve a specific action by its ID without Pydantic validation."""
+        try:
+            logging_utility.debug("Retrieving action with ID: %s", action_id)
+
+            response = self.client.get(f"/v1/actions/{action_id}")
+            response.raise_for_status()
+
+            response_data = response.json()
+            logging_utility.info("Action retrieved successfully with ID: %s", action_id)
+            return response_data  # Return raw JSON data
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                logging_utility.error("Action with ID %s not found: %s", action_id, str(e))
+                return None  # Return None or handle it as you wish
+            else:
+                logging_utility.error("HTTP error during action retrieval: %s", str(e))
+                raise ValueError(f"HTTP error during action retrieval: {str(e)}")
 
     def update_action(self, action_id: str, status: str, result: Optional[Dict[str, Any]] = None) -> ActionRead:
         """Update an action's status and result."""
         try:
-            # Create the payload directly, validated using Pydantic ActionUpdate schema
             payload = ActionUpdate(status=status, result=result).dict(exclude_none=True)
+            logging_utility.debug("Payload for action update: %s", payload)
 
-            # Make a PUT request to update the action with headers
-            response = requests.put(f"{self.base_url}/actions/{action_id}", json=payload, headers=self._headers())
-
-            # Check for HTTP errors
+            # Ensure the URL includes the /v1 prefix
+            response = self.client.put(f"/v1/actions/{action_id}", json=payload)
             response.raise_for_status()
 
-            # Parse the response JSON and validate it using ActionRead
             response_data = response.json()
             validated_action = ActionRead(**response_data)
-
+            logging_utility.info("Action updated successfully with ID: %s", action_id)
             return validated_action
 
-        except requests.exceptions.RequestException as e:
-            # Handle errors related to the HTTP request
+        except httpx.HTTPStatusError as e:
+            logging_utility.error("HTTP error during action update: %s", str(e))
             raise ValueError(f"HTTP error during action update: {str(e)}")
 
-        except Exception as e:
-            # Catch any other exceptions
-            raise ValueError(f"Unexpected error during action update: {str(e)}")
-
-    def list_actions(self) -> List[ActionRead]:
-        """List all actions."""
+    def get_actions_by_status(self, run_id: str, status: Optional[str] = "pending") -> List[Dict[str, Any]]:
+        """Retrieve actions by run_id and status."""
         try:
-            # Make a GET request to retrieve all actions with headers
-            response = requests.get(f"{self.base_url}/actions", headers=self._headers())
+            logging_utility.debug(f"Retrieving actions for run_id: {run_id} with status: {status}")
 
-            # Check for HTTP errors
+            # Make a GET request with run_id and optional status query parameter
+            response = self.client.get(f"/v1/runs/{run_id}/actions/status", params={"status": status})
             response.raise_for_status()
 
-            # Parse the response JSON and validate it using ActionList
             response_data = response.json()
-            validated_actions = [ActionRead(**action) for action in response_data.get("actions", [])]
+            logging_utility.info(f"Actions retrieved successfully for run_id: {run_id} with status: {status}")
+            return response_data  # Return raw JSON data
 
-            return validated_actions
+        except httpx.HTTPStatusError as e:
+            logging_utility.error(f"HTTP error during actions retrieval for run_id {run_id} with status {status}: {str(e)}")
+            raise ValueError(f"HTTP error during actions retrieval: {str(e)}")
 
-        except requests.exceptions.RequestException as e:
-            # Handle errors related to the HTTP request
-            raise ValueError(f"HTTP error during action listing: {str(e)}")
-
-        except Exception as e:
-            # Catch any other exceptions
-            raise ValueError(f"Unexpected error during action listing: {str(e)}")
-
-    def delete_action(self, action_id: str) -> Dict[str, Any]:
-        """Delete a specific action by its ID."""
+    def delete_action(self, action_id: str) -> None:
+        """Delete an action by its ID."""
+        logging_utility.info(f"Deleting action with ID: {action_id}")
         try:
-            # Make a DELETE request to remove the action with headers
-            response = requests.delete(f"{self.base_url}/actions/{action_id}", headers=self._headers())
-
-            # Check for HTTP errors
+            # Ensure the URL includes the /v1 prefix
+            response = self.client.delete(f"/v1/actions/{action_id}")
             response.raise_for_status()
 
-            # Parse the response JSON (assume it's a success message)
-            return response.json()
+            logging_utility.info(f"Action with ID {action_id} deleted successfully.")
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                logging_utility.error(f"Action with ID {action_id} not found: {str(e)}")
+                raise ValueError(f"Action with ID {action_id} not found")
+            else:
+                logging_utility.error(f"HTTP error during action deletion: {str(e)}")
+                raise ValueError(f"HTTP error during action deletion: {str(e)}")
 
-        except requests.exceptions.RequestException as e:
-            # Handle errors related to the HTTP request
-            raise ValueError(f"HTTP error during action deletion: {str(e)}")
-
-        except Exception as e:
-            # Catch any other exceptions
-            raise ValueError(f"Unexpected error during action deletion: {str(e)}")
