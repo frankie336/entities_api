@@ -21,7 +21,6 @@ load_dotenv()
 logging_utility = LoggingUtility()
 
 
-
 class Runner:
     def __init__(self, base_url=os.getenv('ASSISTANTS_BASE_URL'), api_key='your api key', available_functions=None):
         self.base_url = base_url or os.getenv('ASSISTANTS_BASE_URL')
