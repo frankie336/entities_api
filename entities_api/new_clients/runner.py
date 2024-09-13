@@ -57,8 +57,9 @@ class Runner:
     def process_tool_calls(self, run_id, tool_calls, message_id, thread_id):
         """
         Processes tool calls and waits for status to change to 'ready'.
-        Returns the response of tool functions.
+        Returns the response of tool functions, filtering out errors.
         """
+        tool_results = []
         try:
             for tool in tool_calls:
                 function_name = tool['function']['name']
@@ -85,21 +86,25 @@ class Runner:
                 # Execute the corresponding function
                 if function_name in self.available_functions:
                     function_to_call = self.available_functions[function_name]
-                    function_response = function_to_call(**function_args)
-                    parsed_response = json.loads(function_response)
+                    try:
+                        function_response = function_to_call(**function_args)
+                        parsed_response = json.loads(function_response)
 
-                    # Save the tool response
-                    self.message_service.add_tool_message(message_id, function_response)
-                    logging_utility.info(f"Tool response saved to thread: {thread_id}")
+                        # Save the tool response
+                        self.message_service.add_tool_message(message_id, function_response)
+                        logging_utility.info(f"Tool response saved to thread: {thread_id}")
 
-                    return parsed_response  # Return the result to be injected into final conversation
+                        tool_results.append(parsed_response)  # Collect successful results
+                    except Exception as func_e:
+                        logging_utility.error(f"Error executing function '{function_name}': {str(func_e)}", exc_info=True)
+                        # Do not append the result to tool_results if there's an error
                 else:
                     raise ValueError(f"Function '{function_name}' is not available in available_functions")
 
         except Exception as e:
             logging_utility.error(f"Error in process_tool_calls: {str(e)}", exc_info=True)
 
-        return None  # Return None if the tool call fails or times out
+        return tool_results  # Return collected results, excluding any that had errors
 
     def generate_final_response(self, thread_id, message_id, run_id, tool_results, messages, model):
         """
@@ -166,10 +171,8 @@ class Runner:
         logging_utility.debug("Initial chat response: %s", response)
 
         if response['message'].get('tool_calls'):
-            tool_results.append(
-                self.process_tool_calls(
-                    run_id, response['message']['tool_calls'], message_id, thread_id
-                )
+            tool_results = self.process_tool_calls(
+                run_id, response['message']['tool_calls'], message_id, thread_id
             )
 
             from entities_api.new_clients.client import OllamaClient
@@ -192,9 +195,6 @@ class Runner:
                         )
 
                         # Deal with function calls here
-                        # We can use dependency injection
-                        # to handle an aspect of function
-                        # calling and tooling
                         def deal_with_tools():
                             update = client.actions_service.update_action(
                                 action_id=action['id'],

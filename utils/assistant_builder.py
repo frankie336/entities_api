@@ -61,6 +61,30 @@ def setup_assistant_with_tools(user_name, assistant_name, assistant_description,
 # Example usage
 if __name__ == "__main__":
     function_definitions = [
+
+        {
+            "type": "function",
+            "function": {
+                "name": "code_interpreter",
+                "description": "Executes a provided code snippet and returns the output",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "code": {
+                            "type": "string",
+                            "description": "The code snippet to execute",
+                        },
+                        "language": {
+                            "type": "string",
+                            "description": "The programming language of the code (e.g., 'python')",
+                            "enum": ["python"],  # For now, we'll focus on Python
+                        },
+                    },
+                    "required": ["code", "language"],
+                }
+            }
+        },
+
         {
             "type": "function",
             "function": {
