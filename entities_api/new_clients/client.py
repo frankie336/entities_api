@@ -9,7 +9,7 @@ from entities_api.new_clients.user_client import UserService
 
 
 class OllamaClient:
-    def __init__(self, base_url='http://localhost:9000/', api_key='your_api_key'):
+    def __init__(self, base_url='http://localhost:9000/', api_key='your_api_key', available_functions=None):
 
         self.base_url = base_url
         self.api_key = api_key
@@ -19,7 +19,8 @@ class OllamaClient:
         self.thread_service = ThreadService(base_url, api_key)
         self.message_service = MessageService(base_url, api_key)
         self.run_service = RunService(base_url, api_key)
-        self.runner = Runner(base_url, api_key)
+        self.available_functions = available_functions
+        self.runner = Runner(base_url, api_key, available_functions=self.available_functions)
         self.actions_service = ClientActionService(base_url, api_key)
 
     def user_service(self):

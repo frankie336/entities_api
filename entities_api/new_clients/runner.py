@@ -1,20 +1,18 @@
 import json
 import os
 import time
-import requests
+
 from dotenv import load_dotenv
+from ollama import Client
+
+from entities_api.new_clients.actions_client import ClientActionService
 from entities_api.new_clients.assistant_client import AssistantService
 from entities_api.new_clients.message_client import MessageService
 from entities_api.new_clients.run_client import RunService
 from entities_api.new_clients.thread_client import ThreadService
-from entities_api.new_clients.user_client import UserService
 from entities_api.new_clients.tool_client import ClientToolService
-from entities_api.new_clients.actions_client import ClientActionService
-from entities_api.schemas import ActionCreate
-from ollama import Client
+from entities_api.new_clients.user_client import UserService
 from entities_api.services.logging_service import LoggingUtility
-from typing import Optional
-
 
 # Load environment variables from .env file
 load_dotenv()
@@ -23,64 +21,9 @@ load_dotenv()
 logging_utility = LoggingUtility()
 
 
-def get_flight_times(departure: str, arrival: str) -> str:
-    flights = {
-        'NYC-LAX': {'departure': '08:00 AM', 'arrival': '11:30 AM', 'duration': '6h 30m'},
-        'LAX-NYC': {'departure': '02:00 PM', 'arrival': '10:30 PM', 'duration': '5h 30m'},
-        'LHR-JFK': {'departure': '10:00 AM', 'arrival': '01:00 PM', 'duration': '8h 00m'},
-        'JFK-LHR': {'departure': '09:00 PM', 'arrival': '09:00 AM', 'duration': '7h 00m'},
-        'CDG-DXB': {'departure': '11:00 AM', 'arrival': '08:00 PM', 'duration': '6h 00m'},
-        'DXB-CDG': {'departure': '03:00 AM', 'arrival': '07:30 AM', 'duration': '7h 30m'},
-    }
-    key = f'{departure}-{arrival}'.upper()
-    return json.dumps(flights.get(key, {'error': 'Flight not found'}))
-
-
-def getAnnouncedPrefixes(resource: str, starttime: Optional[str] = None, endtime: Optional[str] = None,
-                         min_peers_seeing: int = 10) -> str:
-    logging_utility.info('Retrieving announced prefixes for ASN: %s', resource)
-
-    base_url = "https://stat.ripe.net/data/announced-prefixes/data.json"
-    params = {
-        "resource": resource,
-        "starttime": starttime,
-        "endtime": endtime,
-        "min_peers_seeing": min_peers_seeing
-    }
-
-    try:
-        response = requests.get(base_url, params=params)
-        response.raise_for_status()
-        prefixes_data = response.json()
-
-        if prefixes_data.get('status') == 'ok':
-            response_text = "Announced Prefixes:\n\n"
-            prefixes = prefixes_data.get('data', {}).get('prefixes', [])
-            for prefix_data in prefixes:
-                prefix = prefix_data.get('prefix', '')
-                timelines = prefix_data.get('timelines', [])
-                response_text += f"Prefix: {prefix}\n"
-                response_text += "Timelines:\n"
-                for timeline in timelines:
-                    starttime = timeline.get('starttime', '')
-                    endtime = timeline.get('endtime', '')
-                    response_text += f"- Start: {starttime}, End: {endtime}\n"
-                response_text += "\n"
-            response_text += "---\n"
-        else:
-            logging_utility.warning('Failed to retrieve announced prefixes')
-            response_text = "Failed to retrieve announced prefixes."
-
-        return json.dumps({"result": response_text})
-
-    except requests.RequestException as e:
-        error_message = f"Error retrieving announced prefixes: {str(e)}"
-        logging_utility.error(error_message)
-        return json.dumps({"error": error_message})
-
 
 class Runner:
-    def __init__(self, base_url=os.getenv('ASSISTANTS_BASE_URL'), api_key='your api key'):
+    def __init__(self, base_url=os.getenv('ASSISTANTS_BASE_URL'), api_key='your api key', available_functions=None):
         self.base_url = base_url or os.getenv('ASSISTANTS_BASE_URL')
         self.api_key = api_key or os.getenv('API_KEY')
         self.user_service = UserService(self.base_url, self.api_key)
@@ -91,8 +34,9 @@ class Runner:
         self.ollama_client = Client()
         self.tool_service = ClientToolService(self.base_url, self.api_key)
         self.action_service = ClientActionService(self.base_url, self.api_key)
+        self.available_functions = available_functions or {}
 
-        logging_utility.info("OllamaClient initialized with base_url: %s", self.base_url)
+        logging_utility.info("Runner initialized with base_url: %s", self.base_url)
 
     def create_tool_filtering_messages(self, messages):
         logging_utility.info("Creating tool filtering messages")
@@ -116,11 +60,6 @@ class Runner:
         Processes tool calls and waits for status to change to 'ready'.
         Returns the response of tool functions.
         """
-        available_functions = {
-            'get_flight_times': get_flight_times,
-            'getAnnouncedPrefixes': getAnnouncedPrefixes,
-        }
-
         try:
             for tool in tool_calls:
                 function_name = tool['function']['name']
@@ -145,8 +84,8 @@ class Runner:
                 logging_utility.info(f"Created action for function call: {action_response.id}")
 
                 # Execute the corresponding function
-                if function_name in available_functions:
-                    function_to_call = available_functions[function_name]
+                if function_name in self.available_functions:
+                    function_to_call = self.available_functions[function_name]
                     function_response = function_to_call(**function_args)
                     parsed_response = json.loads(function_response)
 
@@ -155,6 +94,8 @@ class Runner:
                     logging_utility.info(f"Tool response saved to thread: {thread_id}")
 
                     return parsed_response  # Return the result to be injected into final conversation
+                else:
+                    raise ValueError(f"Function '{function_name}' is not available in available_functions")
 
         except Exception as e:
             logging_utility.error(f"Error in process_tool_calls: {str(e)}", exc_info=True)
@@ -188,7 +129,8 @@ class Runner:
             yield content
 
         # Finalize the run
-        final_run_status = self.run_service.retrieve_run(run_id=run_id).status
+        final_run = self.run_service.retrieve_run(run_id=run_id)
+        final_run_status = final_run.status
         status_to_set = "completed" if final_run_status not in ["cancelling", "cancelled"] else "cancelled"
 
         self.message_service.save_assistant_message_chunk(thread_id, full_response, is_last_chunk=True)
@@ -221,9 +163,6 @@ class Runner:
             tool_results.append(
                 self.process_tool_calls(run_id, response['message']['tool_calls'], message_id, thread_id))
 
-            from entities_api.new_clients.client import OllamaClient
-            client = OllamaClient()
-
             check_interval = 1  # Check every second
 
             while True:
@@ -234,20 +173,11 @@ class Runner:
                     for action in pending_actions:
                         logging_utility.info(f"Pending action found: {action['id']}, attempting to update to 'ready'")
 
-                        # Deal with function calls here
-                        # We can use dependency injection
-                        # to handle an aspect of function
-                        # calling and tooling
-                        def deal_with_tools():
-
-                            update = client.actions_service.update_action(
-                                action_id=action['id'],
-                                status='ready'
-                            )
-
-                        deal_with_tools()
-
-
+                        # Update action status to 'ready'
+                        self.action_service.update_action(
+                            action_id=action['id'],
+                            status='ready'
+                        )
 
                 if not pending_actions:
                     logging_utility.info(f"Tool call completed for run_id: {run_id}")
