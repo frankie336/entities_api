@@ -1,0 +1,36 @@
+# Dockerfile.sandbox
+
+FROM docker:stable-dind
+
+# Install Python and dependencies
+RUN apk add --no-cache python3 py3-pip
+
+# Upgrade pip to the latest version
+RUN pip3 install --upgrade pip
+
+# Install Rust compiler and Cargo
+RUN apk add --no-cache --virtual .build-deps \
+        cargo \
+        build-base \
+    && pip3 install maturin \
+    && apk del .build-deps
+
+# Create a non-root user
+RUN adduser -D sandboxuser
+
+WORKDIR /app
+
+COPY sandbox_server/requirements.txt .
+
+# Install Python dependencies
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+COPY sandbox_server .
+
+# Expose the port
+EXPOSE 8000
+
+# Switch to the non-root user
+USER sandboxuser
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -32,8 +32,6 @@ updated_sandbox = client.sandbox_service.update_sandbox(
     config={'language': 'python', 'version': '3.10'}
 )
 
-print(f"Updated Sandbox: {updated_sandbox}")
-time.sleep(10000)
 
 
 # List sandboxes for the user
@@ -42,9 +40,12 @@ print(f"Sandboxes for user {user_id}:")
 for sb in user_sandboxes:
     print(sb)
 
+
+
 # Delete the sandbox
 client.sandbox_service.delete_sandbox(sandbox_id)
 print(f"Sandbox with ID {sandbox_id} deleted.")
+
 
 # Verify deletion by attempting to retrieve the sandbox
 try:
@@ -52,7 +53,7 @@ try:
 except Exception as e:
     print(f"Sandbox retrieval after deletion failed as expected: {e}")
 
-# Clean up by deleting the user (optional)
-client.user_service.delete_user(user_id)
-print(f"User with ID {user_id} deleted.")
+
+
+
 
