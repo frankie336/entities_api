@@ -6,6 +6,7 @@ from entities_api.new_clients.runner import Runner
 from entities_api.new_clients.client_thread_client import ThreadService
 from entities_api.new_clients.client_tool_client import ClientToolService
 from entities_api.new_clients.client_user_client import UserService
+from entities_api.new_clients.client_sandbox_client import SandboxClientService
 
 
 class OllamaClient:
@@ -22,6 +23,7 @@ class OllamaClient:
         self.available_functions = available_functions
         self.runner = Runner(base_url, api_key, available_functions=self.available_functions)
         self.actions_service = ClientActionService(base_url, api_key)
+        self.sandbox_service = SandboxClientService(base_url, api_key)
 
     def user_service(self):
         return self.user_service
@@ -45,6 +47,8 @@ class OllamaClient:
     def action_service(self):
         return self.actions_service
 
+    def sandbox_service(self):
+        return self.sandbox_service
 
     def create_message(self, thread_id, content, role):
         data = [

@@ -3,6 +3,8 @@ from datetime import time
 
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
+from typing import List
+
 from models.models import Sandbox, User
 from entities_api.schemas import SandboxCreate, SandboxRead, SandboxUpdate
 from entities_api.services.identifier_service import IdentifierService
@@ -31,7 +33,7 @@ class SandboxService:
             name=sandbox_data.name,
             status="active",
             config=sandbox_data.config,
-            created_at=int(time.time())
+
         )
 
         self.db.add(new_sandbox)

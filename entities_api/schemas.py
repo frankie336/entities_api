@@ -360,7 +360,7 @@ class SandboxBase(BaseModel):
     id: str
     user_id: str
     name: str
-    created_at: int
+    created_at: datetime
     status: str
     config: Optional[Dict[str, Any]] = {}
 

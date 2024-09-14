@@ -1,7 +1,8 @@
+import time
+from datetime import datetime
+
 from sqlalchemy import Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, Text
 from sqlalchemy.orm import relationship, declarative_base
-from datetime import datetime
-import time
 
 Base = declarative_base()
 
@@ -178,7 +179,7 @@ class Sandbox(Base):
     id = Column(String(64), primary_key=True, index=True)
     user_id = Column(String(64), ForeignKey('users.id'), nullable=False)
     name = Column(String(128), nullable=False)
-    created_at = Column(Integer, default=lambda: int(time.time()))
+    created_at = Column(DateTime, default=datetime.utcnow)
     status = Column(String(32), nullable=False, default="active")
     config = Column(JSON, nullable=True)  # Configuration details for the sandbox
 
