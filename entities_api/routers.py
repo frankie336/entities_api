@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from db.database import get_db
+from entities_api.schemas import SandboxCreate, SandboxRead, SandboxUpdate
 from entities_api.schemas import (
     UserCreate, UserRead, UserUpdate,
     ThreadCreate, ThreadRead, ThreadReadDetailed, ThreadIds,
@@ -12,14 +13,14 @@ from entities_api.schemas import (
     Run, RunStatusUpdate,
     AssistantCreate, AssistantRead, AssistantUpdate,
     ToolCreate, ToolRead, ToolUpdate, ToolList,
-    ActionCreate, ActionRead, ActionUpdate, ActionList,
-    ToolMessageCreate
+    ActionCreate, ActionRead, ActionUpdate, ToolMessageCreate
 )
 from entities_api.services.action_service import ActionService
 from entities_api.services.assistant_service import AssistantService
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.message_service import MessageService
 from entities_api.services.run_service import RunService
+from entities_api.services.sandbox_service import SandboxService
 from entities_api.services.thread_service import ThreadService
 from entities_api.services.tool_service import ToolService
 from entities_api.services.user_service import UserService
@@ -561,4 +562,85 @@ def delete_action(action_id: str, db: Session = Depends(get_db)):
         raise e
     except Exception as e:
         logging_utility.error(f"An unexpected error occurred while deleting action {action_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+
+
+# Create Sandbox
+@router.post("/sandboxes", response_model=SandboxRead)
+def create_sandbox(sandbox_data: SandboxCreate, db: Session = Depends(get_db)):
+    logging_utility.info(f"Received request to create sandbox for user_id: {sandbox_data.user_id}")
+    sandbox_service = SandboxService(db)
+    try:
+        new_sandbox = sandbox_service.create_sandbox(sandbox_data)
+        logging_utility.info(f"Sandbox created with ID: {new_sandbox.id}")
+        return new_sandbox
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error during sandbox creation: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"Unexpected error during sandbox creation: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+
+# Get Sandbox
+@router.get("/sandboxes/{sandbox_id}", response_model=SandboxRead)
+def get_sandbox(sandbox_id: str, db: Session = Depends(get_db)):
+    logging_utility.info(f"Received request to get sandbox with ID: {sandbox_id}")
+    sandbox_service = SandboxService(db)
+    try:
+        sandbox = sandbox_service.get_sandbox(sandbox_id)
+        logging_utility.info(f"Sandbox retrieved with ID: {sandbox_id}")
+        return sandbox
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error during sandbox retrieval: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"Unexpected error during sandbox retrieval: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+
+# Update Sandbox
+@router.put("/sandboxes/{sandbox_id}", response_model=SandboxRead)
+def update_sandbox(sandbox_id: str, sandbox_update: SandboxUpdate, db: Session = Depends(get_db)):
+    logging_utility.info(f"Received request to update sandbox with ID: {sandbox_id}")
+    sandbox_service = SandboxService(db)
+    try:
+        updated_sandbox = sandbox_service.update_sandbox(sandbox_id, sandbox_update)
+        logging_utility.info(f"Sandbox updated with ID: {sandbox_id}")
+        return updated_sandbox
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error during sandbox update: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"Unexpected error during sandbox update: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+
+# Delete Sandbox
+@router.delete("/sandboxes/{sandbox_id}", status_code=204)
+def delete_sandbox(sandbox_id: str, db: Session = Depends(get_db)):
+    logging_utility.info(f"Received request to delete sandbox with ID: {sandbox_id}")
+    sandbox_service = SandboxService(db)
+    try:
+        sandbox_service.delete_sandbox(sandbox_id)
+        logging_utility.info(f"Sandbox deleted with ID: {sandbox_id}")
+        return {"detail": "Sandbox deleted successfully"}
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error during sandbox deletion: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"Unexpected error during sandbox deletion: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+
+# List Sandboxes for a User
+@router.get("/users/{user_id}/sandboxes", response_model=List[SandboxRead])
+def list_sandboxes_by_user(user_id: str, db: Session = Depends(get_db)):
+    logging_utility.info(f"Received request to list sandboxes for user ID: {user_id}")
+    sandbox_service = SandboxService(db)
+    try:
+        sandboxes = sandbox_service.list_sandboxes_by_user(user_id)
+        logging_utility.info(f"Sandboxes retrieved for user ID: {user_id}")
+        return sandboxes
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error during listing sandboxes: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"Unexpected error during listing sandboxes: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")

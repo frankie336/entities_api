@@ -338,6 +338,7 @@ class ActionCreate(BaseModel):
         }
     )
 
+
 class ActionRead(BaseModel):
     id: str
     status: str
@@ -353,3 +354,27 @@ class ActionUpdate(BaseModel):
     result: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SandboxBase(BaseModel):
+    id: str
+    user_id: str
+    name: str
+    created_at: int
+    status: str
+    config: Optional[Dict[str, Any]] = {}
+
+    model_config = ConfigDict(from_attributes=True)
+
+class SandboxCreate(BaseModel):
+    user_id: str
+    name: str
+    config: Optional[Dict[str, Any]] = {}
+
+class SandboxRead(SandboxBase):
+    pass
+
+class SandboxUpdate(BaseModel):
+    name: Optional[str] = None
+    status: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None

@@ -1,11 +1,11 @@
-from entities_api.new_clients.actions_client import ClientActionService
-from entities_api.new_clients.assistant_client import AssistantService
-from entities_api.new_clients.message_client import MessageService
-from entities_api.new_clients.run_client import RunService
+from entities_api.new_clients.client_actions_client import ClientActionService
+from entities_api.new_clients.client_assistant_client import AssistantService
+from entities_api.new_clients.client_message_client import MessageService
+from entities_api.new_clients.client_run_client import RunService
 from entities_api.new_clients.runner import Runner
-from entities_api.new_clients.thread_client import ThreadService
-from entities_api.new_clients.tool_client import ClientToolService
-from entities_api.new_clients.user_client import UserService
+from entities_api.new_clients.client_thread_client import ThreadService
+from entities_api.new_clients.client_tool_client import ClientToolService
+from entities_api.new_clients.client_user_client import UserService
 
 
 class OllamaClient:

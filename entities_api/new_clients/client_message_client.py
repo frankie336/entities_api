@@ -1,4 +1,4 @@
-# new_clients/message_client.py
+# new_clients/client_message_client.py
 from typing import List, Dict, Any, Optional
 
 import httpx

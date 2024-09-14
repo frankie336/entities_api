@@ -22,15 +22,20 @@ assistant_tools = Table(
 # User model
 
 
+# models/models.py
+
 class User(Base):
     __tablename__ = "users"
 
     id = Column(String(64), primary_key=True, index=True)
     name = Column(String(128), index=True)
 
-    # Relationships
+    # Existing relationships
     threads = relationship('Thread', secondary=thread_participants, back_populates='participants')
     assistants = relationship('Assistant', back_populates='user')
+
+    # New relationship with Sandbox
+    sandboxes = relationship('Sandbox', back_populates='user', cascade="all, delete-orphan")
 
 # Thread model
 
@@ -165,3 +170,17 @@ class Action(Base):
 
     # Relationship with the run
     run = relationship("Run", back_populates="actions")
+
+
+class Sandbox(Base):
+    __tablename__ = "sandboxes"
+
+    id = Column(String(64), primary_key=True, index=True)
+    user_id = Column(String(64), ForeignKey('users.id'), nullable=False)
+    name = Column(String(128), nullable=False)
+    created_at = Column(Integer, default=lambda: int(time.time()))
+    status = Column(String(32), nullable=False, default="active")
+    config = Column(JSON, nullable=True)  # Configuration details for the sandbox
+
+    # Relationship with User
+    user = relationship("User", back_populates="sandboxes")

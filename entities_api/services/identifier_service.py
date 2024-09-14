@@ -60,6 +60,10 @@ class IdentifierService:
         """Generate an assistant ID in the specified format."""
         return IdentifierService.generate_id("run")
 
+    @staticmethod
+    def generate_sandbox_id() -> str:
+        return IdentifierService.generate_id("cli")
+
 
 # Example usage:
 if __name__ == "__main__":
