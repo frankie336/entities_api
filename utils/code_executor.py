@@ -3,9 +3,19 @@ from entities_api.new_clients.client import OllamaClient
 # Initialize the OllamaClient (it will fetch the SANDBOX_SERVER_URL from the environment)
 client = OllamaClient()
 
-# Define the code to be executed
+# Define a more complex Python code to be executed
 python_code = """
-print("Hello from the sandbox!")
+def factorial(n):
+    if n == 0 or n == 1:
+        return 1
+    else:
+        result = 1
+        for i in range(2, n + 1):
+            result *= i
+        return result
+
+number = 10
+print(f"Factorial of {number} is {factorial(number)}")
 """
 
 # Define the user ID and language
@@ -18,6 +28,9 @@ response = client.code_executor_service.execute_code(
     language=language,
     user_id=user_id
 )
+
+# Print the raw response from the server
+print(response)
 
 # Print the response (output or error)
 if 'error' in response:

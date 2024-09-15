@@ -1,5 +1,3 @@
-# entities_api/new_clients/client_code_executor.py
-
 import requests
 from typing import Dict, Any
 
@@ -21,7 +19,7 @@ class ClientCodeService:
         Returns:
             Dict[str, Any]: The response from the sandbox server.
         """
-        # Correct the endpoint to avoid appending "/execute_code" multiple times
+        # Correct the endpoint to avoid issues
         endpoint = f"{self.sandbox_server_url}"
 
         payload = {
@@ -32,8 +30,8 @@ class ClientCodeService:
 
         try:
             response = requests.post(endpoint, json=payload, timeout=10)
-            response.raise_for_status()
-            return response.json()
+            response.raise_for_status()  # Ensure we catch any HTTP errors
+            return response.json()  # Return the JSON response
         except requests.exceptions.Timeout:
             return {"error": "Sandbox server timed out."}
         except requests.exceptions.RequestException as e:
