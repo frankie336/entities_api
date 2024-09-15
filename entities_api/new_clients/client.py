@@ -1,3 +1,4 @@
+import os
 from entities_api.new_clients.client_actions_client import ClientActionService
 from entities_api.new_clients.client_assistant_client import ClientAssistantService
 from entities_api.new_clients.client_message_client import ClientMessageService
@@ -7,11 +8,11 @@ from entities_api.new_clients.client_thread_client import ThreadService
 from entities_api.new_clients.client_tool_client import ClientToolService
 from entities_api.new_clients.client_user_client import UserService
 from entities_api.new_clients.client_sandbox_client import SandboxClientService
+from entities_api.new_clients.client_code_executor import ClientCodeService
 
 
 class OllamaClient:
     def __init__(self, base_url='http://localhost:9000/', api_key='your_api_key', available_functions=None):
-
         self.base_url = base_url
         self.api_key = api_key
         self.user_service = UserService(base_url, api_key)
@@ -24,6 +25,10 @@ class OllamaClient:
         self.runner = Runner(base_url, api_key, available_functions=self.available_functions)
         self.actions_service = ClientActionService(base_url, api_key)
         self.sandbox_service = SandboxClientService(base_url, api_key)
+
+        # Fetch the sandbox server URL from the environment variable, with a default fallback
+        sandbox_server_url = os.getenv('CODE_SERVER_URL', 'http://localhost:9000/v1/execute_code')
+        self.code_executor_service = ClientCodeService(sandbox_server_url=sandbox_server_url)
 
     def user_service(self):
         return self.user_service
@@ -38,7 +43,6 @@ class OllamaClient:
         return self.thread_service
 
     def message_service(self):
-
         return self.message_service
 
     def run_service(self):
@@ -49,6 +53,10 @@ class OllamaClient:
 
     def sandbox_service(self):
         return self.sandbox_service
+
+    def code_executor_service(self):
+        return self.code_executor_service
+
 
     def create_message(self, thread_id, content, role):
         data = [
@@ -66,8 +74,3 @@ class OllamaClient:
 
     def runner(self):
         return self.runner
-
-
-
-
-

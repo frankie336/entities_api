@@ -121,8 +121,8 @@ A custom client can be created with the following fields:
 - `timeout`: The timeout for requests
 
 ```python
-from ollama import Client
-client = Client(host='http://localhost:11434')
+from ollama import ClientCodeService
+client = ClientCodeService(host='http://localhost:11434')
 response = client.chat(model='llama3', messages=[
   {
     'role': 'user',
@@ -180,7 +180,7 @@ The Assistants API is an extension providing integrated state management, simila
 All state information is stored in a Docker container and may remain as such on local devices, or be deployed in a data center of choice. Built with a focus on absolute privacy whilst implementing advanced infrastructure required to host a scalable and diverse number of distinct AI entities.
 
 
-### Initializing the Assistants API v1 Beta Client
+### Initializing the Assistants API v1 Beta ClientCodeService
 
 ```python
 from ollama import OllamaClient

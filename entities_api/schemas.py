@@ -378,3 +378,17 @@ class SandboxUpdate(BaseModel):
     name: Optional[str] = None
     status: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
+
+
+
+from pydantic import BaseModel
+from typing import Optional
+
+class CodeExecutionRequest(BaseModel):
+    code: str
+    language: str
+    user_id: str
+
+class CodeExecutionResponse(BaseModel):
+    output: Optional[str] = None
+    error: Optional[str] = None
