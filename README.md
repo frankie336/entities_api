@@ -1,11 +1,27 @@
-# Ollama Python Library
+# Ollama Entities Library
 
-The Ollama Python library provides the easiest way to integrate Python 3.8+ projects with [Ollama](https://github.com/ollama/ollama).
+The **Ollama Entities** library is a state management and control API built on top of the [Ollama Python library](https://github.com/ollama/ollama-python). It offers an integrated API framework for developing projects that interact with open-source LLMs using the [Ollama](https://github.com/ollama) library. This enables rapid and flexible deployment of advanced features such as conversation management, function calling, code interpretation, and more through easy-to-use API endpoints.
+
+This documentation assumes a working knowledge of the [Ollama](https://github.com/ollama) library.
+
+
+## Supported Models
+
+| Model     | Parameters | Size  | Download                  |
+|-----------|------------|-------|---------------------------|
+| Llama 3.1 | 8B         | 4.7GB | `ollama run llama3.1`      |
+| Llama 3.1 | 70B        | 40GB  | `ollama run llama3.1:70b`  |
+| Llama 3.1 | 405B       | 231GB | `ollama run llama3.1:405b` |
+
+This library has been thoroughly tested with the models listed in the table above. Since the Ollama framework supports many more models, it should also work with additional ones. For an exhaustive list, refer to the [Ollama library documentation](https://github.com/ollama/ollama/blob/main/README.md) and the [definitive list of supported models](https://ollama.com/library).
+
+
+
 
 ## Install
 
 ```sh
-pip install ollama
+tbc
 ```
 
 ## Usage
