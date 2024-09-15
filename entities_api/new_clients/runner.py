@@ -6,8 +6,8 @@ from dotenv import load_dotenv
 from ollama import Client
 
 from entities_api.new_clients.client_actions_client import ClientActionService
-from entities_api.new_clients.client_assistant_client import AssistantService
-from entities_api.new_clients.client_message_client import MessageService
+from entities_api.new_clients.client_assistant_client import ClientAssistantService
+from entities_api.new_clients.client_message_client import ClientMessageService
 from entities_api.new_clients.client_run_client import RunService
 from entities_api.new_clients.client_thread_client import ThreadService
 from entities_api.new_clients.client_tool_client import ClientToolService
@@ -26,9 +26,9 @@ class Runner:
         self.base_url = base_url or os.getenv('ASSISTANTS_BASE_URL')
         self.api_key = api_key or os.getenv('API_KEY')
         self.user_service = UserService(self.base_url, self.api_key)
-        self.assistant_service = AssistantService(self.base_url, self.api_key)
+        self.assistant_service = ClientAssistantService(self.base_url, self.api_key)
         self.thread_service = ThreadService(self.base_url, self.api_key)
-        self.message_service = MessageService(self.base_url, self.api_key)
+        self.message_service = ClientMessageService(self.base_url, self.api_key)
         self.run_service = RunService(self.base_url, self.api_key)
         self.ollama_client = Client()
         self.tool_service = ClientToolService(self.base_url, self.api_key)

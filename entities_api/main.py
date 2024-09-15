@@ -1,9 +1,10 @@
 # entities_api/main.py
+
 import os
 from fastapi import FastAPI
 from sqlalchemy import create_engine, text, inspect
 from models.models import Base
-from entities_api.routers import router as api_router
+from entities_api.routers import api_router  # Updated import
 from entities_api.services.logging_service import LoggingUtility
 
 # Initialize the logging utility
@@ -23,7 +24,7 @@ def drop_constraints():
             foreign_keys = inspector.get_foreign_keys(table_name)
             for fk in foreign_keys:
                 fk_name = fk['name']
-                logging_utility.info("Dropping foreign key %s from table %s", fk_name, table_name)
+                logging_utility.info(f"Dropping foreign key {fk_name} from table {table_name}")
                 connection.execute(text(f"ALTER TABLE {table_name} DROP FOREIGN KEY {fk_name}"))
 
 
@@ -52,7 +53,7 @@ def create_app(init_db=True):
     app = FastAPI()
 
     # Include API routers
-    app.include_router(api_router, prefix="/v1")
+    app.include_router(api_router, prefix="/v1")  # Ensures all routers are included
 
     @app.get("/")
     def read_root():

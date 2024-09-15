@@ -1,6 +1,6 @@
 from entities_api.new_clients.client_actions_client import ClientActionService
-from entities_api.new_clients.client_assistant_client import AssistantService
-from entities_api.new_clients.client_message_client import MessageService
+from entities_api.new_clients.client_assistant_client import ClientAssistantService
+from entities_api.new_clients.client_message_client import ClientMessageService
 from entities_api.new_clients.client_run_client import RunService
 from entities_api.new_clients.runner import Runner
 from entities_api.new_clients.client_thread_client import ThreadService
@@ -15,10 +15,10 @@ class OllamaClient:
         self.base_url = base_url
         self.api_key = api_key
         self.user_service = UserService(base_url, api_key)
-        self.assistant_service = AssistantService(base_url, api_key)
+        self.assistant_service = ClientAssistantService(base_url, api_key)
         self.tool_service = ClientToolService(base_url, api_key)
         self.thread_service = ThreadService(base_url, api_key)
-        self.message_service = MessageService(base_url, api_key)
+        self.message_service = ClientMessageService(base_url, api_key)
         self.run_service = RunService(base_url, api_key)
         self.available_functions = available_functions
         self.runner = Runner(base_url, api_key, available_functions=self.available_functions)
