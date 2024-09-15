@@ -31,3 +31,4 @@ uvicorn
 ollama
 typing
 requests
+httpx

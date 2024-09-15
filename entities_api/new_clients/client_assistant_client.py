@@ -8,12 +8,12 @@ from entities_api.schemas import AssistantCreate, AssistantRead, AssistantUpdate
 logging_utility = LoggingUtility()
 
 
-class AssistantService:
+class ClientAssistantService:
     def __init__(self, base_url: str, api_key: str):
         self.base_url = base_url
         self.api_key = api_key
         self.client = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"})
-        logging_utility.info("AssistantService initialized with base_url: %s", self.base_url)
+        logging_utility.info("ClientAssistantService initialized with base_url: %s", self.base_url)
 
     def create_assistant(self, user_id: str, model: str, name: str = "", description: str = "", instructions: str = "",
                          meta_data: Dict[str, Any] = None,

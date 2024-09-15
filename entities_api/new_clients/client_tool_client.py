@@ -6,6 +6,7 @@ from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 
+
 class ClientToolService:
     def __init__(self, base_url: str, api_key: str):
         self.base_url = base_url

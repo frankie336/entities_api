@@ -11,6 +11,7 @@ from models.models import Tool, Assistant
 
 logging_utility = LoggingUtility()
 
+
 class ToolService:
     def __init__(self, db: Session):
         self.db = db

@@ -1,7 +1,8 @@
-import httpx
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel
+
+import httpx
+
 from entities_api.schemas import ActionRead, ActionUpdate, ActionCreate
 from entities_api.services.identifier_service import IdentifierService
 from entities_api.services.logging_service import LoggingUtility

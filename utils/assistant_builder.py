@@ -61,6 +61,34 @@ def setup_assistant_with_tools(user_name, assistant_name, assistant_description,
 # Example usage
 if __name__ == "__main__":
     function_definitions = [
+
+        {
+            "type": "function",
+            "function": {
+                "name": "code_interpreter",
+                "description": "Executes a provided Python code snippet remotely in a sandbox environment and returns the raw output. This function allows for secure and isolated execution of Python code snippets for tasks such as calculations, data processing, or algorithmic evaluations.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "code": {
+                            "type": "string",
+                            "description": "The Python code snippet to execute. The code can include functions, loops, or any valid Python logic.",
+                        },
+                        "language": {
+                            "type": "string",
+                            "description": "The programming language for the code snippet. Only 'python' is supported at the moment.",
+                            "enum": ["python"]
+                        },
+                        "user_id": {
+                            "type": "string",
+                            "description": "The user ID of the individual requesting the code execution. This is used to associate the request with a specific user session or identity.",
+                        }
+                    },
+                    "required": ["code", "language", "user_id"]
+                }
+            }
+        },
+
         {
             "type": "function",
             "function": {
