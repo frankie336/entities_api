@@ -66,21 +66,25 @@ if __name__ == "__main__":
             "type": "function",
             "function": {
                 "name": "code_interpreter",
-                "description": "Executes a provided code snippet and returns the output",
+                "description": "Executes a provided Python code snippet remotely in a sandbox environment and returns the raw output. This function allows for secure and isolated execution of Python code snippets for tasks such as calculations, data processing, or algorithmic evaluations.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "code": {
                             "type": "string",
-                            "description": "The code snippet to execute",
+                            "description": "The Python code snippet to execute. The code can include functions, loops, or any valid Python logic.",
                         },
                         "language": {
                             "type": "string",
-                            "description": "The programming language of the code (e.g., 'python')",
-                            "enum": ["python"],  # For now, we'll focus on Python
+                            "description": "The programming language for the code snippet. Only 'python' is supported at the moment.",
+                            "enum": ["python"]
                         },
+                        "user_id": {
+                            "type": "string",
+                            "description": "The user ID of the individual requesting the code execution. This is used to associate the request with a specific user session or identity.",
+                        }
                     },
-                    "required": ["code", "language"],
+                    "required": ["code", "language", "user_id"]
                 }
             }
         },
