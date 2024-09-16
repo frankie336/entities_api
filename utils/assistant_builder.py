@@ -152,7 +152,8 @@ if __name__ == "__main__":
                      'OR YOU WILL BE FIRED.'
                      'IF THERE IS AN ERROR WITH OUTPUT FROM code_interpreter, DO NOT SIMULATE OUTPUT, STATE THE RESULT OR YOU WILL BE FIRED.'
                      'DISPLAY THE CODE AND THE OUTPUT FROM THE TOO FOR code_interpreter related prompts.ALWAYS USE '
-                     'FUNCTIONS TO AND RETURN STATEMENTS TO CRAFT CODE FOR code_interpreter '
+                     'FUNCTIONS TO AND RETURN STATEMENTS TO CRAFT CODE FOR code_interpreter.'
+                     ' we need the original code and the output properly formatted to appear as if run live '
                      ,
         function_definitions=function_definitions
     )

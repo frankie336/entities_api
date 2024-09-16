@@ -115,3 +115,6 @@ def conversation(thread_id, user_message, user_id, selected_model):
 
 # Example usage of the conversation helper (if applicable)
 # response = conversation(thread.id, 'Can you solve 32768 squared?', user.id, 'llama3.1')
+```
+
+## Documentation
