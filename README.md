@@ -117,4 +117,12 @@ def conversation(thread_id, user_message, user_id, selected_model):
 # response = conversation(thread.id, 'Can you solve 32768 squared?', user.id, 'llama3.1')
 ```
 
+Whilst it involves a little more effort, adding state management to distinct parts of the LLM/User interaction life cycle brings significant benefits. By pragmatically interacting with each stage, you can unlock an @OpenAI type feature set with minimal additional coding.
+
+
+
+
+
 ## Documentation
+
+  [Function Calling](/docs/function_calling.md)

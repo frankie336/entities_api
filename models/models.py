@@ -122,7 +122,7 @@ class Assistant(Base):
     name = Column(String(128), nullable=False)
     description = Column(String(256), nullable=True)
     model = Column(String(64), nullable=False)
-    instructions = Column(String(1024), nullable=True)
+    instructions = Column(String(2024), nullable=True)
     meta_data = Column(JSON, nullable=True)
     top_p = Column(Integer, nullable=True)
     temperature = Column(Integer, nullable=True)
@@ -139,7 +139,7 @@ class Tool(Base):
     __tablename__ = "tools"
 
     id = Column(String(64), primary_key=True, index=True)
-    name = Column(String(128), unique=True, nullable=False)
+    name = Column(String(128), unique=False, nullable=False)
     type = Column(String(64), nullable=False)
     function = Column(JSON, nullable=True)
 

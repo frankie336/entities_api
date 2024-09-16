@@ -43,11 +43,11 @@ class ClientToolService:
             raise
 
     def associate_tool_with_assistant(self, tool_id: str, assistant_id: str) -> None:
-        logging_utility.info(f"Associating tool {tool_id} with assistant {assistant_id}")
+        logging_utility.info("Associating tool %s with assistant %s", tool_id, assistant_id)
         try:
             response = self.client.post(f"/v1/assistants/{assistant_id}/tools/{tool_id}")
             response.raise_for_status()
-            logging_utility.info(f"Tool {tool_id} associated with assistant {assistant_id} successfully")
+            logging_utility.info("Tool %s associated with assistant %s successfully", tool_id, assistant_id)
         except httpx.HTTPStatusError as e:
             logging_utility.error("HTTP error during tool-assistant association: %s | Response: %s", str(e), e.response.text)
             raise
@@ -96,13 +96,13 @@ class ClientToolService:
             raise
 
     def update_tool(self, tool_id: str, tool_update: ToolUpdate) -> ToolRead:
-        logging_utility.info("Updating tool with id: %s", tool_id)
+        logging_utility.info("Updating tool with ID: %s", tool_id)
         try:
             response = self.client.put(f"/v1/tools/{tool_id}", json=tool_update.model_dump(exclude_unset=True))
             response.raise_for_status()
             updated_tool = response.json()
             validated_tool = ToolRead.model_validate(updated_tool)
-            logging_utility.info("Tool updated successfully")
+            logging_utility.info("Tool updated successfully with ID: %s", tool_id)
             return validated_tool
         except ValidationError as e:
             logging_utility.error("Validation error during tool update: %s", e.json())
@@ -119,7 +119,7 @@ class ClientToolService:
         try:
             response = self.client.delete(f"/v1/tools/{tool_id}")
             response.raise_for_status()
-            logging_utility.info("Tool deleted successfully")
+            logging_utility.info("Tool deleted successfully with ID: %s", tool_id)
         except httpx.HTTPStatusError as e:
             logging_utility.error("HTTP error during tool deletion: %s | Response: %s", str(e), e.response.text)
             raise
@@ -163,7 +163,7 @@ class ClientToolService:
     def list_tools(self, assistant_id: Optional[str] = None) -> List[dict]:
         """List tools for a given assistant and restructure them."""
         url = f"/v1/assistants/{assistant_id}/tools" if assistant_id else "/v1/tools"
-        logging_utility.info("Listing tools")
+        logging_utility.info("Listing tools for assistant ID: %s", assistant_id)
 
         try:
             response = self.client.get(url)
@@ -171,7 +171,7 @@ class ClientToolService:
 
             # Fetch the list of tools and log it
             tools_list = response.json()
-            logging_utility.info(f"Fetched tool list: {tools_list}")
+            logging_utility.info("Fetched tool list: %s", tools_list)
 
             # Extract the actual tools from the response data
             tools = tools_list['tools']
