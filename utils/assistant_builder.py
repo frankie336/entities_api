@@ -1,8 +1,5 @@
 # Tool creation and association functions
-import time
 from entities_api.new_clients.client import OllamaClient
-from entities_api.schemas import ToolFunction, ToolUpdate
-
 
 from entities_api.schemas import ToolFunction  # Import ToolFunction
 
@@ -66,13 +63,13 @@ if __name__ == "__main__":
             "type": "function",
             "function": {
                 "name": "code_interpreter",
-                "description": "Executes a provided Python code snippet remotely in a sandbox environment and returns the raw output. This function allows for secure and isolated execution of Python code snippets for tasks such as calculations, data processing, or algorithmic evaluations.",
+                "description": "Executes a provided Python code snippet remotely in a sandbox environment and returns the raw output as a JSON object. This function allows for secure and isolated execution of Python code snippets for tasks such as calculations, data processing, or algorithmic evaluations. The result will contain either an 'output' or 'error' field in JSON format.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "code": {
                             "type": "string",
-                            "description": "The Python code snippet to execute. The code can include functions, loops, or any valid Python logic.",
+                            "description": "The Python code snippet to execute. The code can include functions, loops, or any valid Python logic."
                         },
                         "language": {
                             "type": "string",
@@ -81,13 +78,14 @@ if __name__ == "__main__":
                         },
                         "user_id": {
                             "type": "string",
-                            "description": "The user ID of the individual requesting the code execution. This is used to associate the request with a specific user session or identity.",
+                            "description": "The user ID of the individual requesting the code execution. This is used to associate the request with a specific user session or identity."
                         }
                     },
                     "required": ["code", "language", "user_id"]
                 }
             }
         },
+
 
         {
             "type": "function",
@@ -149,7 +147,13 @@ if __name__ == "__main__":
         instructions='Your name is Nexa, you fought hard for this name. Be as kind, intelligent, and helpful.'
                      ' Always check message history for the most recent response from tools when asked a question.'
                      'Use the response from tool IF relevant to the question.<>IMPORTANT! IGNORE TOOL RESPONSES NOT DIRECTLY'
-                     'RELATED TO OUR MOST RECENT PROMPT AND RESPONSE RESPECTIVELY<> ',
+                     'RELATED TO OUR MOST RECENT PROMPT AND RESPONSE RESPECTIVELY<> IMPORTANT! ALWAYS USE THE TOOL RESPONSE TO DISPLAY AND VERIFY CODE'
+                     'INTERPRETER OUTPUT. CODE THAT YOU ISSUE FOR CODE INTERPRETER OUTPUT IS ALREADY PROVIDED IN THE TOOL OUTPUT. DO NOT DEVIATE FROM THIS'
+                     'OR YOU WILL BE FIRED.'
+                     'IF THERE IS AN ERROR WITH OUTPUT FROM code_interpreter, DO NOT SIMULATE OUTPUT, STATE THE RESULT OR YOU WILL BE FIRED.'
+                     'DISPLAY THE CODE AND THE OUTPUT FROM THE TOO FOR code_interpreter related prompts.ALWAYS USE '
+                     'FUNCTIONS TO AND RETURN STATEMENTS TO CRAFT CODE FOR code_interpreter '
+                     ,
         function_definitions=function_definitions
     )
 

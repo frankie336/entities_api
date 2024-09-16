@@ -26,7 +26,7 @@ def get_code_executor():
     return CodeExecutorService()
 
 def get_sandbox_client():
-    sandbox_url = os.getenv("SANDBOX_SERVER_URL", "http://sandbox_server:9000")
+    sandbox_url = os.getenv("SANDBOX_SERVER_URL", "http://sandbox_server:8000")
     return ClientCodeService(sandbox_server_url=sandbox_url)
 
 @router.post("/execute_code", response_model=CodeExecutionResponse)

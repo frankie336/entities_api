@@ -1,5 +1,3 @@
-# entities_api/services/code_executor_service.py
-
 import os
 import subprocess
 import shutil
@@ -12,7 +10,7 @@ logging_utility = LoggingUtility()
 
 class CodeExecutorService:
     def __init__(self):
-        pass
+        logging_utility.info("CodeExecutorService initialized")
 
     def execute_python_code(self, code: str, user_id: str) -> Dict[str, Any]:
         """
@@ -23,17 +21,19 @@ class CodeExecutorService:
             user_id (str): The ID of the user executing the code.
 
         Returns:
-            Dict[str, Any]: A dictionary containing the output or error.
+            Dict[str, Any]: A dictionary containing the original code, output, or error.
         """
         temp_dir = tempfile.mkdtemp(prefix=f"sandbox_{user_id}_")
-        logging_utility.info(f"Created temporary directory: {temp_dir}")
+        logging_utility.info(f"Created temporary directory: {temp_dir} for user: {user_id}")
 
         try:
+            # Write code to a file in the temporary directory
             code_file_path = os.path.join(temp_dir, 'script.py')
             with open(code_file_path, 'w') as code_file:
                 code_file.write(code)
-            logging_utility.info(f"Wrote code to {code_file_path}")
+            logging_utility.info(f"Wrote code to {code_file_path} for user: {user_id}")
 
+            # Firejail command to sandbox the execution
             firejail_command = [
                 'firejail',
                 '--quiet',
@@ -42,10 +42,11 @@ class CodeExecutorService:
                 '--cpu=1',
                 '--seccomp',
                 '--rlimit-as=128M',
-                'python', code_file_path  # Use code_file_path directly
+                'python', code_file_path
             ]
-            logging_utility.info(f"Executing command: {' '.join(firejail_command)}")
+            logging_utility.info(f"Executing command: {' '.join(firejail_command)} for user: {user_id}")
 
+            # Execute the command
             result = subprocess.run(
                 firejail_command,
                 stdout=subprocess.PIPE,
@@ -53,19 +54,24 @@ class CodeExecutorService:
                 timeout=5,
             )
 
+            # Capture output and errors
             output = result.stdout.decode()
             errors = result.stderr.decode()
             exit_code = result.returncode
 
             if exit_code != 0:
-                return {'error': errors.strip()}
+                logging_utility.error(f"Execution failed with exit code {exit_code} for user: {user_id}, Error: {errors.strip()}")
+                return {'code': code, 'error': errors.strip()}
             else:
-                return {'output': output.strip()}
+                logging_utility.info(f"Execution completed successfully for user: {user_id}, Output: {output.strip()}")
+                return {'code': code, 'output': output.strip()}
 
         except subprocess.TimeoutExpired:
-            return {'error': 'Execution timed out.'}
+            logging_utility.error(f"Execution timed out for user: {user_id}")
+            return {'code': code, 'error': 'Execution timed out.'}
         except Exception as e:
-            return {'error': str(e)}
+            logging_utility.error(f"An error occurred during execution for user: {user_id}, Error: {str(e)}")
+            return {'code': code, 'error': str(e)}
         finally:
             shutil.rmtree(temp_dir)
-            logging_utility.info(f"Removed temporary directory: {temp_dir}")
+            logging_utility.info(f"Removed temporary directory: {temp_dir} for user: {user_id}")
