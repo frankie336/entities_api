@@ -1,35 +1,35 @@
-# Dockerfile.sandbox
-
+# Use a minimal Python base image
 FROM python:3.8-slim
 
-# Install necessary packages including firejail, Rust, and build tools
+# Install necessary packages including firejail and build tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     firejail \
     curl \
     build-essential \
-    rustc \
-    cargo \
+    python3-dev \
+    python3-pip \
     && rm -rf /var/lib/apt/lists/*
-
-# Upgrade pip to the latest version
-RUN pip install --upgrade pip
 
 # Create a non-root user
 RUN useradd -ms /bin/bash sandboxuser
 
+# Set the working directory
 WORKDIR /app
 
+# Copy over the requirements file and install Python dependencies
 COPY sandbox_server/requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy the rest of the app
 COPY sandbox_server .
 
-# Expose the port
+# Expose the port for the service
 EXPOSE 8000
 
-# Switch to the non-root user
+# Switch to the non-root user for execution
 USER sandboxuser
 
+# Run the sandbox server using Uvicorn
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

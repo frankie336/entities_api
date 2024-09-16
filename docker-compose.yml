@@ -50,6 +50,8 @@ services:
       - seccomp:unconfined  # Required for Firejail
     devices:
       - /dev/fuse  # Required for Firejail
+    ports:
+      - "8000:8000"  # Expose the port for the sandbox server
     depends_on:
       db:
         condition: service_healthy  # If sandbox depends on db

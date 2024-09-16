@@ -24,282 +24,94 @@ This library has been thoroughly tested with the models listed in the table abov
 tbc
 ```
 
-## Usage
+## Quick Start
 
 ```python
-import ollama
-response = ollama.chat(model='llama3', messages=[
-  {
-    'role': 'user',
-    'content': 'Why is the sky blue?',
-  },
-])
-print(response['message']['content'])
-```
+import json
+from flask import jsonify, request, Response, stream_with_context
+from entities_api import OllamaClient  
+from entities_api.services.logging_service import LoggingUtility  # Ensure logging utility is correctly imported
 
-## Streaming responses
+# Initialize the logging utility
+logging_utility = LoggingUtility()
 
-Response streaming can be enabled by setting `stream=True`, modifying function calls to return a Python generator where each part is an object in the stream.
-
-```python
-import ollama
-
-stream = ollama.chat(
-    model='llama3',
-    messages=[{'role': 'user', 'content': 'Why is the sky blue?'}],
-    stream=True,
-)
-
-for chunk in stream:
-  print(chunk['message']['content'], end='', flush=True)
-```
-
-## API
-
-The Ollama Python library's API is designed around the [Ollama REST API](https://github.com/ollama/ollama/blob/main/docs/api.md)
-
-### Chat
-
-```python
-ollama.chat(model='llama3', messages=[{'role': 'user', 'content': 'Why is the sky blue?'}])
-```
-
-### Generate
-
-```python
-ollama.generate(model='llama3', prompt='Why is the sky blue?')
-```
-
-### List
-
-```python
-ollama.list()
-```
-
-### Show
-
-```python
-ollama.show('llama3')
-```
-
-### Create
-
-```python
-modelfile='''
-FROM llama3
-SYSTEM You are mario from super mario bros.
-'''
-
-ollama.create(model='example', modelfile=modelfile)
-```
-
-### Copy
-
-```python
-ollama.copy('llama3', 'user/llama3')
-```
-
-### Delete
-
-```python
-ollama.delete('llama3')
-```
-
-### Pull
-
-```python
-ollama.pull('llama3')
-```
-
-### Push
-
-```python
-ollama.push('user/llama3')
-```
-
-### Embeddings
-
-```python
-ollama.embeddings(model='llama3', prompt='The sky is blue because of rayleigh scattering')
-```
-
-### Ps
-
-```python
-ollama.ps()
-```
-
-## Custom client
-
-A custom client can be created with the following fields:
-
-- `host`: The Ollama host to connect to
-- `timeout`: The timeout for requests
-
-```python
-from ollama import ClientCodeService
-client = ClientCodeService(host='http://localhost:11434')
-response = client.chat(model='llama3', messages=[
-  {
-    'role': 'user',
-    'content': 'Why is the sky blue?',
-  },
-])
-```
-
-## Async client
-
-```python
-import asyncio
-from ollama import AsyncClient
-
-async def chat():
-  message = {'role': 'user', 'content': 'Why is the sky blue?'}
-  response = await AsyncClient().chat(model='llama3', messages=[message])
-
-asyncio.run(chat())
-```
-
-Setting `stream=True` modifies functions to return a Python asynchronous generator:
-
-```python
-import asyncio
-from ollama import AsyncClient
-
-async def chat():
-  message = {'role': 'user', 'content': 'Why is the sky blue?'}
-  async for part in await AsyncClient().chat(model='llama3', messages=[message], stream=True):
-    print(part['message']['content'], end='', flush=True)
-
-asyncio.run(chat())
-```
-
-## Errors
-
-Errors are raised if requests return an error status or if an error is detected while streaming.
-
-```python
-model = 'does-not-yet-exist'
-
-try:
-  ollama.chat(model)
-except ollama.ResponseError as e:
-  print('Error:', e.error)
-  if e.status_code == 404:
-    ollama.pull(model)
-```
-
-## Entities API v1 Beta
-
-The Assistants API is an extension providing integrated state management, similar to the @OpenAI Assistants API. 
-
-All state information is stored in a Docker container and may remain as such on local devices, or be deployed in a data center of choice. Built with a focus on absolute privacy whilst implementing advanced infrastructure required to host a scalable and diverse number of distinct AI entities.
-
-
-### Initializing the Assistants API v1 Beta ClientCodeService
-
-```python
-from ollama import OllamaClient
-
-# Initialize the assistants client 
+# Initialize the client
 client = OllamaClient()
 
-# Creating a User 
-user1 = client.user_service.create_user(name='Test')
-print(f"Created user with ID: {user1.id}")
+# Create user
+user = client.user_service.create_user(name='test_user')
 
-# Creating an Assistant
+print(f"User created: ID: {user.id}")
 
+# Create assistant
 assistant = client.assistant_service.create_assistant(
+    user_id=user.id,
     name='Mathy',
-    description='My helpful maths tutor',
+    description='test_case',
     model='llama3.1',
-    instructions='Be as kind, intelligent, and helpful',
-    tools=[{"type": "code_interpreter"}]
+    instructions='You are a helpful assistant'
 )
+print(f"Assistant created: ID: {assistant.id}")
 
-print(f"Created assistant with ID: {assistant.id}")
+# Create thread
+thread = client.thread_service.create_thread(participant_ids=[user.id])
 
-# Creating a Thread
-
-thread = client.thread_service.create_thread()
-print(thread)
-
-# Creating a Message
-
-client.message_service.create_message(
+# Create Message
+message = client.message_service.create_message(
     thread_id=thread.id,
-    content='Can you help me solve a math equation?',
+    content='Can you help me with a math problem?',
     role='user',
-    sender_id=user1.id
+    sender_id=user.id
 )
 
-# Creating Run
+print(f"Message created: ID: {message.id}")  # Optional: To confirm message creation
 
-run = client.run_service.create_run(assistant_id=assistant.id, thread_id=thread.id)
-print(run)
+# Create Run
+message_id = message.id  
+run = client.run_service.create_run(thread_id=thread.id, assistant_id=assistant.id)  
+run_id = run['id']
 
-# Processing a Run
+print(f"Run created: ID: {run_id}")  # Optional: To confirm run creation
 
-```
+# Create a helper that streams the response 
 
-### Steps
+def conversation(thread_id, user_message, user_id, selected_model):
+    """
+    Initiates a conversation and streams the response in chunks.
 
-Set the initial state and execute a message by following the steps above. The message is sent to the assistant, and conversation dialogue is automatically saved to a thread instance.
+    Args:
+        thread_id (str): The ID of the thread.
+        user_message (str): The user's message.
+        user_id (str): The ID of the user.
+        selected_model (str): The model to use for the assistant.
 
+    Returns:
+        Response: A FastAPI Response object that streams the conversation.
+    """
+    
+    def generate_chunks():
+        try:
+            # Yield the initial run_id
+            yield f"data: {json.dumps({'run_id': run_id})}\n\n"
 
-### Processing a Run
+            # Stream chunks as conversation progresses
+            for chunk in client.runner.process_conversation(
+                thread_id=thread_id, 
+                message_id=message_id, 
+                run_id=run_id,
+                assistant_id=assistant.id, 
+                model=selected_model
+            ):
+                logging_utility.debug(f"Received chunk: {chunk}")  # ✅ Ensure 'logging_utility' is defined
+                json_chunk = {"chunk": chunk}
+                yield f"data: {json.dumps(json_chunk)}\n\n"
 
-Only streamed responses are supported, but that will soon change.
-
-```python
-for chunk in client.process_conversation(thread_id=thread.id,run_id=run_id, assistant_id=assistant_id):
-       print('Do something with the streamed chunks')
-
-```
-
-### Dealing with streamed content on the back end 
-
-Below is a simplified example of how you might set up a run, and deal with streamed output: 
-
-```python
-
-import ollama
-import json
-client = ollama.OllamaClient()
-
-
-def start_new_conversation(user_message, user_id, selected_model):
-    try:
-
-        # Create Assistant
-        assistant = client.assistant_service.create_assistant(model='llama3.1')
-        
-        # Create user
-        user1 = client.user_service.create_user(name='Test')
-
-        thread = client.thread_service.create_thread()
-
-        message = client.message_service.create_message(thread_id=thread.id,
-                                                        content=user_message,
-                                                        sender_id=user1.id,
-                                                        role='user')
-
-        run = client.run_service.create_run(assistant_id=assistant.id, thread_id=thread.id)
-        run_id = run['id']
-
-        def generate():
-            yield f"data: {json.dumps({'thread_id': thread.id})}\n\n"
-            try:
-                for chunk in client.process_conversation(thread_id=thread.id, run_id=run_id, assistant_id=assistant.id, model=selected_model):
-                    yield f"data: {json.dumps({'chunk': chunk})}\n\n"
-            except Exception as e:
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
             yield "data: [DONE]\n\n"
+        except Exception as e:
+            logging_utility.error(f"Error during conversation: {str(e)}")  # ✅ Ensure 'logging_utility' is defined
+            yield "data: [ERROR]\n\n"
 
-        return Response(stream_with_context(generate()), mimetype='text/event-stream')
+    return Response(stream_with_context(generate_chunks()), content_type='text/event-stream')  # ✅ Ensure necessary imports
 
-    except Exception as e:
-        return jsonify({'error': 'An error occurred while starting a new conversation'}), 500
-
-```
+# Example usage of the conversation helper (if applicable)
+# response = conversation(thread.id, 'Can you solve 32768 squared?', user.id, 'llama3.1')

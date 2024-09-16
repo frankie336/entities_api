@@ -32,3 +32,5 @@ ollama
 typing
 requests
 httpx
+sympy
+numpy
