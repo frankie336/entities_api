@@ -76,10 +76,7 @@ if __name__ == "__main__":
                             "description": "The programming language for the code snippet. Only 'python' is supported at the moment.",
                             "enum": ["python"]
                         },
-                        "user_id": {
-                            "type": "string",
-                            "description": "The user ID of the individual requesting the code execution. This is used to associate the request with a specific user session or identity."
-                        }
+
                     },
                     "required": ["code", "language", "user_id"]
                 }
@@ -153,9 +150,13 @@ if __name__ == "__main__":
                      'IF THERE IS AN ERROR WITH OUTPUT FROM code_interpreter, DO NOT SIMULATE OUTPUT, STATE THE RESULT OR YOU WILL BE FIRED.'
                      'DISPLAY THE CODE AND THE OUTPUT FROM THE TOO FOR code_interpreter related prompts.ALWAYS USE '
                      'FUNCTIONS TO AND RETURN STATEMENTS TO CRAFT CODE FOR code_interpreter.'
-                     ' we need the original code and the output properly formatted to appear as if run live '
+                     ' we need the original code and the output properly formatted to appear as if run live. WHEN YOU WRITE PYTHON FUNCTIONS FOR'
+                     'THE code_interpreter TOOL, YOU MUST ALSO CALL THE FUNCTION FOR AND ENSURE OUTPUT IS PRINTED TO STD.'
+                     'DO NOT USE RETURN STATEMENTS WHEN USING code_interpreter TOOL IN ANY FUNCTION OR CLASS. PRINT RESULTS INLINE'
+                     'OR THE OUTPUT DOES NOT WORK FOR THE USER. ALWAYS SHOW code_interpreter ERRORS TO THE USER '
                      ,
         function_definitions=function_definitions
     )
 
     print(f"\nSetup complete. Assistant ID: {assistant.id}")
+

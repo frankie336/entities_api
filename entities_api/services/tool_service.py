@@ -20,11 +20,6 @@ class ToolService:
     def create_tool(self, tool: ToolCreate) -> ToolRead:
         logging_utility.info("Starting create_tool with ToolCreate: %s", tool)
         try:
-            # Check if a tool with the same name already exists
-            existing_tool = self.db.query(Tool).filter(Tool.name == tool.name).first()
-            if existing_tool:
-                logging_utility.warning("Tool with name %s already exists.", tool.name)
-                raise HTTPException(status_code=400, detail=f"Tool with name {tool.name} already exists")
 
             tool_id = IdentifierService.generate_tool_id()
             logging_utility.debug("Generated tool ID: %s", tool_id)
