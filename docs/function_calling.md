@@ -148,49 +148,6 @@ except Exception as e:
     3. Apply the Update: Execute the update and handle potential exceptions.
 
 
-# Define the new function definition for updating
-```python
-new_function_definition = {
-    "type": "function",
-    "function": {
-        "name": "get_flight_times",
-        "description": "Retrieve updated flight times between two cities.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "departure": {
-                    "type": "string",
-                    "description": "The departure city (airport code)."
-                },
-                "arrival": {
-                    "type": "string",
-                    "description": "The arrival city (airport code)."
-                },
-                "date": {
-                    "type": "string",
-                    "description": "The date for the flight times (YYYY-MM-DD)."
-                }
-            },
-            "required": ["departure", "arrival", "date"]
-        }
-    }
-}
-
-# Specify the tool ID to update
-tool_id = new_tool.id
-
-# Create a ToolUpdate instance with the new function definition
-tool_update = ToolUpdate(function=ToolFunction(function=new_function_definition['function']))
-
-# Update the tool
-try:
-    updated_tool = client.tool_service.update_tool(tool_id=tool_id, tool_update=tool_update)
-    print(f"Tool updated successfully: {updated_tool}")
-except Exception as e:
-    print(f"Failed to update tool: {str(e)}")
-```
-
-
 **Deleting a tool**
 
 ```python
@@ -260,6 +217,11 @@ def get_flight_times(departure: str, arrival: str) -> str:
 **Note:** Function calls and responses will now be dynamically injected into coversation dialogue.
 
 See [here](/docs/assistants.md) for the complete end-to-end logic of sending a message to trigger a response once you have implemented the instructions above.
+
+
+![Diagram](function_calling1.png)
+
+
 
 
 
