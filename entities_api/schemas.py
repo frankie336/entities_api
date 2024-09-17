@@ -1,5 +1,6 @@
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any
+from typing import Optional
 
 from pydantic import BaseModel, Field, validator, ConfigDict
 
@@ -366,13 +367,16 @@ class SandboxBase(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class SandboxCreate(BaseModel):
     user_id: str
     name: str
     config: Optional[Dict[str, Any]] = {}
 
+
 class SandboxRead(SandboxBase):
     pass
+
 
 class SandboxUpdate(BaseModel):
     name: Optional[str] = None
@@ -381,13 +385,13 @@ class SandboxUpdate(BaseModel):
 
 
 
-from pydantic import BaseModel
-from typing import Optional
+
 
 class CodeExecutionRequest(BaseModel):
     code: str
     language: str
     user_id: str
+
 
 class CodeExecutionResponse(BaseModel):
     output: Optional[str] = None

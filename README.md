@@ -1,6 +1,6 @@
 # Ollama Entities Library
 
-The **Ollama Entities** library is a state management and control API built on top of the [Ollama Python library](https://github.com/ollama/ollama-python). It offers an integrated API framework for developing projects that interact with open-source LLMs using the [Ollama](https://github.com/ollama) library. This enables rapid and flexible deployment of advanced features such as conversation management, function calling, code interpretation, and more through easy-to-use API endpoints.
+The **Ollama Entities** library is a state management and control API built on top of the [Ollama Python library](https://github.com/ollama/ollama-python). It offers an integrated API framework for developing projects that interact with open-source LLMs using the [Ollama](https://github.com/ollama) library. This enables rapid and flexible deployment of advanced features such as conversation management, [function calling](/docs/function_calling.md), [code interpretation](/docs/function_calling.md), and more through easy-to-use API endpoints.
 
 This documentation assumes a working knowledge of the [Ollama](https://github.com/ollama) library.
 
@@ -125,4 +125,8 @@ Whilst it involves a little more effort, adding state management to distinct par
 
 ## Documentation
 
+  [Assistants](/docs/assistants.md)
+  
   [Function Calling](/docs/function_calling.md)
+
+  [Code Interpretation](/docs/code_interpretation.md)

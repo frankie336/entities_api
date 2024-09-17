@@ -139,7 +139,7 @@ class Tool(Base):
     __tablename__ = "tools"
 
     id = Column(String(64), primary_key=True, index=True)
-    name = Column(String(128), unique=False, nullable=False)
+    name = Column(String(128), nullable=False)
     type = Column(String(64), nullable=False)
     function = Column(JSON, nullable=True)
 
