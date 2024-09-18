@@ -5,7 +5,7 @@
 Create an Assistant by defining its custom instructions and picking a model. If helpful, add files and enable tools like Code Interpreter, File Search, and Function calling.
 
 
-**Creat
+**Create an Assistant**
 
 ```python
 from entities_api import OllamaClient  
