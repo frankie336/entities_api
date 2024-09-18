@@ -69,9 +69,9 @@ print(f"Message created: ID: {message.id}")  # Optional: To confirm message crea
 # Create Run
 message_id = message.id  
 run = client.run_service.create_run(thread_id=thread.id, assistant_id=assistant.id)  
-run_id = run['id']
 
-print(f"Run created: ID: {run_id}")  # Optional: To confirm run creation
+
+print(f"Run created: ID: {run.id}")  # Optional: To confirm run creation
 
 # Create a helper that streams the response 
 
@@ -98,7 +98,7 @@ def conversation(thread_id, user_message, user_id, selected_model):
             for chunk in client.runner.process_conversation(
                 thread_id=thread_id, 
                 message_id=message_id, 
-                run_id=run_id,
+                run_id=run.id,
                 assistant_id=assistant.id, 
                 model=selected_model
             ):
@@ -130,3 +130,10 @@ Whilst it involves a little more effort, adding state management to distinct par
   [Function Calling](/docs/function_calling.md)
 
   [Code Interpretation](/docs/code_interpretation.md)
+  
+  [Messages](/docs/messages.md)
+  
+  [Runs](/docs/runs.md)
+
+  [Threads](/docs/threads.md)
+

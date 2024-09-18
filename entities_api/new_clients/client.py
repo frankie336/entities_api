@@ -1,76 +1,111 @@
+# entities_api/new_clients/client.py
+
 import os
+from typing import Any, Dict, Optional, List
+
+from dotenv import load_dotenv
+from ollama import Client as OllamaAPIClient
+
 from entities_api.new_clients.client_actions_client import ClientActionService
 from entities_api.new_clients.client_assistant_client import ClientAssistantService
+from entities_api.new_clients.client_code_executor import ClientCodeService
 from entities_api.new_clients.client_message_client import ClientMessageService
 from entities_api.new_clients.client_run_client import RunService
-from entities_api.new_clients.runner import Runner
+from entities_api.new_clients.client_sandbox_client import SandboxClientService
 from entities_api.new_clients.client_thread_client import ThreadService
 from entities_api.new_clients.client_tool_client import ClientToolService
 from entities_api.new_clients.client_user_client import UserService
-from entities_api.new_clients.client_sandbox_client import SandboxClientService
-from entities_api.new_clients.client_code_executor import ClientCodeService
+from entities_api.new_clients.runner import Runner
+from entities_api.schemas import (
+    RunCreate,
+    RunReadDetailed,
+    RunStatusUpdate,
+    MessageRead,
+    MessageCreate,
+    # Include other necessary Pydantic models here
+)
+from entities_api.services.logging_service import LoggingUtility
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Initialize logging utility
+logging_utility = LoggingUtility()
 
 
 class OllamaClient:
-    def __init__(self, base_url='http://localhost:9000/', api_key='your_api_key', available_functions=None):
-        self.base_url = base_url
-        self.api_key = api_key
-        self.user_service = UserService(base_url, api_key)
-        self.assistant_service = ClientAssistantService(base_url, api_key)
-        self.tool_service = ClientToolService(base_url, api_key)
-        self.thread_service = ThreadService(base_url, api_key)
-        self.message_service = ClientMessageService(base_url, api_key)
-        self.run_service = RunService(base_url, api_key)
-        self.available_functions = available_functions
-        self.runner = Runner(base_url, api_key, available_functions=self.available_functions)
-        self.actions_service = ClientActionService(base_url, api_key)
-        self.sandbox_service = SandboxClientService(base_url, api_key)
+    def __init__(
+            self,
+            base_url: Optional[str] = None,
+            api_key: Optional[str] = None,
+            available_functions: Optional[Dict[str, Any]] = None
+    ):
+        self.base_url = base_url or os.getenv('ASSISTANTS_BASE_URL', 'http://localhost:9000/')
+        self.api_key = api_key or os.getenv('API_KEY', 'your_api_key')
 
-        # Fetch the sandbox server URL from the environment variable, with a default fallback
-        sandbox_server_url = os.getenv('CODE_SERVER_URL', 'http://localhost:9000/v1/execute_code')
-        self.code_executor_service = ClientCodeService(sandbox_server_url=sandbox_server_url)
+        # Initialize service clients with type annotations
+        self.user_service: UserService = UserService(self.base_url, self.api_key)
+        self.assistant_service: ClientAssistantService = ClientAssistantService(self.base_url, self.api_key)
+        self.tool_service: ClientToolService = ClientToolService(self.base_url, self.api_key)
+        self.thread_service: ThreadService = ThreadService(self.base_url, self.api_key)
+        self.message_service: ClientMessageService = ClientMessageService(self.base_url, self.api_key)
+        self.run_service: RunService = RunService(self.base_url, self.api_key)
+        self.actions_service: ClientActionService = ClientActionService(self.base_url, self.api_key)
+        self.sandbox_service: SandboxClientService = SandboxClientService(self.base_url, self.api_key)
+        self.code_executor_service: ClientCodeService = ClientCodeService(
+            sandbox_server_url=os.getenv('CODE_SERVER_URL', 'http://localhost:9000/v1/execute_code')
+        )
 
-    def user_service(self):
+        # Initialize Runner with type annotations
+        self.runner: Runner = Runner(
+            base_url=self.base_url,
+            api_key=self.api_key,
+            available_functions=available_functions or {}
+        )
+
+        # Initialize the Ollama API client
+        self.ollama_client: OllamaAPIClient = OllamaAPIClient()
+
+        logging_utility.info("OllamaClient initialized with base_url: %s", self.base_url)
+
+    # Service Accessors with Type Annotations
+    @property
+    def get_user_service(self) -> UserService:
         return self.user_service
 
-    def assistant_service(self):
+    @property
+    def get_assistant_service(self) -> ClientAssistantService:
         return self.assistant_service
 
-    def tool_service(self):
+    @property
+    def get_tool_service(self) -> ClientToolService:
         return self.tool_service
 
-    def thread_service(self):
+    @property
+    def get_thread_service(self) -> ThreadService:
         return self.thread_service
 
-    def message_service(self):
+    @property
+    def get_message_service(self) -> ClientMessageService:
         return self.message_service
 
-    def run_service(self):
+    @property
+    def get_run_service(self) -> RunService:
         return self.run_service
 
-    def action_service(self):
+    @property
+    def get_action_service(self) -> ClientActionService:
         return self.actions_service
 
-    def sandbox_service(self):
+    @property
+    def get_sandbox_service(self) -> SandboxClientService:
         return self.sandbox_service
 
-    def code_executor_service(self):
+    @property
+    def get_code_executor_service(self) -> ClientCodeService:
         return self.code_executor_service
 
-
-    def create_message(self, thread_id, content, role):
-        data = [
-            {
-                "type": "text",
-                "text": {
-                    "value": content,
-                    "annotations": []
-                }
-            }
-        ]
-
-        message = self.message_service.create_message(thread_id=thread_id, content=data, role=role)
-        return message
-
-    def runner(self):
+    @property
+    def get_runner(self) -> Runner:
         return self.runner
+

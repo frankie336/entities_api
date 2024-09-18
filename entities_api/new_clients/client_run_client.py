@@ -5,7 +5,7 @@ from typing import List, Dict, Any, Optional
 from pydantic import ValidationError
 from entities_api.services.identifier_service import IdentifierService
 from entities_api.services.logging_service import LoggingUtility
-from entities_api.schemas import Run, RunStatusUpdate  # Import the relevant Pydantic models
+from entities_api.schemas import Run, RunStatusUpdate, RunReadDetailed  # Import the relevant Pydantic models
 
 # Initialize logging utility
 logging_utility = LoggingUtility()
@@ -19,48 +19,54 @@ class RunService:
         logging_utility.info("RunService initialized with base_url: %s", self.base_url)
 
     def create_run(self, assistant_id: str, thread_id: str, instructions: Optional[str] = "",
-                   meta_data: Optional[Dict[str, Any]] = {}) -> Dict[str, Any]:
-        run_data = {
-            "id": IdentifierService.generate_run_id(),
-            "assistant_id": assistant_id,
-            "thread_id": thread_id,
-            "instructions": instructions,
-            "meta_data": meta_data,
-            "cancelled_at": None,
-            "completed_at": None,
-            "created_at": int(time.time()),
-            "expires_at": int(time.time()) + 3600,  # Set to 1 hour later
-            "failed_at": None,
-            "incomplete_details": None,
-            "last_error": None,
-            "max_completion_tokens": 1000,
-            "max_prompt_tokens": 500,
-            "model": "gpt-4",
-            "object": "run",
-            "parallel_tool_calls": False,
-            "required_action": None,
-            "response_format": "text",
-            "started_at": None,
-            "status": "pending",
-            "tool_choice": "none",
-            "tools": [],
-            "truncation_strategy": {},
-            "usage": None,
-            "temperature": 0.7,
-            "top_p": 0.9,
-            "tool_resources": {}
-        }
+                   meta_data: Optional[Dict[str, Any]] = {}) -> Run:  # Return type is now RunReadDetailed
+        run_data = Run(  # Use Pydantic model for creation
+            id=IdentifierService.generate_run_id(),
+            assistant_id=assistant_id,
+            thread_id=thread_id,
+            instructions=instructions,
+            meta_data=meta_data,
+            cancelled_at=None,
+            completed_at=None,
+            created_at=int(time.time()),
+            expires_at=int(time.time()) + 3600,  # Set to 1 hour later
+            failed_at=None,
+            incomplete_details=None,
+            last_error=None,
+            max_completion_tokens=1000,
+            max_prompt_tokens=500,
+            model="gpt-4",
+            object="run",
+            parallel_tool_calls=False,
+            required_action=None,
+            response_format="text",
+            started_at=None,
+            status="pending",
+            tool_choice="none",
+            tools=[],
+            truncation_strategy={},
+            usage=None,
+            temperature=0.7,
+            top_p=0.9,
+            tool_resources={}
+        )
 
         logging_utility.info("Creating run for assistant_id: %s, thread_id: %s", assistant_id, thread_id)
-        logging_utility.debug("Run data: %s", run_data)
+        logging_utility.debug("Run data: %s", run_data.dict())
 
         try:
-            validated_data = Run(**run_data)  # Validate data using Pydantic model
-            response = self.client.post("/v1/runs", json=validated_data.dict())
+            # Send the validated data to the API
+            response = self.client.post("/v1/runs", json=run_data.dict())
             response.raise_for_status()
-            created_run = response.json()
-            logging_utility.info("Run created successfully with id: %s", created_run.get('id'))
-            return created_run
+            created_run_data = response.json()
+
+            # Validate the response data with the Pydantic model
+            validated_run = Run(**created_run_data)
+            logging_utility.info("Run created successfully with id: %s", validated_run.id)
+
+            # Return the Pydantic model instead of the raw dictionary
+            return validated_run
+
         except ValidationError as e:
             logging_utility.error("Validation error: %s", e.json())
             raise ValueError(f"Validation error: {e}")
@@ -71,23 +77,35 @@ class RunService:
             logging_utility.error("An error occurred while creating run: %s", str(e))
             raise
 
-    def retrieve_run(self, run_id: str) -> Run:
+    def retrieve_run(self, run_id: str) -> RunReadDetailed:
+        """
+        Retrieve a run by ID and return the Pydantic object.
+        The Pydantic object has methods like .dict() and .json().
+        """
         logging_utility.info("Retrieving run with id: %s", run_id)
+
         try:
+            # Making the HTTP GET request to the runs endpoint
             response = self.client.get(f"/v1/runs/{run_id}")
             response.raise_for_status()
-            run = response.json()
-            validated_run = Run(**run)  # Validate data using Pydantic model
-            logging_utility.info("Run retrieved successfully")
+
+            # Parsing and validating the response JSON into a Pydantic RunReadDetailed model
+            run_data = response.json()
+            validated_run = RunReadDetailed(**run_data)  # Validate data using Pydantic model
+
+            logging_utility.info("Run with id %s retrieved and validated successfully", run_id)
             return validated_run
+
         except ValidationError as e:
             logging_utility.error("Validation error: %s", e.json())
-            raise ValueError(f"Validation error: {e}")
+            raise ValueError(f"Data validation failed: {e}")
+
         except httpx.HTTPStatusError as e:
             logging_utility.error("HTTP error occurred while retrieving run: %s", str(e))
             raise
+
         except Exception as e:
-            logging_utility.error("An error occurred while retrieving run: %s", str(e))
+            logging_utility.error("An unexpected error occurred while retrieving run: %s", str(e))
             raise
 
     def update_run_status(self, run_id: str, new_status: str) -> Run:
