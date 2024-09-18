@@ -253,6 +253,53 @@ class Run(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+# ------------------------
+# Action Schemas
+# ------------------------
+
+class ActionRead(BaseModel):
+    id: str
+    status: str
+    result: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RunReadDetailed(BaseModel):
+    id: str
+    assistant_id: str
+    cancelled_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_at: int
+    expires_at: Optional[int] = None
+    failed_at: Optional[datetime] = None
+    incomplete_details: Optional[Dict[str, Any]] = None
+    instructions: str
+    last_error: Optional[str] = None
+    max_completion_tokens: Optional[int] = 1000
+    max_prompt_tokens: Optional[int] = 500
+    meta_data: Dict[str, Any]
+    model: str
+    object: str
+    parallel_tool_calls: bool
+    required_action: Optional[str] = None
+    response_format: str
+    started_at: Optional[int] = None
+    status: str
+    thread_id: str
+    tool_choice: str
+    tools: List[ToolRead]  # Nested tool details
+    truncation_strategy: Dict[str, Any]
+    usage: Optional[Any] = None
+    temperature: float
+    top_p: float
+    tool_resources: Dict[str, Any]
+    actions: List[ActionRead] = []  # Provide a default empty list
+
+    model_config = ConfigDict(from_attributes=True)
+
+    model_config = ConfigDict(from_attributes=True)
+
 
 class RunStatusUpdate(BaseModel):
     status: str
@@ -382,9 +429,6 @@ class SandboxUpdate(BaseModel):
     name: Optional[str] = None
     status: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
-
-
-
 
 
 class CodeExecutionRequest(BaseModel):
