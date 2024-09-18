@@ -131,5 +131,9 @@ Whilst it involves a little more effort, adding state management to distinct par
 
   [Code Interpretation](/docs/code_interpretation.md)
   
+  [Messages](/docs/messages.md)
+  
   [Runs](/docs/runs.md)
+
+  [Threads](/docs/threads.md)
 
