@@ -2,7 +2,10 @@
 
 ## Overview
 
-Runs track the state of nine  steps in the user prompt assistant response life cycle . 
+Runs track the state of nine steps within the user prompt and assistant response life cycle. Creating and processing a run is the final stage in establishing state information for each message and response from the assistant. This system provides a flexible interface for programmatic access, making it adaptable for any type of LLM project.
+
+
+
 
 | **Status**         | **Definition**                                                                                                                                                                                                                                                                 |
 |--------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -15,3 +18,54 @@ Runs track the state of nine  steps in the user prompt assistant response life c
 | **cancelled**      | Run was successfully cancelled.                                                                                                                                                                                                                                                |
 | **failed**         | You can view the reason for the failure by looking at the `last_error` object in the Run. The timestamp for the failure will be recorded under `failed_at`.                                                                                                                    |
 | **incomplete**     | Run ended due to `max_prompt_tokens` or `max_completion_tokens` being reached. You can view the specific reason by looking at the `incomplete_details` object in the Run.                                                                                                       |
+
+
+**Create a Run**
+```python
+from entities_api import OllamaClient  
+
+run = client.run_service.create_run(thread_id=thread.id,
+                                        assistant_id=user.id)
+
+```
+
+
+**Process a Run**
+```python
+
+client.runner.process_conversation(thread_id=thread.id, message_id=message.id, run_id=run.id,
+                                                            assistant_id=assistant.id, model=selected_model):
+            
+```
+
+
+
+
+**For Streamed responses**
+```python
+import json
+
+for chunk in client.runner.process_conversation(thread_id=thread_id, message_id=message_id, run_id=run_id,
+                                                assistant_id=assistant, model=selected_model):
+
+
+    
+    json_chunk = {"chunk": chunk}
+    print(f"data: {json.dumps(json_chunk)}\n\n")
+                                                assistant_id=assistant.id, model=selected_model):
+
+```
+
+
+**Retrieve a Run**
+```python
+print(get_run.dict())
+id='run_t16pOsi0Y2a3PXuPjcrjko' assistant_id='user_2uMMGBpU4H7dcZieeOahNv' cancelled_at=None completed_at=None created_at=1726617356 expires_at=1726620956 failed_at=None incomplete_details=None instructions='' last_error=None max_completion_tokens=1000 max_prompt_tokens=500 meta_data={} model='gpt-4' object='run' parallel_tool_calls=False required_action=None response_format='text' started_at=None status='queued' thread_id='thread_Ww3UGvvKkrxFfHD1hNFQVX' tool_choice='none' tools=[] truncation_strategy={} usage=None temperature=1.0 top_p=1.0 tool_resources={} actions=[]
+{'id': 'run_xsDpDica9weXH4eSfsRcPd', 'assistant_id': 'user_0D1D7j6UkZUsa9Gm7GdkU1', 'cancelled_at': None, 'completed_at': None, 'created_at': 1726620075, 'expires_at': 1726623675, 'failed_at': None, 'incomplete_details': None, 'instructions': '', 'last_error': None, 'max_completion_tokens': 1000, 'max_prompt_tokens': 500, 'meta_data': {}, 'model': 'gpt-4', 'object': 'run', 'parallel_tool_calls': False, 'required_action': None, 'response_format': 'text', 'started_at': None, 'status': 'queued', 'thread_id': 'thread_VaTTuMUa8EHtkr60hZGkju', 'tool_choice': 'none', 'tools': [], 'truncation_strategy': {}, 'usage': None, 'temperature': 1.0, 'top_p': 1.0, 'tool_resources': {}, 'actions': []}
+```
+
+
+**Example use case**
+
+
+![Diagram](run0.png)

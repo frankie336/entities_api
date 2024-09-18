@@ -78,12 +78,15 @@ class RunService:
             raise
 
     def retrieve_run(self, run_id: str) -> RunReadDetailed:
+        """
+        Retrieve a run by ID and return the Pydantic object.
+        The Pydantic object has methods like .dict() and .json().
+        """
         logging_utility.info("Retrieving run with id: %s", run_id)
+
         try:
             # Making the HTTP GET request to the runs endpoint
             response = self.client.get(f"/v1/runs/{run_id}")
-
-            # Raise an error if the status code indicates a failure
             response.raise_for_status()
 
             # Parsing and validating the response JSON into a Pydantic RunReadDetailed model
@@ -93,17 +96,14 @@ class RunService:
             logging_utility.info("Run with id %s retrieved and validated successfully", run_id)
             return validated_run
 
-        # Handle validation errors from Pydantic
         except ValidationError as e:
             logging_utility.error("Validation error: %s", e.json())
             raise ValueError(f"Data validation failed: {e}")
 
-        # Handle HTTP errors like 404, 500, etc.
         except httpx.HTTPStatusError as e:
             logging_utility.error("HTTP error occurred while retrieving run: %s", str(e))
             raise
 
-        # Catch any unexpected errors
         except Exception as e:
             logging_utility.error("An unexpected error occurred while retrieving run: %s", str(e))
             raise
