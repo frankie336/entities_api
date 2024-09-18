@@ -33,14 +33,30 @@ print(f"Assistant created: ID: {assistant.id}")
 **Retrieve an Assistant**
 
 ```python
-
-# Create user
-user = client.user_service.create_user(name='test_user')
-
 print(f"User created: ID: {user.id}")
 
 # Create assistant
 assistant = client.assistant_service.retrieve_assistant(assistant_id=assistant.id) 
+print(assistant)
 ```
 
 
+
+**Update an Assistant**
+
+```python
+
+# Create assistant
+client.assistant_service.delete(assistant_id=assistant.id) 
+print(assistant)
+```
+
+
+**Delete an Assistant**
+
+```python
+
+# Create assistant
+client.assistant_service.delete(assistant_id=assistant.id) 
+print(assistant)
+```
