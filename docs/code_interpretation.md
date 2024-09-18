@@ -9,3 +9,24 @@ This capability supports various use cases, such as allowing users to request co
 
 
 The code interpreter is enabled by default, so no additional coding is required. Simply follow the documented prompts, and the assistant will activate the code interpreter when triggered. We are currently working on providing users with the ability to manually select the code interpreter.
+
+**Turning on Code Interpreter**
+
+```python
+from entities_api import OllamaClient  
+from entities_api import code_interpreter
+
+available_functions = {
+    'code_interpreter': code_interpreter
+    # Add other functions as needed
+}
+
+client = entities_api.OllamaClient(available_functions=available_functions)
+```
+
+**Call the client with the code_interpreter handler injected in**
+
+```python
+
+client = entities_api.OllamaClient(available_functions=available_functions)
+```

@@ -1,7 +1,7 @@
 # entities_api/new_clients/client.py
 
 import os
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 from ollama import Client as OllamaAPIClient
@@ -16,14 +16,6 @@ from entities_api.new_clients.client_thread_client import ThreadService
 from entities_api.new_clients.client_tool_client import ClientToolService
 from entities_api.new_clients.client_user_client import UserService
 from entities_api.new_clients.runner import Runner
-from entities_api.schemas import (
-    RunCreate,
-    RunReadDetailed,
-    RunStatusUpdate,
-    MessageRead,
-    MessageCreate,
-    # Include other necessary Pydantic models here
-)
 from entities_api.services.logging_service import LoggingUtility
 
 # Load environment variables from .env file
@@ -56,11 +48,13 @@ class OllamaClient:
             sandbox_server_url=os.getenv('CODE_SERVER_URL', 'http://localhost:9000/v1/execute_code')
         )
 
-        # Initialize Runner with type annotations
+        # Append code code_interpreter handler to available tools
+
+        self.available_functions = available_functions or {}
         self.runner: Runner = Runner(
             base_url=self.base_url,
             api_key=self.api_key,
-            available_functions=available_functions or {}
+            available_functions=self.available_functions
         )
 
         # Initialize the Ollama API client
@@ -108,4 +102,6 @@ class OllamaClient:
     @property
     def get_runner(self) -> Runner:
         return self.runner
+
+
 

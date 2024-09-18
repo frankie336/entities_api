@@ -1,5 +1,6 @@
 from entities_api.new_clients.client_assistant_client import ClientAssistantService
 from entities_api.new_clients.client import OllamaClient
+from entities_api.new_clients.platform_tools.code_interpreter_handler import code_interpreter
 
 #from services.loggin_service import LoggingUtility
 
@@ -23,6 +24,7 @@ __all__ = [
   'Options',
   'RequestError',
   'ResponseError',
+  'code_interpreter',
   'generate',
   'chat',
   'embed',
@@ -46,15 +48,3 @@ __all__ = [
 
 _client = OllamaClient()
 
-#generate = _client.generate
-#chat = _client.chat
-#embed = _client.embed
-#embeddings = _client.embeddings
-#pull = _client.pull
-#push = _client.push
-#create = _client.create
-#delete = _client.delete
-#list = _client.list
-#copy = _client.copy
-#show = _client.show
-#ps = _client.ps
