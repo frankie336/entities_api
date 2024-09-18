@@ -66,3 +66,13 @@ class MessageRead(BaseModel):
     thread_id: str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class CodeExecutionError(BaseModel):
+    code: str
+    message: str
+
+
+class CodeExecutionResult(BaseModel):
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[CodeExecutionError] = None
