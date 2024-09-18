@@ -1,9 +1,6 @@
 import json
 import os
 import re
-from typing import Optional
-
-import requests
 
 from entities_api.new_clients.client_code_executor import ClientCodeService
 from entities_api.services.logging_service import LoggingUtility

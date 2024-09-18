@@ -16,7 +16,6 @@ from entities_api.new_clients.client_thread_client import ThreadService
 from entities_api.new_clients.client_tool_client import ClientToolService
 from entities_api.new_clients.client_user_client import UserService
 from entities_api.new_clients.runner import Runner
-from entities_api.new_clients.platform_tools.code_interpreter_handler import code_interpreter
 from entities_api.services.logging_service import LoggingUtility
 
 # Load environment variables from .env file
@@ -104,14 +103,5 @@ class OllamaClient:
     def get_runner(self) -> Runner:
         return self.runner
 
-    @property
-    def code_interpreter(self, code: str):
-
-        self.runner: Runner = Runner(
-            base_url=self.base_url,
-            api_key=self.api_key,
-            available_functions=available_functions or {}
-        )
-        return code_interpreter(code)
 
 
