@@ -1,6 +1,5 @@
 import time
 from datetime import datetime
-
 from sqlalchemy import Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, Text
 from sqlalchemy.orm import relationship, declarative_base
 
@@ -20,10 +19,14 @@ assistant_tools = Table(
     Column('tool_id', String(64), ForeignKey('tools.id'))
 )
 
+# Association table for users and assistants (Many-to-Many relationship)
+user_assistants = Table(
+    'user_assistants', Base.metadata,
+    Column('user_id', String(64), ForeignKey('users.id'), primary_key=True),
+    Column('assistant_id', String(64), ForeignKey('assistants.id'), primary_key=True)
+)
+
 # User model
-
-
-# models/models.py
 
 class User(Base):
     __tablename__ = "users"
@@ -33,14 +36,12 @@ class User(Base):
 
     # Existing relationships
     threads = relationship('Thread', secondary=thread_participants, back_populates='participants')
-    assistants = relationship('Assistant', back_populates='user')
+    assistants = relationship('Assistant', secondary=user_assistants, back_populates='users')
 
     # New relationship with Sandbox
     sandboxes = relationship('Sandbox', back_populates='user', cascade="all, delete-orphan")
 
 # Thread model
-
-
 class Thread(Base):
     __tablename__ = "threads"
 
@@ -57,6 +58,7 @@ class Thread(Base):
 
 
 class Message(Base):
+
     __tablename__ = "messages"
 
     id = Column(String(64), primary_key=True, index=True)
@@ -76,8 +78,6 @@ class Message(Base):
     sender_id = Column(String(64), nullable=False)
 
 # Run model
-
-
 class Run(Base):
     __tablename__ = "runs"
 
@@ -118,7 +118,6 @@ class Assistant(Base):
     __tablename__ = "assistants"
 
     id = Column(String(64), primary_key=True, index=True)
-    user_id = Column(String(64), ForeignKey('users.id'), nullable=False)
     object = Column(String(64), nullable=False)
     created_at = Column(Integer, nullable=False)
     name = Column(String(128), nullable=False)
@@ -132,11 +131,9 @@ class Assistant(Base):
 
     # Eager load tools using joinedload to avoid lazy loading issues
     tools = relationship("Tool", secondary=assistant_tools, back_populates="assistants", lazy="joined")
-    user = relationship("User", back_populates="assistants")
-
+    users = relationship("User", secondary=user_assistants, back_populates="assistants")
 
 # Tool model
-
 class Tool(Base):
     __tablename__ = "tools"
 
@@ -152,8 +149,6 @@ class Tool(Base):
     actions = relationship("Action", back_populates="tool")
 
 # Action model
-
-
 class Action(Base):
     __tablename__ = "actions"
 
@@ -174,7 +169,7 @@ class Action(Base):
     # Relationship with the run
     run = relationship("Run", back_populates="actions")
 
-
+# Sandbox model
 class Sandbox(Base):
     __tablename__ = "sandboxes"
 

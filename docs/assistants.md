@@ -14,12 +14,12 @@ client = OllamaClient()
 
 # Create user
 user = client.user_service.create_user(name='test_user')
-
 print(f"User created: ID: {user.id}")
+
+User created: ID: user_rr4NrmUbzwPO4l17rHFNDV
 
 # Create assistant
 assistant = client.assistant_service.create_assistant(
-    user_id=user.id,
     name='Mathy',
     description='test_case',
     model='llama3.1',
@@ -32,16 +32,37 @@ Assistant created: ID: asst_9MseFMx9MxLwazMSeal9i6
 
 
 
+**Associate an Assistant with a User**
+
+```python
+associate = client.assistant_service.associate_assistant_with_user(
+     assistant_id=assistant.id,
+     user_id=user.id
+ )
+```
+
+
+
+**List assistants for the user**
+
+```python
+
+assistants = user_service.list_assistants_by_user(user_id=user.id)
+```
+
+
+
+Assistants can be associated to multiple Users
+
 **Retrieve an Assistant**
 
 ```python
-print(f"User created: ID: {user.id}")
 
 # Create assistant
 assistant = client.assistant_service.retrieve_assistant(assistant_id=assistant.id) 
 print(assistant.dict())
 
-{'id': 'asst_CuNRAd8TuDurZbmtaFNrmE', 'user_id': 'user_U9BIqd2ZpzdFh7VF9HHla0', 'object': 'assistant', 'created_at': 1726726621, 'name': 'Mathy', 'description': 'test_case', 'model': 'llama3.1', 'instructions': 'You are a helpful assistant', 'meta_data': None, 'top_p': 1.0, 'temperature': 1.0, 'response_format': 'auto'}
+{'id': 'asst_CuNRAd8TuDurZbmtaFNrmE', 'user_id': None, 'object': 'assistant', 'created_at': 1726726621, 'name': 'Mathy', 'description': 'test_case', 'model': 'llama3.1', 'instructions': 'You are a helpful assistant', 'meta_data': None, 'top_p': 1.0, 'temperature': 1.0, 'response_format': 'auto'}
 
 ```
 

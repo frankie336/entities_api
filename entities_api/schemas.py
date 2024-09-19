@@ -298,15 +298,12 @@ class RunReadDetailed(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    model_config = ConfigDict(from_attributes=True)
-
 
 class RunStatusUpdate(BaseModel):
     status: str
 
 
 class AssistantCreate(BaseModel):
-    user_id: str
     name: Optional[str] = None
     description: Optional[str] = None
     model: str
@@ -320,7 +317,7 @@ class AssistantCreate(BaseModel):
 
 class AssistantRead(BaseModel):
     id: str
-    user_id: str
+    user_id: Optional[str] = None  # Make this optional since it's no longer available at creation time
     object: str
     created_at: int
     name: str

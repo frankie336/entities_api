@@ -1,8 +1,8 @@
 import httpx
 from entities_api.services.logging_service import LoggingUtility
 from pydantic import ValidationError
-
-from entities_api.schemas import UserRead, UserCreate, UserUpdate, UserDeleteResponse
+from entities_api.schemas import UserRead, UserCreate, UserUpdate, UserDeleteResponse, AssistantRead
+from typing import List
 
 # Initialize logging utility
 logging_utility = LoggingUtility()
@@ -27,7 +27,6 @@ class UserService:
             return validated_user
         except httpx.HTTPStatusError as e:
             logging_utility.error("HTTP error occurred while creating user: %s", str(e))
-            logging_utility.error("Status code: %d, Response text: %s", e.response.status_code, e.response.text)
             raise
         except Exception as e:
             logging_utility.error("An error occurred while creating user: %s", str(e))
@@ -89,6 +88,22 @@ class UserService:
             logging_utility.error("An error occurred while deleting user: %s", str(e))
             raise
 
+    def list_assistants_by_user(self, user_id: str) -> List[AssistantRead]:
+        logging_utility.info("Retrieving assistants for user with id: %s", user_id)
+        try:
+            response = self.client.get(f"/v1/users/{user_id}/assistants")
+            response.raise_for_status()
+            assistants = response.json()
+            validated_assistants = [AssistantRead(**assistant) for assistant in assistants]
+            logging_utility.info("Assistants retrieved successfully for user id: %s", user_id)
+            return validated_assistants
+        except httpx.HTTPStatusError as e:
+            logging_utility.error("HTTP error occurred while retrieving assistants: %s", str(e))
+            raise
+        except Exception as e:
+            logging_utility.error("An error occurred while retrieving assistants: %s", str(e))
+            raise
+
 
 if __name__ == "__main__":
     # Replace with your actual base URL and API key
@@ -110,11 +125,15 @@ if __name__ == "__main__":
         retrieved_user = user_service.retrieve_user(user_id)
         logging_utility.info("Retrieved user: %s", retrieved_user)
 
-        # Update the user
+        # List assistants for the user
+        assistants = user_service.list_assistants_by_user(user_id)
+        logging_utility.info("Retrieved assistants for user %s: %s", user_id, assistants)
+
+        # Update the user (optional)
         # updated_user = user_service.update_user(user_id, name="Updated Test User")
         # logging_utility.info("Updated user: %s", updated_user)
 
-        # Delete the user
+        # Delete the user (optional)
         # delete_result = user_service.delete_user(user_id)
         # logging_utility.info("Delete result: %s", delete_result)
 
