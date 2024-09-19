@@ -74,11 +74,12 @@ class ClientAssistantService:
     def update_assistant(self, assistant_id: str, **updates) -> AssistantRead:
         logging_utility.info("Updating assistant with id: %s", assistant_id)
         try:
-            current_assistant = self.retrieve_assistant(assistant_id)
-            assistant_data = current_assistant.model_dump()
-            assistant_data.update(updates)
+            # Prevent updating 'id' or 'assistant_id'
+            updates.pop('id', None)
+            updates.pop('assistant_id', None)
 
-            validated_data = AssistantUpdate(**assistant_data)
+            # Validate only the fields to be updated
+            validated_data = AssistantUpdate(**updates)
 
             response = self.client.put(f"/v1/assistants/{assistant_id}",
                                        json=validated_data.model_dump(exclude_unset=True))

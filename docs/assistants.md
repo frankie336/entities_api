@@ -26,6 +26,8 @@ assistant = client.assistant_service.create_assistant(
     instructions='You are a helpful assistant'
 )
 print(f"Assistant created: ID: {assistant.id}")
+
+Assistant created: ID: asst_9MseFMx9MxLwazMSeal9i6
 ```
 
 
@@ -37,7 +39,10 @@ print(f"User created: ID: {user.id}")
 
 # Create assistant
 assistant = client.assistant_service.retrieve_assistant(assistant_id=assistant.id) 
-print(assistant)
+print(assistant.dict())
+
+{'id': 'asst_CuNRAd8TuDurZbmtaFNrmE', 'user_id': 'user_U9BIqd2ZpzdFh7VF9HHla0', 'object': 'assistant', 'created_at': 1726726621, 'name': 'Mathy', 'description': 'test_case', 'model': 'llama3.1', 'instructions': 'You are a helpful assistant', 'meta_data': None, 'top_p': 1.0, 'temperature': 1.0, 'response_format': 'auto'}
+
 ```
 
 
@@ -48,7 +53,14 @@ print(assistant)
 
 # Create assistant
 client.assistant_service.delete(assistant_id=assistant.id) 
-print(assistant)
+print(assistan# Create assistant
+client.assistant_service.update_assistant(
+    assistant_id=assistant.id,
+    description='test_update',
+    instructions='You are my Math teacher'
+)
+
+
 ```
 
 
