@@ -336,14 +336,15 @@ class AssistantRead(BaseModel):
 
 
 class AssistantUpdate(BaseModel):
-    name: Optional[str]
-    description: Optional[str]
-    model: Optional[str]
-    instructions: Optional[str]
-    tools: Optional[List[Tool]]
-    meta_data: Optional[Dict[str, Any]]
-    top_p: Optional[float]
-    temperature: Optional[float]
+    name: Optional[str] = None
+    description: Optional[str] = None
+    model: Optional[str] = None
+    instructions: Optional[str] = None
+    tools: Optional[List[Tool]] = None
+    meta_data: Optional[Dict[str, Any]] = None
+    top_p: Optional[float] = None
+    temperature: Optional[float] = None
+    response_format: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

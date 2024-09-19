@@ -53,6 +53,7 @@ assistant = client.assistant_service.create_assistant(
 )
 print(f"Assistant created: ID: {assistant.id}")
 
+
 # Create thread
 thread = client.thread_service.create_thread(participant_ids=[user.id])
 
