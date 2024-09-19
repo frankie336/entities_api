@@ -41,7 +41,6 @@ def setup_assistant_with_tools(user_name, assistant_name, assistant_description,
 
     # Create assistant
     assistant = client.assistant_service.create_assistant(
-        user_id=userid,
         name=assistant_name,
         description=assistant_description,
         model=model,
