@@ -317,6 +317,44 @@ def update_assistant(assistant_id: str, assistant_update: AssistantUpdate, db: S
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
+@router.get("/users/{user_id}/assistants", response_model=List[AssistantRead])
+def list_assistants_by_user(user_id: str, db: Session = Depends(get_db)):
+    """
+    Endpoint to list all assistants associated with a given user.
+    """
+    logging_utility.info(f"Received request to list assistants for user ID: {user_id}")
+    user_service = UserService(db)
+    try:
+        assistants = user_service.list_assistants_by_user(user_id)
+        logging_utility.info(f"Assistants retrieved for user ID: {user_id}")
+        return assistants
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error occurred while listing assistants for user {user_id}: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"An unexpected error occurred while listing assistants for user {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+
+
+@router.post("/users/{user_id}/assistants/{assistant_id}")
+def associate_assistant_with_user(user_id: str, assistant_id: str, db: Session = Depends(get_db)):
+    """
+    Endpoint to associate an assistant with a user.
+    """
+    logging_utility.info(f"Received request to associate assistant ID: {assistant_id} with user ID: {user_id}")
+    assistant_service = AssistantService(db)
+    try:
+        assistant_service.associate_assistant_with_user(user_id, assistant_id)
+        logging_utility.info(f"Assistant ID: {assistant_id} associated successfully with user ID: {user_id}")
+        return {"message": "Assistant associated with user successfully"}
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error occurred while associating assistant {assistant_id} with user {user_id}: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"An unexpected error occurred while associating assistant {assistant_id} with user {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+
+
 @router.get("/threads/{thread_id}/formatted_messages", response_model=List[Dict[str, Any]])
 def get_formatted_messages(thread_id: str, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to get formatted messages for thread ID: {thread_id}")

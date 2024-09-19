@@ -9,7 +9,7 @@ print(f"User created: ID: {user.id}")
 
 # Create assistant
 assistant = client.assistant_service.create_assistant(
-    user_id=user.id,
+
     name='Mathy',
     description='test_case',
     model='llama3.1',
@@ -36,5 +36,10 @@ client.assistant_service.update_assistant(
 assistant = client.assistant_service.retrieve_assistant(assistant_id=assistant.id)
 print(assistant.dict())
 
-all = client.assistant_service.list_assistants()
-print(all)
+associate = client.assistant_service.associate_assistant_with_user(
+     assistant_id=assistant.id,
+     user_id=user.id
+ )
+
+assistants = client.assistant_service.list_assistants_by_user(user_id=user.id)
+print(assistants)

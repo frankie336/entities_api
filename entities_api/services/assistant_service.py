@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session, joinedload
 from models.models import Assistant, User
 from entities_api.schemas import AssistantCreate, AssistantRead, AssistantUpdate
 from entities_api.services.identifier_service import IdentifierService
+from typing import List  # Import List for type hinting
 import time
 
 
@@ -11,14 +12,9 @@ class AssistantService:
         self.db = db
 
     def create_assistant(self, assistant: AssistantCreate) -> AssistantRead:
-        db_user = self.db.query(User).filter(User.id == assistant.user_id).first()
-        if not db_user:
-            raise HTTPException(status_code=404, detail="User not found")
-
         assistant_id = IdentifierService.generate_assistant_id()
         db_assistant = Assistant(
             id=assistant_id,
-            user_id=assistant.user_id,
             object="assistant",
             created_at=int(time.time()),
             name=assistant.name,
@@ -59,3 +55,24 @@ class AssistantService:
         self.db.refresh(db_assistant)
 
         return AssistantRead.model_validate(db_assistant)
+
+    def associate_assistant_with_user(self, user_id: str, assistant_id: str):
+        """Associate an assistant with a user (many-to-many relationship)."""
+        user = self.db.query(User).filter(User.id == user_id).first()
+        assistant = self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if not assistant:
+            raise HTTPException(status_code=404, detail="Assistant not found")
+
+        user.assistants.append(assistant)
+        self.db.commit()
+
+    def list_assistants_by_user(self, user_id: str) -> List[AssistantRead]:  # Use List instead of list for compatibility
+        """List all assistants associated with a given user."""
+        user = self.db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        return [AssistantRead.model_validate(assistant) for assistant in user.assistants]

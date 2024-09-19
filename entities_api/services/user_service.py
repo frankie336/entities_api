@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
-from models.models import User
-from entities_api.schemas import UserCreate, UserRead, UserUpdate
+from models.models import User, Assistant
+from entities_api.schemas import UserCreate, UserRead, UserUpdate, AssistantRead
 from entities_api.services.identifier_service import IdentifierService
 from typing import List
 from fastapi import HTTPException
@@ -62,3 +62,13 @@ class UserService:
                 pass
 
         return self.create_user()
+
+    def list_assistants_by_user(self, user_id: str) -> List[AssistantRead]:
+        """
+        Retrieve the list of assistants associated with a specific user.
+        """
+        user = self.db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        return [AssistantRead.from_orm(assistant) for assistant in user.assistants]
