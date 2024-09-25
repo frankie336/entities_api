@@ -67,6 +67,32 @@ class ToolService:
             logging_utility.error("Error associating tool with assistant: %s", str(e))
             raise HTTPException(status_code=500, detail="An error occurred while associating the tool with the assistant")
 
+    def disassociate_tool_from_assistant(self, tool_id: str, assistant_id: str) -> None:
+        logging_utility.info("Disassociating tool with ID %s from assistant with ID %s", tool_id, assistant_id)
+        try:
+            tool = self._get_tool_or_404(tool_id)
+            assistant = self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+
+            if not assistant:
+                logging_utility.warning("Assistant with ID %s not found.", assistant_id)
+                raise HTTPException(status_code=404, detail=f"Assistant with id {assistant_id} not found")
+
+            if tool in assistant.tools:
+                assistant.tools.remove(tool)
+                self.db.commit()
+                logging_utility.info("Successfully disassociated tool ID %s from assistant ID %s", tool_id,
+                                     assistant_id)
+            else:
+                raise HTTPException(status_code=400, detail="Tool not associated with the assistant")
+        except HTTPException as e:
+            logging_utility.error("HTTPException: %s", str(e))
+            raise
+        except Exception as e:
+            self.db.rollback()
+            logging_utility.error("Error disassociating tool from assistant: %s", str(e))
+            raise HTTPException(status_code=500,
+                                detail="An error occurred while disassociating the tool from the assistant")
+
     def get_tool(self, tool_id: str) -> ToolRead:
         logging_utility.info("Retrieving tool with ID: %s", tool_id)
         try:

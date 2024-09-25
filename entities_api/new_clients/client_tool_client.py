@@ -55,6 +55,20 @@ class ClientToolService:
             logging_utility.error("Unexpected error during tool-assistant association: %s", str(e))
             raise
 
+    def disassociate_tool_from_assistant(self, tool_id: str, assistant_id: str) -> None:
+        logging_utility.info("Disassociating tool %s from assistant %s", tool_id, assistant_id)
+        try:
+            response = self.client.delete(f"/v1/assistants/{assistant_id}/tools/{tool_id}")
+            response.raise_for_status()
+            logging_utility.info("Tool %s disassociated from assistant %s successfully", tool_id, assistant_id)
+        except httpx.HTTPStatusError as e:
+            logging_utility.error("HTTP error during tool-assistant disassociation: %s | Response: %s", str(e),
+                                  e.response.text)
+            raise
+        except Exception as e:
+            logging_utility.error("Unexpected error during tool-assistant disassociation: %s", str(e))
+            raise
+
     def get_tool_by_id(self, tool_id: str) -> ToolRead:
         """Retrieve a tool by its ID."""
         logging_utility.info("Retrieving tool with id: %s", tool_id)

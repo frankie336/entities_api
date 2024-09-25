@@ -43,6 +43,18 @@ associate = client.assistant_service.associate_assistant_with_user(
 
 
 
+**Disassociate an Assistant with a User**
+
+```python
+disassociate = client.disassociate_assistant_from_user.associate_assistant_with_user(
+     assistant_id=assistant.id,
+     user_id=user.id
+ )
+```
+
+
+
+
 **List assistants for the user**
 
 ```python
@@ -80,7 +92,6 @@ client.assistant_service.update_assistant(
     description='test_update',
     instructions='You are my Math teacher'
 )
-
 
 ```
 

@@ -2,7 +2,7 @@ from entities_api.new_clients.client_assistant_client import ClientAssistantServ
 from entities_api.new_clients.client import OllamaClient
 from entities_api.new_clients.platform_tools.code_interpreter_handler import code_interpreter
 
-#from services.loggin_service import LoggingUtility
+
 
 from ollama._types import (
     GenerateResponse,

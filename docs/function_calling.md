@@ -157,6 +157,24 @@ client.tool_service.disassociate_tool(
 
 ```
 
+
+**Disassociate the new Tool with an Assistant**
+
+```python
+
+client.tool_service.disassociate_tool_from_assistant(
+    tool_id=new_tool.id,
+    assistant_id=assistant.id
+)
+
+print(f"New tool created: Name: {function_definition['function']['name']}, ID: {new_tool.id}")
+print(new_tool)
+```
+
+
+
+
+
 # Using a Function Call in a Project
 
 The following code should be implemented on your back end or other project source where you hope to trigger function calls.

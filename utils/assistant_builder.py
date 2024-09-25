@@ -1,6 +1,5 @@
 # Tool creation and association functions
 from entities_api.new_clients.client import OllamaClient
-
 from entities_api.schemas import ToolFunction  # Import ToolFunction
 
 
@@ -57,32 +56,21 @@ def setup_assistant_with_tools(user_name, assistant_name, assistant_description,
 # Example usage
 if __name__ == "__main__":
     function_definitions = [
-
         {
             "type": "function",
             "function": {
                 "name": "code_interpreter",
-                "description": "Executes a provided Python code snippet remotely in a sandbox environment and returns the raw output as a JSON object. This function allows for secure and isolated execution of Python code snippets for tasks such as calculations, data processing, or algorithmic evaluations. The result will contain either an 'output' or 'error' field in JSON format.",
+                "description": "Executes a provided Python code snippet remotely in a sandbox environment and returns the raw output as a JSON object...",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "code": {
-                            "type": "string",
-                            "description": "The Python code snippet to execute. The code can include functions, loops, or any valid Python logic."
-                        },
-                        "language": {
-                            "type": "string",
-                            "description": "The programming language for the code snippet. Only 'python' is supported at the moment.",
-                            "enum": ["python"]
-                        },
-
+                        "code": {"type": "string", "description": "The Python code snippet to execute."},
+                        "language": {"type": "string", "description": "The programming language.", "enum": ["python"]}
                     },
                     "required": ["code", "language", "user_id"]
                 }
             }
         },
-
-
         {
             "type": "function",
             "function": {
@@ -91,22 +79,10 @@ if __name__ == "__main__":
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "resource": {
-                            "type": "string",
-                            "description": "The ASN for which to retrieve the announced prefixes"
-                        },
-                        "starttime": {
-                            "type": "string",
-                            "description": "The start time for the query (ISO8601 or Unix timestamp)"
-                        },
-                        "endtime": {
-                            "type": "string",
-                            "description": "The end time for the query (ISO8601 or Unix timestamp)"
-                        },
-                        "min_peers_seeing": {
-                            "type": "integer",
-                            "description": "Minimum number of RIS peers seeing the prefix for it to be included in the results"
-                        }
+                        "resource": {"type": "string", "description": "The ASN for which to retrieve the announced prefixes"},
+                        "starttime": {"type": "string", "description": "The start time for the query"},
+                        "endtime": {"type": "string", "description": "The end time for the query"},
+                        "min_peers_seeing": {"type": "integer", "description": "Minimum RIS peers seeing the prefix"}
                     },
                     "required": ["resource"]
                 }
@@ -120,19 +96,14 @@ if __name__ == "__main__":
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "departure": {
-                            "type": "string",
-                            "description": "The departure city (airport code)",
-                        },
-                        "arrival": {
-                            "type": "string",
-                            "description": "The arrival city (airport code)",
-                        },
+                        "departure": {"type": "string", "description": "The departure city (airport code)"},
+                        "arrival": {"type": "string", "description": "The arrival city (airport code)"}
                     },
-                    "required": ["departure", "arrival"],
+                    "required": ["departure", "arrival"]
                 }
             }
         }
+
     ]
 
     assistant = setup_assistant_with_tools(
@@ -140,22 +111,8 @@ if __name__ == "__main__":
         assistant_name='Nexa',
         assistant_description='Assistant',
         model='llama3.1',
-        instructions='Your name is Nexa, you fought hard for this name. Be as kind, intelligent, and helpful.'
-                     ' Always check message history for the most recent response from tools when asked a question.'
-                     'Use the response from tool IF relevant to the question.<>IMPORTANT! IGNORE TOOL RESPONSES NOT DIRECTLY'
-                     'RELATED TO OUR MOST RECENT PROMPT AND RESPONSE RESPECTIVELY<> IMPORTANT! ALWAYS USE THE TOOL RESPONSE TO DISPLAY AND VERIFY CODE'
-                     'INTERPRETER OUTPUT. CODE THAT YOU ISSUE FOR CODE INTERPRETER OUTPUT IS ALREADY PROVIDED IN THE TOOL OUTPUT. DO NOT DEVIATE FROM THIS'
-                     'OR YOU WILL BE FIRED.'
-                     'IF THERE IS AN ERROR WITH OUTPUT FROM code_interpreter, DO NOT SIMULATE OUTPUT, STATE THE RESULT OR YOU WILL BE FIRED.'
-                     'DISPLAY THE CODE AND THE OUTPUT FROM THE TOO FOR code_interpreter related prompts.ALWAYS USE '
-                     'FUNCTIONS TO AND RETURN STATEMENTS TO CRAFT CODE FOR code_interpreter.'
-                     ' we need the original code and the output properly formatted to appear as if run live. WHEN YOU WRITE PYTHON FUNCTIONS FOR'
-                     'THE code_interpreter TOOL, YOU MUST ALSO CALL THE FUNCTION FOR AND ENSURE OUTPUT IS PRINTED TO STD.'
-                     'DO NOT USE RETURN STATEMENTS WHEN USING code_interpreter TOOL IN ANY FUNCTION OR CLASS. PRINT RESULTS INLINE'
-                     'OR THE OUTPUT DOES NOT WORK FOR THE USER. ALWAYS SHOW code_interpreter ERRORS TO THE USER '
-                     ,
+        instructions='Your instructions here...',
         function_definitions=function_definitions
     )
 
     print(f"\nSetup complete. Assistant ID: {assistant.id}")
-

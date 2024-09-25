@@ -129,6 +129,24 @@ class ClientAssistantService:
             logging_utility.error("An error occurred while associating assistant: %s", str(e))
             raise
 
+    def disassociate_assistant_from_user(self, user_id: str, assistant_id: str) -> Dict[str, Any]:
+        """
+        Disassociate an assistant from a user by making a DELETE request to the appropriate endpoint.
+        """
+        logging_utility.info("Disassociating assistant with id: %s from user: %s", assistant_id, user_id)
+        try:
+            response = self.client.delete(f"/v1/users/{user_id}/assistants/{assistant_id}")
+            response.raise_for_status()
+            logging_utility.info("Assistant %s disassociated from user %s successfully", assistant_id, user_id)
+            return {"message": "Assistant disassociated from user successfully"}
+        except httpx.HTTPStatusError as e:
+            logging_utility.error("HTTP error occurred while disassociating assistant: %s", str(e))
+            raise
+        except Exception as e:
+            logging_utility.error("An error occurred while disassociating assistant: %s", str(e))
+            raise
+
+
     def list_assistants_by_user(self, user_id: str) -> List[AssistantRead]:
         """
         Retrieve the list of assistants associated with a specific user.
