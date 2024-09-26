@@ -50,7 +50,16 @@ class Runner:
         # Retrieve project_id from environment variables
         self.project_id = os.getenv('IBM_WATSON_PROJECT_ID')  # Set this in your .env file
 
+        # Cache for the current run status to minimize retrievals
+        self.run_status_cache = {}
+
         logging_utility.info("Runner initialized with base_url: %s", self.base_url)
+
+    def _get_run_status(self, run_id):
+        if run_id not in self.run_status_cache:
+            run_status = self.run_service.retrieve_run(run_id=run_id).status
+            self.run_status_cache[run_id] = run_status
+        return self.run_status_cache[run_id]
 
     def create_tool_filtering_messages(self, messages):
         logging_utility.info("Creating tool filtering messages")
@@ -132,10 +141,10 @@ class Runner:
                 WatsonGenParams.MAX_NEW_TOKENS: params.get('max_new_tokens', 5000)
             }
 
-            # Select the model ID
+            # Select the model ID for text generation
             model_id = self.watson_client.foundation_models.TextModels.LLAMA_3_2_90B_VISION_INSTRUCT
 
-            # Initialize the model inference instance
+            # Initialize the model inference instance with the specified parameters
             model = WatsonModelInference(
                 model_id=model_id,
                 credentials=self.watson_credentials,
@@ -144,7 +153,7 @@ class Runner:
                 verify=False,
             )
 
-            # Generate text stream
+            # Generate text stream using the 'generate_text_stream' method
             stream_response = model.generate_text_stream(prompt=prompt, params=gen_parms)
             logging_utility.info("Started streaming response from IBM Watson.")
             return stream_response
@@ -153,7 +162,7 @@ class Runner:
             logging_utility.error(f"Error in watson_generate_text_stream: {str(e)}", exc_info=True)
             return iter([])  # Return an empty iterator on error
 
-    def generate_final_response(self, thread_id, message_id, run_id, tool_results, messages, model):
+    def generate_final_response(self, thread_id, message_id, run_id, tool_results, messages, model, assistant_instructions=None):
         """
         Generates the final assistant response, incorporating tool results.
         """
@@ -165,8 +174,8 @@ class Runner:
                 if result:
                     messages.append({'role': 'tool', 'content': json.dumps(result)})
 
-        # Generate final response using updated messages
         full_response = ""
+        buffer = []  # Buffer to accumulate chunks
 
         if model == 'llama3.1':
             # Use local Ollama client for inference
@@ -179,44 +188,41 @@ class Runner:
 
             for chunk in streaming_response:
                 content = chunk['message']['content']
-
-                # Check if the run has been cancelled during response generation
-                current_run_status = self.run_service.retrieve_run(run_id=run_id).status
+                current_run_status = self._get_run_status(run_id)
                 if current_run_status in ["cancelling", "cancelled"]:
                     logging_utility.info(f"Run {run_id} is being cancelled or already cancelled, stopping response generation.")
                     break
 
-                full_response += content
+                buffer.append(content)
                 yield content
 
         elif model == 'llama3.2:90b_v':
             # Use IBM Watson's streaming method
             try:
+                # Fetch the system message (assistant instructions)
+                system_message = assistant_instructions or ""
+
                 # Combine messages to form the prompt
-                prompt_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages if msg['role'] != 'system'])
+                # Exclude the 'system' role messages as we'll prepend the system prompt separately
+                conversation = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages if msg['role'] != 'system'])
+
+                # Construct the final prompt by combining the system prompt and the conversation
+                prompt_text = f"{system_message}\n\n{conversation}"
 
                 # Generate text stream using IBM Watson
-                stream_response = self.watson_generate_text_stream(prompt_text, params={})
+                stream_response = self.watson_generate_text_stream(prompt=prompt_text, params={})
 
                 for chunk in stream_response:
-                    # Check if the run has been cancelled during response generation
-                    current_run_status = self.run_service.retrieve_run(run_id=run_id).status
+                    current_run_status = self._get_run_status(run_id)
                     if current_run_status in ["cancelling", "cancelled"]:
                         logging_utility.info(f"Run {run_id} is being cancelled or already cancelled, stopping response generation.")
                         break
 
-                    # Log the chunk for debugging
-                    logging_utility.debug(f"Received chunk: {chunk} (type: {type(chunk)})")
-
-                    # Since chunk is a string, we can use it directly
-                    content = chunk
-
-                    if content:
-                        full_response += content
-                        logging_utility.debug(f"Streaming chunk received: {content}")
-                        yield content
-                    else:
-                        logging_utility.warning("Received empty chunk from IBM Watson.")
+                    if chunk.strip():  # Only process non-empty chunks
+                        buffer.append(chunk)
+                        full_response += chunk
+                        logging_utility.debug(f"Streaming chunk received: {chunk}")
+                        yield chunk
 
             except Exception as e:
                 logging_utility.error(f"Error during IBM Watson streaming: {str(e)}", exc_info=True)
@@ -227,12 +233,12 @@ class Runner:
             yield "Error: Unsupported model specified."
 
         # Finalize the run
-        final_run_status = self.run_service.retrieve_run(run_id=run_id).status
+        final_run_status = self._get_run_status(run_id)
         status_to_set = "completed" if final_run_status not in ["cancelling", "cancelled"] else "cancelled"
 
-        self.message_service.save_assistant_message_chunk(thread_id, full_response, is_last_chunk=True)
+        combined_response = ''.join(buffer)  # Combine chunks into a final response
+        self.message_service.save_assistant_message_chunk(thread_id, combined_response, is_last_chunk=True)
         self.run_service.update_run_status(run_id, status_to_set)
-
         logging_utility.info(f"Run {run_id} marked as {status_to_set}")
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id, model='llama3.1'):
@@ -241,14 +247,19 @@ class Runner:
             thread_id, run_id, model
         )
 
+        # Retrieve the assistant to get its instructions (system prompt)
         assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
         logging_utility.info(
             "Retrieved assistant: id=%s, name=%s, model=%s",
             assistant.id, assistant.name, assistant.model
         )
 
+        # Fetch the assistant instructions to be used as the system message
+        assistant_instructions = assistant.instructions
+
+        # Get the formatted messages, including the system message
         messages = self.message_service.get_formatted_messages(
-            thread_id, system_message=assistant.instructions
+            thread_id, system_message=assistant_instructions
         )
         logging_utility.debug("Original formatted messages: %s", messages)
 
@@ -271,14 +282,13 @@ class Runner:
                 )
 
         elif model == 'llama3.2:90b_v':
-            # For IBM Watson, we can process tool calls differently if needed
-            # Currently, we'll proceed directly to generating the final response
+            # For IBM Watson, proceed directly to generating the final response
             pass
         else:
             logging_utility.error(f"Unsupported model: {model}")
             return
 
-        # Generate and stream the final response
+        # Generate and stream the final response, passing the assistant instructions
         return self.generate_final_response(
-            thread_id, message_id, run_id, tool_results, messages, model
+            thread_id, message_id, run_id, tool_results, messages, model, assistant_instructions=assistant_instructions
         )
