@@ -1,6 +1,5 @@
 import json
 import os
-import re  # For regex parsing
 
 from dotenv import load_dotenv
 from ollama import Client
@@ -130,7 +129,7 @@ class Runner:
             # Set up generation parameters
             gen_parms = {
                 WatsonGenParams.DECODING_METHOD: params.get('decoding_method', WatsonDecodingMethods.SAMPLE),
-                WatsonGenParams.MAX_NEW_TOKENS: params.get('max_new_tokens', 100)
+                WatsonGenParams.MAX_NEW_TOKENS: params.get('max_new_tokens', 5000)
             }
 
             # Select the model ID
@@ -154,15 +153,6 @@ class Runner:
             logging_utility.error(f"Error in watson_generate_text_stream: {str(e)}", exc_info=True)
             return iter([])  # Return an empty iterator on error
 
-    def clean_watson_chunk(self, chunk):
-        """
-        Cleans the chunk received from IBM Watson by removing unwanted headers or markdown syntax.
-        """
-        # Remove markdown code block markers and other unwanted characters
-        # Example: remove backticks and asterisks
-        cleaned = re.sub(r'[`*]+', '', chunk).strip()
-        return cleaned
-
     def generate_final_response(self, thread_id, message_id, run_id, tool_results, messages, model):
         """
         Generates the final assistant response, incorporating tool results.
@@ -180,36 +170,24 @@ class Runner:
 
         if model == 'llama3.1':
             # Use local Ollama client for inference
-            try:
-                streaming_response = self.ollama_client.chat(
-                    model=model,
-                    messages=messages,
-                    options={'num_ctx': 4096},
-                    stream=True
-                )
-                logging_utility.info("Started streaming response from Ollama.")
+            streaming_response = self.ollama_client.chat(
+                model=model,
+                messages=messages,
+                options={'num_ctx': 4096},
+                stream=True
+            )
 
-                for chunk in streaming_response:
-                    # Ensure chunk is a dictionary with the expected structure
-                    if not isinstance(chunk, dict):
-                        logging_utility.error(f"Unexpected chunk type from Ollama: {type(chunk)}")
-                        continue
+            for chunk in streaming_response:
+                content = chunk['message']['content']
 
-                    content = chunk.get('message', {}).get('content', '')
+                # Check if the run has been cancelled during response generation
+                current_run_status = self.run_service.retrieve_run(run_id=run_id).status
+                if current_run_status in ["cancelling", "cancelled"]:
+                    logging_utility.info(f"Run {run_id} is being cancelled or already cancelled, stopping response generation.")
+                    break
 
-                    # Check if the run has been cancelled during response generation
-                    current_run_status = self.run_service.retrieve_run(run_id=run_id).status
-                    if current_run_status in ["cancelling", "cancelled"]:
-                        logging_utility.info(f"Run {run_id} is being cancelled or already cancelled, stopping response generation.")
-                        break
-
-                    full_response += content
-                    logging_utility.debug(f"Streaming chunk received from Ollama: {content}")
-                    yield content
-
-            except Exception as e:
-                logging_utility.error(f"Error during Ollama streaming: {str(e)}", exc_info=True)
-                yield "An error occurred during streaming from Ollama."
+                full_response += content
+                yield content
 
         elif model == 'llama3.2:90b_v':
             # Use IBM Watson's streaming method
@@ -230,36 +208,32 @@ class Runner:
                     # Log the chunk for debugging
                     logging_utility.debug(f"Received chunk: {chunk} (type: {type(chunk)})")
 
-                    # Clean the chunk to remove unwanted headers or markdown syntax
-                    content = self.clean_watson_chunk(chunk)
+                    # Since chunk is a string, we can use it directly
+                    content = chunk
 
                     if content:
                         full_response += content
-                        logging_utility.debug(f"Streaming chunk received from IBM Watson: {content}")
+                        logging_utility.debug(f"Streaming chunk received: {content}")
                         yield content
                     else:
-                        logging_utility.warning("Received empty or unwanted chunk from IBM Watson.")
+                        logging_utility.warning("Received empty chunk from IBM Watson.")
 
             except Exception as e:
                 logging_utility.error(f"Error during IBM Watson streaming: {str(e)}", exc_info=True)
-                yield "An error occurred during streaming from IBM Watson."
+                yield "An error occurred during streaming."
 
         else:
             logging_utility.error(f"Unsupported model: {model}")
             yield "Error: Unsupported model specified."
 
         # Finalize the run
-        try:
-            final_run_status = self.run_service.retrieve_run(run_id=run_id).status
-            status_to_set = "completed" if final_run_status not in ["cancelling", "cancelled"] else "cancelled"
+        final_run_status = self.run_service.retrieve_run(run_id=run_id).status
+        status_to_set = "completed" if final_run_status not in ["cancelling", "cancelled"] else "cancelled"
 
-            self.message_service.save_assistant_message_chunk(thread_id, full_response, is_last_chunk=True)
-            logging_utility.info(f"Assistant message chunk saved successfully for run_id: {run_id}")
+        self.message_service.save_assistant_message_chunk(thread_id, full_response, is_last_chunk=True)
+        self.run_service.update_run_status(run_id, status_to_set)
 
-            self.run_service.update_run_status(run_id, status_to_set)
-            logging_utility.info(f"Run {run_id} marked as {status_to_set}")
-        except Exception as e:
-            logging_utility.error(f"Error finalizing run_id {run_id}: {str(e)}", exc_info=True)
+        logging_utility.info(f"Run {run_id} marked as {status_to_set}")
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id, model='llama3.1'):
         logging_utility.info(
@@ -267,54 +241,44 @@ class Runner:
             thread_id, run_id, model
         )
 
-        try:
-            assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
-            logging_utility.info(
-                "Retrieved assistant: id=%s, name=%s, model=%s",
-                assistant.id, assistant.name, assistant.model
+        assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
+        logging_utility.info(
+            "Retrieved assistant: id=%s, name=%s, model=%s",
+            assistant.id, assistant.name, assistant.model
+        )
+
+        messages = self.message_service.get_formatted_messages(
+            thread_id, system_message=assistant.instructions
+        )
+        logging_utility.debug("Original formatted messages: %s", messages)
+
+        tool_filtering_messages = self.create_tool_filtering_messages(messages)
+        tool_results = []
+
+        # Initial chat or inference call based on model
+        if model == 'llama3.1':
+            response = self.ollama_client.chat(
+                model=model,
+                messages=tool_filtering_messages,
+                options={'num_ctx': 4096},
+                tools=self.tool_service.list_tools(assistant_id)
             )
+            logging_utility.debug("Initial chat response: %s", response)
 
-            messages = self.message_service.get_formatted_messages(
-                thread_id, system_message=assistant.instructions
-            )
-            logging_utility.debug("Original formatted messages: %s", messages)
+            if response['message'].get('tool_calls'):
+                tool_results = self.process_tool_calls(
+                    run_id, response['message']['tool_calls'], message_id, thread_id
+                )
 
-            tool_filtering_messages = self.create_tool_filtering_messages(messages)
-            tool_results = []
+        elif model == 'llama3.2:90b_v':
+            # For IBM Watson, we can process tool calls differently if needed
+            # Currently, we'll proceed directly to generating the final response
+            pass
+        else:
+            logging_utility.error(f"Unsupported model: {model}")
+            return
 
-            # Initial chat or inference call based on model
-            if model == 'llama3.1':
-                try:
-                    response = self.ollama_client.chat(
-                        model=model,
-                        messages=tool_filtering_messages,
-                        options={'num_ctx': 4096},
-                        tools=self.tool_service.list_tools(assistant_id),
-                        stream=False  # Initial call is non-streaming to get tool calls
-                    )
-                    logging_utility.debug("Initial chat response from Ollama: %s", response)
-
-                    # Check if response is a dictionary and contains tool_calls
-                    if response and isinstance(response, dict) and response.get('message', {}).get('tool_calls'):
-                        tool_results = self.process_tool_calls(
-                            run_id, response['message']['tool_calls'], message_id, thread_id
-                        )
-                except Exception as e:
-                    logging_utility.error(f"Error during initial Ollama chat: {str(e)}", exc_info=True)
-
-            elif model == 'llama3.2:90b_v':
-                # For IBM Watson, currently, we do not inject function calls
-                logging_utility.info("Processing conversation using IBM Watson without tool calls.")
-                pass  # Do not process tool calls for now
-            else:
-                logging_utility.error(f"Unsupported model: {model}")
-                return
-
-            # Generate and stream the final response
-            return self.generate_final_response(
-                thread_id, message_id, run_id, tool_results, messages, model
-            )
-
-        except Exception as e:
-            logging_utility.error(f"Error in process_conversation: {str(e)}", exc_info=True)
-            yield "An error occurred during conversation processing."
+        # Generate and stream the final response
+        return self.generate_final_response(
+            thread_id, message_id, run_id, tool_results, messages, model
+        )
