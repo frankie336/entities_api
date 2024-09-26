@@ -121,9 +121,9 @@ class Runner:
 
         return tool_results  # Return collected results, excluding any that had errors
 
-    def watson_generate_text(self, prompt, params):
+    def watson_generate_text_stream(self, prompt, params):
         """
-        Generates text using IBM Watson LLM.
+        Generates a text stream using IBM Watson LLM.
         """
         try:
             # Set up generation parameters
@@ -140,17 +140,18 @@ class Runner:
                 model_id=model_id,
                 credentials=self.watson_credentials,
                 params=gen_parms,
-                project_id=self.project_id,  # Pass the project_id from environment
+                project_id=self.project_id,
                 verify=False,
             )
 
-            # Generate text
-            generated_text_response = model.generate_text(prompt=prompt, params=gen_parms)
-            return generated_text_response
+            # Generate text stream
+            stream_response = model.generate_text_stream(prompt=prompt, params=gen_parms)
+            logging_utility.info("Started streaming response from IBM Watson.")
+            return stream_response
 
         except Exception as e:
-            logging_utility.error(f"Error in watson_generate_text: {str(e)}", exc_info=True)
-            return ""
+            logging_utility.error(f"Error in watson_generate_text_stream: {str(e)}", exc_info=True)
+            return iter([])  # Return an empty iterator on error
 
     def generate_final_response(self, thread_id, message_id, run_id, tool_results, messages, model):
         """
@@ -189,26 +190,37 @@ class Runner:
                 yield content
 
         elif model == 'llama3.2:90b_v':
-            # Use IBM Watson API for inference
-            # Combine messages to form the prompt
-            prompt_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages if msg['role'] != 'system'])
+            # Use IBM Watson's streaming method
+            try:
+                # Combine messages to form the prompt
+                prompt_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages if msg['role'] != 'system'])
 
-            # Generate text using IBM Watson
-            generated_text = self.watson_generate_text(prompt_text, params={})
+                # Generate text stream using IBM Watson
+                stream_response = self.watson_generate_text_stream(prompt_text, params={})
 
-            # Simulate streaming by yielding chunks
-            chunk_size = 100  # Adjust chunk size as needed
-            for i in range(0, len(generated_text), chunk_size):
-                chunk = generated_text[i:i+chunk_size]
+                for chunk in stream_response:
+                    # Check if the run has been cancelled during response generation
+                    current_run_status = self.run_service.retrieve_run(run_id=run_id).status
+                    if current_run_status in ["cancelling", "cancelled"]:
+                        logging_utility.info(f"Run {run_id} is being cancelled or already cancelled, stopping response generation.")
+                        break
 
-                # Check if the run has been cancelled during response generation
-                current_run_status = self.run_service.retrieve_run(run_id=run_id).status
-                if current_run_status in ["cancelling", "cancelled"]:
-                    logging_utility.info(f"Run {run_id} is being cancelled or already cancelled, stopping response generation.")
-                    break
+                    # Log the chunk for debugging
+                    logging_utility.debug(f"Received chunk: {chunk} (type: {type(chunk)})")
 
-                full_response += chunk
-                yield chunk
+                    # Since chunk is a string, we can use it directly
+                    content = chunk
+
+                    if content:
+                        full_response += content
+                        logging_utility.debug(f"Streaming chunk received: {content}")
+                        yield content
+                    else:
+                        logging_utility.warning("Received empty chunk from IBM Watson.")
+
+            except Exception as e:
+                logging_utility.error(f"Error during IBM Watson streaming: {str(e)}", exc_info=True)
+                yield "An error occurred during streaming."
 
         else:
             logging_utility.error(f"Unsupported model: {model}")
@@ -270,5 +282,3 @@ class Runner:
         return self.generate_final_response(
             thread_id, message_id, run_id, tool_results, messages, model
         )
-
-
