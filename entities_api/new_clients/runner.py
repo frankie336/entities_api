@@ -4,6 +4,12 @@ import os
 from dotenv import load_dotenv
 from ollama import Client
 
+# Import the IBM Watson modules
+from ibm_watsonx_ai import APIClient as WatsonAPIClient
+from ibm_watsonx_ai.foundation_models import ModelInference as WatsonModelInference
+from ibm_watsonx_ai.metanames import GenTextParamsMetaNames as WatsonGenParams
+from ibm_watsonx_ai.foundation_models.utils.enums import DecodingMethods as WatsonDecodingMethods
+
 from entities_api.new_clients.client_actions_client import ClientActionService
 from entities_api.new_clients.client_assistant_client import ClientAssistantService
 from entities_api.new_clients.client_message_client import ClientMessageService
@@ -21,7 +27,7 @@ logging_utility = LoggingUtility()
 
 
 class Runner:
-    def __init__(self, base_url=os.getenv('ASSISTANTS_BASE_URL'), api_key='your api key', available_functions=None):
+    def __init__(self, base_url=os.getenv('ASSISTANTS_BASE_URL'), api_key=None, available_functions=None):
         self.base_url = base_url or os.getenv('ASSISTANTS_BASE_URL')
         self.api_key = api_key or os.getenv('API_KEY')
         self.user_service = UserService(self.base_url, self.api_key)
@@ -34,7 +40,17 @@ class Runner:
         self.action_service = ClientActionService(self.base_url, self.api_key)
         self.available_functions = available_functions or {}
 
-        logging_utility.info("OllamaClient initialized with base_url: %s", self.base_url)
+        # Initialize IBM Watson API client (credentials should be stored securely)
+        self.watson_credentials = {
+            "url": os.getenv('IBM_WATSON_URL'),        # Set this in your .env file
+            "apikey": os.getenv('IBM_WATSON_APIKEY'),  # Set this in your .env file
+        }
+        self.watson_client = WatsonAPIClient(self.watson_credentials)
+
+        # Retrieve project_id from environment variables
+        self.project_id = os.getenv('IBM_WATSON_PROJECT_ID')  # Set this in your .env file
+
+        logging_utility.info("Runner initialized with base_url: %s", self.base_url)
 
     def create_tool_filtering_messages(self, messages):
         logging_utility.info("Creating tool filtering messages")
@@ -105,6 +121,37 @@ class Runner:
 
         return tool_results  # Return collected results, excluding any that had errors
 
+    def watson_generate_text(self, prompt, params):
+        """
+        Generates text using IBM Watson LLM.
+        """
+        try:
+            # Set up generation parameters
+            gen_parms = {
+                WatsonGenParams.DECODING_METHOD: params.get('decoding_method', WatsonDecodingMethods.SAMPLE),
+                WatsonGenParams.MAX_NEW_TOKENS: params.get('max_new_tokens', 100)
+            }
+
+            # Select the model ID
+            model_id = self.watson_client.foundation_models.TextModels.LLAMA_3_2_90B_VISION_INSTRUCT
+
+            # Initialize the model inference instance
+            model = WatsonModelInference(
+                model_id=model_id,
+                credentials=self.watson_credentials,
+                params=gen_parms,
+                project_id=self.project_id,  # Pass the project_id from environment
+                verify=False,
+            )
+
+            # Generate text
+            generated_text_response = model.generate_text(prompt=prompt, params=gen_parms)
+            return generated_text_response
+
+        except Exception as e:
+            logging_utility.error(f"Error in watson_generate_text: {str(e)}", exc_info=True)
+            return ""
+
     def generate_final_response(self, thread_id, message_id, run_id, tool_results, messages, model):
         """
         Generates the final assistant response, incorporating tool results.
@@ -118,25 +165,54 @@ class Runner:
                     messages.append({'role': 'tool', 'content': json.dumps(result)})
 
         # Generate final response using updated messages
-        streaming_response = self.ollama_client.chat(
-            model=model,
-            messages=messages,
-            options={'num_ctx': 4096},
-            stream=True
-        )
-
         full_response = ""
-        for chunk in streaming_response:
-            content = chunk['message']['content']
 
-            # Check if the run has been cancelled during response generation
-            current_run_status = self.run_service.retrieve_run(run_id=run_id).status
-            if current_run_status in ["cancelling", "cancelled"]:
-                logging_utility.info(f"Run {run_id} is being cancelled or already cancelled, stopping response generation.")
-                break
+        if model == 'llama3.1':
+            # Use local Ollama client for inference
+            streaming_response = self.ollama_client.chat(
+                model=model,
+                messages=messages,
+                options={'num_ctx': 4096},
+                stream=True
+            )
 
-            full_response += content
-            yield content
+            for chunk in streaming_response:
+                content = chunk['message']['content']
+
+                # Check if the run has been cancelled during response generation
+                current_run_status = self.run_service.retrieve_run(run_id=run_id).status
+                if current_run_status in ["cancelling", "cancelled"]:
+                    logging_utility.info(f"Run {run_id} is being cancelled or already cancelled, stopping response generation.")
+                    break
+
+                full_response += content
+                yield content
+
+        elif model == 'llama3.2:90b_v':
+            # Use IBM Watson API for inference
+            # Combine messages to form the prompt
+            prompt_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages if msg['role'] != 'system'])
+
+            # Generate text using IBM Watson
+            generated_text = self.watson_generate_text(prompt_text, params={})
+
+            # Simulate streaming by yielding chunks
+            chunk_size = 100  # Adjust chunk size as needed
+            for i in range(0, len(generated_text), chunk_size):
+                chunk = generated_text[i:i+chunk_size]
+
+                # Check if the run has been cancelled during response generation
+                current_run_status = self.run_service.retrieve_run(run_id=run_id).status
+                if current_run_status in ["cancelling", "cancelled"]:
+                    logging_utility.info(f"Run {run_id} is being cancelled or already cancelled, stopping response generation.")
+                    break
+
+                full_response += chunk
+                yield chunk
+
+        else:
+            logging_utility.error(f"Unsupported model: {model}")
+            yield "Error: Unsupported model specified."
 
         # Finalize the run
         final_run_status = self.run_service.retrieve_run(run_id=run_id).status
@@ -167,21 +243,32 @@ class Runner:
         tool_filtering_messages = self.create_tool_filtering_messages(messages)
         tool_results = []
 
-        # Initial chat call
-        response = self.ollama_client.chat(
-            model=model,
-            messages=tool_filtering_messages,
-            options={'num_ctx': 4096},
-            tools=self.tool_service.list_tools(assistant_id)
-        )
-        logging_utility.debug("Initial chat response: %s", response)
-
-        if response['message'].get('tool_calls'):
-            tool_results = self.process_tool_calls(
-                run_id, response['message']['tool_calls'], message_id, thread_id
+        # Initial chat or inference call based on model
+        if model == 'llama3.1':
+            response = self.ollama_client.chat(
+                model=model,
+                messages=tool_filtering_messages,
+                options={'num_ctx': 4096},
+                tools=self.tool_service.list_tools(assistant_id)
             )
+            logging_utility.debug("Initial chat response: %s", response)
+
+            if response['message'].get('tool_calls'):
+                tool_results = self.process_tool_calls(
+                    run_id, response['message']['tool_calls'], message_id, thread_id
+                )
+
+        elif model == 'llama3.2:90b_v':
+            # For IBM Watson, we can process tool calls differently if needed
+            # Currently, we'll proceed directly to generating the final response
+            pass
+        else:
+            logging_utility.error(f"Unsupported model: {model}")
+            return
 
         # Generate and stream the final response
         return self.generate_final_response(
             thread_id, message_id, run_id, tool_results, messages, model
         )
+
+
