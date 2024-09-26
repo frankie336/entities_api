@@ -35,7 +35,7 @@ class RunService:
             last_error=None,
             max_completion_tokens=1000,
             max_prompt_tokens=500,
-            model="gpt-4",
+            model="llama3.1",
             object="run",
             parallel_tool_calls=False,
             required_action=None,

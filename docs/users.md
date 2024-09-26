@@ -30,7 +30,7 @@ print(f"User created: ID: {user.id}")
 User created: ID: user_MCyFabmTVJbIkG7zfEvp44
 ```
 
-**Retrieve a USer**
+**Retrieve a User**
 ```python
 
 user = client.user_service.retrieve_user( user_id='user_MCyFabmTVJbIkG7zfEvp44') 

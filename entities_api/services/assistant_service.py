@@ -2,10 +2,12 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session, joinedload
 from models.models import Assistant, User
 from entities_api.schemas import AssistantCreate, AssistantRead, AssistantUpdate
+from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.identifier_service import IdentifierService
-from typing import List  # Import List for type hinting
+from typing import List
 import time
 
+logging_utility = LoggingUtility()
 
 class AssistantService:
     def __init__(self, db: Session):
@@ -68,6 +70,25 @@ class AssistantService:
 
         user.assistants.append(assistant)
         self.db.commit()
+
+    # entities_api/services/assistant_service.py
+
+    def disassociate_assistant_from_user(self, user_id: str, assistant_id: str):
+        """Disassociate an assistant from a user (many-to-many relationship)."""
+        user = self.db.query(User).filter(User.id == user_id).first()
+        assistant = self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if not assistant:
+            raise HTTPException(status_code=404, detail="Assistant not found")
+
+        if assistant in user.assistants:
+            user.assistants.remove(assistant)
+            self.db.commit()
+            logging_utility.info(f"Assistant ID: {assistant_id} disassociated from user ID: {user_id}")
+        else:
+            raise HTTPException(status_code=400, detail="Assistant not associated with the user")
 
     def list_assistants_by_user(self, user_id: str) -> List[AssistantRead]:  # Use List instead of list for compatibility
         """List all assistants associated with a given user."""

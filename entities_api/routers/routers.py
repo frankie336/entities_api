@@ -354,6 +354,27 @@ def associate_assistant_with_user(user_id: str, assistant_id: str, db: Session =
         logging_utility.error(f"An unexpected error occurred while associating assistant {assistant_id} with user {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
+# entities_api/routers.py
+
+@router.delete("/users/{user_id}/assistants/{assistant_id}", status_code=204)
+def disassociate_assistant_from_user(user_id: str, assistant_id: str, db: Session = Depends(get_db)):
+    """
+    Endpoint to disassociate an assistant from a user.
+    """
+    logging_utility.info(f"Received request to disassociate assistant ID: {assistant_id} from user ID: {user_id}")
+    assistant_service = AssistantService(db)
+    try:
+        assistant_service.disassociate_assistant_from_user(user_id, assistant_id)
+        logging_utility.info(f"Assistant ID: {assistant_id} disassociated successfully from user ID: {user_id}")
+        return {"message": "Assistant disassociated from user successfully"}
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error occurred while disassociating assistant {assistant_id} from user {user_id}: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"An unexpected error occurred while disassociating assistant {assistant_id} from user {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+
+
 
 @router.get("/threads/{thread_id}/formatted_messages", response_model=List[Dict[str, Any]])
 def get_formatted_messages(thread_id: str, db: Session = Depends(get_db)):
@@ -437,6 +458,26 @@ def associate_tool_with_assistant(assistant_id: str, tool_id: str, db: Session =
     except Exception as e:
         logging_utility.error(f"An unexpected error occurred while associating tool {tool_id} with assistant {assistant_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+
+
+@router.delete("/assistants/{assistant_id}/tools/{tool_id}", status_code=204)
+def disassociate_tool_from_assistant(assistant_id: str, tool_id: str, db: Session = Depends(get_db)):
+    """
+    Endpoint to disassociate a tool from an assistant.
+    """
+    logging_utility.info(f"Received request to disassociate tool ID: {tool_id} from assistant ID: {assistant_id}")
+    tool_service = ToolService(db)
+    try:
+        tool_service.disassociate_tool_from_assistant(tool_id, assistant_id)
+        logging_utility.info(f"Tool ID: {tool_id} disassociated successfully from assistant ID: {assistant_id}")
+        return {"message": "Tool disassociated from assistant successfully"}
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error occurred while disassociating tool {tool_id} from assistant {assistant_id}: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"An unexpected error occurred while disassociating tool {tool_id} from assistant {assistant_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+
 
 
 @router.get("/tools/{tool_id}", response_model=ToolRead)
