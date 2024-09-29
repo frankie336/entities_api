@@ -15,7 +15,6 @@ from entities_api.new_clients.client_sandbox_client import SandboxClientService
 from entities_api.new_clients.client_thread_client import ThreadService
 from entities_api.new_clients.client_tool_client import ClientToolService
 from entities_api.new_clients.client_user_client import UserService
-from entities_api.new_clients.runner import Runner
 from entities_api.services.logging_service import LoggingUtility
 
 
@@ -52,11 +51,6 @@ class OllamaClient:
         # Append code code_interpreter handler to available tools
 
         self.available_functions = available_functions or {}
-        self.runner: Runner = Runner(
-            base_url=self.base_url,
-            api_key=self.api_key,
-            available_functions=self.available_functions
-        )
 
         # Initialize the Ollama API client
         self.ollama_client: OllamaAPIClient = OllamaAPIClient()
@@ -100,9 +94,6 @@ class OllamaClient:
     def get_code_executor_service(self) -> ClientCodeService:
         return self.code_executor_service
 
-    @property
-    def get_runner(self) -> Runner:
-        return self.runner
 
 
 

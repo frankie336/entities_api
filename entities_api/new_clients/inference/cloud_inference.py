@@ -50,7 +50,7 @@ class CloudInference(BaseInference):
             })
         return normalized_history
 
-    def process_conversation(self, thread_id, message_id, run_id, assistant_id, user_message):
+    def process_conversation(self, thread_id, message_id, run_id, assistant_id, user_message, model='llama-3.1-70b-versatile'):
         """
         Generates a response using Groq's chat completion API and streams the response back.
 
@@ -113,7 +113,7 @@ class CloudInference(BaseInference):
             logging_utility.info("Started generating response stream using Groq API.")
             stream_response = self.groq_client.chat.completions.create(
                 messages=groq_messages,
-                model="llama-3.1-70b-versatile",
+                model=model,
                 stream=True,  # Enable streaming
                 temperature=0.1,
                 max_tokens=8000,
