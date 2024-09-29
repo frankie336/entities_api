@@ -5,14 +5,7 @@ import json
 from dotenv import load_dotenv
 from ollama import Client
 
-from entities_api.new_clients.inference.base_inference import BaseInference
-from entities_api.new_clients.client_actions_client import ClientActionService
-from entities_api.new_clients.client_assistant_client import ClientAssistantService
-from entities_api.new_clients.client_message_client import ClientMessageService
-from entities_api.new_clients.client_run_client import RunService
-from entities_api.new_clients.client_thread_client import ThreadService
-from entities_api.new_clients.client_tool_client import ClientToolService
-from entities_api.new_clients.client_user_client import UserService
+from entities_api.clients.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
 
 # Load environment variables from .env file
@@ -24,15 +17,9 @@ logging_utility = LoggingUtility()
 
 class LocalInference(BaseInference):
     def setup_services(self):
-        self.user_service = UserService(self.base_url, self.api_key)
-        self.assistant_service = ClientAssistantService(self.base_url, self.api_key)
-        self.thread_service = ThreadService(self.base_url, self.api_key)
-        self.message_service = ClientMessageService(self.base_url, self.api_key)
-        self.run_service = RunService(self.base_url, self.api_key)
-        self.tool_service = ClientToolService(self.base_url, self.api_key)
-        self.action_service = ClientActionService(self.base_url, self.api_key)
+
         self.ollama_client = Client()
-        logging_utility.info("LocalInference initialized with base_url: %s", self.base_url)
+        logging_utility.info("LocalInference specific setup completed.")
 
     def create_tool_filtering_messages(self, messages):
         logging_utility.info("Creating tool filtering messages")

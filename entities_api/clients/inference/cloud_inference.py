@@ -1,16 +1,11 @@
 # cloud_inference.py
 
 import os
+
 from dotenv import load_dotenv
 from groq import Groq
-from entities_api.new_clients.inference.base_inference import BaseInference
-from entities_api.new_clients.client_actions_client import ClientActionService
-from entities_api.new_clients.client_assistant_client import ClientAssistantService
-from entities_api.new_clients.client_message_client import ClientMessageService
-from entities_api.new_clients.client_run_client import RunService
-from entities_api.new_clients.client_thread_client import ThreadService
-from entities_api.new_clients.client_tool_client import ClientToolService
-from entities_api.new_clients.client_user_client import UserService
+
+from entities_api.clients.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
 
 # Load environment variables from .env file
@@ -22,15 +17,8 @@ logging_utility = LoggingUtility()
 
 class CloudInference(BaseInference):
     def setup_services(self):
-        self.user_service = UserService(self.base_url, self.api_key)
-        self.assistant_service = ClientAssistantService(self.base_url, self.api_key)
-        self.thread_service = ThreadService(self.base_url, self.api_key)
-        self.message_service = ClientMessageService(self.base_url, self.api_key)
-        self.run_service = RunService(self.base_url, self.api_key)
-        self.tool_service = ClientToolService(self.base_url, self.api_key)
-        self.action_service = ClientActionService(self.base_url, self.api_key)
         self.groq_client = Groq(api_key=os.getenv('GROQ_API_KEY'))
-        logging_utility.info("CloudInference initialized with base_url: %s", self.base_url)
+        logging_utility.info("CloudInference specific setup completed.")
 
     def truncate_conversation_history(self, conversation_history, max_exchanges=10):
         max_messages = max_exchanges * 2

@@ -1,4 +1,4 @@
-# entities_api/new_clients/client.py
+# entities_api/clients/client.py
 
 import os
 from typing import Any, Dict, Optional
@@ -6,15 +6,15 @@ from typing import Any, Dict, Optional
 from dotenv import load_dotenv
 from ollama import Client as OllamaAPIClient
 
-from entities_api.new_clients.client_actions_client import ClientActionService
-from entities_api.new_clients.client_assistant_client import ClientAssistantService
-from entities_api.new_clients.client_code_executor import ClientCodeService
-from entities_api.new_clients.client_message_client import ClientMessageService
-from entities_api.new_clients.client_run_client import RunService
-from entities_api.new_clients.client_sandbox_client import SandboxClientService
-from entities_api.new_clients.client_thread_client import ThreadService
-from entities_api.new_clients.client_tool_client import ClientToolService
-from entities_api.new_clients.client_user_client import UserService
+from entities_api.clients.client_actions_client import ClientActionService
+from entities_api.clients.client_assistant_client import ClientAssistantService
+from entities_api.clients.client_code_executor import ClientCodeService
+from entities_api.clients.client_message_client import ClientMessageService
+from entities_api.clients.client_run_client import RunService
+from entities_api.clients.client_sandbox_client import SandboxClientService
+from entities_api.clients.client_thread_client import ThreadService
+from entities_api.clients.client_tool_client import ClientToolService
+from entities_api.clients.client_user_client import UserService
 from entities_api.services.logging_service import LoggingUtility
 
 

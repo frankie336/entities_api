@@ -1,11 +1,11 @@
 # test_inference_factory.py
 import unittest
 from unittest.mock import patch
-from entities_api.new_clients.inference.local_inference import LocalInference
-from entities_api.new_clients.inference.cloud_inference import CloudInference
+from entities_api.clients.inference.local_inference import LocalInference
+from entities_api.clients.inference.cloud_inference import CloudInference
 # test_inference_factory.py
 
-from entities_api.new_clients.inference.inference_factory import InferenceFactory
+from entities_api.clients.inference.inference_factory import InferenceFactory
 
 
 # Add other necessary imports

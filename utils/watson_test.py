@@ -1,7 +1,7 @@
 # Tool creation and association functions
-from entities_api.new_clients.client import OllamaClient
-from entities_api.new_clients.runner import Runner
-from entities_api.new_clients.client_thread_client import ThreadService
+from entities_api.clients.client import OllamaClient
+from entities_api.clients.runner import Runner
+from entities_api.clients.client_thread_client import ThreadService
 from utils.doc_testing import assistant
 from utils.sandbox_maker import user_id
 

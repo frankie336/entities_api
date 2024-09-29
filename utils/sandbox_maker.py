@@ -1,6 +1,6 @@
 import time
 
-from entities_api.new_clients.client import OllamaClient
+from entities_api.clients.client import OllamaClient
 
 # Initialize the client
 client = OllamaClient()
