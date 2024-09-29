@@ -1,10 +1,6 @@
-# cloud_inference.py
-
 import os
-
 from dotenv import load_dotenv
 from groq import Groq
-
 from entities_api.clients.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
 
@@ -93,9 +89,10 @@ class CloudInference(BaseInference):
             logging_utility.debug("New user message already exists in conversation history. Skipping append.")
 
         # Directly use the conversation history as messages for Groq API
-        groq_messages = [{"role": msg['role'].lower(), "content": msg['content']} for msg in conversation_history]
+        # Include the system message as the first message
+        groq_messages = [{"role": "system", "content": assistant.instructions}] + [
+            {"role": msg['role'].lower(), "content": msg['content']} for msg in conversation_history]
         logging_utility.debug(f"Messages for Groq API:\n{groq_messages}")
-
         try:
             # Call the Groq API for generating chat completion with streaming enabled
             logging_utility.info("Started generating response stream using Groq API.")
@@ -109,10 +106,17 @@ class CloudInference(BaseInference):
             )
 
             assistant_reply = ""
-
             # Process each chunk from the streaming response
             for chunk in stream_response:
                 content = chunk.choices[0].delta.content
+
+                # Check if the run has been cancelled during response generation
+                # This block of code is newly added to handle cancellation logic
+                current_run_status = self.run_service.retrieve_run(run_id=run_id).status
+                if current_run_status in ["cancelling", "cancelled"]:
+                    logging_utility.info(f"Run {run_id} is being cancelled or already cancelled, stopping response generation.")
+                    break  # Stop processing if the run has been cancelled
+
                 if content:
                     assistant_reply += content
                     logging_utility.debug(f"Streaming chunk received: {content}")

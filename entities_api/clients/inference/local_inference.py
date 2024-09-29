@@ -124,7 +124,6 @@ class LocalInference(BaseInference):
 
         self.message_service.save_assistant_message_chunk(thread_id, full_response, is_last_chunk=True)
         self.run_service.update_run_status(run_id, status_to_set)
-
         logging_utility.info(f"Run {run_id} marked as {status_to_set}")
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id, model='llama3.1'):
