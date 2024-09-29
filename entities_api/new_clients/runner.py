@@ -97,7 +97,6 @@ class Runner:
             assistant.id, assistant.name, assistant.model
         )
 
-
         system_prompt = assistant.instructions
 
         # Define the system prompt

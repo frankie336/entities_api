@@ -1,8 +1,8 @@
 # inference_factory.py
 
 import os
-from local_inference import LocalInference
-from cloud_inference import CloudInference
+from entities_api.new_clients.inference.local_inference import LocalInference
+from entities_api.new_clients.inference.cloud_inference import CloudInference
 from entities_api.services.logging_service import LoggingUtility
 
 # Initialize logging utility
