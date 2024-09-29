@@ -30,6 +30,7 @@ tbc
 import json
 from flask import jsonify, request, Response, stream_with_context
 from entities_api import OllamaClient  
+from entities_api import InferenceFactory # the inference client
 from entities_api.services.logging_service import LoggingUtility  # Ensure logging utility is correctly imported
 
 # Initialize the logging utility
@@ -91,12 +92,17 @@ def conversation(thread_id, user_message, user_id, selected_model):
     """
     
     def generate_chunks():
+        
+        inference_factory = InferenceFactory()
+        inference = inference_factory.get_inference(inference_type='local', available_functions=None),
+                
+        
         try:
             # Yield the initial run_id
             yield f"data: {json.dumps({'run_id': run_id})}\n\n"
 
             # Stream chunks as conversation progresses
-            for chunk in client.runner.process_conversation(
+            for chunk in inference.runner.process_conversation(
                 thread_id=thread_id, 
                 message_id=message_id, 
                 run_id=run.id,
@@ -128,9 +134,11 @@ Whilst it involves a little more effort, adding state management to distinct par
 
   [Assistants](/docs/assistants.md)
   
-  [Function Calling](/docs/function_calling.md)
-
   [Code Interpretation](/docs/code_interpretation.md)
+  
+  [Function Calling](/docs/function_calling.md)
+  
+  [Inference](/docs/inference.md)
   
   [Messages](/docs/messages.md)
   
