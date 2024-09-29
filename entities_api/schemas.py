@@ -385,10 +385,6 @@ class ActionCreate(BaseModel):
     )
 
 
-class ActionRead(BaseModel):
-    id: str
-    status: str
-    result: Optional[Dict[str, Any]] = None
 
 
 class ActionList(BaseModel):
@@ -438,3 +434,16 @@ class CodeExecutionRequest(BaseModel):
 class CodeExecutionResponse(BaseModel):
     output: Optional[str] = None
     error: Optional[str] = None
+
+
+class SandboxBase(BaseModel):
+    id: str
+    user_id: str
+    name: str
+    created_at: datetime
+    status: str
+    config: Optional[Dict[str, Any]] = {}
+
+    model_config = ConfigDict(from_attributes=True)
+
+
