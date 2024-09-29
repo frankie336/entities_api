@@ -1,17 +1,11 @@
+# local_inference.py
+
 import json
-import os
-import time
 
 from dotenv import load_dotenv
 from ollama import Client
 
-from entities_api.new_clients.client_actions_client import ClientActionService
-from entities_api.new_clients.client_assistant_client import ClientAssistantService
-from entities_api.new_clients.client_message_client import ClientMessageService
-from entities_api.new_clients.client_run_client import RunService
-from entities_api.new_clients.client_thread_client import ThreadService
-from entities_api.new_clients.client_tool_client import ClientToolService
-from entities_api.new_clients.client_user_client import UserService
+from entities_api.clients.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
 
 # Load environment variables from .env file
@@ -21,21 +15,11 @@ load_dotenv()
 logging_utility = LoggingUtility()
 
 
-class Runner:
-    def __init__(self, base_url=os.getenv('ASSISTANTS_BASE_URL'), api_key='your api key', available_functions=None):
-        self.base_url = base_url or os.getenv('ASSISTANTS_BASE_URL')
-        self.api_key = api_key or os.getenv('API_KEY')
-        self.user_service = UserService(self.base_url, self.api_key)
-        self.assistant_service = ClientAssistantService(self.base_url, self.api_key)
-        self.thread_service = ThreadService(self.base_url, self.api_key)
-        self.message_service = ClientMessageService(self.base_url, self.api_key)
-        self.run_service = RunService(self.base_url, self.api_key)
-        self.ollama_client = Client()
-        self.tool_service = ClientToolService(self.base_url, self.api_key)
-        self.action_service = ClientActionService(self.base_url, self.api_key)
-        self.available_functions = available_functions or {}
+class LocalInference(BaseInference):
+    def setup_services(self):
 
-        logging_utility.info("OllamaClient initialized with base_url: %s", self.base_url)
+        self.ollama_client = Client()
+        logging_utility.info("LocalInference specific setup completed.")
 
     def create_tool_filtering_messages(self, messages):
         logging_utility.info("Creating tool filtering messages")
@@ -55,10 +39,7 @@ class Runner:
         return filtered_messages
 
     def process_tool_calls(self, run_id, tool_calls, message_id, thread_id):
-        """
-        Processes tool calls and waits for status to change to 'ready'.
-        Returns the response of tool functions, filtering out errors.
-        """
+        # ... existing method code ...
         tool_results = []
         try:
             for tool in tool_calls:
@@ -107,9 +88,7 @@ class Runner:
         return tool_results  # Return collected results, excluding any that had errors
 
     def generate_final_response(self, thread_id, message_id, run_id, tool_results, messages, model):
-        """
-        Generates the final assistant response, incorporating tool results.
-        """
+        # ... existing method code ...
         logging_utility.info(f"Generating final response for run_id: {run_id}")
 
         # Inject tool results into the conversation
@@ -145,7 +124,6 @@ class Runner:
 
         self.message_service.save_assistant_message_chunk(thread_id, full_response, is_last_chunk=True)
         self.run_service.update_run_status(run_id, status_to_set)
-
         logging_utility.info(f"Run {run_id} marked as {status_to_set}")
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id, model='llama3.1'):

@@ -1,5 +1,5 @@
 import time
-from entities_api.new_clients.client import OllamaClient
+from entities_api.clients.client import OllamaClient
 from entities_api.schemas import ToolFunction, ToolUpdate
 from datetime import datetime  # Import the correct datetime class
 

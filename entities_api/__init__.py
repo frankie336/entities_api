@@ -1,8 +1,10 @@
-from entities_api.new_clients.client_assistant_client import ClientAssistantService
-from entities_api.new_clients.client import OllamaClient
-from entities_api.new_clients.platform_tools.code_interpreter_handler import code_interpreter
-
-
+from entities_api.clients.client_assistant_client import ClientAssistantService
+from entities_api.clients.client import OllamaClient
+from entities_api.clients.platform_tools.code_interpreter_handler import code_interpreter
+from entities_api.clients.inference.inference_factory import InferenceFactory
+from entities_api.clients.inference.base_inference import BaseInference
+from entities_api.clients.inference.local_inference import LocalInference
+from entities_api.clients.inference.cloud_inference import CloudInference
 
 from ollama._types import (
     GenerateResponse,
@@ -25,25 +27,13 @@ __all__ = [
   'RequestError',
   'ResponseError',
   'code_interpreter',
-  'generate',
-  'chat',
-  'embed',
-  'embeddings',
-  'pull',
-  'push',
-  'create',
-  'delete',
-  'list',
-  'copy',
-  'show',
-  'ps',
   'OllamaClient',
-    'ClientAssistantService',
-  'ClientMessageService',
-  'RunService',
-  'ThreadService',
-  'UserService',
-  'LoggingUtility'
+  'ClientAssistantService',
+  'InferenceFactory',
+  'BaseInference',
+  'LocalInference',
+  'CloudInference'
+
 ]
 
 _client = OllamaClient()

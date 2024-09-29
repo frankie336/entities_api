@@ -27,18 +27,15 @@ from entities_api import OllamaClient
 run = client.run_service.create_run(thread_id=thread.id,
                                         assistant_id=user.id)
 
+
 ```
 
 
-**Process a Run**
-```python
+**Inference**
 
-client.runner.process_conversation(thread_id=thread.id, message_id=message.id, run_id=run.id,
-                                                            assistant_id=assistant.id, model=selected_model):
-            
-```
+Once a run and its preceding states have been set up, the final stage is inference – the process of sending a prompt to the assistant and receiving a reply. The Entities API supports both edge device inference and cloud-based hosted inference. While we recommend local inference for maximum security and privacy, very high-performance inference is often not feasible on edge devices.
 
-
+The Entities API is seamlessly integrated into the [Groq](https://groq.com/) compute ecosystem. For instructions on setting up edge or cloud inference, please refer to the relevant [documentation](/docs/infernce.md) .
 
 
 **For Streamed responses**

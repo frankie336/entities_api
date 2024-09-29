@@ -1,4 +1,4 @@
-# entities_api/new_clients/sandbox_client.py
+# entities_api/clients/sandbox_client.py
 
 import httpx
 from typing import List

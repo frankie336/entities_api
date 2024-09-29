@@ -4,7 +4,7 @@ import os
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
-from entities_api.new_clients.client_code_executor import ClientCodeService
+from entities_api.clients.client_code_executor import ClientCodeService
 from entities_api.services.code_executor_service import CodeExecutorService
 from entities_api.services.logging_service import LoggingUtility
 

@@ -1,4 +1,4 @@
-from entities_api.new_clients.client import OllamaClient
+from entities_api.clients.client import OllamaClient
 
 client = OllamaClient()
 
