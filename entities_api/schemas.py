@@ -261,3 +261,29 @@ class ToolList(BaseModel):
     tools: List[ToolRead]
 
     model_config = ConfigDict(from_attributes=True)
+
+
+from pydantic import BaseModel
+from typing import Optional, Dict, Any
+
+class ActionCreate(BaseModel):
+    id: str
+    tool_name: str
+    run_id: str
+    function_args: Dict[str, Any] = {}
+    expires_at: Optional[str] = None  # Consider using datetime type if necessary
+
+class ActionUpdate(BaseModel):
+    status: str
+    result: Optional[Dict[str, Any]] = None
+
+class ActionRead(BaseModel):
+    id: str
+    run_id: str
+    status: str
+    result: Optional[Dict[str, Any]] = None
+    triggered_at: Optional[str] = None  # Adjust the type as needed
+    expires_at: Optional[str] = None  # Adjust the type as needed
+    function_args: Optional[Dict[str, Any]] = {}
+    is_processed: Optional[bool] = None
+    processed_at: Optional[str] = None  # Adjust the type as needed
