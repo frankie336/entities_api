@@ -1,3 +1,4 @@
+import os
 from abc import ABC, abstractmethod
 from entities_api.clients.client_actions_client import ClientActionService
 from entities_api.clients.client_assistant_client import ClientAssistantService
@@ -10,7 +11,7 @@ from entities_api.services.logging_service import LoggingUtility
 
 
 class BaseInference(ABC):
-    def __init__(self, base_url, api_key, available_functions):
+    def __init__(self, base_url=os.getenv('ASSISTANTS_BASE_URL'), api_key=None, available_functions=None):
         self.base_url = base_url
         self.api_key = api_key
         self.available_functions = available_functions

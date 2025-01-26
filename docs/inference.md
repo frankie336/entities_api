@@ -210,7 +210,7 @@ def conversation(thread_id, user_message, user_id, selected_model, inference, in
 
             # Stream the conversation chunks based on inference type
             if inference_type.lower() == 'local':
-                # For LocalInference, specify model if necessary
+                # For DeepSeekR1Local, specify model if necessary
                 response_generator = inference.process_conversation(
                     thread_id=thread_id,
                     message_id=message_id,

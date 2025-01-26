@@ -12,7 +12,7 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/frankie336/entities_api",
-    packages=find_packages(include=['entities', 'entities.*', 'entities_api', 'entities_api.*']),
+    packages=find_packages(include=["entities_api", "entities_api.*"]),  # Simplified package inclusion
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
@@ -22,6 +22,8 @@ setup(
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
     ],
     python_requires=">=3.8",
     install_requires=[
@@ -42,20 +44,21 @@ setup(
         "click",
         "pymysql",
         "cryptography",
-        "pytest",
         "typing_extensions",
         "python-dotenv",
         "alembic",
         "ollama",
         "typer",
-        "flask",
-        "flask-sqlalchemy",
+        "Flask",
+        "Flask-SQLAlchemy",  # Corrected to canonical PyPI name
         "spacy",
         "weasel",
+        "groq",
+        "openai"
     ],
     extras_require={
         "dev": [
-            "pytest",
+            "pytest",  # Moved here to avoid redundancy
         ],
     },
     entry_points={
