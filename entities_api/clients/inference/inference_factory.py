@@ -1,8 +1,7 @@
 # inference_factory.py
-
 import os
-from entities_api.clients.inference.local_inference import LocalInference
-from entities_api.clients.inference.cloud_inference import CloudInference
+from entities_api.clients.inference.llama_local import LlamaLocal
+from entities_api.clients.inference.groq_inference import CloudInference
 from entities_api.services.logging_service import LoggingUtility
 
 # Initialize logging utility
@@ -29,8 +28,8 @@ class InferenceFactory:
         api_key = os.getenv('API_KEY')
 
         if inference_type.lower() == 'local':
-            logging_utility.info("Creating LocalInference instance.")
-            return LocalInference(base_url=base_url, api_key=api_key, available_functions=available_functions)
+            logging_utility.info("Creating DeepSeekR1Local instance.")
+            return LlamaLocal(base_url=base_url, api_key=api_key, available_functions=available_functions)
         elif inference_type.lower() == 'cloud':
             logging_utility.info("Creating CloudInference instance.")
             return CloudInference(base_url=base_url, api_key=api_key, available_functions=available_functions)

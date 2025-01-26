@@ -3,6 +3,7 @@ from entities_api.clients.client import OllamaClient
 from entities_api.clients.platform_tools.code_interpreter_handler import code_interpreter
 from entities_api.clients.inference.inference_factory import InferenceFactory
 from entities_api.clients.inference.base_inference import BaseInference
+from entities_api.clients.inference.llama_local import LlamaLocal
 from entities_api.clients.inference.local_inference import LocalInference
 from entities_api.clients.inference.cloud_inference import CloudInference
 
@@ -16,25 +17,22 @@ from ollama._types import (
     ResponseError,
 )
 
-
-
 __all__ = [
-  'GenerateResponse',
-  'ChatResponse',
-  'ProgressResponse',
-  'Message',
-  'Options',
-  'RequestError',
-  'ResponseError',
-  'code_interpreter',
-  'OllamaClient',
-  'ClientAssistantService',
-  'InferenceFactory',
-  'BaseInference',
-  'LocalInference',
-  'CloudInference'
-
+    'GenerateResponse',
+    'ChatResponse',
+    'ProgressResponse',
+    'Message',
+    'Options',
+    'RequestError',
+    'ResponseError',
+    'code_interpreter',
+    'OllamaClient',
+    'ClientAssistantService',
+    'InferenceFactory',
+    'BaseInference',
+    'LocalInference',
+    'LlamaLocal',
+    'CloudInference'
 ]
 
 _client = OllamaClient()
-

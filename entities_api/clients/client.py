@@ -24,7 +24,6 @@ load_dotenv()
 # Initialize logging utility
 logging_utility = LoggingUtility()
 
-
 class OllamaClient:
     def __init__(
             self,

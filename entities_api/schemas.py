@@ -1,6 +1,8 @@
-# entities_api/schemas.py
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional, Dict, Any
+from datetime import datetime
+from typing import List, Dict, Any
+from typing import Optional
+
+from pydantic import BaseModel, Field, validator, ConfigDict
 
 
 class UserBase(BaseModel):
@@ -59,12 +61,10 @@ class ThreadReadDetailed(ThreadRead):
     model_config = ConfigDict(from_attributes=True)
 
 
-
 class ThreadIds(BaseModel):
     thread_ids: List[str]
 
     model_config = ConfigDict(from_attributes=True)
-
 
 
 class MessageCreate(BaseModel):
@@ -85,6 +85,7 @@ class MessageCreate(BaseModel):
             }
         }
     )
+
 
 class MessageRead(BaseModel):
     id: str
@@ -114,10 +115,77 @@ class MessageUpdate(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# New schema for creating tool messages
+class ToolMessageCreate(BaseModel):
+    content: str
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "content": "This is the content of the tool message."
+            }
+        }
+    )
+
+
+class ToolFunction(BaseModel):
+    function: Optional[dict]  # Handle the nested 'function' structure
+
+    @validator('function', pre=True, always=True)
+    def parse_function(cls, v):
+        if isinstance(v, dict) and 'name' in v and 'description' in v:
+            return v  # Valid structure
+        elif isinstance(v, dict) and 'function' in v:
+            return v['function']  # Extract nested function dict
+        raise ValueError("Invalid function format")
+
+
 class Tool(BaseModel):
+    id: str
     type: str
-    function: Optional[Dict[str, Any]] = None
-    file_search: Optional[Any] = None
+    name: Optional[str]  # Added name field
+    function: Optional[ToolFunction]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ToolCreate(BaseModel):
+    name: str  # Add the 'name' attribute
+    type: str
+    function: Optional[ToolFunction]
+
+    @validator('function', pre=True, always=True)
+    def parse_function(cls, v):
+        if isinstance(v, ToolFunction):
+            return v
+        if isinstance(v, dict) and 'function' in v:
+            return ToolFunction(function=v['function'])
+        return ToolFunction(**v)
+
+
+class ToolRead(Tool):
+    @validator('function', pre=True, always=True)
+    def parse_function(cls, v):
+        if isinstance(v, dict):
+            return ToolFunction(**v)
+        elif v is None:
+            return None
+        else:
+            raise ValueError("Invalid function format")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ToolUpdate(BaseModel):
+    type: Optional[str] = None
+    name: Optional[str] = None  # Allow updating the name
+    function: Optional[ToolFunction] = None
+
+
+class ToolList(BaseModel):
+    tools: List[ToolRead]
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RunCreate(BaseModel):
@@ -185,13 +253,57 @@ class Run(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+# ------------------------
+# Action Schemas
+# ------------------------
+
+class ActionRead(BaseModel):
+    id: str
+    status: str
+    result: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RunReadDetailed(BaseModel):
+    id: str
+    assistant_id: str
+    cancelled_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_at: int
+    expires_at: Optional[int] = None
+    failed_at: Optional[datetime] = None
+    incomplete_details: Optional[Dict[str, Any]] = None
+    instructions: str
+    last_error: Optional[str] = None
+    max_completion_tokens: Optional[int] = 1000
+    max_prompt_tokens: Optional[int] = 500
+    meta_data: Dict[str, Any]
+    model: str
+    object: str
+    parallel_tool_calls: bool
+    required_action: Optional[str] = None
+    response_format: str
+    started_at: Optional[int] = None
+    status: str
+    thread_id: str
+    tool_choice: str
+    tools: List[ToolRead]  # Nested tool details
+    truncation_strategy: Dict[str, Any]
+    usage: Optional[Any] = None
+    temperature: float
+    top_p: float
+    tool_resources: Dict[str, Any]
+    actions: List[ActionRead] = []  # Provide a default empty list
+
+    model_config = ConfigDict(from_attributes=True)
+
 
 class RunStatusUpdate(BaseModel):
     status: str
 
 
 class AssistantCreate(BaseModel):
-    user_id: str
     name: Optional[str] = None
     description: Optional[str] = None
     model: str
@@ -205,15 +317,14 @@ class AssistantCreate(BaseModel):
 
 class AssistantRead(BaseModel):
     id: str
-    user_id: str
+    user_id: Optional[str] = None  # Make this optional since it's no longer available at creation time
     object: str
     created_at: int
     name: str
     description: Optional[str]
     model: str
     instructions: Optional[str]
-    tools: Optional[List[Tool]]
-    meta_data: Dict[str, Any]
+    meta_data: Optional[Dict[str, Any]] = None
     top_p: float
     temperature: float
     response_format: str
@@ -234,56 +345,96 @@ class AssistantUpdate(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-class ToolFunction(BaseModel):
-    name: str
-    description: str
-    parameters: Optional[dict] = None
 
-class Tool(BaseModel):
+class ActionBase(BaseModel):
     id: str
-    type: str
-    function: Optional[ToolFunction]
+    run_id: str
+    triggered_at: datetime  # Use datetime for the timestamp
+    expires_at: Optional[datetime] = None  # This now accepts a datetime
+    is_processed: bool
+    processed_at: Optional[datetime] = None
+    status: str = "pending"
+    function_args: Optional[Dict[str, Any]] = None
+    result: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)
 
-class ToolCreate(BaseModel):
-    type: str
-    function: Optional[ToolFunction]
-
-class ToolRead(Tool):
-    pass
-
-class ToolUpdate(BaseModel):
-    type: Optional[str] = None
-    function: Optional[ToolFunction] = None
-
-class ToolList(BaseModel):
-    tools: List[ToolRead]
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-from pydantic import BaseModel
-from typing import Optional, Dict, Any
 
 class ActionCreate(BaseModel):
-    id: str
-    tool_name: str
+    id: Optional[str] = None
+    tool_name: Optional[str] = None
     run_id: str
-    function_args: Dict[str, Any] = {}
-    expires_at: Optional[str] = None  # Consider using datetime type if necessary
+    function_args: Optional[Dict[str, Any]] = {}
+    expires_at: Optional[datetime] = None
+
+    @validator('tool_name', pre=True, always=True)
+    def validate_tool_fields(cls, v):
+        if not v:
+            raise ValueError('Tool name must be provided.')
+        return v
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "tool_name": "example_tool_name",
+                "run_id": "example_run_id",
+                "function_args": {"arg1": "value1", "arg2": "value2"},
+                "expires_at": "2024-09-10T12:00:00Z"
+            }
+        }
+    )
+
+
+class ActionRead(BaseModel):
+    id: str
+    status: str
+    result: Optional[Dict[str, Any]] = None
+
+
+class ActionList(BaseModel):
+    actions: List[ActionRead]
+
 
 class ActionUpdate(BaseModel):
     status: str
     result: Optional[Dict[str, Any]] = None
 
-class ActionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SandboxBase(BaseModel):
     id: str
-    run_id: str
+    user_id: str
+    name: str
+    created_at: datetime
     status: str
-    result: Optional[Dict[str, Any]] = None
-    triggered_at: Optional[str] = None  # Adjust the type as needed
-    expires_at: Optional[str] = None  # Adjust the type as needed
-    function_args: Optional[Dict[str, Any]] = {}
-    is_processed: Optional[bool] = None
-    processed_at: Optional[str] = None  # Adjust the type as needed
+    config: Optional[Dict[str, Any]] = {}
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SandboxCreate(BaseModel):
+    user_id: str
+    name: str
+    config: Optional[Dict[str, Any]] = {}
+
+
+class SandboxRead(SandboxBase):
+    pass
+
+
+class SandboxUpdate(BaseModel):
+    name: Optional[str] = None
+    status: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
+
+
+class CodeExecutionRequest(BaseModel):
+    code: str
+    language: str
+    user_id: str
+
+
+class CodeExecutionResponse(BaseModel):
+    output: Optional[str] = None
+    error: Optional[str] = None
