@@ -68,11 +68,12 @@ class ThreadIds(BaseModel):
 
 
 class MessageCreate(BaseModel):
+
     content: str
     thread_id: str
     sender_id: str
     role: str = "user"
-    meta_data: Optional[Dict[str, Any]] = {}
+    meta_data: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -85,6 +86,8 @@ class MessageCreate(BaseModel):
             }
         }
     )
+
+
 
 
 class MessageRead(BaseModel):

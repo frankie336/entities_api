@@ -23,6 +23,8 @@ class DeepSeekR1Cloud(BaseInference):
         )
         logging_utility.info("DeepSeekR1Cloud specific setup completed.")
 
+
+
     def normalize_roles(self, conversation_history):
         """
         Normalize roles to ensure consistency with DeepSeek's API.
@@ -37,6 +39,8 @@ class DeepSeekR1Cloud(BaseInference):
                 "content": message.get('content', '').strip()
             })
         return normalized_history
+
+
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id,
                            model='deepseek-reasoner', stream_reasoning=True):

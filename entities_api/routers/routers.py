@@ -394,6 +394,7 @@ def get_formatted_messages(thread_id: str, db: Session = Depends(get_db)):
 
 @router.post("/messages/assistant", response_model=MessageRead)
 def save_assistant_message(message: MessageCreate, db: Session = Depends(get_db)):
+
     logging_utility.info(f"Received request to save assistant message in thread ID: {message.thread_id}")
     message_service = MessageService(db)
     try:
@@ -410,6 +411,10 @@ def save_assistant_message(message: MessageCreate, db: Session = Depends(get_db)
     except Exception as e:
         logging_utility.error(f"An unexpected error occurred while saving assistant message: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+
+
+
+
 
 
 @router.post("/messages/{message_id}/tool", response_model=MessageRead)

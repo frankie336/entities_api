@@ -8,7 +8,7 @@ logging_utility = LoggingUtility()
 
 
 class ClientToolService:
-    def __init__(self, base_url: str, api_key: str):
+    def __init__(self, base_url="http://localhost:9000/",  api_key=None):
         self.base_url = base_url
         self.api_key = api_key
         self.client = httpx.Client(
@@ -174,8 +174,8 @@ class ClientToolService:
             restructured_tools.append(restructured_tool)
         return restructured_tools
 
-    def list_tools(self, assistant_id: Optional[str] = None) -> List[dict]:
-        """List tools for a given assistant and restructure them."""
+    def list_tools(self, assistant_id: Optional[str] = None, restructure: bool = False) -> List[dict]:
+        """List tools for a given assistant and optionally restructure them."""
         url = f"/v1/assistants/{assistant_id}/tools" if assistant_id else "/v1/tools"
         logging_utility.info("Listing tools for assistant ID: %s", assistant_id)
 
@@ -192,12 +192,13 @@ class ClientToolService:
 
             logging_utility.info("Retrieved %d tools", len(tools))
 
-            # Always restructure tools
-            restructured_tools = self.restructure_tools(tools)
-
-            logging_utility.info("Restructured tools: %s", restructured_tools)
-
-            return restructured_tools
+            # Restructure tools if the restructure parameter is True
+            if restructure:
+                restructured_tools = self.restructure_tools(tools)
+                logging_utility.info("Restructured tools: %s", restructured_tools)
+                return restructured_tools
+            else:
+                return tools
         except httpx.HTTPStatusError as e:
             logging_utility.error("HTTP error while listing tools: %s | Response: %s", str(e), e.response.text)
             raise

@@ -13,7 +13,7 @@ logging_utility = LoggingUtility()
 
 
 class ClientMessageService:
-    def __init__(self, base_url: str, api_key: str):
+    def __init__(self, base_url="http://localhost:9000/", api_key=None):
         self.base_url = base_url
         self.api_key = api_key
         self.client = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"})
@@ -193,12 +193,14 @@ class ClientMessageService:
             logging_utility.error("An error occurred while deleting message: %s", str(e))
             raise
 
-    def save_assistant_message_chunk(self, thread_id: str, content: str, is_last_chunk: bool = False) -> Optional[Dict[str, Any]]:
+
+    def save_assistant_message_chunk(self, role: str, thread_id: str, content: str, is_last_chunk: bool = False) -> Optional[Dict[str, Any]]:
         logging_utility.info("Saving assistant message chunk for thread_id: %s, is_last_chunk: %s", thread_id, is_last_chunk)
+
         message_data = {
             "thread_id": thread_id,
             "content": content,
-            "role": "assistant",
+            "role": role,
             "sender_id": "assistant",
             "meta_data": {}
         }
@@ -214,9 +216,12 @@ class ClientMessageService:
             return None
         except Exception as e:
             logging_utility.error("An error occurred while saving assistant message chunk: %s", str(e))
+
             return None
 
-    def add_tool_message(self, message_id: str, content: str) -> MessageRead:
+
+
+def add_tool_message(self, message_id: str, content: str) -> MessageRead:
         logging_utility.info("Adding tool message for message_id: %s", message_id)
         try:
             tool_message_data = ToolMessageCreate(content=content)
