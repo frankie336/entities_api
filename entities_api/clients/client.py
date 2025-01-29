@@ -10,7 +10,7 @@ from entities_api.clients.client_actions_client import ClientActionService
 from entities_api.clients.client_assistant_client import ClientAssistantService
 from entities_api.clients.client_code_executor import ClientCodeService
 from entities_api.clients.client_message_client import ClientMessageService
-from entities_api.clients.client_run_client import RunService
+from entities_api.clients.client_run_client import ClientRunService
 from entities_api.clients.client_sandbox_client import SandboxClientService
 from entities_api.clients.client_thread_client import ThreadService
 from entities_api.clients.client_tool_client import ClientToolService
@@ -40,7 +40,7 @@ class OllamaClient:
         self.tool_service: ClientToolService = ClientToolService(self.base_url, self.api_key)
         self.thread_service: ThreadService = ThreadService(self.base_url, self.api_key)
         self.message_service: ClientMessageService = ClientMessageService(self.base_url, self.api_key)
-        self.run_service: RunService = RunService(self.base_url, self.api_key)
+        self.run_service: ClientRunService = ClientRunService(self.base_url, self.api_key)
         self.actions_service: ClientActionService = ClientActionService(self.base_url, self.api_key)
         self.sandbox_service: SandboxClientService = SandboxClientService(self.base_url, self.api_key)
         self.code_executor_service: ClientCodeService = ClientCodeService(
@@ -78,7 +78,7 @@ class OllamaClient:
         return self.message_service
 
     @property
-    def get_run_service(self) -> RunService:
+    def get_run_service(self) -> ClientRunService:
         return self.run_service
 
     @property

@@ -125,7 +125,11 @@ class MessageService:
             for db_message in db_messages
         ]
 
-    def save_assistant_message_chunk(self, thread_id: str, content: str, is_last_chunk: bool = False) -> Optional[MessageRead]:
+    def save_assistant_message_chunk(self, thread_id: str, content: str, assistant_id: str,
+                                     sender_id: str, is_last_chunk: bool = False,
+                                     ) -> Optional[MessageRead]:
+
+
         if thread_id not in self.message_chunks:
             self.message_chunks[thread_id] = []
 
@@ -141,9 +145,7 @@ class MessageService:
         if not db_thread:
             raise HTTPException(status_code=404, detail="Thread not found")
 
-        assistant_id = "assistant_id"  # Set a proper assistant ID
-        sender_id = "assistant"  # Set a fixed sender ID for the assistant
-
+        # Use provided assistant_id and sender_id
         db_message = Message(
             id=IdentifierService.generate_message_id(),
             assistant_id=assistant_id,
@@ -183,7 +185,6 @@ class MessageService:
             thread_id=db_message.thread_id,
             sender_id=db_message.sender_id
         )
-
 
 
     def list_messages_for_thread(self, thread_id: str) -> List[Dict[str, Any]]:

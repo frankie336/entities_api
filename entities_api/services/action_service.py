@@ -152,6 +152,34 @@ class ActionService:
             logging_utility.error(f"Error retrieving actions for run {run_id} with status {status}: {str(e)}")
             raise HTTPException(status_code=500, detail="An error occurred while retrieving the actions.")
 
+
+    def get_pending_actions(self, run_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieve all pending actions with their function arguments, tool names, and run details.
+        Optionally filter by run_id.
+        """
+        query = self.db.query(
+            Action.id.label("action_id"),
+            Action.status.label("action_status"),
+            Action.function_args.label("function_arguments"),
+            Tool.name.label("tool_name"),
+            Run.id.label("run_id"),
+            Run.status.label("run_status")
+        ).join(
+            Tool, Action.tool_id == Tool.id
+        ).join(
+            Run, Action.run_id == Run.id
+        ).filter(
+            Action.status == "pending"
+        )
+
+        if run_id:
+            query = query.filter(Action.run_id == run_id)
+
+        pending_actions = query.all()
+
+        return [dict(row) for row in pending_actions]
+
     def delete_action(self, action_id: str) -> None:
         """Delete an action by its ID."""
         logging_utility.info("Deleting action with ID: %s", action_id)

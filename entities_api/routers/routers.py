@@ -633,6 +633,26 @@ def get_actions_by_status(run_id: str, status: Optional[str] = "pending", db: Se
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
+@router.get("/actions/pending", response_model=List[Dict[str, Any]])
+def get_pending_actions(run_id: Optional[str] = None, db: Session = Depends(get_db)):
+    """
+    Retrieve all pending actions with their function arguments, tool names,
+    and run details. Optionally filter by run_id.
+    """
+    logging_utility.info(f"Received request to list pending actions with run_id: {run_id}")
+    action_service = ActionService(db)
+    try:
+        pending_actions = action_service.get_pending_actions(run_id)
+        logging_utility.info(f"Successfully retrieved {len(pending_actions)} pending action(s).")
+        return pending_actions
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error occurred while listing pending actions: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"An unexpected error occurred while listing pending actions: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+
+
 @router.delete("/actions/{action_id}", status_code=204)
 def delete_action(action_id: str, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to delete action with ID: {action_id}")

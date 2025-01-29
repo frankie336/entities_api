@@ -60,6 +60,8 @@ class LlamaLocal(BaseInference):
             )
 
             full_response = ""
+            run_cancelled = False  # Track cancellation state
+
             for chunk in stream:
                 if not chunk.get('message') or not chunk['message'].get('content'):
                     continue
@@ -67,29 +69,53 @@ class LlamaLocal(BaseInference):
                 content = chunk['message']['content']
                 full_response += content
 
-                # Standardized streaming format
                 yield json.dumps({
                     'type': 'content',
                     'content': content
                 })
 
                 # Check for cancellation
-                if self.run_service.retrieve_run(run_id).status in ["cancelling", "cancelled"]:
-                    logging_utility.warning(f"Run {run_id} cancelled during streaming")
-                    break
+                current_status = self.run_service.retrieve_run(run_id).status
+                if current_status in ["cancelling", "cancelled"]:
+                    # Immediately save accumulated content
+                    self.message_service.save_assistant_message_chunk(
+                        role='assistant',
+                        thread_id=thread_id,
+                        content=full_response,
+                        is_last_chunk=True
+                    )
+                    self.run_service.update_run_status(run_id, "cancelled")
+                    logging_utility.warning(f"Run {run_id} cancelled - saved partial response")
+                    run_cancelled = True
+                    break  # Exit streaming loop immediately
 
-                time.sleep(0.01)  # Prevent chunk merging
+                time.sleep(0.01)
 
-            # Save final message state
-            self.message_service.save_assistant_message_chunk(thread_id, full_response, True)
-            self.run_service.update_run_status(run_id, "completed")
+            # Only complete if not cancelled
+            if not run_cancelled:
+                self.message_service.save_assistant_message_chunk(
+                    role='assistant',
+                    thread_id=thread_id,
+                    content=full_response,
+                    is_last_chunk=True
+                )
+                self.run_service.update_run_status(run_id, "completed")
 
         except Exception as e:
             logging_utility.error(f"Streaming error: {str(e)}", exc_info=True)
+            # Save partial response on error
+            if full_response:
+                self.message_service.save_assistant_message_chunk(
+                    role='assistant',
+                    thread_id=thread_id,
+                    content=full_response,
+                    is_last_chunk=True
+                )
             yield json.dumps({
                 'type': 'error',
                 'content': f"LLM streaming error: {str(e)}"
             })
+
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id, model='llama3.1'):
         logging_utility.info(f"Processing conversation: thread={thread_id}, run={run_id}")

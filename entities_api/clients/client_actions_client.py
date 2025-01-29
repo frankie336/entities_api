@@ -1,20 +1,18 @@
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-
 import httpx
-
 from entities_api.schemas import ActionRead, ActionUpdate, ActionCreate
 from entities_api.services.identifier_service import IdentifierService
 from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 
-
 class ClientActionService:
-    def __init__(self, base_url: str, api_key: str):
+    def __init__(self, base_url="http://localhost:9000/", api_key=None):
         """Initialize with base URL and API key for authentication."""
         self.client = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"})
         logging_utility.info("ClientActionService initialized with base_url: %s", base_url)
+
 
     def create_action(self, tool_name: str, run_id: str, function_args: Optional[Dict[str, Any]] = None,
                       expires_at: Optional[datetime] = None) -> ActionRead:
@@ -104,6 +102,30 @@ class ClientActionService:
             logging_utility.error(f"HTTP error during actions retrieval for run_id {run_id} with status {status}: {str(e)}")
             raise ValueError(f"HTTP error during actions retrieval: {str(e)}")
 
+    def get_pending_actions(self, run_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieve all pending actions with their function arguments, tool names, and run details.
+        Optionally filter by run_id.
+        """
+        try:
+            logging_utility.debug("Retrieving pending actions with run_id: %s", run_id)
+
+            # Make a GET request to the server to retrieve pending actions
+            params = {}
+            if run_id:
+                params["run_id"] = run_id
+
+            response = self.client.get("/v1/actions/pending", params=params)
+            response.raise_for_status()
+
+            response_data = response.json()
+            logging_utility.info("Pending actions retrieved successfully")
+            return response_data  # Return raw JSON data
+
+        except httpx.HTTPStatusError as e:
+            logging_utility.error("HTTP error during pending actions retrieval: %s", str(e))
+            raise ValueError(f"HTTP error during pending actions retrieval: {str(e)}")
+
     def delete_action(self, action_id: str) -> None:
         """Delete an action by its ID."""
         logging_utility.info(f"Deleting action with ID: {action_id}")
@@ -120,4 +142,3 @@ class ClientActionService:
             else:
                 logging_utility.error(f"HTTP error during action deletion: {str(e)}")
                 raise ValueError(f"HTTP error during action deletion: {str(e)}")
-

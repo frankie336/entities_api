@@ -6,12 +6,12 @@ from entities_api.clients.inference.local_deepseekr1 import DeepSeekR1Local
 class LocalInference:
 
     def __init__(self):
-        self.llama = LlamaLocal()
+        self._llama = LlamaLocal()
         self.deep_seekr1 = DeepSeekR1Local()
 
 
-    def llama(self):
-        return self.llama
+    def get_llama(self):
+        return self._llama
 
-    def deep_seekr1(self):
+    def get_deepseek_r1(self):
         return self.deep_seekr1

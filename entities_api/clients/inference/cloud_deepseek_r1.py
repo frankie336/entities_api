@@ -40,10 +40,8 @@ class DeepSeekR1Cloud(BaseInference):
             })
         return normalized_history
 
-
-
     def process_conversation(self, thread_id, message_id, run_id, assistant_id,
-                           model='deepseek-reasoner', stream_reasoning=True):
+                             model='deepseek-reasoner', stream_reasoning=True):
         """
         Process conversation with dual streaming (content + reasoning).
         """
@@ -63,61 +61,73 @@ class DeepSeekR1Cloud(BaseInference):
         )
         conversation_history = self.normalize_roles(conversation_history)
         deepseek_messages = [{"role": msg['role'], "content": msg['content']}
-                           for msg in conversation_history]
+                             for msg in conversation_history]
+
+        run_cancelled = False
+        assistant_reply = ""
+        reasoning_content = ""
 
         try:
             stream_response = self.deepseek_client.chat.completions.create(
                 model=model,
                 messages=deepseek_messages,
                 stream=True,
-                temperature=0.3  # Added for more stable output
+                temperature=0.3
             )
 
-            assistant_reply = ""
-            reasoning_content = ""
-
             for chunk in stream_response:
-                # Log the raw chunk for debugging
-                logging_utility.debug("Raw chunk received: %s", chunk)
+                # Check for cancellation before processing each chunk
+                current_run = self.run_service.retrieve_run(run_id)
+                if current_run.status in ["cancelling", "cancelled"]:
+                    logging_utility.warning(f"Run {run_id} cancelled during streaming")
+                    run_cancelled = True
+                    break
 
-                # Extract reasoning content
+                # Existing chunk processing logic
                 reasoning_chunk = getattr(chunk.choices[0].delta, 'reasoning_content', '')
                 if reasoning_chunk:
                     reasoning_content += reasoning_chunk
-                    logging_utility.debug("Thinking step: %s", reasoning_chunk)
-                    yield json.dumps({
-                        'type': 'reasoning',
-                        'content': reasoning_chunk
-                    })
+                    yield json.dumps({'type': 'reasoning', 'content': reasoning_chunk})
 
-                # Extract main content
                 content_chunk = getattr(chunk.choices[0].delta, 'content', '')
                 if content_chunk:
                     assistant_reply += content_chunk
-                    logging_utility.debug("Content chunk: %s", content_chunk)
-                    yield json.dumps({
-                        'type': 'content',
-                        'content': content_chunk
-                    })
+                    yield json.dumps({'type': 'content', 'content': content_chunk})
 
-                # Prevent chunk merging
                 time.sleep(0.01)
+
+            # Handle cancellation after stream breaks
+            if run_cancelled:
+                self.run_service.update_run_status(run_id, "cancelled")
+                # Save partial content
+                if assistant_reply:
+                    self.message_service.save_assistant_message_chunk(
+                        role='assistant',
+                        thread_id=thread_id,
+                        content=assistant_reply,
+                        is_last_chunk=True
+                    )
+                if reasoning_content:
+                    logging_utility.info("Saved partial reasoning content: %s", reasoning_content)
+                return
 
         except Exception as e:
             error_msg = "[ERROR] DeepSeek API streaming error"
             logging_utility.error(f"{error_msg}: {str(e)}", exc_info=True)
-            yield json.dumps({
-                'type': 'error',
-                'content': error_msg
-            })
+            self.run_service.update_run_status(run_id, "failed")
+            yield json.dumps({'type': 'error', 'content': error_msg})
             return
 
-        # Save final message state
+        # Final state handling for successful completion
         if assistant_reply:
             self.message_service.save_assistant_message_chunk(
-                thread_id, assistant_reply, is_last_chunk=True
+                role='assistant',
+                thread_id=thread_id,
+                content=assistant_reply,
+                is_last_chunk=True
             )
             logging_utility.info("Assistant response stored successfully.")
+            self.run_service.update_run_status(run_id, "completed")
 
         if reasoning_content:
             logging_utility.info("Final reasoning content: %s", reasoning_content)

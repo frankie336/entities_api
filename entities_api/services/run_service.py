@@ -1,14 +1,14 @@
-from datetime import datetime
+import time
+from typing import List
 
 from fastapi import HTTPException
+from pydantic import parse_obj_as
+from sqlalchemy.orm import Session
+
+from entities_api.schemas import Tool
+from entities_api.services.identifier_service import IdentifierService
 from entities_api.services.logging_service import LoggingUtility
 from models.models import Run  # Ensure Run is imported
-from pydantic import parse_obj_as
-from entities_api.services.identifier_service import IdentifierService
-from entities_api.schemas import Tool
-from sqlalchemy.orm import Session
-from typing import List
-import time
 
 
 class RunService:

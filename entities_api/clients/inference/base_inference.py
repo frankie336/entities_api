@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from entities_api.clients.client_actions_client import ClientActionService
 from entities_api.clients.client_assistant_client import ClientAssistantService
 from entities_api.clients.client_message_client import ClientMessageService
-from entities_api.clients.client_run_client import RunService
+from entities_api.clients.client_run_client import ClientRunService
 from entities_api.clients.client_thread_client import ThreadService
 from entities_api.clients.client_tool_client import ClientToolService
 from entities_api.clients.client_user_client import UserService
@@ -21,7 +21,7 @@ class BaseInference(ABC):
         self.assistant_service = ClientAssistantService(self.base_url, self.api_key)
         self.thread_service = ThreadService(self.base_url, self.api_key)
         self.message_service = ClientMessageService(self.base_url, self.api_key)
-        self.run_service = RunService(self.base_url, self.api_key)
+        self.run_service = ClientRunService(self.base_url, self.api_key)
         self.tool_service = ClientToolService(self.base_url, self.api_key)
         self.action_service = ClientActionService(self.base_url, self.api_key)
 

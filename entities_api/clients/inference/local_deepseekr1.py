@@ -1,4 +1,5 @@
 import json
+import time
 
 from dotenv import load_dotenv
 from ollama import Client
@@ -86,43 +87,70 @@ class DeepSeekR1Local(BaseInference):
         return tool_results  # Return collected results, excluding any that had errors
 
     def generate_final_response(self, thread_id, message_id, run_id, tool_results, messages, model):
-        # ... existing method code ...
         logging_utility.info(f"Generating final response for run_id: {run_id}")
 
-        # Inject tool results into the conversation
         if tool_results:
-            for result in tool_results:
-                if result:
-                    messages.append({'role': 'tool', 'content': json.dumps(result)})
-
-        # Generate final response using updated messages
-        streaming_response = self.ollama_client.chat(
-            model=model,
-            messages=messages,
-            options={'num_ctx': 8000},
-            stream=True
-        )
+            messages.extend({'role': 'tool', 'content': json.dumps(r)} for r in tool_results)
 
         full_response = ""
-        for chunk in streaming_response:
-            content = chunk['message']['content']
+        run_cancelled = False  # Cancellation state tracker
 
-            # Check if the run has been cancelled during response generation
-            current_run_status = self.run_service.retrieve_run(run_id=run_id).status
-            if current_run_status in ["cancelling", "cancelled"]:
-                logging_utility.info(f"Run {run_id} is being cancelled or already cancelled, stopping response generation.")
-                break
+        try:
+            streaming_response = self.ollama_client.chat(
+                model=model,
+                messages=messages,
+                options={'num_ctx': 8000},
+                stream=True
+            )
 
-            full_response += content
-            yield content
+            for chunk in streaming_response:
+                content = chunk.get('message', {}).get('content', '')
+                full_response += content
 
-        # Finalize the run
-        final_run_status = self.run_service.retrieve_run(run_id=run_id).status
-        status_to_set = "completed" if final_run_status not in ["cancelling", "cancelled"] else "cancelled"
+                # Stream content to client
+                yield content
 
-        self.message_service.save_assistant_message_chunk(thread_id, full_response, is_last_chunk=True)
-        self.run_service.update_run_status(run_id, status_to_set)
-        logging_utility.info(f"Run {run_id} marked as {status_to_set}")
+                # Check cancellation status every chunk
+                current_status = self.run_service.retrieve_run(run_id).status
+                if current_status in ["cancelling", "cancelled"]:
+                    # Immediate partial save
+                    self.message_service.save_assistant_message_chunk(
+                        role='assistant',
+                        thread_id=thread_id,
+                        content=full_response,
+                        is_last_chunk=True
+                    )
+                    self.run_service.update_run_status(run_id, "cancelled")
+                    run_cancelled = True
+                    logging_utility.warning(f"Run {run_id} cancelled mid-stream")
+                    break
+
+                time.sleep(0.01)
+
+            # Final completion handling
+            if not run_cancelled:
+                self.message_service.save_assistant_message_chunk(
+                    role='assistant',
+                    thread_id=thread_id,
+                    content=full_response,
+                    is_last_chunk=True
+                )
+                self.run_service.update_run_status(run_id, "completed")
+                logging_utility.info(f"Completed response for {run_id}")
+
+        except Exception as e:
+            logging_utility.error(f"Streaming failure: {str(e)}", exc_info=True)
+            # Emergency save of partial response
+            if full_response:
+                self.message_service.save_assistant_message_chunk(
+                    role='assistant',
+                    thread_id=thread_id,
+                    content=full_response,
+                    is_last_chunk=True
+                )
+            self.run_service.update_run_status(run_id, "failed")
+            yield f"[ERROR] Response generation failed: {str(e)}"
+
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id, model='llama3.1'):
         logging_utility.info(

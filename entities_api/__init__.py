@@ -7,6 +7,7 @@ from entities_api.clients.inference.llama_local import LlamaLocal
 from entities_api.clients.inference.local_inference import LocalInference
 from entities_api.clients.inference.cloud_inference import CloudInference
 
+
 from ollama._types import (
     GenerateResponse,
     ChatResponse,

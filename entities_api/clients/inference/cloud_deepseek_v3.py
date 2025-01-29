@@ -7,7 +7,9 @@ from openai import OpenAI
 from entities_api.clients.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.clients.client_message_client import ClientMessageService
+from entities_api.clients.client_actions_client import ClientActionService
 from entities_api.clients.client_tool_client import ClientToolService
+from entities_api.clients.client_run_client import ClientRunService
 
 # Load environment variables from .env file
 load_dotenv()
@@ -81,6 +83,8 @@ class DeepSeekV3Cloud(BaseInference):
             assistant.id, assistant.name, assistant.model
         )
 
+
+
         conversation_history = self.message_service.get_formatted_messages(
             thread_id, system_message=assistant.instructions
         )
@@ -102,12 +106,25 @@ class DeepSeekV3Cloud(BaseInference):
             message_data = message_service.retrieve_message(message_id=message_id)
             message = message_data.content
 
-
+            # Save the inbound user message that triggered the tool to the thread
             self.message_service.save_assistant_message_chunk(thread_id=thread_id, content=message,
                                                               role='assistant',
                                                               is_last_chunk=True)
 
             logging_utility.info("Saving user message to thread: %s", thread_id)
+
+            #Save the tool invocation for state management
+            action_service = ClientActionService()
+            data_dict = json.loads(tool_call_check.function.arguments)
+            action_service.create_action(tool_name=tool_call_check.function.name, run_id=run_id, function_args=data_dict)
+
+            # Update run status to indicate action is required
+            run_service = ClientRunService()  # Assuming you have a client service for runs
+            run_service.update_run_status(
+                run_id=run_id,
+                new_status='action_required'
+            )
+            logging_utility.info(f"Run {run_id} status updated to action_required")
 
             # Do not yield any response, just return
             return
@@ -168,10 +185,12 @@ class DeepSeekV3Cloud(BaseInference):
         # Save final message state
         if assistant_reply:
 
-            self.message_service.save_assistant_message_chunk(thread_id=thread_id, content=assistant_reply,
+            self.message_service.save_assistant_message_chunk(thread_id=thread_id,
+                                                              content=assistant_reply,
                                                               role='assistant',
                                                               is_last_chunk= True)
 
+            self.run_service.update_run_status(run_id, "completed")
 
             logging_utility.info("Assistant response stored successfully.")
 

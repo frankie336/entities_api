@@ -39,7 +39,11 @@ messages = [{"role": "user", "content": "How's the weather in Hangzhou?"}]
 message = send_messages(messages)
 print(f"User>\t {messages[0]['content']}")
 tool = message.tool_calls[0]
+
 print(tool)
+print(tool.function.name)
+
+
 time.sleep(10000)
 messages.append(message)
 messages.append({"role": "tool", "tool_call_id": tool.id, "content": "24℃"})
