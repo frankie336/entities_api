@@ -12,8 +12,7 @@ logging_utility = LoggingUtility()
 
 # Update this with your actual database URL
 DATABASE_URL = os.getenv("DATABASE_URL")
-
-engine = create_engine(DATABASE_URL)
+engine = create_engine(DATABASE_URL, echo=True)
 
 def drop_constraints():
     logging_utility.info("Dropping constraints")

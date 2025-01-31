@@ -392,27 +392,60 @@ def get_formatted_messages(thread_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
+# router.py
 @router.post("/messages/assistant", response_model=MessageRead)
 def save_assistant_message(message: MessageCreate, db: Session = Depends(get_db)):
+    logging_utility.info(
+        "Received assistant message payload: %s. Source: %s",
+        message.dict(),  # Log the entire payload
+        __file__
+    )
 
-    logging_utility.info(f"Received request to save assistant message in thread ID: {message.thread_id}")
     message_service = MessageService(db)
     try:
         new_message = message_service.save_assistant_message_chunk(
             thread_id=message.thread_id,
             content=message.content,
-            is_last_chunk=True  # Assuming we're always sending the complete message
+            role=message.role,
+            assistant_id=message.assistant_id,
+            sender_id=message.sender_id,
+            is_last_chunk=message.is_last_chunk
         )
-        logging_utility.info(f"Assistant message saved successfully with ID: {new_message.id}")
+
+        if new_message is None:
+            logging_utility.debug(
+                "Received non-final chunk. Returning early. Source: %s",
+                __file__
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Message saving failed: No complete message to return (expected for non-final chunks)."
+            )
+
+        logging_utility.info(
+            "Message saved successfully. Message ID: %s. Source: %s"
+
+                    )
+
         return new_message
+
     except HTTPException as e:
-        logging_utility.error(f"HTTP error occurred while saving assistant message: {str(e)}")
+        logging_utility.error(
+            "HTTP error processing message: %s. Payload: %s. Source: %s",
+            str(e),
+            message.dict(),
+            __file__
+        )
         raise e
+
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while saving assistant message: {str(e)}")
-        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
-
-
+        logging_utility.error(
+            "Unexpected error processing message: %s. Payload: %s. Source: %s",
+            str(e),
+            message.dict(),
+            __file__
+        )
+        raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
 
@@ -633,17 +666,21 @@ def get_actions_by_status(run_id: str, status: Optional[str] = "pending", db: Se
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-@router.get("/actions/pending", response_model=List[Dict[str, Any]])
-def get_pending_actions(run_id: Optional[str] = None, db: Session = Depends(get_db)):
+@router.get("/actions/pending/{run_id}", response_model=List[Dict[str, Any]])
+def get_pending_actions(
+    run_id: str,  # Accept run_id as part of the URL path
+    db: Session = Depends(get_db)
+):
     """
     Retrieve all pending actions with their function arguments, tool names,
-    and run details. Optionally filter by run_id.
+    and run details. Filter by run_id.
     """
-    logging_utility.info(f"Received request to list pending actions with run_id: {run_id}")
+    logging_utility.info(f"Received request to list pending actions for run_id: {run_id}")
     action_service = ActionService(db)
     try:
+        # Assuming `get_pending_actions` only uses the `run_id` parameter
         pending_actions = action_service.get_pending_actions(run_id)
-        logging_utility.info(f"Successfully retrieved {len(pending_actions)} pending action(s).")
+        logging_utility.info(f"Successfully retrieved {len(pending_actions)} pending action(s) for run_id: {run_id}.")
         return pending_actions
     except HTTPException as e:
         logging_utility.error(f"HTTP error occurred while listing pending actions: {str(e)}")

@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 import httpx
+from pydantic import ValidationError
+
 from entities_api.schemas import ActionRead, ActionUpdate, ActionCreate
 from entities_api.services.identifier_service import IdentifierService
 from entities_api.services.logging_service import LoggingUtility
@@ -46,25 +48,52 @@ class ClientActionService:
             logging_utility.error("HTTP error during action creation: %s", str(e))
             raise ValueError(f"HTTP error during action creation: {str(e)}")
 
-    def get_action(self, action_id: str) -> Dict[str, Any]:
-        """Retrieve a specific action by its ID without Pydantic validation."""
+    def get_action(self, action_id: str) -> dict:
+        """Retrieve a specific action by its ID and return the validated response data."""
         try:
             logging_utility.debug("Retrieving action with ID: %s", action_id)
 
+            # Make the GET request to the endpoint
             response = self.client.get(f"/v1/actions/{action_id}")
-            response.raise_for_status()
+            response.raise_for_status()  # Raise an error for bad status codes
 
+            # Parse and validate the response
             response_data = response.json()
+
+            # Add validation layer without changing return type
+            validated_action = ActionRead(**response_data)
+
+            # Enhanced logging with structured data
             logging_utility.info("Action retrieved successfully with ID: %s", action_id)
-            return response_data  # Return raw JSON data
+            logging_utility.debug(
+                "Validated action data: %s",
+                validated_action.model_dump(mode="json")
+            )
+
+            return response_data  # Maintain raw response return for backward compatibility
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
-                logging_utility.error("Action with ID %s not found: %s", action_id, str(e))
-                return None  # Return None or handle it as you wish
-            else:
-                logging_utility.error("HTTP error during action retrieval: %s", str(e))
-                raise ValueError(f"HTTP error during action retrieval: {str(e)}")
+                error_msg = f"Action {action_id} not found: {str(e)}"
+                logging_utility.error(error_msg)
+                return None
+            logging_utility.error("HTTP error during action retrieval: %s", str(e))
+            raise ValueError(f"HTTP error during action retrieval: {str(e)}")
+
+        except ValidationError as e:
+            logging_utility.error("Response validation failed: %s", str(e))
+            logging_utility.debug("Invalid response data: %s", response_data)
+            raise ValueError(f"Invalid action data format: {str(e)}")
+
+        except httpx.RequestError as e:
+            error_msg = f"Request error: {str(e)}"
+            logging_utility.error(error_msg)
+            raise ValueError(error_msg)
+
+        except Exception as e:
+            logging_utility.error("Unexpected error: %s", str(e))
+            raise ValueError(f"Unexpected error: {str(e)}")
+
 
     def update_action(self, action_id: str, status: str, result: Optional[Dict[str, Any]] = None) -> ActionRead:
         """Update an action's status and result."""
@@ -85,37 +114,46 @@ class ClientActionService:
             logging_utility.error("HTTP error during action update: %s", str(e))
             raise ValueError(f"HTTP error during action update: {str(e)}")
 
-    def get_actions_by_status(self, run_id: str, status: Optional[str] = "pending") -> List[Dict[str, Any]]:
+    def get_actions_by_status(self, run_id: str, status: str = "pending") -> List[Dict[str, Any]]:
         """Retrieve actions by run_id and status."""
         try:
-            logging_utility.debug(f"Retrieving actions for run_id: {run_id} with status: {status}")
+            logging_utility.debug(f"Retrieving actions for run_id: {run_id} with status: {status or 'not specified'}")
 
             # Make a GET request with run_id and optional status query parameter
             response = self.client.get(f"/v1/runs/{run_id}/actions/status", params={"status": status})
-            response.raise_for_status()
+            response.raise_for_status()  # Raises an HTTPStatusError for bad responses
 
-            response_data = response.json()
+            # Optional safety check to ensure response is JSON
+            if response.headers.get("Content-Type") == "application/json":
+                response_data = response.json()
+            else:
+                logging_utility.error(f"Unexpected content type: {response.headers.get('Content-Type')}")
+                raise ValueError(f"Unexpected content type: {response.headers.get('Content-Type')}")
+
             logging_utility.info(f"Actions retrieved successfully for run_id: {run_id} with status: {status}")
             return response_data  # Return raw JSON data
 
+        except httpx.RequestError as e:
+            logging_utility.error(f"An error occurred while requesting actions for run_id {run_id}: {str(e)}")
+            raise ValueError(f"Request error: {str(e)}")
         except httpx.HTTPStatusError as e:
-            logging_utility.error(f"HTTP error during actions retrieval for run_id {run_id} with status {status}: {str(e)}")
+            logging_utility.error(
+                f"HTTP error during actions retrieval for run_id {run_id} with status {status}: {str(e)}")
             raise ValueError(f"HTTP error during actions retrieval: {str(e)}")
 
-    def get_pending_actions(self, run_id: Optional[str] = None) -> List[Dict[str, Any]]:
+
+    def get_pending_actions(self, run_id: str) -> List[Dict[str, Any]]:
         """
         Retrieve all pending actions with their function arguments, tool names, and run details.
-        Optionally filter by run_id.
+        Filter by run_id (required).
         """
         try:
             logging_utility.debug("Retrieving pending actions with run_id: %s", run_id)
 
             # Make a GET request to the server to retrieve pending actions
-            params = {}
-            if run_id:
-                params["run_id"] = run_id
+            url = f"/v1/actions/pending/{run_id}"  # Embed run_id in the URL path
 
-            response = self.client.get("/v1/actions/pending", params=params)
+            response = self.client.get(url)  # No need to include params here
             response.raise_for_status()
 
             response_data = response.json()
@@ -125,20 +163,3 @@ class ClientActionService:
         except httpx.HTTPStatusError as e:
             logging_utility.error("HTTP error during pending actions retrieval: %s", str(e))
             raise ValueError(f"HTTP error during pending actions retrieval: {str(e)}")
-
-    def delete_action(self, action_id: str) -> None:
-        """Delete an action by its ID."""
-        logging_utility.info(f"Deleting action with ID: {action_id}")
-        try:
-            # Ensure the URL includes the /v1 prefix
-            response = self.client.delete(f"/v1/actions/{action_id}")
-            response.raise_for_status()
-
-            logging_utility.info(f"Action with ID {action_id} deleted successfully.")
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 404:
-                logging_utility.error(f"Action with ID {action_id} not found: {str(e)}")
-                raise ValueError(f"Action with ID {action_id} not found")
-            else:
-                logging_utility.error(f"HTTP error during action deletion: {str(e)}")
-                raise ValueError(f"HTTP error during action deletion: {str(e)}")

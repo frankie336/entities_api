@@ -54,7 +54,8 @@ setup(
         "spacy",
         "weasel",
         "groq",
-        "openai"
+        "openai",
+        "azure-ai-inference"
     ],
     extras_require={
         "dev": [

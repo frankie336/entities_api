@@ -83,12 +83,9 @@ class DeepSeekV3Cloud(BaseInference):
             assistant.id, assistant.name, assistant.model
         )
 
-
-
         conversation_history = self.message_service.get_formatted_messages(
             thread_id, system_message=assistant.instructions
         )
-
         conversation_history = self.normalize_roles(conversation_history)
         deepseek_messages = [{"role": msg['role'], "content": msg['content']}
                              for msg in conversation_history]
@@ -107,19 +104,28 @@ class DeepSeekV3Cloud(BaseInference):
             message = message_data.content
 
             # Save the inbound user message that triggered the tool to the thread
-            self.message_service.save_assistant_message_chunk(thread_id=thread_id, content=message,
-                                                              role='assistant',
-                                                              is_last_chunk=True)
+            self.message_service.save_assistant_message_chunk(
+                thread_id=thread_id,
+                content=message,
+                role="assistant",
+                assistant_id=assistant_id,  # Pass assistant_id
+                sender_id=assistant_id,  # Use assistant_id as the sender for assistant messages
+                is_last_chunk=True
+            )
 
             logging_utility.info("Saving user message to thread: %s", thread_id)
 
-            #Save the tool invocation for state management
+            # Save the tool invocation for state management
             action_service = ClientActionService()
             data_dict = json.loads(tool_call_check.function.arguments)
-            action_service.create_action(tool_name=tool_call_check.function.name, run_id=run_id, function_args=data_dict)
+            action_service.create_action(
+                tool_name=tool_call_check.function.name,
+                run_id=run_id,
+                function_args=data_dict
+            )
 
             # Update run status to indicate action is required
-            run_service = ClientRunService()  # Assuming you have a client service for runs
+            run_service = ClientRunService()
             run_service.update_run_status(
                 run_id=run_id,
                 new_status='action_required'
@@ -184,14 +190,16 @@ class DeepSeekV3Cloud(BaseInference):
 
         # Save final message state
         if assistant_reply:
-
-            self.message_service.save_assistant_message_chunk(thread_id=thread_id,
-                                                              content=assistant_reply,
-                                                              role='assistant',
-                                                              is_last_chunk= True)
+            self.message_service.save_assistant_message_chunk(
+                thread_id=thread_id,
+                content=assistant_reply,
+                role="assistant",
+                assistant_id=assistant_id,  # Pass assistant_id
+                sender_id=assistant_id,  # Use assistant_id as the sender for assistant messages
+                is_last_chunk=True
+            )
 
             self.run_service.update_run_status(run_id, "completed")
-
             logging_utility.info("Assistant response stored successfully.")
 
         if reasoning_content:

@@ -6,6 +6,7 @@ from typing import List, Optional, Dict, Any
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.schemas import ActionCreate, ActionRead, ActionUpdate, ActionList
 from datetime import datetime
+from utils.conversion_utils import  datetime_to_iso
 from entities_api.services.identifier_service import IdentifierService
 
 logging_utility = LoggingUtility()
@@ -26,25 +27,22 @@ class ActionService:
                 logging_utility.warning("Tool with name %s not found.", action_data.tool_name)
                 raise HTTPException(status_code=404, detail=f"Tool with name {action_data.tool_name} not found")
 
-            action_id = IdentifierService.generate_action_id()  # Generate action ID using IdentifierService
+            action_id = IdentifierService.generate_action_id()
             logging_utility.debug("Generated action ID: %s", action_id)
 
             new_action = Action(
-                id=action_id,  # Use generated action ID
-                tool_id=tool.id,  # Use tool's ID from the tool lookup
+                id=action_id,
+                tool_id=tool.id,
                 run_id=action_data.run_id,
                 triggered_at=datetime.now(),
                 expires_at=action_data.expires_at,
                 function_args=action_data.function_args,
                 status="pending"
             )
-            logging_utility.debug("New action to be added to the database: %s", new_action)
-
             self.db.add(new_action)
             self.db.commit()
             self.db.refresh(new_action)
 
-            logging_utility.info("Action created successfully with ID: %s", new_action.id)
             return ActionRead(
                 id=new_action.id,
                 status=new_action.status,
@@ -61,50 +59,43 @@ class ActionService:
             raise HTTPException(status_code=500, detail="An error occurred while creating the action")
 
     def get_action(self, action_id: str) -> ActionRead:
-        """Retrieve an action by its ID."""
+        """Retrieve an action by its ID with proper datetime conversion."""
         logging_utility.info("Retrieving action with ID: %s", action_id)
         try:
+            self.db.commit()  # Refresh session state
             action = self.db.query(Action).filter(Action.id == action_id).first()
 
             if not action:
-                logging_utility.warning("Action with ID %s not found", action_id)
-                raise HTTPException(status_code=404, detail=f"Action with id {action_id} not found")
+                logging_utility.error("Action not found in DB. Queried ID: %s", action_id)
+                raise HTTPException(status_code=404, detail=f"Action {action_id} not found")
 
-            logging_utility.info("Action retrieved successfully: %s", action)
-
-            # Properly convert the SQLAlchemy action object to a Pydantic model
-            # Ensuring that all required fields are populated and no Pydantic internals are exposed
             return ActionRead(
                 id=action.id,
                 run_id=action.run_id,
-                triggered_at=action.triggered_at,
-                expires_at=action.expires_at,
+                tool_id=action.tool_id,
+                triggered_at=datetime_to_iso(action.triggered_at),  # Use conversion utility
+                expires_at=datetime_to_iso(action.expires_at),
                 is_processed=action.is_processed,
-                processed_at=action.processed_at,
+                processed_at=datetime_to_iso(action.processed_at),
                 status=action.status,
                 function_args=action.function_args,
                 result=action.result
             )
 
-        except HTTPException as e:
-            logging_utility.error("HTTPException: %s", str(e))
-            raise
         except Exception as e:
-            logging_utility.error("Unexpected error retrieving action: %s", str(e))
-            raise HTTPException(status_code=500, detail="An error occurred while retrieving the action")
+            logging_utility.error("Database error: %s", str(e))
+            raise HTTPException(status_code=500, detail="Internal server error")
 
     def update_action_status(self, action_id: str, action_update: ActionUpdate) -> ActionRead:
         """Update the status of an action and store the result."""
         try:
             action = self.db.query(Action).filter(Action.id == action_id).first()
-
             if not action:
                 raise HTTPException(status_code=404, detail=f"Action with ID {action_id} not found")
 
-            # Update action status and result
+            # Update fields
             action.status = action_update.status
-            if action_update.result:
-                action.result = action_update.result
+            action.result = action_update.result
             if action_update.status == "completed":
                 action.is_processed = True
                 action.processed_at = datetime.now()
@@ -112,48 +103,41 @@ class ActionService:
             self.db.commit()
             self.db.refresh(action)
 
-            # Convert SQLAlchemy object to dictionary and pass it to Pydantic for validation
-            action_dict = {
-                "id": action.id,
-                "status": action.status,
-                "result": action.result
-            }
+            return ActionRead(
+                id=action.id,
+                status=action.status,
+                result=action.result,
+                processed_at=datetime_to_iso(action.processed_at)  # Add converted field
+            )
 
-            return ActionRead(**action_dict)  # Pydantic validation
         except Exception as e:
             self.db.rollback()
             logging_utility.error(f"Error updating action status: {str(e)}")
-            raise HTTPException(status_code=500, detail="An error occurred while updating the action status")
+            raise HTTPException(status_code=500, detail="Error updating action status")
 
     def get_actions_by_status(self, run_id: str, status: Optional[str] = "pending") -> List[ActionRead]:
-        """Retrieve actions by run_id and status."""
+        """Retrieve actions by run_id and status with proper datetime conversion."""
         logging_utility.info(f"Retrieving actions for run_id: {run_id} with status: {status}")
         try:
             actions = self.db.query(Action).filter(Action.run_id == run_id, Action.status == status).all()
-
-            if not actions:
-                logging_utility.info(f"No actions found for run_id {run_id} with status {status}.")
-                return []
-
-            logging_utility.info(f"Retrieved {len(actions)} actions for run_id {run_id} with status {status}.")
             return [ActionRead(
                 id=action.id,
                 run_id=action.run_id,
-                triggered_at=action.triggered_at,
-                expires_at=action.expires_at,
+                triggered_at=datetime_to_iso(action.triggered_at),  # Convert here
+                expires_at=datetime_to_iso(action.expires_at),
                 is_processed=action.is_processed,
-                processed_at=action.processed_at,
+                processed_at=datetime_to_iso(action.processed_at),
                 status=action.status,
                 function_args=action.function_args,
                 result=action.result
             ) for action in actions]
 
         except Exception as e:
-            logging_utility.error(f"Error retrieving actions for run {run_id} with status {status}: {str(e)}")
-            raise HTTPException(status_code=500, detail="An error occurred while retrieving the actions.")
+            logging_utility.error(f"Error retrieving actions: {str(e)}")
+            raise HTTPException(status_code=500, detail="Error retrieving actions")
 
 
-    def get_pending_actions(self, run_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_pending_actions(self, run_id = None) -> List[Dict[str, Any]]:
         """
         Retrieve all pending actions with their function arguments, tool names, and run details.
         Optionally filter by run_id.
@@ -198,3 +182,22 @@ class ActionService:
             self.db.rollback()
             logging_utility.error("Error deleting action: %s", str(e))
             raise HTTPException(status_code=500, detail="An error occurred while deleting the action")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

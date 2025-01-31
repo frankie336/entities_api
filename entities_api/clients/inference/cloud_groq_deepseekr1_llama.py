@@ -1,11 +1,11 @@
-import os
 import json
 import time
+
 from dotenv import load_dotenv
 from groq import Groq
+
 from entities_api.clients.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
-from entities_api.clients.client_message_client import ClientMessageService
 
 # Load environment variables from .env file
 load_dotenv()
@@ -54,6 +54,13 @@ class GroqCloud(BaseInference):
         conversation_history = self.normalize_roles(conversation_history)
         groq_messages = [{"role": msg['role'], "content": msg['content']} for msg in conversation_history]
 
+        # Initialize state variables
+        assistant_reply = ""
+        reasoning_content = ""
+        content_buffer = ""
+        in_think_block = False
+        run_cancelled = False
+
         try:
             stream_response = self.groq_client.chat.completions.create(
                 model=model,
@@ -62,48 +69,42 @@ class GroqCloud(BaseInference):
                 stream=True,
             )
 
-            assistant_reply = ""
-            reasoning_content = ""
-            content_buffer = ""
-            in_think_block = False  # XML parsing state tracker
-
             for chunk in stream_response:
+                # Check for run cancellation
+                current_run = self.run_service.retrieve_run(run_id)
+                if current_run.status in ["cancelling", "cancelled"]:
+                    logging_utility.warning(f"Run {run_id} cancelled during streaming")
+                    run_cancelled = True
+                    break
+
                 chunk_content = chunk.choices[0].delta.content or ""
                 content_buffer += chunk_content
 
                 while True:
                     if not in_think_block:
-                        # Look for opening tag
                         think_start = content_buffer.find('<think>')
                         if think_start != -1:
-                            # Emit content before tag
                             if think_start > 0:
                                 content_part = content_buffer[:think_start]
                                 yield json.dumps({'type': 'content', 'content': content_part})
                                 assistant_reply += content_part
-                            # Update state and buffer
-                            content_buffer = content_buffer[think_start + 7:]  # 7 = len('<think>')
+                            content_buffer = content_buffer[think_start + 7:]
                             in_think_block = True
                         else:
-                            # Emit all as content if no opening tag
                             if content_buffer:
                                 yield json.dumps({'type': 'content', 'content': content_buffer})
                                 assistant_reply += content_buffer
                                 content_buffer = ''
                             break
                     else:
-                        # Look for closing tag
                         think_end = content_buffer.find('</think>')
                         if think_end != -1:
-                            # Emit reasoning content
                             reasoning_part = content_buffer[:think_end]
                             yield json.dumps({'type': 'reasoning', 'content': reasoning_part})
                             reasoning_content += reasoning_part
-                            # Update state and buffer
-                            content_buffer = content_buffer[think_end + 8:]  # 8 = len('</think>')
+                            content_buffer = content_buffer[think_end + 8:]
                             in_think_block = False
                         else:
-                            # Emit partial reasoning if closing tag not found
                             if content_buffer:
                                 yield json.dumps({'type': 'reasoning', 'content': content_buffer})
                                 reasoning_content += content_buffer
@@ -111,7 +112,7 @@ class GroqCloud(BaseInference):
                             break
                     time.sleep(0.005)
 
-            # Handle remaining content after stream ends
+            # Process remaining content after stream ends
             if content_buffer:
                 if in_think_block:
                     yield json.dumps({'type': 'reasoning', 'content': content_buffer})
@@ -121,8 +122,28 @@ class GroqCloud(BaseInference):
                     assistant_reply += content_buffer
 
         except Exception as e:
-            logging_utility.error(f"Groq API error: {str(e)}", exc_info=True)
-            yield json.dumps({'type': 'error', 'content': f"API Error: {str(e)}"})
+            # Handle remaining buffer content on error
+            if content_buffer:
+                if in_think_block:
+                    reasoning_content += content_buffer
+                else:
+                    assistant_reply += content_buffer
+                content_buffer = ""
+
+            error_msg = f"Groq API error: {str(e)}"
+            logging_utility.error(error_msg, exc_info=True)
+
+            if assistant_reply:
+                self.message_service.save_assistant_message_chunk(
+                    thread_id=thread_id,
+                    content=assistant_reply.strip(),
+                    role='assistant',
+                    is_last_chunk=True
+                )
+
+            self.run_service.update_run_status(run_id, "failed")
+            yield json.dumps({'type': 'error', 'content': error_msg})
+            return
 
         # Final message persistence
         if assistant_reply:
@@ -132,6 +153,13 @@ class GroqCloud(BaseInference):
                 role='assistant',
                 is_last_chunk=True
             )
+
+        # Update run status after processing all content
+        if run_cancelled:
+            self.run_service.update_run_status(run_id, "cancelled")
+            logging_utility.info(f"Run {run_id} cancelled with partial response")
+        elif assistant_reply:
+            self.run_service.update_run_status(run_id, "completed")
 
         if reasoning_content:
             logging_utility.debug("Final reasoning context: %s", reasoning_content.strip())

@@ -41,7 +41,7 @@ class OllamaClient:
         self.thread_service: ThreadService = ThreadService(self.base_url, self.api_key)
         self.message_service: ClientMessageService = ClientMessageService(self.base_url, self.api_key)
         self.run_service: ClientRunService = ClientRunService(self.base_url, self.api_key)
-        self.actions_service: ClientActionService = ClientActionService(self.base_url, self.api_key)
+        self.action_service: ClientActionService = ClientActionService(self.base_url, self.api_key)
         self.sandbox_service: SandboxClientService = SandboxClientService(self.base_url, self.api_key)
         self.code_executor_service: ClientCodeService = ClientCodeService(
             sandbox_server_url=os.getenv('CODE_SERVER_URL', 'http://localhost:9000/v1/execute_code')
@@ -83,7 +83,7 @@ class OllamaClient:
 
     @property
     def get_action_service(self) -> ClientActionService:
-        return self.actions_service
+        return self.action_service
 
     @property
     def get_sandbox_service(self) -> SandboxClientService:

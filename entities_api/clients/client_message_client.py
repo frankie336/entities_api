@@ -20,8 +20,8 @@ class ClientMessageService:
         self.message_chunks: Dict[str, List[str]] = {}  # Temporary storage for message chunks
         logging_utility.info("ClientMessageService initialized with base_url: %s", self.base_url)
 
-    def create_message(self, thread_id: str, content: str, sender_id: str, role: str = 'user',
-                       meta_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def create_message(self, thread_id: str, content: str, sender_id: str, assistant_id: str,
+                       role: str = 'user', meta_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if meta_data is None:
             meta_data = {}
 
@@ -30,6 +30,7 @@ class ClientMessageService:
             "content": content,
             "role": role,
             "sender_id": sender_id,
+            "assistant_id": assistant_id,
             "meta_data": meta_data
         }
 
@@ -50,6 +51,7 @@ class ClientMessageService:
         except Exception as e:
             logging_utility.error("An error occurred while creating message: %s", str(e))
             raise
+
 
     def retrieve_message(self, message_id: str) -> MessageRead:
         logging_utility.info("Retrieving message with id: %s", message_id)
@@ -193,32 +195,78 @@ class ClientMessageService:
             logging_utility.error("An error occurred while deleting message: %s", str(e))
             raise
 
+    def save_assistant_message_chunk(
+            self,
+            thread_id: str,
+            role: str,
+            content: str,
+            assistant_id: str,  # Required parameter
+            sender_id: str,  # Required parameter
+            is_last_chunk: bool = False,
+            meta_data: Optional[Dict[str, Any]] = None  # Optional metadata
+    ) -> Optional[MessageRead]:  # Return MessageRead for final chunk, None for non-final chunks
+        """
+        Save a message chunk from the assistant, with support for streaming and dynamic roles.
 
-    def save_assistant_message_chunk(self, role: str, thread_id: str, content: str, is_last_chunk: bool = False) -> Optional[Dict[str, Any]]:
-        logging_utility.info("Saving assistant message chunk for thread_id: %s, is_last_chunk: %s", thread_id, is_last_chunk)
+        Args:
+            thread_id: The ID of the thread the message belongs to
+            role: The role of the message sender (e.g., 'assistant', 'user', 'system')
+            content: The message content
+            assistant_id: The ID of the assistant sending the message
+            sender_id: The ID of the user or system initiating the message
+            is_last_chunk: Whether this is the final chunk in a stream
+            meta_data: Optional metadata dictionary
 
+        Returns:
+            MessageRead: For the final chunk, returns the saved message details.
+            None: For non-final chunks, returns None.
+        """
+        logging_utility.info(
+            "Saving assistant message chunk for thread_id: %s, role: %s, is_last_chunk: %s",
+            thread_id,
+            role,
+            is_last_chunk,
+        )
+
+        # Prepare the request payload
         message_data = {
             "thread_id": thread_id,
             "content": content,
             "role": role,
-            "sender_id": "assistant",
-            "meta_data": {}
+            "assistant_id": assistant_id,
+            "sender_id": sender_id,
+            "is_last_chunk": is_last_chunk,
+            "meta_data": meta_data or {}  # Use empty dict if None
         }
 
         try:
+            # Make the API request
             response = self.client.post("/v1/messages/assistant", json=message_data)
             response.raise_for_status()
-            saved_message = response.json()
-            logging_utility.info("Assistant message chunk saved successfully")
-            return saved_message
+
+            # Parse the response for final chunks
+            if is_last_chunk:
+                message_read = MessageRead(**response.json())
+                logging_utility.info(
+                    "Final assistant message chunk saved successfully. Message ID: %s",
+                    message_read.id
+                )
+                return message_read
+            else:
+                logging_utility.info("Non-final assistant message chunk saved successfully.")
+                return None  # Non-final chunks return None
+
         except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error occurred while saving assistant message chunk: %s", str(e))
-            return None
+            logging_utility.error(
+                "HTTP error while saving assistant message chunk: %s (Status: %d)",
+                str(e),
+                e.response.status_code
+            )
+            return None  # Failure
+
         except Exception as e:
-            logging_utility.error("An error occurred while saving assistant message chunk: %s", str(e))
-
-            return None
-
+            logging_utility.error("Unexpected error while saving assistant message chunk: %s", str(e))
+            return None  # Failure
 
 
 def add_tool_message(self, message_id: str, content: str) -> MessageRead:

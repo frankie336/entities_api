@@ -1,47 +1,41 @@
 import time
 from datetime import datetime
 from sqlalchemy import Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, Text
-from sqlalchemy.orm import relationship, declarative_base
+from sqlalchemy.orm import relationship, declarative_base, joinedload
 
 Base = declarative_base()
 
-# Association table for thread participants (Many-to-Many relationship)
+# Association tables
 thread_participants = Table(
     'thread_participants', Base.metadata,
     Column('thread_id', String(64), ForeignKey('threads.id'), primary_key=True),
     Column('user_id', String(64), ForeignKey('users.id'), primary_key=True)
 )
 
-# Association table for assistant and tools (Many-to-Many relationship)
 assistant_tools = Table(
     'assistant_tools', Base.metadata,
     Column('assistant_id', String(64), ForeignKey('assistants.id')),
     Column('tool_id', String(64), ForeignKey('tools.id'))
 )
 
-# Association table for users and assistants (Many-to-Many relationship)
 user_assistants = Table(
     'user_assistants', Base.metadata,
     Column('user_id', String(64), ForeignKey('users.id'), primary_key=True),
     Column('assistant_id', String(64), ForeignKey('assistants.id'), primary_key=True)
 )
 
-# User model
-
+# Models
 class User(Base):
     __tablename__ = "users"
 
     id = Column(String(64), primary_key=True, index=True)
     name = Column(String(128), index=True)
 
-    # Existing relationships
     threads = relationship('Thread', secondary=thread_participants, back_populates='participants')
     assistants = relationship('Assistant', secondary=user_assistants, back_populates='users')
-
-    # New relationship with Sandbox
     sandboxes = relationship('Sandbox', back_populates='user', cascade="all, delete-orphan")
 
-# Thread model
+
 class Thread(Base):
     __tablename__ = "threads"
 
@@ -51,14 +45,10 @@ class Thread(Base):
     object = Column(String(64), nullable=False)
     tool_resources = Column(JSON, nullable=False, default={})
 
-    # Relationship with participants (users)
     participants = relationship('User', secondary=thread_participants, back_populates='threads')
-
-# Message model
 
 
 class Message(Base):
-
     __tablename__ = "messages"
 
     id = Column(String(64), primary_key=True, index=True)
@@ -77,7 +67,7 @@ class Message(Base):
     thread_id = Column(String(64), nullable=False)
     sender_id = Column(String(64), nullable=False)
 
-# Run model
+
 class Run(Base):
     __tablename__ = "runs"
 
@@ -110,10 +100,9 @@ class Run(Base):
     top_p = Column(Integer, nullable=True)
     tool_resources = Column(JSON, nullable=True)
 
-    # One-to-many relationship with actions
     actions = relationship("Action", back_populates="run")
 
-# Assistant model
+
 class Assistant(Base):
     __tablename__ = "assistants"
 
@@ -129,11 +118,10 @@ class Assistant(Base):
     temperature = Column(Integer, nullable=True)
     response_format = Column(String(64), nullable=True)
 
-    # Eager load tools using joinedload to avoid lazy loading issues
     tools = relationship("Tool", secondary=assistant_tools, back_populates="assistants", lazy="joined")
     users = relationship("User", secondary=user_assistants, back_populates="assistants")
 
-# Tool model
+
 class Tool(Base):
     __tablename__ = "tools"
 
@@ -142,23 +130,17 @@ class Tool(Base):
     type = Column(String(64), nullable=False)
     function = Column(JSON, nullable=True)
 
-    # Many-to-many relationship with assistants
     assistants = relationship("Assistant", secondary=assistant_tools, back_populates="tools")
-
-    # One-to-many relationship with actions
     actions = relationship("Action", back_populates="tool")
 
 
-
-
-# Action model
 class Action(Base):
     __tablename__ = "actions"
 
     id = Column(String(64), primary_key=True, index=True)
-    run_id = Column(String(64), ForeignKey('runs.id'), nullable=True)  # Reference to the run that triggered this action
-    tool_id = Column(String(64), ForeignKey('tools.id'), nullable=True)  # Reference to the tool that this action uses
-    triggered_at = Column(DateTime, default=datetime.utcnow)  # Corrected to use datetime object
+    run_id = Column(String(64), ForeignKey('runs.id'), nullable=True)
+    tool_id = Column(String(64), ForeignKey('tools.id'), nullable=True)
+    triggered_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=True)
     is_processed = Column(Boolean, default=False)
     processed_at = Column(DateTime, nullable=True)
@@ -166,17 +148,17 @@ class Action(Base):
     function_args = Column(JSON, nullable=True)
     result = Column(JSON, nullable=True)
 
-    # Relationship with the tool
     tool = relationship("Tool", back_populates="actions")
-
-    # Relationship with the run
     run = relationship("Run", back_populates="actions")
 
+    @staticmethod
+    def get_full_action_query(session):
+        return session.query(Action).options(
+            joinedload(Action.run),
+            joinedload(Action.tool)
+        )
 
 
-
-
-# Sandbox model
 class Sandbox(Base):
     __tablename__ = "sandboxes"
 
@@ -185,7 +167,6 @@ class Sandbox(Base):
     name = Column(String(128), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     status = Column(String(32), nullable=False, default="active")
-    config = Column(JSON, nullable=True)  # Configuration details for the sandbox
+    config = Column(JSON, nullable=True)
 
-    # Relationship with User
     user = relationship("User", back_populates="sandboxes")

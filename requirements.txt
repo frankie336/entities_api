@@ -37,3 +37,5 @@ numpy
 alembic~=1.13.2
 setuptools~=72.1.0
 groq
+openai
+azure-ai-inference

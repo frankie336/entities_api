@@ -33,7 +33,7 @@ __all__ = [
     'BaseInference',
     'LocalInference',
     'LlamaLocal',
-    'CloudInference'
+    'CloudInference',
 ]
 
 _client = OllamaClient()

@@ -17,21 +17,30 @@ class MessageService:
     def __init__(self, db: Session):
         self.db = db
         self.message_chunks: Dict[str, List[str]] = {}  # Temporary storage for message chunks
+        logger.info(f"Initialized MessageService with database session. Source: {__file__}")
 
     def create_message(self, message: MessageCreate) -> MessageRead:
+        """
+        Create a new message in the database.
+        """
+        logger.info(f"Creating message for thread_id={message.thread_id}, role={message.role}. Source: {__file__}")
+
         # Check if thread exists
         db_thread = self.db.query(Thread).filter(Thread.id == message.thread_id).first()
         if not db_thread:
+            logger.error(f"Thread not found: {message.thread_id}. Source: {__file__}")
             raise HTTPException(status_code=404, detail="Thread not found")
 
         # Check if sender exists
         db_user = self.db.query(User).filter(User.id == message.sender_id).first()
         if not db_user:
+            logger.error(f"Sender not found: {message.sender_id}. Source: {__file__}")
             raise HTTPException(status_code=404, detail="Sender not found")
 
+        # Create the message
         db_message = Message(
             id=IdentifierService.generate_message_id(),
-            assistant_id=None,
+            assistant_id=message.assistant_id,  # Include assistant_id
             attachments=[],
             completed_at=None,
             content=message.content,
@@ -47,9 +56,15 @@ class MessageService:
             sender_id=message.sender_id
         )
 
-        self.db.add(db_message)
-        self.db.commit()
-        self.db.refresh(db_message)
+        try:
+            self.db.add(db_message)
+            self.db.commit()
+            self.db.refresh(db_message)
+            logger.info(f"Message created successfully: id={db_message.id}. Source: {__file__}")
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Error creating message: {str(e)}. Source: {__file__}")
+            raise HTTPException(status_code=500, detail="Failed to create message")
 
         return MessageRead(
             id=db_message.id,
@@ -70,10 +85,17 @@ class MessageService:
         )
 
     def retrieve_message(self, message_id: str) -> MessageRead:
+        """
+        Retrieve a message by its ID.
+        """
+        logger.info(f"Retrieving message with id={message_id}. Source: {__file__}")
+
         db_message = self.db.query(Message).filter(Message.id == message_id).first()
         if not db_message:
+            logger.error(f"Message not found: {message_id}. Source: {__file__}")
             raise HTTPException(status_code=404, detail="Message not found")
 
+        logger.info(f"Message retrieved successfully: id={db_message.id}. Source: {__file__}")
         return MessageRead(
             id=db_message.id,
             assistant_id=db_message.assistant_id,
@@ -93,8 +115,14 @@ class MessageService:
         )
 
     def list_messages(self, thread_id: str, limit: int = 20, order: str = "asc") -> List[MessageRead]:
+        """
+        List messages for a thread, ordered by creation time.
+        """
+        logger.info(f"Listing messages for thread_id={thread_id}, limit={limit}, order={order}. Source: {__file__}")
+
         db_thread = self.db.query(Thread).filter(Thread.id == thread_id).first()
         if not db_thread:
+            logger.error(f"Thread not found: {thread_id}. Source: {__file__}")
             raise HTTPException(status_code=404, detail="Thread not found")
 
         query = self.db.query(Message).filter(Message.thread_id == thread_id)
@@ -104,6 +132,8 @@ class MessageService:
             query = query.order_by(Message.created_at.desc())
 
         db_messages = query.limit(limit).all()
+        logger.info(f"Retrieved {len(db_messages)} messages for thread_id={thread_id}. Source: {__file__}")
+
         return [
             MessageRead(
                 id=db_message.id,
@@ -125,27 +155,45 @@ class MessageService:
             for db_message in db_messages
         ]
 
-    def save_assistant_message_chunk(self, thread_id: str, content: str, assistant_id: str,
-                                     sender_id: str, is_last_chunk: bool = False,
-                                     ) -> Optional[MessageRead]:
+    def save_assistant_message_chunk(
+            self,
+            thread_id: str,
+            content: str,
+            role: str,
+            assistant_id: str,
+            sender_id: str,
+            is_last_chunk: bool = False,
+    ) -> MessageRead:
+        """
+        Save a message chunk from the assistant, with support for streaming and dynamic roles.
+        Returns the saved message as a Pydantic object.
+        """
+        logger.info(
+            f"Saving assistant message chunk for thread_id={thread_id}, sender_id={sender_id}, assistant_id={assistant_id}, role={role}, is_last_chunk={is_last_chunk}."
+        )
 
-
+        # Accumulate message chunks
         if thread_id not in self.message_chunks:
             self.message_chunks[thread_id] = []
 
         self.message_chunks[thread_id].append(content)
 
+        # Return early if this is not the last chunk
         if not is_last_chunk:
-            return None
+            logger.debug(f"Chunk saved for thread_id={thread_id}. Waiting for more chunks.")
+            return None  # Return None or a placeholder if not the last chunk
 
+        # Combine chunks into a complete message
         complete_message = ''.join(self.message_chunks[thread_id])
         del self.message_chunks[thread_id]
 
+        # Validate thread existence
         db_thread = self.db.query(Thread).filter(Thread.id == thread_id).first()
         if not db_thread:
+            logger.error(f"Thread not found: {thread_id}.")
             raise HTTPException(status_code=404, detail="Thread not found")
 
-        # Use provided assistant_id and sender_id
+        # Create and save the message
         db_message = Message(
             id=IdentifierService.generate_message_id(),
             assistant_id=assistant_id,
@@ -157,17 +205,24 @@ class MessageService:
             incomplete_details=None,
             meta_data=json.dumps({}),
             object="message",
-            role="assistant",
+            role=role,
             run_id=None,
             status=None,
             thread_id=thread_id,
             sender_id=sender_id
         )
 
-        self.db.add(db_message)
-        self.db.commit()
-        self.db.refresh(db_message)
+        try:
+            self.db.add(db_message)
+            self.db.commit()
+            self.db.refresh(db_message)  # Refresh to get the updated object
+            logger.info(f"Message saved successfully: id={db_message.id}.")
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Error saving message: {str(e)}.")
+            raise HTTPException(status_code=500, detail="Failed to save message")
 
+        # Return the saved message as a Pydantic object
         return MessageRead(
             id=db_message.id,
             assistant_id=db_message.assistant_id,
@@ -186,10 +241,15 @@ class MessageService:
             sender_id=db_message.sender_id
         )
 
-
     def list_messages_for_thread(self, thread_id: str) -> List[Dict[str, Any]]:
+        """
+        List messages for a thread in a formatted structure.
+        """
+        logger.info(f"Listing formatted messages for thread_id={thread_id}. Source: {__file__}")
+
         db_thread = self.db.query(Thread).filter(Thread.id == thread_id).first()
         if not db_thread:
+            logger.error(f"Thread not found: {thread_id}. Source: {__file__}")
             raise HTTPException(status_code=404, detail="Thread not found")
 
         db_messages = self.db.query(Message).filter(Message.thread_id == thread_id).order_by(
@@ -208,15 +268,19 @@ class MessageService:
                 "content": db_message.content
             })
 
+        logger.info(f"Retrieved {len(formatted_messages)} formatted messages for thread_id={thread_id}. Source: {__file__}")
         return formatted_messages
 
     def add_tool_message(self, existing_message_id: str, content: str) -> MessageRead:
-        logger.info(f"Adding tool message for existing message ID: {existing_message_id}")
+        """
+        Add a tool message to the thread.
+        """
+        logger.info(f"Adding tool message for existing message ID: {existing_message_id}. Source: {__file__}")
 
         # Retrieve the existing message
         existing_message = self.db.query(Message).filter(Message.id == existing_message_id).first()
         if not existing_message:
-            logger.error(f"Existing message not found: {existing_message_id}")
+            logger.error(f"Existing message not found: {existing_message_id}. Source: {__file__}")
             raise HTTPException(status_code=404, detail="Existing message not found")
 
         # Create a new message with role "tool"
@@ -235,17 +299,17 @@ class MessageService:
             run_id=existing_message.run_id,
             status=None,
             thread_id=existing_message.thread_id,
-            sender_id="tool"  # Or you might want to use a specific tool identifier here
+            sender_id="tool"
         )
 
         try:
             self.db.add(new_message)
             self.db.commit()
             self.db.refresh(new_message)
-            logger.info(f"Tool message added successfully: {new_message.id}")
+            logger.info(f"Tool message added successfully: id={new_message.id}. Source: {__file__}")
         except Exception as e:
             self.db.rollback()
-            logger.error(f"Error adding tool message: {str(e)}")
+            logger.error(f"Error adding tool message: {str(e)}. Source: {__file__}")
             raise HTTPException(status_code=500, detail="Failed to add tool message")
 
         return MessageRead(
