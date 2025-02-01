@@ -48,8 +48,19 @@ class ClientActionService:
             logging_utility.error("HTTP error during action creation: %s", str(e))
             raise ValueError(f"HTTP error during action creation: {str(e)}")
 
-    def get_action(self, action_id: str) -> dict:
-        """Retrieve a specific action by its ID and return the validated response data."""
+    def get_action(self, action_id: str) -> ActionRead:
+        """
+        Retrieve a specific action by its ID and return the validated `ActionRead` object.
+
+        Args:
+            action_id: The ID of the action to retrieve.
+
+        Returns:
+            ActionRead: The validated action data.
+
+        Raises:
+            ValueError: If the action is not found or if there is a validation or request error.
+        """
         try:
             logging_utility.debug("Retrieving action with ID: %s", action_id)
 
@@ -59,24 +70,22 @@ class ClientActionService:
 
             # Parse and validate the response
             response_data = response.json()
-
-            # Add validation layer without changing return type
             validated_action = ActionRead(**response_data)
 
-            # Enhanced logging with structured data
+            # Log success and debug details
             logging_utility.info("Action retrieved successfully with ID: %s", action_id)
             logging_utility.debug(
                 "Validated action data: %s",
                 validated_action.model_dump(mode="json")
             )
 
-            return response_data  # Maintain raw response return for backward compatibility
+            return validated_action  # Return the validated Pydantic model
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 error_msg = f"Action {action_id} not found: {str(e)}"
                 logging_utility.error(error_msg)
-                return None
+                raise ValueError(error_msg)
             logging_utility.error("HTTP error during action retrieval: %s", str(e))
             raise ValueError(f"HTTP error during action retrieval: {str(e)}")
 
@@ -93,7 +102,6 @@ class ClientActionService:
         except Exception as e:
             logging_utility.error("Unexpected error: %s", str(e))
             raise ValueError(f"Unexpected error: {str(e)}")
-
 
     def update_action(self, action_id: str, status: str, result: Optional[Dict[str, Any]] = None) -> ActionRead:
         """Update an action's status and result."""

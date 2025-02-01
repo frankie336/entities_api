@@ -301,6 +301,7 @@ class ActionRead(BaseModel):
     id: str
     run_id: Optional[str] = None  # No default
     tool_id: Optional[str] = None  # No default
+    tool_name: Optional[str] = None  # No default
     triggered_at: Optional[str] = None  # Removed '123456' default
     expires_at: Optional[str] = None
     is_processed: Optional[bool] = None

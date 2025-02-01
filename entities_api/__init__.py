@@ -6,6 +6,7 @@ from entities_api.clients.inference.base_inference import BaseInference
 from entities_api.clients.inference.llama_local import LlamaLocal
 from entities_api.clients.inference.local_inference import LocalInference
 from entities_api.clients.inference.cloud_inference import CloudInference
+from entities_api.services.run_event_handler import EntitiesEventHandler
 
 
 from ollama._types import (
@@ -34,6 +35,7 @@ __all__ = [
     'LocalInference',
     'LlamaLocal',
     'CloudInference',
+    'EntitiesEventHandler'
 ]
 
 _client = OllamaClient()

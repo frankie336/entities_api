@@ -8,6 +8,8 @@ from entities_api.schemas import ActionCreate, ActionRead, ActionUpdate, ActionL
 from datetime import datetime
 from utils.conversion_utils import  datetime_to_iso
 from entities_api.services.identifier_service import IdentifierService
+from entities_api.clients.client_tool_client import ClientToolService
+
 
 logging_utility = LoggingUtility()
 
@@ -69,10 +71,16 @@ class ActionService:
                 logging_utility.error("Action not found in DB. Queried ID: %s", action_id)
                 raise HTTPException(status_code=404, detail=f"Action {action_id} not found")
 
+
+            # we indirectly fetch the tool name by id which is already available on another end point
+            tool_service = ClientToolService()
+            tool = tool_service.get_tool_by_id(tool_id=action.tool_id)
+
             return ActionRead(
                 id=action.id,
                 run_id=action.run_id,
                 tool_id=action.tool_id,
+                tool_name = tool.name,
                 triggered_at=datetime_to_iso(action.triggered_at),  # Use conversion utility
                 expires_at=datetime_to_iso(action.expires_at),
                 is_processed=action.is_processed,
