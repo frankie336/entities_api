@@ -1,9 +1,7 @@
-from datetime import datetime
 from enum import Enum
-from typing import List, Dict, Any
-from typing import Optional
+from typing import Optional, List, Any, Dict
 
-from pydantic import BaseModel, Field, validator, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class UserBase(BaseModel):
@@ -80,15 +78,16 @@ class MessageRole(str, Enum):
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-from pydantic import BaseModel, Field, validator, ConfigDict
+from pydantic import BaseModel, validator, ConfigDict
 
 
 class MessageCreate(BaseModel):
     content: str
     thread_id: str
-    sender_id: str
+    sender_id: Optional[str] = None
     assistant_id: str  # Required field
     role: str  # String-based role instead of Enum
+    tool_id: Optional[str] = None
     meta_data: Optional[Dict[str, Any]] = None
     is_last_chunk: bool = False
 
@@ -106,13 +105,14 @@ class MessageCreate(BaseModel):
             "example": {
                 "content": "Hello, this is a test message.",
                 "thread_id": "example_thread_id",
-                "sender_id": "example_sender_id",
                 "assistant_id": "example_assistant_id",
                 "meta_data": {"key": "value"},
                 "role": "user"
             }
         }
     )
+
+
 
 
 class MessageRead(BaseModel):
@@ -128,9 +128,10 @@ class MessageRead(BaseModel):
     object: str
     role: str  # String-based role
     run_id: Optional[str]
+    tool_id: Optional[str] = None
     status: Optional[str]
     thread_id: str
-    sender_id: str
+    sender_id: Optional[str] = None  # ✅ Made Optional
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -294,6 +295,46 @@ class Run(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+
+class ActionStatus(str, Enum):
+    pending = "pending"
+    processing = "processing"
+    completed = "completed"
+    failed = "failed"
+    expired = "expired"
+    cancelled = "cancelled"
+    retrying = "retrying"
+
+class ActionCreate(BaseModel):
+    id: Optional[str] = None
+    tool_name: Optional[str] = None
+    run_id: str
+    function_args: Optional[Dict[str, Any]] = {}
+    expires_at: Optional[datetime] = None
+    status: ActionStatus = ActionStatus.pending  # Default to "pending"
+
+    @validator('tool_name', pre=True, always=True)
+    def validate_tool_fields(cls, v):
+        if not v:
+            raise ValueError('Tool name must be provided.')
+        return v
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "tool_name": "example_tool_name",
+                "run_id": "example_run_id",
+                "function_args": {"arg1": "value1", "arg2": "value2"},
+                "expires_at": "2024-09-10T12:00:00Z",
+                "status": "pending"
+            }
+        }
+    )
+
+
+
+
 # ------------------------
 # Action Schemas (Corrected)
 # ------------------------
@@ -306,7 +347,7 @@ class ActionRead(BaseModel):
     expires_at: Optional[str] = None
     is_processed: Optional[bool] = None
     processed_at: Optional[str] = None
-    status: str  # Required field (database should always have this)
+    status: ActionStatus  # Use ActionStatus enum for validation
     function_args: Optional[dict] = None
     result: Optional[dict] = None
 
@@ -315,6 +356,7 @@ class ActionRead(BaseModel):
         extra='forbid',
         validate_assignment=True
     )
+
 
 class RunReadDetailed(BaseModel):
     id: str
@@ -350,8 +392,21 @@ class RunReadDetailed(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class RunStatus(str, Enum):
+    queued = "queued"
+    in_progress = "in_progress"
+    pending_action = "action_required"
+    completed = "completed"
+    failed = "failed"
+    cancelled = "cancelled"
+    pending = "pending"
+    processing = "processing"
+    expired = "expired"
+    retrying = "retrying"
+
+
 class RunStatusUpdate(BaseModel):
-    status: str
+    status: RunStatus
 
 
 class AssistantCreate(BaseModel):
@@ -411,43 +466,16 @@ class ActionBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class ActionCreate(BaseModel):
-    id: Optional[str] = None
-    tool_name: Optional[str] = None
-    run_id: str
-    function_args: Optional[Dict[str, Any]] = {}
-    expires_at: Optional[datetime] = None
-
-    @validator('tool_name', pre=True, always=True)
-    def validate_tool_fields(cls, v):
-        if not v:
-            raise ValueError('Tool name must be provided.')
-        return v
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "tool_name": "example_tool_name",
-                "run_id": "example_run_id",
-                "function_args": {"arg1": "value1", "arg2": "value2"},
-                "expires_at": "2024-09-10T12:00:00Z"
-            }
-        }
-    )
-
-
-
-
-
 class ActionList(BaseModel):
     actions: List[ActionRead]
 
 
 class ActionUpdate(BaseModel):
-    status: str
+    status: ActionStatus  # Use the ActionStatus enum here
     result: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)
+
 
 
 class SandboxBase(BaseModel):
@@ -486,7 +514,5 @@ class CodeExecutionRequest(BaseModel):
 class CodeExecutionResponse(BaseModel):
     output: Optional[str] = None
     error: Optional[str] = None
-
-
 
 

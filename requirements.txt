@@ -39,3 +39,4 @@ setuptools~=72.1.0
 groq
 openai
 azure-ai-inference
+transformers

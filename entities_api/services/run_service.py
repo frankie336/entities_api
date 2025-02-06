@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from entities_api.schemas import Tool
 from entities_api.services.identifier_service import IdentifierService
 from entities_api.services.logging_service import LoggingUtility
-from models.models import Run  # Ensure Run is imported
+from entities_api.models.models import Run, StatusEnum  # Ensure Run is imported
 
 
 class RunService:
@@ -53,12 +53,18 @@ class RunService:
         self.db.refresh(run)
         return run
 
+
     def update_run_status(self, run_id: str, new_status: str):
         run = self.db.query(Run).filter(Run.id == run_id).first()
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
 
-        run.status = new_status
+        try:
+            # Convert the string to the StatusEnum type
+            run.status = StatusEnum(new_status)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {new_status}")
+
         self.db.commit()
         self.db.refresh(run)
         return run

@@ -28,7 +28,7 @@ services:
     restart: always
     environment:
       - DATABASE_URL=mysql+pymysql://ollama:3e4Qv5uo2Cg31zC1@db:3306/cosmic_catalyst
-      - SANDBOX_SERVER_URL=http://sandbox:8000  # Added environment variable
+      - SANDBOX_SERVER_URL=http://sandbox:8000  # Added environment variable for sandbox server
     ports:
       - "9000:9000"
     depends_on:
@@ -37,6 +37,8 @@ services:
       sandbox:
         condition: service_started  # Ensure sandbox is started before api
     command: ["./wait-for-it.sh", "db:3306", "--", "uvicorn", "entities_api.main:app", "--host", "0.0.0.0", "--port", "9000"]
+    volumes:
+      - C:/Users/franc/Models/HuggingFace:/app/models  # Mounting model directory
 
   sandbox:
     build:

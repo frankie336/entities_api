@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, joinedload
 from entities_api.schemas import ToolCreate, ToolUpdate, ToolRead
 from entities_api.services.identifier_service import IdentifierService
 from entities_api.services.logging_service import LoggingUtility
-from models.models import Tool, Assistant
+from entities_api.models.models import Tool, Assistant
 
 logging_utility = LoggingUtility()
 

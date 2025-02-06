@@ -1,78 +1,89 @@
-# backend/app/services/event_handlers/run_event_handler.py
-
-import time
+import json
 import threading
+import time
 from typing import Optional, Dict, Any, List
+from entities_api.clients.client_actions_client import ClientActionService
+from entities_api.clients.client_run_client import ClientRunService
 from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 
-
 class EntitiesEventHandler:
-    def __init__(self, run_service, action_service):
-        """
-        Enhanced event handler to monitor runs, detect triggered events, and handle callbacks.
-        """
+    """
+    Event handler to monitor AI runs, detect triggered events, and handle callbacks dynamically.
+    """
+
+    def __init__(self, run_service, action_service, event_callback=None):
         self.run_service = run_service
         self.action_service = action_service
+        self.event_callback = event_callback  # External callback for event handling
         self.active_monitors: Dict[str, threading.Thread] = {}
         self._current_run: Optional[Any] = None
         self._current_tool_call: Optional[Any] = None
 
+        self._action_service = ClientActionService()
+
     def start_monitoring(self, run_id: str):
         """
-        Start monitoring a run in a dedicated thread.
+        Start monitoring a run asynchronously.
         """
-        if run_id not in self.active_monitors:
-            monitor_thread = threading.Thread(
-                target=self._monitor_run_status,
-                args=(run_id,),
-                daemon=True
-            )
-            self.active_monitors[run_id] = monitor_thread
-            monitor_thread.start()
-            logging_utility.info(f"Started monitoring run {run_id}")
-        else:
-            logging_utility.info(f"Run {run_id} is already being monitored")
+        if run_id in self.active_monitors:
+            logging_utility.info(f"Run {run_id} is already being monitored.")
+            return
+
+        monitor_thread = threading.Thread(
+            target=self._monitor_run_status,
+            args=(run_id,),
+            daemon=True
+        )
+        self.active_monitors[run_id] = monitor_thread
+        monitor_thread.start()
+        logging_utility.info(f"Started monitoring run {run_id}")
 
     def _monitor_run_status(self, run_id: str):
         """
-        Internal method to monitor the run status and detect triggered events.
+        Monitor the run's status and trigger corresponding event handlers.
         """
         while True:
             try:
                 run = self.run_service.retrieve_run(run_id)
                 logging_utility.info(f"Run {run_id} status: {run.status}")
 
-                # Emit events based on run status
                 if run.status == "action_required":
-                    self._emit_event({"type": "action_required", "data": run})
-                    break  # Exit after handling the event
+                    self._emit_event("action_required", run)
+                    break
 
-                if run.status in ["completed", "failed", "cancelled"]:
-                    self._emit_event({"type": "run_ended", "data": run})
-                    break  # Exit if the run has ended
+                if run.status in {"completed", "failed", "cancelled"}:
+                    self._emit_event("run_ended", run)
+                    break
 
-                time.sleep(2)  # Polling interval
-
+                time.sleep(2)
             except Exception as e:
                 logging_utility.error(f"Error monitoring run {run_id}: {str(e)}")
-                self._emit_event({"type": "error", "data": str(e)})
+                self._emit_event("error", str(e))
                 break
 
         self.active_monitors.pop(run_id, None)
 
-    def _emit_event(self, event: Dict[str, Any]):
+    def stop_monitoring(self, run_id: str):
         """
-        Process an incoming event and trigger the appropriate callback.
+        Stop monitoring a run.
         """
-        event_type = event["type"]
-        event_data = event["data"]
+        if run_id in self.active_monitors:
+            thread = self.active_monitors.pop(run_id)
+            thread.join(timeout=1)
+            logging_utility.info(f"Stopped monitoring run {run_id}")
 
-        # Trigger the generic event callback
-        self.on_event(event)
+    def _emit_event(self, event_type: str, event_data: Any):
+        """
+        Emit an event and trigger the appropriate callback.
+        """
+        logging_utility.info(f"Event triggered: {event_type}")
 
-        # Trigger specific event callbacks
+        # Directly pass the event_type and event_data to the callback.
+        if self.event_callback:
+            self.event_callback(event_type, event_data)
+
         if event_type == "action_required":
             self.on_action_required(event_data)
         elif event_type == "run_ended":
@@ -80,129 +91,93 @@ class EntitiesEventHandler:
         elif event_type == "error":
             self.on_error(event_data)
 
-    def stop_monitoring(self, run_id: str):
-        """
-        Stop monitoring a specific run.
-        """
-        if run_id in self.active_monitors:
-            thread = self.active_monitors.pop(run_id)
-            thread.join(timeout=1)
-            logging_utility.info(f"Stopped monitoring run {run_id}")
-
-    # Event Callbacks
-    def on_event(self, event: Dict[str, Any]):
-        """
-        Callback for every event.
-        """
-        logging_utility.info(f"Event received: {event['type']}")
-
     def on_action_required(self, run: Any):
         """
-        Callback when action is required for a run.
+        Handle actions required for a run.
         """
         logging_utility.info(f"Action required for run: {run.id}")
         self._current_run = run
 
-        # Fetch and process pending actions
-        pending_actions = self._get_pending_actions(run.id)
+        # Mimic your original behavior:
+        # Fetch pending actions by calling get_actions_by_status, then get each action.
+        pending_actions = []
+        pending_action_ids = self.action_service.get_actions_by_status(run.id, status="pending")
+        if pending_action_ids:
+            for action_id in pending_action_ids:
+                try:
+                    action = self.action_service.get_action(action_id["id"])
+                    if action:
+                        pending_actions.append(action)
+                except Exception as e:
+                    logging_utility.warning(f"Failed to retrieve action {action_id['id']}: {str(e)}")
+
         if pending_actions:
-            logging_utility.info(f"Processing {len(pending_actions)} pending actions for run {run.id}.")
+            logging_utility.info(f"Processing {len(pending_actions)} actions for run {run.id}.")
             for action in pending_actions:
                 self.on_tool_call_created(action)
         else:
-            logging_utility.info(f"No valid pending actions found for run {run.id}.")
+            logging_utility.info(f"No pending actions for run {run.id}.")
 
     def on_run_ended(self, run: Any):
         """
-        Callback when a run has ended.
+        Handle when a run ends.
         """
-        logging_utility.info(f"Run ended: {run.id} with status: {run.status}")
+        logging_utility.info(f"Run {run.id} ended with status: {run.status}")
         self._current_run = None
 
     def on_error(self, error: str):
         """
-        Callback when an error occurs during monitoring.
+        Handle errors during monitoring.
         """
-        logging_utility.error(f"Error during monitoring: {error}")
+        logging_utility.error(f"Monitoring error: {error}")
 
     def on_tool_call_created(self, tool_call: Any):
         """
-        Callback when a tool call is created.
+        Handle tool invocation when a tool call is created.
         """
-        logging_utility.info(f"Tool call created: {tool_call.id}")
+        logging_utility.info(f"Tool call created: {tool_call.id} (Tool: {tool_call.tool_name})")
         self._current_tool_call = tool_call
 
-        # Log detailed information about the tool call
         try:
-            action_id = tool_call.id
-            tool_id = tool_call.tool_id
-            function_args = tool_call.function_args
-            expires_at = tool_call.expires_at
-            status = tool_call.status
+            tool_call_result = self._invoke_tool(tool_call)
+            # Construct the event payload with additional context (thread_id and assistant_id).
+            tool_event = {
+                "event": "tool_invoked",
+                "tool_call_id": tool_call.id,
+                "tool_id": tool_call.tool_id,
+                "tool_name": tool_call.tool_name,
+                "function_args": tool_call.function_args,
+                "result": tool_call_result,
+                "thread_id": self._current_run.thread_id if self._current_run and hasattr(self._current_run, "thread_id") else None,
+                "assistant_id": self._current_run.assistant_id if self._current_run and hasattr(self._current_run, "assistant_id") else None,
+            }
 
-            logging_utility.info(
-                f"Processing action with ID {action_id}: "
-                f"tool_id={tool_id}, function_args={function_args}, "
-                f"expires_at={expires_at}, status={status}"
-            )
+            logging_utility.info(f"Emitting tool invoked event: {json.dumps(tool_event)}")
+            if self.event_callback:
+                self.event_callback("tool_invoked", tool_event)
 
-            # Example: Update action status to 'in_progress'
-            if status == "pending":
-                logging_utility.info(f"Action {action_id} marked as in_progress.")
-                # Here, you would typically call a method to update the action status in the database
-                # Example: self.action_service.update_action_status(action_id, "in_progress")
-
-            # Example: Invoke a tool based on the action's function_args
-            if function_args:
-                logging_utility.info(f"Invoking tool with function_args: {function_args}")
-                # Here, you would typically call a method to invoke the tool
-                # Example: tool_result = self._invoke_tool(function_args)
-
-            if tool_id:
-                logging_utility.info(f"Invoking tool with the ID: {tool_id}")
-                # Here, you would typically call a method to invoke the tool
-                # Example: tool_result = self._invoke_tool(function_args)
+            # After processing the tool event, update the run status to "in_progress"
+            if self._current_run:
+                run_id = self._current_run.id
+                run_client = ClientRunService()
+                # Update the run status to "in_progress" after handling the tool call.
+                run_client.update_run_status(run_id=run_id, new_status='in_progress')
+                logging_utility.info(f"Run {run_id} status updated to in_progress after tool invocation.")
 
         except Exception as e:
-            logging_utility.error(f"Error processing tool call with ID {tool_call.id}: {str(e)}")
+            logging_utility.error(f"Error invoking tool: {str(e)}")
 
-    def on_tool_call_done(self, tool_call: Any):
+    def _invoke_tool(self, tool_call: Any):
         """
-        Callback when a tool call is completed.
+        Perform the actual tool invocation and return the result.
         """
-        logging_utility.info(f"Tool call done: {tool_call.id}")
-        self._current_tool_call = None
+        logging_utility.info(f"Invoking tool: {tool_call.tool_name}")
+        # Replace with actual tool invocation logic as needed.
+        return {"status": "success", "result": "Tool output"}
 
-
-    def _get_tool_details(self):
-
-        pass
-
-
-    def _get_pending_actions(self, run_id: str) -> List[Any]:
+    def _submit_tool_output(self, tool_call: Any, tool_result: Any):
         """
-        Fetch pending actions for a run.
+        Submit the tool's result to the system.
         """
-        pending_actions = []
-        try:
-            pending_action_ids = self.action_service.get_actions_by_status(run_id, status="pending")
-            if pending_action_ids:
-                for action_id in pending_action_ids:
-                    try:
-                        action = self.action_service.get_action(action_id["id"])
-                        if action:  # Ensure action is not None
-                            pending_actions.append(action)
-                    except Exception as e:
-                        logging_utility.warning(f"Failed to retrieve action {action_id['id']}: {str(e)}")
-        except Exception as e:
-            logging_utility.error(f"Error fetching pending actions: {str(e)}")
-
-        return pending_actions
-
-    def _invoke_tool(self, function_args: Dict[str, Any]):
-        """
-        Placeholder method to invoke a tool.
-        """
-        # Implement tool invocation logic here
-        logging_utility.info(f"Tool invoked with function_args: {function_args}")
-        return {"result": "success"}
+        logging_utility.info(f"Submitting result for tool {tool_call.tool_name}: {tool_result}")
+        self.action_service.submit_tool_result(tool_call.id, tool_result)

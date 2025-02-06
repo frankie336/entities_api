@@ -2,6 +2,8 @@ import time
 from datetime import datetime
 from sqlalchemy import Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, Text
 from sqlalchemy.orm import relationship, declarative_base, joinedload
+from sqlalchemy import Enum
+from enum import Enum as PyEnum
 
 Base = declarative_base()
 
@@ -23,6 +25,21 @@ user_assistants = Table(
     Column('user_id', String(64), ForeignKey('users.id'), primary_key=True),
     Column('assistant_id', String(64), ForeignKey('assistants.id'), primary_key=True)
 )
+
+
+
+class StatusEnum(PyEnum):
+    queued = "queued"
+    in_progress = "in_progress"
+    pending_action ="action_required"
+    completed = "completed"
+    failed = "failed"
+    cancelled = "cancelled"
+    pending = "pending"
+    processing = "processing"
+    expired = "expired"
+    retrying = "retrying"
+
 
 # Models
 class User(Base):
@@ -48,6 +65,8 @@ class Thread(Base):
     participants = relationship('User', secondary=thread_participants, back_populates='threads')
 
 
+from sqlalchemy import Text
+
 class Message(Base):
     __tablename__ = "messages"
 
@@ -55,7 +74,7 @@ class Message(Base):
     assistant_id = Column(String(64), index=True)
     attachments = Column(JSON, default=[])
     completed_at = Column(Integer, nullable=True)
-    content = Column(Text, nullable=False)
+    content = Column(Text(length=4294967295), nullable=False)  # Specify LONGTEXT size explicitly
     created_at = Column(Integer, nullable=False)
     incomplete_at = Column(Integer, nullable=True)
     incomplete_details = Column(JSON, nullable=True)
@@ -63,9 +82,11 @@ class Message(Base):
     object = Column(String(64), nullable=False)
     role = Column(String(32), nullable=False)
     run_id = Column(String(64), nullable=True)
+    tool_id = Column(String(64), nullable=True)
     status = Column(String(32), nullable=True)
     thread_id = Column(String(64), nullable=False)
-    sender_id = Column(String(64), nullable=False)
+    sender_id = Column(String(64), nullable=True)
+
 
 
 class Run(Base):
@@ -90,7 +111,7 @@ class Run(Base):
     required_action = Column(String(256), nullable=True)
     response_format = Column(String(64), nullable=True)
     started_at = Column(DateTime, nullable=True)
-    status = Column(String(32), nullable=False)
+    status = Column(Enum(StatusEnum), nullable=False)  # Use StatusEnum here
     thread_id = Column(String(64), nullable=False)
     tool_choice = Column(String(64), nullable=True)
     tools = Column(JSON, nullable=True)
@@ -144,7 +165,7 @@ class Action(Base):
     expires_at = Column(DateTime, nullable=True)
     is_processed = Column(Boolean, default=False)
     processed_at = Column(DateTime, nullable=True)
-    status = Column(String(32), nullable=False, default="pending")
+    status = Column(Enum(StatusEnum), nullable=False, default=StatusEnum.pending)  # Use StatusEnum here
     function_args = Column(JSON, nullable=True)
     result = Column(JSON, nullable=True)
 

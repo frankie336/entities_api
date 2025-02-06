@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any, List
 import httpx
 from pydantic import ValidationError
 
-from entities_api.schemas import ActionRead, ActionUpdate, ActionCreate
+from entities_api.schemas import ActionRead, ActionUpdate, ActionCreate, ActionStatus
 from entities_api.services.identifier_service import IdentifierService
 from entities_api.services.logging_service import LoggingUtility
 
@@ -103,9 +103,11 @@ class ClientActionService:
             logging_utility.error("Unexpected error: %s", str(e))
             raise ValueError(f"Unexpected error: {str(e)}")
 
-    def update_action(self, action_id: str, status: str, result: Optional[Dict[str, Any]] = None) -> ActionRead:
+    def update_action(self, action_id: str, status: ActionStatus,
+                      result: Optional[Dict[str, Any]] = None) -> ActionRead:
         """Update an action's status and result."""
         try:
+            # Create the payload using the ActionUpdate schema
             payload = ActionUpdate(status=status, result=result).dict(exclude_none=True)
             logging_utility.debug("Payload for action update: %s", payload)
 
@@ -113,6 +115,7 @@ class ClientActionService:
             response = self.client.put(f"/v1/actions/{action_id}", json=payload)
             response.raise_for_status()
 
+            # Parse the response
             response_data = response.json()
             validated_action = ActionRead(**response_data)
             logging_utility.info("Action updated successfully with ID: %s", action_id)

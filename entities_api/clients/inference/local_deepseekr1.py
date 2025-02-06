@@ -71,7 +71,7 @@ class DeepSeekR1Local(BaseInference):
                         parsed_response = json.loads(function_response)
 
                         # Save the tool response
-                        self.message_service.add_tool_message(message_id, function_response)
+                        self.message_service.submit_tool_output(message_id, function_response)
                         logging_utility.info(f"Tool response saved to thread: {thread_id}")
 
                         tool_results.append(parsed_response)  # Collect successful results

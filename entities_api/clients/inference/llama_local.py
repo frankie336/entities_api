@@ -37,7 +37,7 @@ class LlamaLocal(BaseInference):
                 func_response = self.available_functions[func_name](**func_args)
                 parsed_response = json.loads(func_response)
 
-                self.message_service.add_tool_message(message_id, func_response)
+                self.message_service.submit_tool_output(message_id, func_response)
                 tool_results.append(parsed_response)
 
         except Exception as e:

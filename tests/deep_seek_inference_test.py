@@ -16,7 +16,6 @@ print(response.choices[0].message.content)
 
 
 
-
 # Round 1
 messages = [{"role": "user", "content": "9.11 and 9.8, which is greater?"}]
 response = client.chat.completions.create(

@@ -3,7 +3,7 @@
 import os
 from fastapi import FastAPI
 from sqlalchemy import create_engine, text, inspect
-from models.models import Base
+from entities_api.models.models import Base
 from entities_api.routers import api_router  # Importing the combined API router
 from entities_api.services.logging_service import LoggingUtility
 

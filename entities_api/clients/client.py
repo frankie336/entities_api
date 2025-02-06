@@ -34,15 +34,6 @@ class OllamaClient:
         self.base_url = base_url or os.getenv('ASSISTANTS_BASE_URL', 'http://localhost:9000/')
         self.api_key = api_key or os.getenv('API_KEY', 'your_api_key')
 
-        # Initialize service clients with type annotations
-        self.user_service: UserService = UserService(self.base_url, self.api_key)
-        self.assistant_service: ClientAssistantService = ClientAssistantService(self.base_url, self.api_key)
-        self.tool_service: ClientToolService = ClientToolService(self.base_url, self.api_key)
-        self.thread_service: ThreadService = ThreadService(self.base_url, self.api_key)
-        self.message_service: ClientMessageService = ClientMessageService(self.base_url, self.api_key)
-        self.run_service: ClientRunService = ClientRunService(self.base_url, self.api_key)
-        self.action_service: ClientActionService = ClientActionService(self.base_url, self.api_key)
-        self.sandbox_service: SandboxClientService = SandboxClientService(self.base_url, self.api_key)
         self.code_executor_service: ClientCodeService = ClientCodeService(
             sandbox_server_url=os.getenv('CODE_SERVER_URL', 'http://localhost:9000/v1/execute_code')
         )
@@ -58,40 +49,52 @@ class OllamaClient:
 
     # Service Accessors with Type Annotations
     @property
-    def get_user_service(self) -> UserService:
-        return self.user_service
+    def user_service(self) -> UserService:
+
+        user_service = UserService(base_url=self.base_url, api_key=self.api_key)
+
+        return user_service
 
     @property
-    def get_assistant_service(self) -> ClientAssistantService:
-        return self.assistant_service
+    def assistant_service(self) -> ClientAssistantService:
+        assistant_service = ClientAssistantService(base_url=self.base_url, api_key=self.api_key)
+        return assistant_service
 
     @property
-    def get_tool_service(self) -> ClientToolService:
-        return self.tool_service
+    def tool_service(self) -> ClientToolService:
+
+        tool_service =  ClientToolService()
+
+        return tool_service
 
     @property
-    def get_thread_service(self) -> ThreadService:
-        return self.thread_service
+    def thread_service(self) -> ThreadService:
+        return ThreadService(base_url=self.base_url, api_key=self.api_key)
+
 
     @property
-    def get_message_service(self) -> ClientMessageService:
-        return self.message_service
+    def message_service(self) -> ClientMessageService:
+        return ClientMessageService(base_url=self.base_url, api_key=self.api_key)
 
     @property
-    def get_run_service(self) -> ClientRunService:
-        return self.run_service
+    def run_service(self) -> ClientRunService:
+        return ClientRunService()
 
     @property
-    def get_action_service(self) -> ClientActionService:
-        return self.action_service
+    def action_service(self) -> ClientActionService:
+        return ClientActionService()
 
     @property
-    def get_sandbox_service(self) -> SandboxClientService:
-        return self.sandbox_service
+    def sandbox_service(self) -> SandboxClientService:
+        return SandboxClientService(base_url=self.base_url, api_key=self.api_key)
 
     @property
-    def get_code_executor_service(self) -> ClientCodeService:
+    def code_executor_service(self) -> ClientCodeService:
         return self.code_executor_service
+
+    @code_executor_service.setter
+    def code_executor_service(self, value):
+        self._code_executor_service = value
 
 
 

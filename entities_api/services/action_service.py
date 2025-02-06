@@ -1,10 +1,10 @@
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
-from models.models import Action, Tool, Run
+from entities_api.models.models import Action, Tool, Run
 from typing import List, Optional, Dict, Any
 from entities_api.services.logging_service import LoggingUtility
-from entities_api.schemas import ActionCreate, ActionRead, ActionUpdate, ActionList
+from entities_api.schemas import ActionCreate, ActionRead, ActionUpdate, ActionStatus
 from datetime import datetime
 from utils.conversion_utils import  datetime_to_iso
 from entities_api.services.identifier_service import IdentifierService
@@ -101,16 +101,21 @@ class ActionService:
             if not action:
                 raise HTTPException(status_code=404, detail=f"Action with ID {action_id} not found")
 
+            # Validate status value by checking the ActionStatus enum
+            if action_update.status not in ActionStatus.__members__:
+                raise HTTPException(status_code=400, detail="Invalid status value")
+
             # Update fields
             action.status = action_update.status
             action.result = action_update.result
-            if action_update.status == "completed":
+            if action_update.status == ActionStatus.completed:  # Use the enum value here
                 action.is_processed = True
                 action.processed_at = datetime.now()
 
             self.db.commit()
             self.db.refresh(action)
 
+            # Return the updated ActionRead object
             return ActionRead(
                 id=action.id,
                 status=action.status,

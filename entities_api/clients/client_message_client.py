@@ -20,7 +20,7 @@ class ClientMessageService:
         self.message_chunks: Dict[str, List[str]] = {}  # Temporary storage for message chunks
         logging_utility.info("ClientMessageService initialized with base_url: %s", self.base_url)
 
-    def create_message(self, thread_id: str, content: str, sender_id: str, assistant_id: str,
+    def create_message(self, thread_id: str, content: str, assistant_id: str,
                        role: str = 'user', meta_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         if meta_data is None:
             meta_data = {}
@@ -29,7 +29,6 @@ class ClientMessageService:
             "thread_id": thread_id,
             "content": content,
             "role": role,
-            "sender_id": sender_id,
             "assistant_id": assistant_id,
             "meta_data": meta_data
         }
@@ -119,6 +118,7 @@ class ClientMessageService:
     def get_formatted_messages(self, thread_id: str, system_message: str = "") -> List[Dict[str, Any]]:
         logging_utility.info("Getting formatted messages for thread_id: %s", thread_id)
         logging_utility.info("Using system message: %s", system_message)
+
         try:
             response = self.client.get(f"/v1/threads/{thread_id}/formatted_messages")
             response.raise_for_status()
@@ -129,7 +129,14 @@ class ClientMessageService:
 
             logging_utility.debug("Initial formatted messages: %s", formatted_messages)
 
-            # Replace the system message if one already exists, otherwise insert it at the beginning
+            # Ensure tool messages conform to expected structure
+            for msg in formatted_messages:
+                if msg.get("role") == "tool":
+                    if "tool_call_id" not in msg or "content" not in msg:
+                        logging_utility.warning("Malformed tool message detected: %s", msg)
+                        raise ValueError(f"Malformed tool message: {msg}")
+
+            # Replace system message if one exists, otherwise insert it
             if formatted_messages and formatted_messages[0].get('role') == 'system':
                 formatted_messages[0]['content'] = system_message
                 logging_utility.debug("Replaced existing system message with: %s", system_message)
@@ -143,6 +150,7 @@ class ClientMessageService:
             logging_utility.info("Formatted messages after insertion: %s", formatted_messages)
             logging_utility.info("Retrieved %d formatted messages", len(formatted_messages))
             return formatted_messages
+
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 logging_utility.error("Thread not found: %s", thread_id)
@@ -268,23 +276,51 @@ class ClientMessageService:
             logging_utility.error("Unexpected error while saving assistant message chunk: %s", str(e))
             return None  # Failure
 
+    def submit_tool_output(
+            self,
+            thread_id: str,
+            content: str,
+            assistant_id: str,
+            tool_id: str,
+            role: str = 'tool',
+            sender_id: Optional[str] = None,  # Optional sender_id parameter
+            meta_data: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        if meta_data is None:
+            meta_data = {}
 
-def add_tool_message(self, message_id: str, content: str) -> MessageRead:
-        logging_utility.info("Adding tool message for message_id: %s", message_id)
+        message_data = {
+            "thread_id": thread_id,
+            "content": content,
+            "role": role,
+            "assistant_id": assistant_id,
+            "tool_id": tool_id,
+            "meta_data": meta_data
+        }
+
+        # Only add sender_id if it's NOT None
+        if sender_id is not None:
+            message_data["sender_id"] = sender_id
+
+        logging_utility.info("Creating message for thread_id: %s, role: %s", thread_id, role)
         try:
-            tool_message_data = ToolMessageCreate(content=content)
-            response = self.client.post(f"/v1/messages/{message_id}/tool", json=tool_message_data.model_dump())
+
+            validated_data = MessageCreate(**message_data)  # Validate data using the Pydantic model
+
+            response = self.client.post("/v1/messages/tools", json=validated_data.dict())
             response.raise_for_status()
-            tool_message = response.json()
-            validated_message = MessageRead(**tool_message)  # Validate response using Pydantic model
-            logging_utility.info("Tool message added successfully with id: %s", validated_message.id)
-            return validated_message
+            created_message = response.json()
+            logging_utility.info("Message created successfully with id: %s", created_message.get('id'))
+            return created_message
         except ValidationError as e:
             logging_utility.error("Validation error: %s", e.json())
             raise ValueError(f"Validation error: {e}")
         except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error occurred while adding tool message: %s", str(e))
+            logging_utility.error("HTTP error occurred while creating message: %s", str(e))
             raise
         except Exception as e:
-            logging_utility.error("An error occurred while adding tool message: %s", str(e))
+            logging_utility.error("An error occurred while creating message: %s", str(e))
             raise
+
+
+
