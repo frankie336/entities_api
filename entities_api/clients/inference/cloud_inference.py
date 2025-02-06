@@ -2,7 +2,7 @@ from entities_api.clients.inference.cloud_deepseek_r1 import DeepSeekR1Cloud
 from entities_api.clients.inference.cloud_deepseek_v3 import DeepSeekV3Cloud
 from entities_api.clients.inference.cloud_groq_deepseekr1_llama import GroqCloud
 from entities_api.clients.inference.cloud_azure_r1 import AzureR1Cloud
-from entities_api.clients.inference.cloud_hyperbolic_r1 import HyperbolicInference
+from entities_api.clients.inference.cloud_hyperbolic_r1 import HyperbolicR1Inference
 
 
 class CloudInference:
@@ -11,7 +11,7 @@ class CloudInference:
         self._deep_seek_v3 = DeepSeekV3Cloud()
         self._groq = GroqCloud()
         self._azure = AzureR1Cloud()
-        self._hyperbolic = HyperbolicInference()
+        self._hyperbolic = HyperbolicR1Inference()
 
     def get_deepseek_r1(self):
         return self._deep_seek_r1
