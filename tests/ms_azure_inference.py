@@ -15,8 +15,8 @@ logging.basicConfig(level=logging.INFO)
 class AzureR1Cloud:
     def setup_services(self):
         """Initialize the Azure AI Inference client."""
-        self.endpoint = "https://DeepSeek-R1-pancho.eastus2.models.ai.azure.com"
-        self.api_key = "HV6vTsiyIhfis5zPRG4B8b4jI7emEHsw"
+        self.endpoint = "https://test7059065274.services.ai.azure.com/models/chat/completions?api-version=2024-05-01-preview"
+        self.api_key = "DHMf5ACazFqVKSPUvRzLFKPC6b250C5s6vk6eHzMbqlQePMMYvFrJQQJ99BAACHYHv6XJ3w3AAAAACOGc3dI"
         self.client = ChatCompletionsClient(
             endpoint=self.endpoint,
             credential=AzureKeyCredential(self.api_key)

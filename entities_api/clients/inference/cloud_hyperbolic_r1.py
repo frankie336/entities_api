@@ -1,190 +1,113 @@
-import os
 import json
-import time
 import re
-import requests
-from dotenv import load_dotenv
-from entities_api.clients.inference.base_inference import BaseInference
-from entities_api.services.logging_service import LoggingUtility
 
-# Load environment variables from .env file
-load_dotenv()
+from entities_api.clients.client_message_client import ClientMessageService
+from entities_api.clients.inference.hyperbolic_base import HyperbolicBaseInference
+from entities_api.services.logging_service import LoggingUtility
 
 # Initialize logging utility
 logging_utility = LoggingUtility()
 
-class HyperbolicInference(BaseInference):
-    def setup_services(self):
-        """
-        Initialize the Hyperbolic API service.
-        """
-        self.api_url = "https://api.hyperbolic.xyz/v1/chat/completions"
-        self.headers = {
-            "Content-Type": "application/json",
-            "Authorization": (
-                "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-                "eyJzdWIiOiJwcmltZS50aGFub3MzMzZAZ21haWwuY29tIiwiaWF0IjoxNzM4NDc2MzgyfQ."
-                "4V27eTb-TRwPKcA5zit4pJckoEUEa7kxmHwFEn9kwTQ"
-            )
-        }
-        logging_utility.info("HyperbolicInference specific setup completed.")
+class HyperbolicR1Inference(HyperbolicBaseInference):
+    DEFAULT_MODEL = "deepseek-ai/DeepSeek-R1"
+    DEFAULT_TEMPERATURE = 0.6
+    # Regex to capture the reasoning markers: <think> and </think>
+    REASONING_PATTERN = re.compile(r'(<think>|</think>)')
 
-    def normalize_roles(self, conversation_history):
-        """
-        Normalize roles to ensure consistency with the Hyperbolic API.
-        """
-        normalized_history = []
-        for message in conversation_history:
-            role = message.get('role', '').strip().lower()
-            if role not in ['user', 'assistant', 'system']:
-                role = 'user'
-            normalized_history.append({
-                "role": role,
-                "content": message.get('content', '').strip()
-            })
-        return normalized_history
-
-    def process_conversation(self, thread_id, message_id, run_id, assistant_id,
-                             model='deepseek-ai/DeepSeek-R1', stream_reasoning=True):
-        """
-        Process conversation with dual streaming (content + reasoning)
-        using the Hyperbolic API via raw HTTP requests.
-
-        This version streams reasoning in real time by splitting the incoming
-        chunk on <think> and </think> markers and yielding each segment immediately.
-        """
-        logging_utility.info(
-            "Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
-            thread_id, run_id, assistant_id
-        )
-
-        # Retrieve assistant details
-        assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
-        logging_utility.info(
-            "Retrieved assistant: id=%s, name=%s, model=%s",
-            assistant.id, assistant.name, assistant.model
-        )
-
-        # Retrieve and normalize conversation history
-        conversation_history = self.message_service.get_formatted_messages(
-            thread_id, system_message=assistant.instructions
-        )
-        conversation_history = self.normalize_roles(conversation_history)
-        # Create messages in the expected format for the API
-        messages = [{"role": msg['role'], "content": msg['content']} for msg in conversation_history]
-
-        # Construct the request payload
-        payload = {
-            "messages": messages,
-            "model": model,
-            "stream": True,
-            "max_tokens": 100000,
-            "temperature": 0.6,
-            "top_p": 0.9
+    def __init__(self):
+        super().__init__()
+        # State to persist across streamed chunks
+        self.token_state = {
+            "in_reasoning": False,
+            "assistant_reply": "",
+            "reasoning_content": ""
         }
 
-        run_cancelled = False
-        assistant_reply = ""
-        reasoning_content = ""
-        in_reasoning = False  # Tracks if we're inside a reasoning segment
+    def _process_stream(self, response, run_id):
+        """
+        Override the base class stream processing to yield multiple tokens per line.
+        Iterates over each line from the streaming response and, for each line,
+        iterates over all tokens produced by process_line.
+        """
+        for line in response.iter_lines(decode_unicode=True):
+            if self._check_cancellation(run_id):
+                break
+
+            # process_line returns a generator of tokens for this line.
+            for token in self.process_line(line):
+                if token:
+                    yield token
+                    # Optionally, introduce a slight pause:
+                    # time.sleep(0.005)
+
+    def process_line(self, line):
+        """
+        Process a single streamed line from the API response.
+        Returns a generator of JSON-encoded tokens (content or reasoning segments).
+        """
+        if not line or line == "[DONE]":
+            return
+        # Remove the "data:" prefix if present.
+        if line.startswith("data:"):
+            line = line[len("data:"):].strip()
 
         try:
-            response = requests.post(
-                self.api_url,
-                headers=self.headers,
-                json=payload,
-                stream=True,
-                timeout=60  # Adjust the timeout as needed
-            )
-            response.raise_for_status()
-
-            # Process streamed responses line by line
-            for line in response.iter_lines(decode_unicode=True):
-                if not line:
-                    continue
-
-                # Remove the "data:" prefix if it exists
-                if line.startswith("data:"):
-                    line = line[len("data:"):].strip()
-
-                # Check if the line indicates stream completion
-                if line == "[DONE]":
-                    break
-
-                try:
-                    chunk = json.loads(line)
-                except json.JSONDecodeError:
-                    logging_utility.error("Failed to decode JSON from chunk: %s", line)
-                    continue
-
-                # Check for cancellation on each chunk
-                current_run = self.run_service.retrieve_run(run_id)
-                if current_run.status in ["cancelling", "cancelled"]:
-                    logging_utility.warning("Run %s cancelled during streaming", run_id)
-                    run_cancelled = True
-                    break
-
-                # Extract data from the chunk
-                choices = chunk.get("choices", [])
-                if not choices:
-                    continue
-
-                delta = choices[0].get("delta", {})
-                content_chunk = delta.get("content", "")
-
-                if content_chunk:
-                    # Instead of buffering the entire chunk, split it immediately
-                    # using <think> and </think> as markers.
-                    # This regex will split on the markers, keeping them as separate tokens.
-                    tokens = re.split(r'(<think>|</think>)', content_chunk)
-                    for token in tokens:
-                        if token == '<think>':
-                            in_reasoning = True
-                        elif token == '</think>':
-                            in_reasoning = False
-                        elif token:
-                            if in_reasoning:
-                                reasoning_content += token
-                                logging_utility.info("Yielding reasoning segment: %s", token)
-                                yield json.dumps({'type': 'reasoning', 'content': token})
-                            else:
-                                assistant_reply += token
-                                logging_utility.info("Yielding content segment: %s", token)
-                                yield json.dumps({'type': 'content', 'content': token})
-
-                time.sleep(0.005)  # slight pause to allow incremental delivery
-
-            # After stream ends, check for any remaining content
-            if run_cancelled:
-                self.run_service.update_run_status(run_id, "cancelled")
-                if assistant_reply:
-                    self.message_service.save_assistant_message_chunk(
-                        role='assistant',
-                        thread_id=thread_id,
-                        content=assistant_reply,
-                        is_last_chunk=True
-                    )
-                if reasoning_content:
-                    logging_utility.info("Saved partial reasoning content: %s", reasoning_content)
-                return
-
-        except Exception as e:
-            error_msg = "[ERROR] Hyperbolic API streaming error"
-            logging_utility.error(f"{error_msg}: {str(e)}", exc_info=True)
-            self.run_service.update_run_status(run_id, "failed")
-            yield json.dumps({'type': 'error', 'content': error_msg})
+            chunk = json.loads(line)
+        except json.JSONDecodeError:
+            logging_utility.error("Failed to decode JSON from chunk: %s", line)
             return
 
-        # Final state handling for successful completion
-        if assistant_reply:
-            self.message_service.save_assistant_message_chunk(
-                role='assistant',
-                thread_id=thread_id,
-                content=assistant_reply,
-                is_last_chunk=True
-            )
-            logging_utility.info("Assistant response stored successfully.")
-            self.run_service.update_run_status(run_id, "completed")
+        choices = chunk.get("choices", [])
+        if not choices:
+            return
 
-        if reasoning_content:
-            logging_utility.info("Final reasoning content: %s", reasoning_content)
+        delta = choices[0].get("delta", {})
+        content_chunk = delta.get("content", "")
+        if content_chunk:
+            # Delegate the token segmentation to a dedicated method.
+            yield from self._process_content_chunk(content_chunk)
+
+    def _process_content_chunk(self, content_chunk):
+        """
+        Dedicated method to process a content chunk using <think> and </think> markers.
+        Splits the chunk into tokens, toggles the state accordingly, accumulates content,
+        and yields JSON messages for each token.
+        """
+        tokens = re.split(self.REASONING_PATTERN, content_chunk)
+        for token in tokens:
+            if token == '<think>':
+                self.token_state["in_reasoning"] = True
+            elif token == '</think>':
+                self.token_state["in_reasoning"] = False
+            elif token:
+                if self.token_state["in_reasoning"]:
+                    self.token_state["reasoning_content"] += token
+                    logging_utility.info("Yielding reasoning segment: %s", token)
+                    yield json.dumps({'type': 'reasoning', 'content': token})
+                else:
+                    self.token_state["assistant_reply"] += token
+                    logging_utility.info("Yielding content segment: %s", token)
+                    yield json.dumps({'type': 'content', 'content': token})
+
+    def _finalize_run(self, run_id, assistant_id, thread_id, role, content, sender_id):
+        """
+        Override finalization to combine the raw reasoning text and the message content,
+        ensuring that all raw reasoning appears first followed by the message text.
+        The combined body is then saved as one message chunk.
+        """
+        # Concatenate reasoning text first, then the assistant message.
+        final_text = self.token_state["reasoning_content"] + self.token_state["assistant_reply"]
+
+        message_service = ClientMessageService()
+        message_service.save_assistant_message_chunk(
+            role='assistant',
+            thread_id=thread_id,
+            content=final_text,
+            assistant_id=assistant_id,
+            sender_id=assistant_id,
+            is_last_chunk=True
+        )
+        logging_utility.info("Final combined content stored successfully: %s", final_text)
+
+        # Delegate common finalization tasks (e.g., run status update) to the base class.
+        super()._finalize_run(run_id, assistant_id, thread_id, role, content, sender_id)

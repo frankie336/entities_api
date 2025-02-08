@@ -103,13 +103,20 @@ class HyperbolicBaseInference(BaseInference):
             )
             response.raise_for_status()
 
+            assistants_response = ""
+
             for line in self._process_stream(response, run_id):
+                assistants_response += line
                 yield line
 
-            self._finalize_run(run_id, assistant_id, thread_id)
+            self._finalize_run(run_id=run_id, assistant_id=assistant_id,
+                               thread_id=thread_id, role='assistant',
+                               content=assistants_response, sender_id=assistant_id)
 
         except Exception as e:
-            yield from self._handle_error(e, run_id)
+            yield from self._handle_error(e, run_id=run_id, thread_id=thread_id,
+                                          role='assistant', content=assistants_response,
+                                          assistant_id=assistant_id, sender_id=assistant_id )
 
     def _process_stream(self, response, run_id):
         """Stream processing pipeline with cancellation checks"""
@@ -137,20 +144,28 @@ class HyperbolicBaseInference(BaseInference):
             return True
         return False
 
-    def _finalize_run(self, run_id, assistant_id, thread_id):
+    def _finalize_run(self, run_id, assistant_id, thread_id, role, content, sender_id):
         """Common finalization tasks"""
 
         run_service = ClientRunService()
+        message_service = ClientMessageService()
+        message_service.save_assistant_message_chunk(thread_id, role, content, assistant_id, sender_id,
+                                                     is_last_chunk=True)
+
         run_service.update_run_status(run_id, "completed")
         logging_utility.info(
             f"Completed processing for run {run_id} "
             f"(assistant: {assistant_id}, thread: {thread_id})"
         )
 
-    def _handle_error(self, error, run_id):
+    def _handle_error(self, error, run_id, thread_id, role, content, assistant_id, sender_id):
         """Centralized error handling"""
         error_msg = f"API streaming error: {str(error)}"
         logging_utility.error(error_msg, exc_info=True)
         run_service = ClientRunService()
+
+        message_service = ClientMessageService()
+        message_service.save_assistant_message_chunk(thread_id, role, content, assistant_id, sender_id, is_last_chunk=True)
+
         run_service.update_run_status(run_id, "failed")
         yield json.dumps({'type': 'error', 'content': error_msg})
