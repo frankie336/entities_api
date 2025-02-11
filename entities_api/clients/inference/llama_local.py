@@ -76,6 +76,8 @@ class LlamaLocal(BaseInference):
 
                 # Check for cancellation
                 current_status = self.run_service.retrieve_run(run_id).status
+
+
                 if current_status in ["cancelling", "cancelled"]:
                     # Immediately save accumulated content
                     self.message_service.save_assistant_message_chunk(

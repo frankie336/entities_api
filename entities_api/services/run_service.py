@@ -118,22 +118,22 @@ class RunService:
             self.logger.info("Run with ID %s found. Current status: %s", run_id, run.status)
 
             # Check if the run can be cancelled
-            if run.status in ["completed", "cancelled"]:
+            if run.status in [StatusEnum.completed, StatusEnum.cancelled]:
                 self.logger.warning("Cannot cancel run with ID %s because it is already %s", run_id, run.status)
                 raise HTTPException(status_code=400, detail="Cannot cancel a completed or already cancelled run")
 
             # Set the status to 'cancelling'
             self.logger.info("Setting status to 'cancelling' for run ID %s", run_id)
-            run.status = "cancelling"
+            run.status = StatusEnum.cancelling
             self.db.commit()
             self.db.refresh(run)
             self.logger.info("Run ID %s status set to 'cancelling'", run_id)
 
             # Now, set the status to 'cancelled'
             self.logger.info("Setting status to 'cancelled' for run ID %s", run_id)
-            run.status = "cancelled"
+            run.status = StatusEnum.cancelled
 
-            #run.cancelled_at = datetime.utcnow()  # Use datetime object instead of Unix timestamp
+            # run.cancelled_at = datetime.utcnow()  # Use datetime object instead of Unix timestamp
 
             self.db.commit()
             self.db.refresh(run)

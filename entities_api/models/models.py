@@ -34,6 +34,7 @@ class StatusEnum(PyEnum):
     pending_action ="action_required"
     completed = "completed"
     failed = "failed"
+    cancelling = "cancelling"
     cancelled = "cancelled"
     pending = "pending"
     processing = "processing"
@@ -189,5 +190,4 @@ class Sandbox(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     status = Column(String(32), nullable=False, default="active")
     config = Column(JSON, nullable=True)
-
     user = relationship("User", back_populates="sandboxes")

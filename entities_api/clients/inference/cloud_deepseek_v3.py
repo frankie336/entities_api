@@ -19,7 +19,7 @@ class DeepSeekV3Cloud(BaseInference):
         Initialize the DeepSeek client and other services.
         """
         self.deepseek_client = OpenAI(
-            api_key="sk-f7c38a5f36e44b3e849d13b7e40f7157",
+            api_key="sk-33b3dbc54dd7408793117d410788acbf",
             base_url="https://api.deepseek.com"
         )
         logging_utility.info("DeepSeekV3Cloud specific setup completed.")

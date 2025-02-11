@@ -13,7 +13,7 @@ class EntitiesEventHandler:
     Event handler to monitor AI runs, detect triggered events, and handle callbacks dynamically.
     """
 
-    def __init__(self, run_service, action_service, event_callback=None):
+    def __init__(self, run_service, action_service=None, event_callback=None):
         self.run_service = run_service
         self.action_service = action_service
         self.event_callback = event_callback  # External callback for event handling
@@ -53,7 +53,12 @@ class EntitiesEventHandler:
                     self._emit_event("action_required", run)
                     break
 
-                if run.status in {"completed", "failed", "cancelled"}:
+                # Check for cancellation
+                if run.status == "cancelled":
+                    self._emit_event("cancelled", run)
+                    break
+
+                if run.status in {"completed", "failed"}:
                     self._emit_event("run_ended", run)
                     break
 
@@ -78,7 +83,7 @@ class EntitiesEventHandler:
         """
         Emit an event and trigger the appropriate callback.
         """
-        logging_utility.info(f"Event triggered: {event_type}")
+        #logging_utility.info(f"Event triggered: {event_type}")
 
         # Directly pass the event_type and event_data to the callback.
         if self.event_callback:
@@ -86,6 +91,8 @@ class EntitiesEventHandler:
 
         if event_type == "action_required":
             self.on_action_required(event_data)
+        elif event_type == "cancelled":
+            self.on_cancelled(event_data)
         elif event_type == "run_ended":
             self.on_run_ended(event_data)
         elif event_type == "error":
@@ -123,6 +130,13 @@ class EntitiesEventHandler:
         Handle when a run ends.
         """
         logging_utility.info(f"Run {run.id} ended with status: {run.status}")
+        self._current_run = None
+
+    def on_cancelled(self, run: Any):
+        """
+        Handle when a run is cancelled.
+        """
+        #logging_utility.info(f"Run {run} was cancelled.")
         self._current_run = None
 
     def on_error(self, error: str):
