@@ -312,7 +312,7 @@ class ActionCreate(BaseModel):
     run_id: str
     function_args: Optional[Dict[str, Any]] = {}
     expires_at: Optional[datetime] = None
-    status: ActionStatus.pending  # Default to "pending"
+    status: Optional[str] = "pending"  # Default to pending
 
     @validator('tool_name', pre=True, always=True)
     def validate_tool_fields(cls, v):
@@ -347,7 +347,7 @@ class ActionRead(BaseModel):
     expires_at: Optional[str] = None
     is_processed: Optional[bool] = None
     processed_at: Optional[str] = None
-    status: ActionStatus  # Use ActionStatus enum for validation
+    status: Optional[str] = None  # Use ActionStatus enum for validation
     function_args: Optional[dict] = None
     result: Optional[dict] = None
 

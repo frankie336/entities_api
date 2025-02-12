@@ -1,52 +1,35 @@
-# entities_api/clients/inference/hyperbolic_base.py
 import json
 import re
 import time
-
 import requests
 from dotenv import load_dotenv
-
-from entities_api.clients.client import ClientRunService
-from entities_api.clients.client_assistant_client import ClientAssistantService
-from entities_api.clients.client_message_client import ClientMessageService
 from entities_api.clients.inference.base_inference import BaseInference
+from entities_api.clients.client_message_client import ClientMessageService
+from entities_api.clients.client_actions_client import ClientActionService
+from entities_api.clients.client_run_client import ClientRunService
 from entities_api.services.logging_service import LoggingUtility
 
+# Load environment variables from .env file
 load_dotenv()
+
+# Initialize logging utility
 logging_utility = LoggingUtility()
 
-class HyperbolicBaseInference(BaseInference):
-    """
-    Base class for Hyperbolic API implementations with common functionality
-    """
-    DEFAULT_MODEL = None  # Must be set in subclasses
-    DEFAULT_TEMPERATURE = 0.5
-    DEFAULT_TOP_P = 0.9
 
-    def __init__(self):
-        self.api_url = "https://api.hyperbolic.xyz/v1/chat/completions"
-        self.headers = self._get_auth_headers()
-        self._setup_complete = False
-
-    def _get_auth_headers(self):
-        """Centralized auth header configuration"""
-        return {
-            "Content-Type": "application/json",
-            "Authorization": (
-                "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-                "eyJzdWIiOiJwcmltZS50aGFub3MzMzZAZ21haWwuY29tIiwiaWF0IjoxNzM4NDc2MzgyfQ."
-                "4V27eTb-TRwPKcA5zit4pJckoEUEa7kxmHwFEn9kwTQ"
-            )
-        }
-
+class HyperbolicV3Inference(BaseInference):
     def setup_services(self):
-        """Common service setup for all Hyperbolic implementations"""
-        if not self._setup_complete:
-            logging_utility.info("Initializing Hyperbolic API services")
-            self._setup_complete = True
+        """Initialize the Hyperbolic API service."""
+        self.api_url = "https://api.hyperbolic.xyz/v1/chat/completions"
+        self.headers = {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJwcmltZS50aGFub3MzMzZAZ21haWwuY29tIiwiaWF0IjoxNzM4NDc2MzgyfQ.4V27eTb-TRwPKcA5zit4pJckoEUEa7kxmHwFEn9kwTQ"
+        }
+        logging_utility.info("HyperbolicInference specific setup completed.")
 
     def normalize_roles(self, conversation_history):
-        """Shared role normalization logic"""
+        """
+        Normalize roles to ensure consistency with the Hyperbolic API.
+        """
         normalized_history = []
         for message in conversation_history:
             role = message.get('role', '').strip().lower()
@@ -58,197 +41,232 @@ class HyperbolicBaseInference(BaseInference):
             })
         return normalized_history
 
-    def create_payload(self, messages, model=None, **kwargs):
-        """Construct base payload with model-specific defaults"""
-        return {
-            "messages": messages,
-            "model": model or self.DEFAULT_MODEL,
+    @staticmethod
+    def check_tool_call_data(input_string: str) -> bool:
+        """Regex to match the general structure of the string"""
+        pattern = r'^\{"name":\s*"[^"]+",\s*"arguments":\s*\{(?:\s*"[^"]*":\s*"[^"]*",\s*)*(?:"[^"]*":\s*"[^"]*")\s*\}\}$'
+        return bool(re.match(pattern, input_string))
+
+    def parse_tools_calls(self, thread_id, message_id, run_id, assistant_id, model='deepseek-ai/DeepSeek-R1'):
+        """
+        Processes streamed tool call content as a single accumulating string.
+        Accumulates all chunks and returns the complete content at the end.
+        """
+
+        logging_utility.info("Scanning for tool calls: thread_id=%s, run_id=%s, assistant_id=%s",
+                             thread_id, run_id, assistant_id)
+
+        self.start_cancellation_listener(run_id)
+        assistant = self.assistant_service.retrieve_assistant(assistant_id)
+
+        messages = self.normalize_roles(
+            self.message_service.get_formatted_messages(thread_id, system_message=assistant.instructions)
+        )
+
+        payload = {
+            "messages": [{"role": msg['role'], "content": msg['content']} for msg in messages],
+            "model": model,
             "stream": True,
             "max_tokens": 100000,
-            "temperature": kwargs.get('temperature', self.DEFAULT_TEMPERATURE),
-            "top_p": kwargs.get('top_p', self.DEFAULT_TOP_P)
+            "temperature": 0.6,
+            "top_p": 0.9
         }
 
-
-    @staticmethod
-    def detect_tool_call(chunks):
-        """
-        Accumulates chunks and returns the complete tool call JSON string if it matches the expected pattern.
-
-        Expected pattern example:
-        {"name": "fetch_flight_times", "arguments": {"origin": "LAX", "destination": "JFK"}}
-
-        Args:
-            chunks (list of str): The accumulated text chunks.
-
-        Returns:
-            str or None: The complete tool call JSON string if detected; otherwise, None.
-        """
-        # Regex to match a JSON object with "name" and "arguments" keys.
-        pattern = re.compile(
-            r'^\s*\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:\s*\{[^}]*\}\s*\}\s*$'
-        )
-        accumulated = "".join(chunks)
-        if pattern.match(accumulated):
-            return accumulated
-        return None
-
-
-
-    def process_tools(self, thread_id, message_id, run_id, assistant_id,
-                            model=None, **kwargs):
-        """
-        Core conversation processing flow with hook for model-specific handling
-        """
-        self.setup_services()
-        logging_utility.info(
-            f"Processing Tools for thread: {thread_id}, "
-            f"run: {run_id}, assistant: {assistant_id}"
-        )
-
-        assistant_service = ClientAssistantService()
-        assistant = assistant_service.retrieve_assistant(assistant_id)
-
-        message_service = ClientMessageService()
-        conversation_history = message_service.get_formatted_messages(
-            thread_id, system_message=assistant.instructions
-        )
-        messages = self.normalize_roles(conversation_history)
-
-        payload = self.create_payload(
-            messages=messages,
-            model=model,
-            **kwargs
-        )
+        accumulated_content = ""
 
         try:
-            response = requests.post(
-                self.api_url,
-                headers=self.headers,
-                json=payload,
-                stream=True,
-                timeout=60
-            )
+            response = requests.post(self.api_url, headers=self.headers, json=payload, stream=True, timeout=60)
             response.raise_for_status()
 
-            assistants_response = ""
+            for line in response.iter_lines(decode_unicode=True):
+                if self.check_cancellation_flag():
+                    logging_utility.warning("Run %s cancelled. Terminating stream.", run_id)
+                    break
 
-            for line in self._process_stream(response, run_id):
-                assistants_response += line
-                self.detect_tool_call(assistants_response)
+                if not line or not line.startswith("data:"):
+                    continue
 
+                line_content = line[5:].strip()  # Strip "data:" prefix
+
+                # Ignore `[DONE]` marker
+                if line_content == "[DONE]":
+                    logging_utility.info("Stream finished.")
+                    continue
+
+                try:
+                    chunk = json.loads(line_content)
+                    delta_content = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+
+                    if delta_content:
+                        logging_utility.info("Extracted delta content: %s", delta_content)
+                        accumulated_content += delta_content  # Accumulate the content
+
+                except json.JSONDecodeError:
+                    logging_utility.error("JSON decoding failed for chunk: %s", line_content)
 
         except Exception as e:
-            yield from self._handle_error(e, run_id=run_id, thread_id=thread_id,
-                                          role='assistant', content=assistants_response,
-                                          assistant_id=assistant_id, sender_id=assistant_id )
+            logging_utility.error("[ERROR] API streaming failure: %s", str(e), exc_info=True)
+            self.handle_error("", thread_id, assistant_id, run_id)
 
+        logging_utility.info("accumulated_content:  %s", accumulated_content)
+
+        return accumulated_content
+
+
+
+    def process_tool_calls(self, message_id, thread_id,
+                           assistant_id, content,
+                           run_id):
+        # Save the user message that triggered the tool.
+        message_service = ClientMessageService()
+        message_data = message_service.retrieve_message(message_id=message_id)
+
+        message = message_data.content
+        self.message_service.save_assistant_message_chunk(
+            thread_id=thread_id,
+            content=message,
+            role="assistant",
+            assistant_id=assistant_id,
+            sender_id=assistant_id,
+            is_last_chunk=True
+        )
+        logging_utility.info("Saved triggering message to thread: %s", thread_id)
+
+        # Save the tool invocation for state management.
+        action_service = ClientActionService()
+
+        try:
+            content_dict = json.loads(content)
+        except json.JSONDecodeError as e:
+            logging_utility.error(f"Error decoding accumulated content: {e}")
+            return
+
+        # Creating action
+        action_service.create_action(
+            tool_name=content_dict["name"],
+            run_id=run_id,
+            function_args=content_dict["arguments"]
+        )
+
+        # Update run status to 'action_required'
+        run_service = ClientRunService()
+        run_service.update_run_status(run_id=run_id, new_status='action_required')
+        logging_utility.info(f"Run {run_id} status updated to action_required")
+
+        # Now wait for the run's status to change from 'action_required'.
+        while True:
+            run = self.run_service.retrieve_run(run_id)
+            if run.status != "action_required":
+                break
+            time.sleep(1)
+
+        logging_utility.info("Action status transition complete. Reprocessing conversation.")
+
+        # Continue processing the conversation transparently.
+        # (Rebuild the conversation history if needed; here we re-use deepseek_messages.)
+
+        logging_utility.info("No tool call triggered; proceeding with conversation.")
+
+        return content  # Return the accumulated content
 
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id,
-                            model=None, **kwargs):
-        """
-        Core conversation processing flow with hook for model-specific handling
-        """
+                                 model='deepseek-ai/DeepSeek-R1', stream_reasoning=True):
+            """
+            Process conversation using the Hyperbolic API via raw HTTP requests.
+            """
+            # First, process and scan for tool calls.
+            tool_candidate_data = self.parse_tools_calls(thread_id=thread_id, message_id=message_id,
+                                    assistant_id=assistant_id, run_id=run_id, model=model)
 
-        self.process_tools(thread_id, message_id, run_id, assistant_id, model=model)
+            # Validate the tool_call_data_structure
+            is_this_a_tool_call = self.check_tool_call_data(tool_candidate_data)
 
-        time.sleep(10000)
+            # Process the tool call
+            if is_this_a_tool_call:
+                self.process_tool_calls(
+                    thread_id=thread_id, message_id=message_id,
+                    assistant_id=assistant_id, content=tool_candidate_data,
+                    run_id=run_id
+                )
 
-        self.setup_services()
-        logging_utility.info(
-            f"Processing conversation for thread: {thread_id}, "
-            f"run: {run_id}, assistant: {assistant_id}"
-        )
+            time.sleep(10000)
+            logging_utility.info("Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
+                                 thread_id, run_id, assistant_id)
 
-        assistant_service = ClientAssistantService()
-        assistant = assistant_service.retrieve_assistant(assistant_id)
+            self.start_cancellation_listener(run_id)
+            assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
+            logging_utility.info("Retrieved assistant: id=%s, name=%s, model=%s",
+                                 assistant.id, assistant.name, assistant.model)
 
-        message_service = ClientMessageService()
-        conversation_history = message_service.get_formatted_messages(
-            thread_id, system_message=assistant.instructions
-        )
-        messages = self.normalize_roles(conversation_history)
-
-        payload = self.create_payload(
-            messages=messages,
-            model=model,
-            **kwargs
-        )
-
-        try:
-            response = requests.post(
-                self.api_url,
-                headers=self.headers,
-                json=payload,
-                stream=True,
-                timeout=60
+            conversation_history = self.message_service.get_formatted_messages(
+                thread_id, system_message=assistant.instructions
             )
-            response.raise_for_status()
+            conversation_history = self.normalize_roles(conversation_history)
+            messages = [{"role": msg['role'], "content": msg['content']} for msg in conversation_history]
 
-            assistants_response = ""
+            payload = {
+                "messages": messages,
+                "model": model,
+                "stream": True,
+                "max_tokens": 100000,
+                "temperature": 0.6,
+                "top_p": 0.9
+            }
 
-            for line in self._process_stream(response, run_id):
-                assistants_response += line
-                yield line
+            assistant_reply = ""
 
-            self._finalize_run(run_id=run_id, assistant_id=assistant_id,
-                               thread_id=thread_id, role='assistant',
-                               content=assistants_response, sender_id=assistant_id)
+            try:
+                response = requests.post(
+                    self.api_url,
+                    headers=self.headers,
+                    json=payload,
+                    stream=True,
+                    timeout=60
+                )
+                response.raise_for_status()
 
-        except Exception as e:
-            yield from self._handle_error(e, run_id=run_id, thread_id=thread_id,
-                                          role='assistant', content=assistants_response,
-                                          assistant_id=assistant_id, sender_id=assistant_id )
+                for line in response.iter_lines(decode_unicode=True):
+                    if self.check_cancellation_flag():
+                        logging_utility.warning("Run %s cancelled mid-stream. Terminating stream.", run_id)
+                        break
 
-    def _process_stream(self, response, run_id):
-        """Stream processing pipeline with cancellation checks"""
-        for line in response.iter_lines(decode_unicode=True):
-            if self._check_cancellation(run_id):
-                break
+                    if not line:
+                        continue
 
-            processed = self.process_line(line)
-            if processed:
-                yield processed
-               #time.sleep(0.001)
+                    if line.startswith("data:"):
+                        line = line[len("data:"):].strip()
 
-    def process_line(self, line):
-        """Model-specific line processing (to be overridden)"""
-        raise NotImplementedError("Subclasses must implement process_line")
+                    if line == "[DONE]":
+                        break
 
-    def _check_cancellation(self, run_id):
-        """Shared cancellation check logic"""
+                    try:
+                        chunk = json.loads(line)
+                    except json.JSONDecodeError:
+                        logging_utility.error("Failed to decode JSON from chunk: %s", line)
+                        continue
 
-        run_service = ClientRunService()
-        current_run = run_service.retrieve_run(run_id)
+                    current_run = self.run_service.retrieve_run(run_id)
+                    if current_run.status in ["cancelling", "cancelled"]:
+                        logging_utility.warning("Run %s cancelled during streaming", run_id)
+                        break
 
-        if current_run.status in ["cancelling", "cancelled"]:
-            logging_utility.warning(f"Run {run_id} cancelled during streaming")
-            return True
-        return False
+                    choices = chunk.get("choices", [])
+                    if not choices:
+                        continue
 
-    def _finalize_run(self, run_id, assistant_id, thread_id, role, content, sender_id):
-        """Common finalization tasks"""
+                    delta = choices[0].get("delta", {})
+                    content_chunk = delta.get("content", "")
 
-        run_service = ClientRunService()
-        message_service = ClientMessageService()
-        message_service.save_assistant_message_chunk(thread_id, role, content, assistant_id, sender_id,
-                                                     is_last_chunk=True)
+                    if content_chunk:
+                        assistant_reply += content_chunk
+                        logging_utility.info("Processing content chunk: %s", content_chunk)
 
-        run_service.update_run_status(run_id, "completed")
-        logging_utility.info(
-            f"Completed processing for run {run_id} "
-            f"(assistant: {assistant_id}, thread: {thread_id})"
-        )
+            except Exception as e:
+                error_msg = "[ERROR] Hyperbolic API streaming error in process_conversation"
+                logging_utility.error(f"{error_msg}: {str(e)}", exc_info=True)
+                self.handle_error(assistant_reply, thread_id, assistant_id, run_id)
+                return
 
-    def _handle_error(self, error, run_id, thread_id, role, content, assistant_id, sender_id):
-        """Centralized error handling"""
-        error_msg = f"API streaming error: {str(error)}"
-        logging_utility.error(error_msg, exc_info=True)
-        run_service = ClientRunService()
-
-        message_service = ClientMessageService()
-        message_service.save_assistant_message_chunk(thread_id, role, content, assistant_id, sender_id, is_last_chunk=True)
-
-        run_service.update_run_status(run_id, "failed")
-        yield json.dumps({'type': 'error', 'content': error_msg})
+            if assistant_reply:
+                self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)

@@ -15,7 +15,6 @@ class ClientActionService:
         self.client = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"})
         logging_utility.info("ClientActionService initialized with base_url: %s", base_url)
 
-
     def create_action(self, tool_name: str, run_id: str, function_args: Optional[Dict[str, Any]] = None,
                       expires_at: Optional[datetime] = None) -> ActionRead:
         """Create a new action using the provided tool_name, run_id, and function_args."""
@@ -30,13 +29,19 @@ class ClientActionService:
                 tool_name=tool_name,
                 run_id=run_id,
                 function_args=function_args or {},
-                expires_at=expires_at_iso  # Use the ISO 8601 format for datetime
+                expires_at=None,
+                status='pending'  # Ensure status is a string value
             ).dict()
 
             logging_utility.debug("Payload for action creation: %s", payload)
 
-            # Correct the URL to include /v1 prefix
+            # Sending the request
             response = self.client.post("/v1/actions", json=payload)
+
+            # Log the response for debugging
+            logging_utility.debug("Response Status Code: %s", response.status_code)
+            logging_utility.debug("Response Body: %s", response.text)
+
             response.raise_for_status()
 
             response_data = response.json()
@@ -47,6 +52,9 @@ class ClientActionService:
         except httpx.HTTPStatusError as e:
             logging_utility.error("HTTP error during action creation: %s", str(e))
             raise ValueError(f"HTTP error during action creation: {str(e)}")
+        except Exception as e:
+            logging_utility.error("Unexpected error during action creation: %s", str(e))
+            raise ValueError(f"Unexpected error: {str(e)}")
 
     def get_action(self, action_id: str) -> ActionRead:
         """

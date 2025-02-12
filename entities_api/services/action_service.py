@@ -20,30 +20,44 @@ class ActionService:
         logging_utility.info("ActionService initialized with database session.")
 
     def create_action(self, action_data: ActionCreate) -> ActionRead:
-        """Create a new action for a tool call, by searching tool by name."""
         logging_utility.info("Creating action for tool_name: %s, run_id: %s", action_data.tool_name, action_data.run_id)
         try:
+            # Log the received ActionCreate data
+            logging_utility.debug("Received ActionCreate payload: %s", action_data.dict())
+
             # Validate that the tool_name exists in the tools table
             tool = self.db.query(Tool).filter(Tool.name == action_data.tool_name).first()
             if not tool:
                 logging_utility.warning("Tool with name %s not found.", action_data.tool_name)
                 raise HTTPException(status_code=404, detail=f"Tool with name {action_data.tool_name} not found")
 
-            action_id = IdentifierService.generate_action_id()
-            logging_utility.debug("Generated action ID: %s", action_id)
+            # Log the fetched tool details
+            logging_utility.debug("Fetched tool: %s", {"id": tool.id, "name": tool.name})
 
+            # Generate a new action id (or decide if you want to use action_data.id)
+            new_action_id = IdentifierService.generate_action_id()
+            logging_utility.debug("Generated new action ID: %s", new_action_id)
+
+            # Use the provided status (should be a string, as expected)
+            status = action_data.status
+            logging_utility.debug("Using status: %s", status)
+
+            # Build the Action model object
             new_action = Action(
-                id=action_id,
+                id=new_action_id,
                 tool_id=tool.id,
                 run_id=action_data.run_id,
                 triggered_at=datetime.now(),
                 expires_at=action_data.expires_at,
                 function_args=action_data.function_args,
-                status=StatusEnum.pending
+                status=status
             )
+            logging_utility.debug("New Action object details: %s", new_action.__dict__)
+
             self.db.add(new_action)
             self.db.commit()
             self.db.refresh(new_action)
+            logging_utility.info("New action committed with ID: %s", new_action.id)
 
             return ActionRead(
                 id=new_action.id,
@@ -54,10 +68,12 @@ class ActionService:
         except IntegrityError as e:
             self.db.rollback()
             logging_utility.error("IntegrityError during action creation: %s", str(e))
+            logging_utility.exception("IntegrityError traceback:")
             raise HTTPException(status_code=400, detail="Invalid action data or duplicate entry")
         except Exception as e:
             self.db.rollback()
             logging_utility.error("Unexpected error during action creation: %s", str(e))
+            logging_utility.exception("Full exception traceback:")
             raise HTTPException(status_code=500, detail="An error occurred while creating the action")
 
     def get_action(self, action_id: str) -> ActionRead:

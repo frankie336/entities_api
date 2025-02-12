@@ -166,7 +166,7 @@ class Action(Base):
     expires_at = Column(DateTime, nullable=True)
     is_processed = Column(Boolean, default=False)
     processed_at = Column(DateTime, nullable=True)
-    status = Column(Enum(StatusEnum), nullable=False, default=StatusEnum.pending)  # Use StatusEnum here
+    status = Column(String(64), nullable=True)
     function_args = Column(JSON, nullable=True)
     result = Column(JSON, nullable=True)
 
