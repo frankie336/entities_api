@@ -1,8 +1,14 @@
 import json
 import re
+import time
+
 import requests
 from dotenv import load_dotenv
+
+from entities_api.clients.client_run_client import ClientRunService
 from entities_api.clients.inference.base_inference import BaseInference
+from entities_api.clients.client_message_client import ClientMessageService
+from entities_api.clients.client_actions_client import ClientActionService
 from entities_api.services.logging_service import LoggingUtility
 
 # Load environment variables from .env file
@@ -135,8 +141,58 @@ class HyperbolicV3Inference(BaseInference):
                             #Handle tool triggers here#
                             logging_utility.info("*** Tool Trigger Detected! ***")
 
-                            #yield json.dumps({'type': 'tool_call', 'content': function_buffer})
-                            #break
+                            # Save the assistants tool call to dialogue
+                            message_service = ClientMessageService()
+                            message_service.save_assistant_message_chunk(
+                                thread_id=thread_id,
+                                role='assistant',
+                                content=function_buffer,
+                                assistant_id=assistant_id,
+                                sender_id=assistant_id,
+                                is_last_chunk=True
+                            )
+
+                            function_buffer_dict = json.loads(function_buffer)
+
+                            # Save the tool invocation for state management.
+                            action_service = ClientActionService()
+                            action_service.create_action(
+                                tool_name=function_buffer_dict['name'],
+                                run_id=run_id,
+                                function_args=function_buffer_dict['arguments']
+                            )
+
+                            # Update run status to 'action_required'
+                            run_service = ClientRunService()
+                            run_service.update_run_status(run_id=run_id, new_status='action_required')
+                            logging_utility.info(f"Run {run_id} status updated to action_required")
+
+                            # Now wait for the run's status to change from 'action_required'.
+                            while True:
+                                run = self.run_service.retrieve_run(run_id)
+                                if run.status != "action_required":
+                                    break
+                                time.sleep(1)
+                            logging_utility.info("Action status transition complete. Reprocessing conversation.")
+
+                            # At this stage, function call output handling is offloaded to the user
+                            # The while loop will break once they have handled it.
+                            # Fetch the conversation_history again. This will be updated  the tool response.
+                            # Send the updated conversation history for inference once more
+                            # The model will respond to the most recent message which is now the tool response.
+                            # Somehow make this transparent to the user
+
+                            conversation_history = self.message_service.get_formatted_messages(
+                                thread_id, system_message=assistant.instructions
+                            )
+                            conversation_history = self.normalize_roles(conversation_history)
+                            messages = [{"role": msg['role'], "content": msg['content']} for msg in
+                                        conversation_history]
+
+
+                            # Uncomment for troubleshooting and dev work.
+                            # yield json.dumps({'type': 'tool_call', 'content': function_buffer})
+                            # break
 
 
 
