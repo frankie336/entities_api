@@ -184,13 +184,14 @@ class HyperbolicV3Inference(BaseInference):
 
             # Process the tool call
             if is_this_a_tool_call:
+
                 self.process_tool_calls(
                     thread_id=thread_id, message_id=message_id,
                     assistant_id=assistant_id, content=tool_candidate_data,
                     run_id=run_id
                 )
 
-            time.sleep(10000)
+
             logging_utility.info("Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
                                  thread_id, run_id, assistant_id)
 
