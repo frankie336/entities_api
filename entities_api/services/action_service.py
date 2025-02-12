@@ -9,7 +9,7 @@ from datetime import datetime
 from utils.conversion_utils import  datetime_to_iso
 from entities_api.services.identifier_service import IdentifierService
 from entities_api.clients.client_tool_client import ClientToolService
-
+from entities_api.models.models import Run, StatusEnum  # Ensure Run is imported
 
 logging_utility = LoggingUtility()
 
@@ -39,7 +39,7 @@ class ActionService:
                 triggered_at=datetime.now(),
                 expires_at=action_data.expires_at,
                 function_args=action_data.function_args,
-                status="pending"
+                status=StatusEnum.pending
             )
             self.db.add(new_action)
             self.db.commit()

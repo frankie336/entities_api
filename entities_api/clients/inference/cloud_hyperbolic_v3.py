@@ -1,10 +1,8 @@
 import json
 import re
 import time
-
 import requests
 from dotenv import load_dotenv
-
 from entities_api.clients.client_run_client import ClientRunService
 from entities_api.clients.inference.base_inference import BaseInference
 from entities_api.clients.client_message_client import ClientMessageService
@@ -20,7 +18,7 @@ logging_utility = LoggingUtility()
 
 class HyperbolicV3Inference(BaseInference):
     def setup_services(self):
-        """ Initialize the Hyperbolic API service. """
+        """Initialize the Hyperbolic API service."""
         self.api_url = "https://api.hyperbolic.xyz/v1/chat/completions"
         self.headers = {
             "Content-Type": "application/json",
@@ -29,9 +27,7 @@ class HyperbolicV3Inference(BaseInference):
         logging_utility.info("HyperbolicInference specific setup completed.")
 
     def normalize_roles(self, conversation_history):
-        """
-        Normalize roles to ensure consistency with the Hyperbolic API.
-        """
+        """Normalize roles to ensure consistency with the Hyperbolic API."""
         normalized_history = []
         for message in conversation_history:
             role = message.get('role', '').strip().lower()
@@ -43,20 +39,35 @@ class HyperbolicV3Inference(BaseInference):
             })
         return normalized_history
 
-    def strict_detect_tool_call_minimal(self, buffer):
+    def detect_tool_call(self, chunks):
         """
-        Returns True if the buffer strictly follows the expected order:
-        {"name": "<function_name>", "arguments": {
-        Otherwise, returns False.
+        Accumulates chunks and returns the complete tool call JSON string if it matches the expected pattern.
+
+        Expected pattern example:
+        {"name": "fetch_flight_times", "arguments": {"origin": "LAX", "destination": "JFK"}}
+
+        Args:
+            chunks (list of str): The accumulated text chunks.
+
+        Returns:
+            str or None: The complete tool call JSON string if detected; otherwise, None.
         """
-        cleaned = buffer.strip()
-        regex = r'^\s*{\s*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:\s*{'
-        return bool(re.match(regex, cleaned))
+        # Regex to match a JSON object with "name" and "arguments" keys.
+        pattern = re.compile(
+            r'^\s*\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:\s*\{[^}]*\}\s*\}\s*$'
+        )
+        accumulated = "".join(chunks)
+        if pattern.match(accumulated):
+            return accumulated
+        return None
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id,
                              model='deepseek-ai/DeepSeek-R1', stream_reasoning=True):
         """
         Process conversation using the Hyperbolic API via raw HTTP requests.
+
+        This method accumulates chunks from the stream and uses regex to detect the tool call pattern.
+        Once detected, it logs and processes the tool call, then returns the complete tool call string.
         """
         logging_utility.info(
             "Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
@@ -86,9 +97,8 @@ class HyperbolicV3Inference(BaseInference):
         }
 
         assistant_reply = ""
-        function_buffer = ""
-        MIN_TRIGGER_CHARS = 15
-        MAX_NORMAL_CHARS = 40
+        accumulated_tool_chunks = []
+        complete_tool_call = None
 
         try:
             response = requests.post(
@@ -102,8 +112,7 @@ class HyperbolicV3Inference(BaseInference):
 
             for line in response.iter_lines(decode_unicode=True):
                 if self.check_cancellation_flag():
-                    logging_utility.warning(f"Run {run_id} cancelled mid-stream. Terminating stream.")
-                    yield json.dumps({'type': 'error', 'content': 'Run was cancelled.'})
+                    logging_utility.warning("Run %s cancelled mid-stream. Terminating stream.", run_id)
                     break
 
                 if not line:
@@ -134,83 +143,56 @@ class HyperbolicV3Inference(BaseInference):
                 content_chunk = delta.get("content", "")
 
                 if content_chunk:
-                    function_buffer += content_chunk
-                    if len(function_buffer) >= MIN_TRIGGER_CHARS:
-                        if self.strict_detect_tool_call_minimal(function_buffer):
+                    # Process the content chunk.
+                    accumulated_tool_chunks.append(content_chunk)
+                    complete_tool_call = self.detect_tool_call(accumulated_tool_chunks)
+                    if complete_tool_call:
+                        logging_utility.info("*** Complete Tool Structure Detected! ***")
+                        logging_utility.info("Tool call content: %s", complete_tool_call)
 
-                            #Handle tool triggers here#
-                            logging_utility.info("*** Tool Trigger Detected! ***")
+                        # Save the assistant's tool call to dialogue.
+                        message_service = ClientMessageService()
+                        message_service.save_assistant_message_chunk(
+                            thread_id=thread_id,
+                            role='assistant',
+                            content=complete_tool_call,
+                            assistant_id=assistant_id,
+                            sender_id=assistant_id,
+                            is_last_chunk=True
+                        )
 
-                            # Save the assistants tool call to dialogue
-                            message_service = ClientMessageService()
-                            message_service.save_assistant_message_chunk(
-                                thread_id=thread_id,
-                                role='assistant',
-                                content=function_buffer,
-                                assistant_id=assistant_id,
-                                sender_id=assistant_id,
-                                is_last_chunk=True
-                            )
+                        # Process the tool invocation.
+                        tool_data = json.loads(complete_tool_call)
+                        action_service = ClientActionService()
+                        action_service.create_action(
+                            tool_name=tool_data['name'],
+                            run_id=run_id,
+                            function_args=tool_data['arguments']
+                        )
 
-                            function_buffer_dict = json.loads(function_buffer)
+                        # Update run status to 'action_required'.
+                        run_service = ClientRunService()
+                        run_service.update_run_status(run_id=run_id, new_status='action_required')
+                        logging_utility.info("Run %s status updated to action_required", run_id)
 
-                            # Save the tool invocation for state management.
-                            action_service = ClientActionService()
-                            action_service.create_action(
-                                tool_name=function_buffer_dict['name'],
-                                run_id=run_id,
-                                function_args=function_buffer_dict['arguments']
-                            )
-
-                            # Update run status to 'action_required'
-                            run_service = ClientRunService()
-                            run_service.update_run_status(run_id=run_id, new_status='action_required')
-                            logging_utility.info(f"Run {run_id} status updated to action_required")
-
-                            # Now wait for the run's status to change from 'action_required'.
-                            while True:
-                                run = self.run_service.retrieve_run(run_id)
-                                if run.status != "action_required":
-                                    break
-                                time.sleep(1)
-                            logging_utility.info("Action status transition complete. Reprocessing conversation.")
-
-                            # At this stage, function call output handling is offloaded to the user
-                            # The while loop will break once they have handled it.
-                            # Fetch the conversation_history again. This will be updated  the tool response.
-                            # Send the updated conversation history for inference once more
-                            # The model will respond to the most recent message which is now the tool response.
-                            # Somehow make this transparent to the user
-
-                            conversation_history = self.message_service.get_formatted_messages(
-                                thread_id, system_message=assistant.instructions
-                            )
-                            conversation_history = self.normalize_roles(conversation_history)
-                            messages = [{"role": msg['role'], "content": msg['content']} for msg in
-                                        conversation_history]
-
-
-                            # Uncomment for troubleshooting and dev work.
-                            # yield json.dumps({'type': 'tool_call', 'content': function_buffer})
-                            # break
-
-
-
-
-                        elif len(function_buffer) > MAX_NORMAL_CHARS:
-                            logging_utility.info("Buffer exceeds normal threshold; flushing.")
-                            function_buffer = ""
-
-                    assistant_reply += content_chunk
-                    logging_utility.info("Yielding content chunk: %s", content_chunk)
-                    yield json.dumps({'type': 'content', 'content': content_chunk})
+                        # Wait for the run's status to change from 'action_required'.
+                        while True:
+                            run = self.run_service.retrieve_run(run_id)
+                            if run.status != "action_required":
+                                break
+                            time.sleep(1)
+                        logging_utility.info("Action status transition complete. Reprocessing conversation.")
+                        break
+                    else:
+                        assistant_reply += content_chunk
+                        logging_utility.info("Processing content chunk: %s", content_chunk)
 
         except Exception as e:
             error_msg = "[ERROR] Hyperbolic API streaming error"
-            logging_utility.error(f"{error_msg}: {str(e)}", exc_info=True)
+            logging_utility.error("%s: %s", error_msg, str(e), exc_info=True)
             self.handle_error(assistant_reply, thread_id, assistant_id, run_id)
-            yield json.dumps({'type': 'error', 'content': error_msg})
-            return
 
         if assistant_reply:
             self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
+
+        return complete_tool_call
