@@ -131,9 +131,16 @@ class HyperbolicV3Inference(BaseInference):
                     function_buffer += content_chunk
                     if len(function_buffer) >= MIN_TRIGGER_CHARS:
                         if self.strict_detect_tool_call_minimal(function_buffer):
+
+                            #Handle tool triggers here#
                             logging_utility.info("*** Tool Trigger Detected! ***")
-                            yield json.dumps({'type': 'tool_call', 'content': function_buffer})
-                            break
+
+                            #yield json.dumps({'type': 'tool_call', 'content': function_buffer})
+                            #break
+
+
+
+
                         elif len(function_buffer) > MAX_NORMAL_CHARS:
                             logging_utility.info("Buffer exceeds normal threshold; flushing.")
                             function_buffer = ""
