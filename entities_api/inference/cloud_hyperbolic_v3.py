@@ -138,7 +138,7 @@ class HyperbolicV3Inference(BaseInference):
         logging_utility.info("Final accumulated_content: %s", accumulated_content)
         return accumulated_content
 
-    def process_tool_calls(self, message_id, thread_id,
+    def process_tool_calls(self, thread_id,
                            assistant_id, content,
                            run_id):
 
@@ -210,8 +210,9 @@ class HyperbolicV3Inference(BaseInference):
                 logging_utility.info("Tool call detected; proceeding accordingly.")
 
                 self.process_tool_calls(
-                    thread_id=thread_id, message_id=message_id,
-                    assistant_id=assistant_id, content=tool_candidate_data,
+                    thread_id=thread_id,
+                    assistant_id=assistant_id,
+                    content=tool_candidate_data,
                     run_id=run_id
                 )
             else:
