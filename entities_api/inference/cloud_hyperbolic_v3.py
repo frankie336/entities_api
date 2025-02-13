@@ -116,8 +116,6 @@ class HyperbolicV3Inference(BaseInference):
                                 # Early validation for minimum valid start
                                 return accumulated_content
 
-
-
                 except json.JSONDecodeError:
                     logging_utility.error("JSON decoding failed for chunk: %s", line_content)
 
@@ -126,9 +124,9 @@ class HyperbolicV3Inference(BaseInference):
             self.handle_error("", thread_id, assistant_id, run_id)
 
         # Final validation before returning
-        if not self.check_tool_call_data(accumulated_content):
-            logging_utility.warning("Final content failed validation: %s", accumulated_content)
-            return ""
+        #if not self.check_tool_call_data(accumulated_content):
+            #logging_utility.warning("Final content failed validation: %s", accumulated_content)
+            #return ""
 
         logging_utility.info("accumulated_content: %s", accumulated_content)
         return accumulated_content
@@ -141,7 +139,7 @@ class HyperbolicV3Inference(BaseInference):
 
         self.message_service.save_assistant_message_chunk(
             thread_id=thread_id,
-            content=message,
+            content=content,
             role="assistant",
             assistant_id=assistant_id,
             sender_id=assistant_id,
@@ -183,14 +181,20 @@ class HyperbolicV3Inference(BaseInference):
         Process conversation using the Hyperbolic API via raw HTTP requests.
         """
 
+        # First, process and scan for tool calls.
         tool_candidate_data = self.parse_tools_calls(thread_id=thread_id, message_id=message_id,
                                                      assistant_id=assistant_id, run_id=run_id, model=model)
-        if tool_candidate_data:
-            is_this_a_tool_call = self.check_tool_call_data(tool_candidate_data)
 
-   
-            self.process_tool_calls(thread_id=thread_id, message_id=message_id,
-                                    assistant_id=assistant_id, content=tool_candidate_data, run_id=run_id)
+        # Validate the tool_call_data_structure
+        is_this_a_tool_call = self.check_tool_call_data(tool_candidate_data)
+
+        # Process the tool call
+        if is_this_a_tool_call:
+            self.process_tool_calls(
+                thread_id=thread_id, message_id=message_id,
+                assistant_id=assistant_id, content=tool_candidate_data,
+                run_id=run_id
+            )
 
         logging_utility.info(
             "Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
