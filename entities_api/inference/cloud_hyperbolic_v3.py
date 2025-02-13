@@ -3,7 +3,7 @@ import re
 import time
 import requests
 from dotenv import load_dotenv
-from entities_api.clients.inference.base_inference import BaseInference
+from entities_api.inference.base_inference import BaseInference
 from entities_api.clients.client_message_client import ClientMessageService
 from entities_api.clients.client_actions_client import ClientActionService
 from entities_api.clients.client_run_client import ClientRunService
@@ -17,6 +17,7 @@ logging_utility = LoggingUtility()
 
 
 class HyperbolicV3Inference(BaseInference):
+
     def setup_services(self):
         """Initialize the Hyperbolic API service."""
         self.api_url = "https://api.hyperbolic.xyz/v1/chat/completions"
@@ -27,9 +28,7 @@ class HyperbolicV3Inference(BaseInference):
         logging_utility.info("HyperbolicInference specific setup completed.")
 
     def normalize_roles(self, conversation_history):
-        """
-        Normalize roles to ensure consistency with the Hyperbolic API.
-        """
+        """Normalize roles to ensure consistency with the Hyperbolic API."""
         normalized_history = []
         for message in conversation_history:
             role = message.get('role', '').strip().lower()
@@ -43,7 +42,7 @@ class HyperbolicV3Inference(BaseInference):
 
     @staticmethod
     def check_tool_call_data(input_string: str) -> bool:
-        """Regex to match the general structure of the string"""
+        """Regex to match the general structure of a tool call JSON string."""
         pattern = r'^\{"name":\s*"[^"]+",\s*"arguments":\s*\{(?:\s*"[^"]*":\s*"[^"]*",\s*)*(?:"[^"]*":\s*"[^"]*")\s*\}\}$'
         return bool(re.match(pattern, input_string))
 
@@ -52,12 +51,12 @@ class HyperbolicV3Inference(BaseInference):
         Processes streamed tool call content as a single accumulating string.
         Accumulates all chunks and returns the complete content at the end.
         """
-
         logging_utility.info("Scanning for tool calls: thread_id=%s, run_id=%s, assistant_id=%s",
-                             thread_id, run_id, assistant_id)
+                     thread_id, run_id, assistant_id)
 
         self.start_cancellation_listener(run_id)
-        assistant = self.assistant_service.retrieve_assistant(assistant_id)
+
+        assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
 
         messages = self.normalize_roles(
             self.message_service.get_formatted_messages(thread_id, system_message=assistant.instructions)
@@ -79,6 +78,12 @@ class HyperbolicV3Inference(BaseInference):
             response.raise_for_status()
 
             for line in response.iter_lines(decode_unicode=True):
+
+                if len(accumulated_content)>1 and accumulated_content[:2] != "{\"":
+                    logging_utility.warning("Invalid start of response: %s", accumulated_content)
+                    return False  # Immediate return if the first two characters are not '{"'
+
+
                 if self.check_cancellation_flag():
                     logging_utility.warning("Run %s cancelled. Terminating stream.", run_id)
                     break
@@ -88,10 +93,13 @@ class HyperbolicV3Inference(BaseInference):
 
                 line_content = line[5:].strip()  # Strip "data:" prefix
 
-                # Ignore `[DONE]` marker
                 if line_content == "[DONE]":
                     logging_utility.info("Stream finished.")
                     continue
+
+
+
+
 
                 try:
                     chunk = json.loads(line_content)
@@ -109,19 +117,14 @@ class HyperbolicV3Inference(BaseInference):
             self.handle_error("", thread_id, assistant_id, run_id)
 
         logging_utility.info("accumulated_content:  %s", accumulated_content)
-
         return accumulated_content
 
-
-
-    def process_tool_calls(self, message_id, thread_id,
-                           assistant_id, content,
-                           run_id):
-        # Save the user message that triggered the tool.
+    def process_tool_calls(self, message_id, thread_id, assistant_id, content, run_id):
+        """Handles the execution and state transition of a tool call."""
         message_service = ClientMessageService()
         message_data = message_service.retrieve_message(message_id=message_id)
-
         message = message_data.content
+
         self.message_service.save_assistant_message_chunk(
             thread_id=thread_id,
             content=message,
@@ -132,7 +135,6 @@ class HyperbolicV3Inference(BaseInference):
         )
         logging_utility.info("Saved triggering message to thread: %s", thread_id)
 
-        # Save the tool invocation for state management.
         action_service = ClientActionService()
 
         try:
@@ -141,19 +143,16 @@ class HyperbolicV3Inference(BaseInference):
             logging_utility.error(f"Error decoding accumulated content: {e}")
             return
 
-        # Creating action
         action_service.create_action(
             tool_name=content_dict["name"],
             run_id=run_id,
             function_args=content_dict["arguments"]
         )
 
-        # Update run status to 'action_required'
         run_service = ClientRunService()
         run_service.update_run_status(run_id=run_id, new_status='action_required')
         logging_utility.info(f"Run {run_id} status updated to action_required")
 
-        # Now wait for the run's status to change from 'action_required'.
         while True:
             run = self.run_service.retrieve_run(run_id)
             if run.status != "action_required":
@@ -162,61 +161,38 @@ class HyperbolicV3Inference(BaseInference):
 
         logging_utility.info("Action status transition complete. Reprocessing conversation.")
 
-        # Continue processing the conversation transparently.
-        # (Rebuild the conversation history if needed; here we re-use deepseek_messages.)
-
-        logging_utility.info("No tool call triggered; proceeding with conversation.")
-
-        return content  # Return the accumulated content
+        return content
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id,
                              model='deepseek-ai/DeepSeek-R1', stream_reasoning=True):
         """
         Process conversation using the Hyperbolic API via raw HTTP requests.
-
-        This version streams the API response as a normal stream without splitting
-        out reasoning content.
         """
 
-        # First, process and scan for tool calls.
         tool_candidate_data = self.parse_tools_calls(thread_id=thread_id, message_id=message_id,
                                                      assistant_id=assistant_id, run_id=run_id, model=model)
+        if tool_candidate_data:
+            is_this_a_tool_call = self.check_tool_call_data(tool_candidate_data)
 
-        # Validate the tool_call_data_structure
-        is_this_a_tool_call = self.check_tool_call_data(tool_candidate_data)
-
-        # Process the tool call
-        if is_this_a_tool_call:
-            self.process_tool_calls(
-                thread_id=thread_id, message_id=message_id,
-                assistant_id=assistant_id, content=tool_candidate_data,
-                run_id=run_id
-            )
+            if is_this_a_tool_call:
+                self.process_tool_calls(thread_id=thread_id, message_id=message_id,
+                                        assistant_id=assistant_id, content=tool_candidate_data, run_id=run_id)
 
         logging_utility.info(
             "Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
             thread_id, run_id, assistant_id
         )
 
-        # Start the non-blocking cancellation listener
         self.start_cancellation_listener(run_id)
 
-        # Retrieve assistant details
         assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
-        logging_utility.info(
-            "Retrieved assistant: id=%s, name=%s, model=%s",
-            assistant.id, assistant.name, assistant.model
-        )
 
-        # Retrieve and normalize conversation history
         conversation_history = self.message_service.get_formatted_messages(
             thread_id, system_message=assistant.instructions
         )
         conversation_history = self.normalize_roles(conversation_history)
-        # Create messages in the expected format for the API
         messages = [{"role": msg['role'], "content": msg['content']} for msg in conversation_history]
 
-        # Construct the request payload
         payload = {
             "messages": messages,
             "model": model,
@@ -229,18 +205,10 @@ class HyperbolicV3Inference(BaseInference):
         assistant_reply = ""
 
         try:
-            response = requests.post(
-                self.api_url,
-                headers=self.headers,
-                json=payload,
-                stream=True,
-                timeout=60  # Adjust the timeout as needed
-            )
+            response = requests.post(self.api_url, headers=self.headers, json=payload, stream=True, timeout=60)
             response.raise_for_status()
 
-            # Process streamed responses line by line
             for line in response.iter_lines(decode_unicode=True):
-                # Non-blocking cancellation check by polling the flag
                 if self.check_cancellation_flag():
                     logging_utility.warning(f"Run {run_id} cancelled mid-stream. Terminating stream.")
                     yield json.dumps({'type': 'error', 'content': 'Run was cancelled.'})
@@ -249,11 +217,9 @@ class HyperbolicV3Inference(BaseInference):
                 if not line:
                     continue
 
-                # Remove the "data:" prefix if it exists
                 if line.startswith("data:"):
                     line = line[len("data:"):].strip()
 
-                # Check if the line indicates stream completion
                 if line == "[DONE]":
                     break
 
@@ -263,38 +229,20 @@ class HyperbolicV3Inference(BaseInference):
                     logging_utility.error("Failed to decode JSON from chunk: %s", line)
                     continue
 
-                # Additional cancellation check based on run status
-                current_run = self.run_service.retrieve_run(run_id)
-                if current_run.status in ["cancelling", "cancelled"]:
-                    logging_utility.warning("Run %s cancelled during streaming", run_id)
-                    break
-
-                # Extract data from the chunk
                 choices = chunk.get("choices", [])
                 if not choices:
                     continue
 
-                delta = choices[0].get("delta", {})
-                content_chunk = delta.get("content", "")
+                content_chunk = choices[0].get("delta", {}).get("content", "")
 
                 if content_chunk:
                     assistant_reply += content_chunk
                     logging_utility.info("Yielding content chunk: %s", content_chunk)
                     yield json.dumps({'type': 'content', 'content': content_chunk})
 
-                # Optionally, you could include a slight delay here:
-                # time.sleep(0.001)  # slight pause to allow incremental delivery
-
         except Exception as e:
-            error_msg = "[ERROR] Hyperbolic API streaming error"
-            logging_utility.error(f"{error_msg}: {str(e)}", exc_info=True)
-            # Handle error (if applicable, this method should be defined in your BaseInference)
-            self.handle_error(assistant_reply, thread_id, assistant_id, run_id)
-            yield json.dumps({'type': 'error', 'content': error_msg})
-            return
+            logging_utility.error("[ERROR] Hyperbolic API streaming error: %s", str(e), exc_info=True)
+            yield json.dumps({'type': 'error', 'content': '[ERROR] Hyperbolic API streaming error'})
 
-        # Final state handling for successful completion
         if assistant_reply:
             self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
-
-

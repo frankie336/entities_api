@@ -6,7 +6,7 @@ from azure.ai.inference import ChatCompletionsClient
 from azure.core.credentials import AzureKeyCredential
 from dotenv import load_dotenv
 
-from entities_api.clients.inference.base_inference import BaseInference
+from entities_api.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
 
 # Load environment variables from .env file

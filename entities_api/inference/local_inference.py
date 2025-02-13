@@ -1,5 +1,5 @@
-from entities_api.clients.inference.llama_local import LlamaLocal
-from entities_api.clients.inference.local_deepseekr1 import DeepSeekR1Local
+from entities_api.inference.llama_local import LlamaLocal
+from entities_api.inference.local_deepseekr1 import DeepSeekR1Local
 
 
 

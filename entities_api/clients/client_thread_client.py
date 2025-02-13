@@ -1,11 +1,11 @@
-import time
+from typing import List, Dict, Any, Optional
 
 import httpx
-from typing import List, Dict, Any, Optional
 from pydantic import ValidationError
-from entities_api.services.logging_service import LoggingUtility
+
 from entities_api.schemas import UserCreate, UserRead, ThreadCreate, ThreadRead, ThreadUpdate, ThreadIds, \
     ThreadReadDetailed
+from entities_api.services.logging_service import LoggingUtility
 
 # Initialize logging utility
 logging_utility = LoggingUtility()

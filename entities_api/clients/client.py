@@ -1,5 +1,4 @@
 # entities_api/clients/client.py
-
 import os
 from typing import Any, Dict, Optional
 
@@ -8,7 +7,6 @@ from ollama import Client as OllamaAPIClient
 
 from entities_api.clients.client_actions_client import ClientActionService
 from entities_api.clients.client_assistant_client import ClientAssistantService
-from entities_api.clients.client_code_executor import ClientCodeService
 from entities_api.clients.client_message_client import ClientMessageService
 from entities_api.clients.client_run_client import ClientRunService
 from entities_api.clients.client_sandbox_client import SandboxClientService
@@ -17,12 +15,12 @@ from entities_api.clients.client_tool_client import ClientToolService
 from entities_api.clients.client_user_client import UserService
 from entities_api.services.logging_service import LoggingUtility
 
-
 # Load environment variables from .env file
 load_dotenv()
 
 # Initialize logging utility
 logging_utility = LoggingUtility()
+
 
 class OllamaClient:
     def __init__(
@@ -31,71 +29,74 @@ class OllamaClient:
             api_key: Optional[str] = None,
             available_functions: Optional[Dict[str, Any]] = None
     ):
+        """
+        Initialize the main client with configuration.
+        Optionally, a configuration object could be injected here
+        to decouple from environment variables for better testability.
+        """
         self.base_url = base_url or os.getenv('ASSISTANTS_BASE_URL', 'http://localhost:9000/')
         self.api_key = api_key or os.getenv('API_KEY', 'your_api_key')
-
-        self.code_executor_service: ClientCodeService = ClientCodeService(
-            sandbox_server_url=os.getenv('CODE_SERVER_URL', 'http://localhost:9000/v1/execute_code')
-        )
-
-        # Append code code_interpreter handler to available tools
-
-        self.available_functions = available_functions or {}
 
         # Initialize the Ollama API client
         self.ollama_client: OllamaAPIClient = OllamaAPIClient()
 
         logging_utility.info("OllamaClient initialized with base_url: %s", self.base_url)
 
-    # Service Accessors with Type Annotations
+        # Lazy initialization caches for service instances
+        self._user_service: Optional[UserService] = None
+        self._assistant_service: Optional[ClientAssistantService] = None
+        self._tool_service: Optional[ClientToolService] = None
+        self._thread_service: Optional[ThreadService] = None
+        self._message_service: Optional[ClientMessageService] = None
+        self._run_service: Optional[ClientRunService] = None
+        self._action_service: Optional[ClientActionService] = None
+        self._sandbox_service: Optional[SandboxClientService] = None
+
     @property
     def user_service(self) -> UserService:
-
-        user_service = UserService(base_url=self.base_url, api_key=self.api_key)
-
-        return user_service
+        if self._user_service is None:
+            self._user_service = UserService(base_url=self.base_url, api_key=self.api_key)
+        return self._user_service
 
     @property
     def assistant_service(self) -> ClientAssistantService:
-        assistant_service = ClientAssistantService(base_url=self.base_url, api_key=self.api_key)
-        return assistant_service
+        if self._assistant_service is None:
+            self._assistant_service = ClientAssistantService(base_url=self.base_url, api_key=self.api_key)
+        return self._assistant_service
 
     @property
     def tool_service(self) -> ClientToolService:
-
-        tool_service =  ClientToolService()
-
-        return tool_service
+        if self._tool_service is None:
+            # Consider adding dependency injection here if ClientToolService grows more complex.
+            self._tool_service = ClientToolService()
+        return self._tool_service
 
     @property
     def thread_service(self) -> ThreadService:
-        return ThreadService(base_url=self.base_url, api_key=self.api_key)
-
+        if self._thread_service is None:
+            self._thread_service = ThreadService(base_url=self.base_url, api_key=self.api_key)
+        return self._thread_service
 
     @property
     def message_service(self) -> ClientMessageService:
-        return ClientMessageService(base_url=self.base_url, api_key=self.api_key)
+        if self._message_service is None:
+            self._message_service = ClientMessageService(base_url=self.base_url, api_key=self.api_key)
+        return self._message_service
 
     @property
     def run_service(self) -> ClientRunService:
-        return ClientRunService()
+        if self._run_service is None:
+            self._run_service = ClientRunService()
+        return self._run_service
 
     @property
     def action_service(self) -> ClientActionService:
-        return ClientActionService()
+        if self._action_service is None:
+            self._action_service = ClientActionService()
+        return self._action_service
 
     @property
     def sandbox_service(self) -> SandboxClientService:
-        return SandboxClientService(base_url=self.base_url, api_key=self.api_key)
-
-    @property
-    def code_executor_service(self) -> ClientCodeService:
-        return self.code_executor_service
-
-    @code_executor_service.setter
-    def code_executor_service(self, value):
-        self._code_executor_service = value
-
-
-
-
+        if self._sandbox_service is None:
+            self._sandbox_service = SandboxClientService(base_url=self.base_url, api_key=self.api_key)
+        return self._sandbox_service

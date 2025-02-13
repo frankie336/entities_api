@@ -3,6 +3,7 @@ import time
 import threading
 from abc import ABC, abstractmethod
 from typing import Any
+from functools import lru_cache
 
 from entities_api.clients.client_actions_client import ClientActionService
 from entities_api.clients.client_assistant_client import ClientAssistantService
@@ -20,22 +21,47 @@ class BaseInference(ABC):
         self.base_url = base_url
         self.api_key = api_key
         self.available_functions = available_functions
+        self._cancelled = False  # Cancellation flag
+        self._services = {}  # Lazy-loaded services cache
 
-        # Common services setup
-        self.user_service = UserService(self.base_url, self.api_key)
-        self.assistant_service = ClientAssistantService(self.base_url, self.api_key)
-        self.thread_service = ThreadService(self.base_url, self.api_key)
-        self.message_service = ClientMessageService(self.base_url, self.api_key)
-        self.run_service = ClientRunService(self.base_url, self.api_key)
-        self.tool_service = ClientToolService(self.base_url, self.api_key)
-        self.action_service = ClientActionService(self.base_url, self.api_key)
-
-        logging_utility.info("BaseInference services initialized.")
-
-        # Cancellation flag to be updated asynchronously
-        self._cancelled = False
+        logging_utility.info("BaseInference initialized with lazy service loading.")
 
         self.setup_services()
+
+    def _get_service(self, service_class):
+        """Lazy-load and cache service instances."""
+        if service_class not in self._services:
+            self._services[service_class] = service_class(self.base_url, self.api_key)
+            logging_utility.info(f"Lazy-loaded {service_class.__name__}")
+        return self._services[service_class]
+
+    @property
+    def user_service(self):
+        return self._get_service(UserService)
+
+    @property
+    def assistant_service(self):
+        return self._get_service(ClientAssistantService)
+
+    @property
+    def thread_service(self):
+        return self._get_service(ThreadService)
+
+    @property
+    def message_service(self):
+        return self._get_service(ClientMessageService)
+
+    @property
+    def run_service(self):
+        return self._get_service(ClientRunService)
+
+    @property
+    def tool_service(self):
+        return self._get_service(ClientToolService)
+
+    @property
+    def action_service(self):
+        return self._get_service(ClientActionService)
 
     @abstractmethod
     def setup_services(self):
@@ -47,10 +73,23 @@ class BaseInference(ABC):
         """Process the conversation and yield response chunks."""
         pass
 
-    def handle_error(self, assistant_reply, thread_id, assistant_id, run_id):
-        """If an error occurs and partial text output has been streamed,
-        save the truncated text to the message dialogue
+    def normalize_roles(self, conversation_history):
         """
+        Normalize roles to ensure consistency with the Hyperbolic API.
+        """
+        normalized_history = []
+        for message in conversation_history:
+            role = message.get('role', '').strip().lower()
+            if role not in ['user', 'assistant', 'system']:
+                role = 'user'
+            normalized_history.append({
+                "role": role,
+                "content": message.get('content', '').strip()
+            })
+        return normalized_history
+
+    def handle_error(self, assistant_reply, thread_id, assistant_id, run_id):
+        """Handle errors and store partial assistant responses."""
         if assistant_reply:
             self.message_service.save_assistant_message_chunk(
                 thread_id=thread_id,
@@ -80,14 +119,15 @@ class BaseInference(ABC):
     def start_cancellation_listener(self, run_id: str, poll_interval: float = 1.0) -> None:
         """
         Starts a background thread to listen for cancellation events.
-        This thread continuously polls for a cancellation event and, if detected,
-        sets the internal cancellation flag.
+        Only starts if it hasn't already been started.
         """
         from entities_api.services.run_event_handler import EntitiesEventHandler
 
-        def handle_event(event_type: str, event_data: Any):
+        if hasattr(self, "_cancellation_thread") and self._cancellation_thread.is_alive():
+            logging_utility.info("Cancellation listener already running.")
+            return
 
-            #logging_utility.info(f"[Callback] Event: {event_type}, Data: {event_data}")
+        def handle_event(event_type: str, event_data: Any):
             if event_type == "cancelled":
                 return "cancelled"
 
@@ -98,16 +138,21 @@ class BaseInference(ABC):
                 event_callback=handle_event
             )
             while not self._cancelled:
-                # This call is blocking inside the thread, so it won't block your main loop.
                 if event_handler._emit_event("cancelled", run_id) == "cancelled":
                     self._cancelled = True
                     logging_utility.info(f"Cancellation event detected for run {run_id}")
                     break
                 time.sleep(poll_interval)
 
-        cancellation_thread = threading.Thread(target=listen_for_cancellation, daemon=True)
-        cancellation_thread.start()
+        self._cancellation_thread = threading.Thread(target=listen_for_cancellation, daemon=True)
+        self._cancellation_thread.start()
 
     def check_cancellation_flag(self) -> bool:
         """Non-blocking check of the cancellation flag."""
         return self._cancelled
+
+    @lru_cache(maxsize=128)
+    def cached_user_details(self, user_id):
+        """Cache user details to avoid redundant API calls."""
+        return self.user_service.get_user(user_id)
+

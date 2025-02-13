@@ -1,11 +1,11 @@
 # test_inference_factory.py
 import unittest
 from unittest.mock import patch
-from entities_api.clients.inference.llama_local import LlamaLocal
-from entities_api.clients.inference.groq_inference import CloudInference
+from entities_api.inference.llama_local import LlamaLocal
+from entities_api.inference.groq_inference import CloudInference
 # test_inference_factory.py
 
-from entities_api.clients.inference.inference_factory import InferenceFactory
+from entities_api.inference.inference_factory import InferenceFactory
 
 
 # Add other necessary imports

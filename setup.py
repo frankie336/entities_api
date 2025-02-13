@@ -55,7 +55,8 @@ setup(
         "weasel",
         "groq",
         "openai",
-        "azure-ai-inference"
+        "azure-ai-inference",
+        "together"
     ],
     extras_require={
         "dev": [

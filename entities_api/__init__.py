@@ -1,12 +1,11 @@
 from entities_api.clients.client_assistant_client import ClientAssistantService
 from entities_api.clients.client import OllamaClient
 from entities_api.clients.platform_tools.code_interpreter_handler import code_interpreter
-from entities_api.clients.inference.inference_factory import InferenceFactory
-from entities_api.clients.inference.base_inference import BaseInference
-from entities_api.clients.inference.llama_local import LlamaLocal
-from entities_api.clients.inference.local_inference import LocalInference
-from entities_api.clients.inference.cloud_inference import CloudInference
 from entities_api.services.run_event_handler import EntitiesEventHandler
+from entities_api.inference.inference_factory import InferenceFactory
+from entities_api.inference.local_inference import LocalInference
+from entities_api.inference.cloud_inference import CloudInference
+from entities_api.inference.llama_local import LlamaLocal
 
 
 from ollama._types import (
@@ -31,7 +30,6 @@ __all__ = [
     'OllamaClient',
     'ClientAssistantService',
     'InferenceFactory',
-    'BaseInference',
     'LocalInference',
     'LlamaLocal',
     'CloudInference',

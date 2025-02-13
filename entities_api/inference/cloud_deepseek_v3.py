@@ -3,7 +3,7 @@ import time
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from entities_api.clients.inference.base_inference import BaseInference
+from entities_api.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.clients.client_message_client import ClientMessageService
 from entities_api.clients.client_actions_client import ClientActionService

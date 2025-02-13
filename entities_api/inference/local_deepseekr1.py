@@ -4,7 +4,7 @@ import time
 from dotenv import load_dotenv
 from ollama import Client
 
-from entities_api.clients.inference.base_inference import BaseInference
+from entities_api.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
 
 # Load environment variables from .env file

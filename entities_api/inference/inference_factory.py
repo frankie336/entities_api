@@ -1,7 +1,7 @@
 # inference_factory.py
 import os
-from entities_api.clients.inference.llama_local import LlamaLocal
-from entities_api.clients.inference.groq_inference import CloudInference
+from entities_api.inference.llama_local import LlamaLocal
+from entities_api.inference.groq_inference import CloudInference
 from entities_api.services.logging_service import LoggingUtility
 
 # Initialize logging utility

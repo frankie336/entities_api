@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 from groq import Groq
-from entities_api.clients.inference.base_inference import BaseInference
+from entities_api.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
 
 # Load environment variables from .env file

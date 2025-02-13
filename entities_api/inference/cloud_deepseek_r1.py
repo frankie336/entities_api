@@ -1,9 +1,8 @@
-import os
 import json
 import time
 from dotenv import load_dotenv
 from openai import OpenAI
-from entities_api.clients.inference.base_inference import BaseInference
+from entities_api.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
 
 # Load environment variables from .env file

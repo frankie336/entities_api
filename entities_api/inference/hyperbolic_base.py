@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from entities_api.clients.client import ClientRunService
 from entities_api.clients.client_assistant_client import ClientAssistantService
 from entities_api.clients.client_message_client import ClientMessageService
-from entities_api.clients.inference.base_inference import BaseInference
+from entities_api.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
 
 load_dotenv()
