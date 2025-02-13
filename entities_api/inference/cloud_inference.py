@@ -7,6 +7,7 @@ from entities_api.inference.cloud_azure_r1 import AzureR1Cloud
 from entities_api.inference.cloud_hyperbolic_r1 import HyperbolicR1Inference
 from entities_api.inference.cloud_hyperbolic_v3 import HyperbolicV3Inference
 from entities_api.inference.cloud_together_ai_r1 import TogetherR1Inference
+from entities_api.inference.cloud_together_ai_v3 import TogetherV3Inference
 
 from functools import lru_cache
 from entities_api.services.logging_service import LoggingUtility
@@ -54,6 +55,9 @@ class CloudInference:
 
     def get_together_ai_r1(self):
         return self._get_provider(TogetherR1Inference)
+
+    def get_together_ai_v3(self):
+        return self._get_provider(TogetherV3Inference)
 
     # Cache management
     def clear_cache(self):

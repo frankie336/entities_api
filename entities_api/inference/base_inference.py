@@ -80,7 +80,7 @@ class BaseInference(ABC):
         normalized_history = []
         for message in conversation_history:
             role = message.get('role', '').strip().lower()
-            if role not in ['user', 'assistant', 'system']:
+            if role not in ['user', 'assistant', 'system', 'tool']:
                 role = 'user'
             normalized_history.append({
                 "role": role,
@@ -121,7 +121,7 @@ class BaseInference(ABC):
         Starts a background thread to listen for cancellation events.
         Only starts if it hasn't already been started.
         """
-        from entities_api.services.run_event_handler import EntitiesEventHandler
+        from entities_api.services.event_handler import EntitiesEventHandler
 
         if hasattr(self, "_cancellation_thread") and self._cancellation_thread.is_alive():
             logging_utility.info("Cancellation listener already running.")

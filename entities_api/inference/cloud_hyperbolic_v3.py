@@ -1,12 +1,13 @@
 import json
 import re
 import time
+
 import requests
 from dotenv import load_dotenv
-from entities_api.inference.base_inference import BaseInference
-from entities_api.clients.client_message_client import ClientMessageService
+
 from entities_api.clients.client_actions_client import ClientActionService
 from entities_api.clients.client_run_client import ClientRunService
+from entities_api.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
 
 # Load environment variables from .env file
@@ -26,20 +27,10 @@ class HyperbolicV3Inference(BaseInference):
         }
         logging_utility.info("HyperbolicInference specific setup completed.")
 
+
     def normalize_roles(self, conversation_history):
-        """
-        Normalize roles to ensure consistency with the Hyperbolic API.
-        """
-        normalized_history = []
-        for message in conversation_history:
-            role = message.get('role', '').strip().lower()
-            if role not in ['user', 'assistant', 'system']:
-                role = 'user'
-            normalized_history.append({
-                "role": role,
-                "content": message.get('content', '').strip()
-            })
-        return normalized_history
+        """Reuse parent class normalization."""
+        return super().normalize_roles(conversation_history)
 
     @staticmethod
     def check_tool_call_data(input_string: str) -> bool:
@@ -206,7 +197,6 @@ class HyperbolicV3Inference(BaseInference):
 
             # Process the tool call
             if is_this_a_tool_call:
-
                 logging_utility.info("Tool call detected; proceeding accordingly.")
 
                 self.process_tool_calls(
