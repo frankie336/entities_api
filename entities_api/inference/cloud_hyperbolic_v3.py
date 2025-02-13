@@ -52,7 +52,7 @@ class HyperbolicV3Inference(BaseInference):
         Accumulates all chunks and returns the complete content at the end.
         """
         logging_utility.info("Scanning for tool calls: thread_id=%s, run_id=%s, assistant_id=%s",
-                     thread_id, run_id, assistant_id)
+                             thread_id, run_id, assistant_id)
 
         self.start_cancellation_listener(run_id)
 
@@ -78,12 +78,6 @@ class HyperbolicV3Inference(BaseInference):
             response.raise_for_status()
 
             for line in response.iter_lines(decode_unicode=True):
-
-                if len(accumulated_content)>1 and accumulated_content[:2] != "{\"":
-                    logging_utility.warning("Invalid start of response: %s", accumulated_content)
-                    return False  # Immediate return if the first two characters are not '{"'
-
-
                 if self.check_cancellation_flag():
                     logging_utility.warning("Run %s cancelled. Terminating stream.", run_id)
                     break
@@ -97,17 +91,32 @@ class HyperbolicV3Inference(BaseInference):
                     logging_utility.info("Stream finished.")
                     continue
 
-
-
-
-
                 try:
                     chunk = json.loads(line_content)
                     delta_content = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
 
                     if delta_content:
                         logging_utility.info("Extracted delta content: %s", delta_content)
-                        accumulated_content += delta_content  # Accumulate the content
+                        accumulated_content += delta_content
+
+                        # Immediate validation after EVERY accumulation
+                        if len(accumulated_content) >= 2:
+
+
+                            if not accumulated_content.startswith('{"'):
+
+                                print(accumulated_content)
+                                print("Early exit!")
+
+                                #time.sleep(1000)
+
+                                logging_utility.warning("Invalid JSON start: %s", accumulated_content)
+                                return accumulated_content
+                            elif len(accumulated_content) == 2:
+                                # Early validation for minimum valid start
+                                return accumulated_content
+
+
 
                 except json.JSONDecodeError:
                     logging_utility.error("JSON decoding failed for chunk: %s", line_content)
@@ -116,7 +125,12 @@ class HyperbolicV3Inference(BaseInference):
             logging_utility.error("[ERROR] API streaming failure: %s", str(e), exc_info=True)
             self.handle_error("", thread_id, assistant_id, run_id)
 
-        logging_utility.info("accumulated_content:  %s", accumulated_content)
+        # Final validation before returning
+        if not self.check_tool_call_data(accumulated_content):
+            logging_utility.warning("Final content failed validation: %s", accumulated_content)
+            return ""
+
+        logging_utility.info("accumulated_content: %s", accumulated_content)
         return accumulated_content
 
     def process_tool_calls(self, message_id, thread_id, assistant_id, content, run_id):
@@ -174,9 +188,9 @@ class HyperbolicV3Inference(BaseInference):
         if tool_candidate_data:
             is_this_a_tool_call = self.check_tool_call_data(tool_candidate_data)
 
-            if is_this_a_tool_call:
-                self.process_tool_calls(thread_id=thread_id, message_id=message_id,
-                                        assistant_id=assistant_id, content=tool_candidate_data, run_id=run_id)
+   
+            self.process_tool_calls(thread_id=thread_id, message_id=message_id,
+                                    assistant_id=assistant_id, content=tool_candidate_data, run_id=run_id)
 
         logging_utility.info(
             "Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
