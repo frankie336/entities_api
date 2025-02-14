@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import threading
 from abc import ABC, abstractmethod
@@ -87,6 +88,12 @@ class BaseInference(ABC):
                 "content": message.get('content', '').strip()
             })
         return normalized_history
+
+    @staticmethod
+    def check_tool_call_data(input_string: str) -> bool:
+        """Regex to match the general structure of the string"""
+        pattern = r'^\{"name":\s*"[^"]+",\s*"arguments":\s*\{(?:\s*"[^"]*":\s*"[^"]*",\s*)*(?:"[^"]*":\s*"[^"]*")\s*\}\}$'
+        return bool(re.match(pattern, input_string))
 
     def handle_error(self, assistant_reply, thread_id, assistant_id, run_id):
         """Handle errors and store partial assistant responses."""

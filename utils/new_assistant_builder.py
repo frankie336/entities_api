@@ -1,7 +1,7 @@
 # Tool creation and association functions
 from entities_api.clients.client import OllamaClient
 from entities_api.schemas import ToolFunction  # Import ToolFunction
-
+from entities_api.constants import DEFAULT_MODEL, ASSISTANT_INSTRUCTIONS
 
 def create_and_associate_tools(client, function_definitions, assistant_id):
     for func_def in function_definitions:
@@ -57,7 +57,7 @@ def setup_assistant_with_tools(user_name, assistant_name, assistant_description,
 if __name__ == "__main__":
     function_definitions = [
         {
-            "type": "function",
+            "type": "code_interpreter",
             "function": {
                 "name": "code_interpreter",
                 "description": "Executes a provided Python code snippet remotely in a sandbox environment and returns the raw output as a JSON object...",
@@ -107,27 +107,12 @@ if __name__ == "__main__":
         }
 
     ]
-
     assistant = setup_assistant_with_tools(
         user_name='test_case',
         assistant_name='Nexa',
         assistant_description='Assistant',
-        model='llama3.1',
-
-
-        instructions="You must strictly adhere to the following guidelines:\n"
-        "- When a tool (function) is called, your response **must** be a valid JSON object containing only the keys 'name' and 'arguments'.\n"
-        "- Do **not** wrap JSON responses in markdown (e.g., no triple backticks).\n"
-        "- If a tool is invoked, **never** reply with an empty message.\n"
-        "- If a tool response is provided by the system (with role='tool'), always **acknowledge and incorporate it** into your next response.\n"
-        "- If the user’s request is unclear, request clarification instead of defaulting to a blank or incomplete response.\n"
-        "- If no tool applies, respond naturally.\n"
-        "Failure to follow these instructions will result in incorrect tool handling."
-        ,
-
+        model=DEFAULT_MODEL,
+        instructions=ASSISTANT_INSTRUCTIONS,
         function_definitions=function_definitions
-
-
     )
-
     print(f"\nSetup complete. Assistant ID: {assistant.id}")

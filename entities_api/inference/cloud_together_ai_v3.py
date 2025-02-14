@@ -6,6 +6,9 @@ import time
 from functools import lru_cache
 from dotenv import load_dotenv
 from together import Together  # Using the official Together SDK
+
+from entities_api.clients.client_actions_client import ClientActionService
+from entities_api.clients.client_run_client import ClientRunService
 from entities_api.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
 
@@ -41,6 +44,154 @@ class TogetherV3Inference(BaseInference):
         """Reuse parent class normalization."""
         return super().normalize_roles(conversation_history)
 
+    def check_tool_call_data(self, input_string):
+        """Regex to match the general structure of the string"""
+        return super().check_tool_call_data(input_string)
+
+    def parse_tools_calls(self, thread_id, message_id, run_id, assistant_id, model="deepseek-ai/DeepSeek-R1",
+                          stream_reasoning=False):
+        """
+        Handles chat streaming using the TogetherAI SDK.
+        - Uses the SDK for inference.
+        - Accumulates full response before yielding.
+        - Supports mid-stream cancellation.
+        - Strips or escapes markdown triple backticks if present.
+        """
+
+        self.start_cancellation_listener(run_id)
+
+        # Force correct model value
+        model = "deepseek-ai/DeepSeek-V3"
+
+        # Retrieve cached data
+        assistant = self._assistant_cache(assistant_id)
+        conversation_history = self._message_cache(thread_id, assistant.instructions)
+        messages = self.normalize_roles(conversation_history)
+
+        request_payload = {
+            "model": model,
+            "messages": [{"role": msg["role"], "content": msg["content"]} for msg in messages],
+            "max_tokens": None,
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "top_k": 50,
+            "repetition_penalty": 1,
+            "stop": ["<｜end▁of▁sentence｜>"],
+            "stream": True
+        }
+
+        assistant_reply = ""
+        accumulated_content = ""
+        start_checked = False
+
+        try:
+            response = self.client.chat.completions.create(**request_payload)
+
+            for token in response:
+                # Check for mid-stream cancellation before processing any tokens
+                if self.check_cancellation_flag():
+                    logging_utility.warning("Run %s cancelled mid-stream", run_id)
+                    result = json.dumps({'type': 'error', 'content': 'Run cancelled'})
+                    print(result)
+                    return result
+
+                if not hasattr(token, "choices") or not token.choices:
+                    continue
+
+                delta = token.choices[0].delta
+                content = getattr(delta, "content", "")
+
+                if not content:
+                    continue
+
+                # Accumulate content for early JSON validation
+                accumulated_content += content
+
+                # Validate JSON start after accumulating at least 2 non-whitespace characters
+                if not start_checked and len(accumulated_content.strip()) >= 2:
+                    start_checked = True
+
+                    if not accumulated_content.strip().startswith(('```{', '{')):
+                        logging_utility.warning(
+                            "Early termination: Invalid JSON start detected in accumulated content: %s",
+                            accumulated_content
+                        )
+                        result = json.dumps({'type': 'error', 'content': accumulated_content})
+                        return result
+
+                assistant_reply += content
+
+            # **Handle potential markdown triple backticks**
+
+            if accumulated_content.startswith("```") and accumulated_content.endswith("```"):
+                logging_utility.info("Detected markdown-wrapped JSON. Stripping backticks.")
+                accumulated_content = re.sub(r"^```|```$", "", accumulated_content).strip()
+
+            # Log and sleep before returning final content
+            logging_utility.info("Final accumulated content: %s", accumulated_content)
+
+            return accumulated_content
+
+        except Exception as e:
+            error_msg = f"Together SDK error: {str(e)}"
+            logging_utility.error(error_msg, exc_info=True)
+            self.handle_error(assistant_reply, thread_id, assistant_id, run_id)
+            result = json.dumps({'type': 'error', 'content': error_msg})
+            return result
+
+    def process_tool_calls(self, thread_id,
+                           assistant_id, content,
+                           run_id):
+
+        self.message_service.save_assistant_message_chunk(
+            thread_id=thread_id,
+            content=content,
+            role="assistant",
+            assistant_id=assistant_id,
+            sender_id=assistant_id,
+            is_last_chunk=True
+        )
+        logging_utility.info("Saved triggering message to thread: %s", thread_id)
+
+
+
+        try:
+            content_dict = json.loads(content)
+        except json.JSONDecodeError as e:
+            logging_utility.error(f"Error decoding accumulated content: {e}")
+            return
+
+        # Creating action
+        # Save the tool invocation for state management.
+        action_service = ClientActionService()
+        action_service.create_action(
+            tool_name=content_dict["name"],
+            run_id=run_id,
+            function_args=content_dict["arguments"]
+        )
+
+        # Update run status to 'action_required'
+        run_service = ClientRunService()
+        run_service.update_run_status(run_id=run_id, new_status='action_required')
+        logging_utility.info(f"Run {run_id} status updated to action_required")
+
+        # Now wait for the run's status to change from 'action_required'.
+        while True:
+            run = self.run_service.retrieve_run(run_id)
+            if run.status != "action_required":
+                break
+            time.sleep(1)
+
+        logging_utility.info("Action status transition complete. Reprocessing conversation.")
+
+        # Continue processing the conversation transparently.
+        # (Rebuild the conversation history if needed; here we re-use deepseek_messages.)
+
+        logging_utility.info("No tool call triggered; proceeding with conversation.")
+
+        return content  # Return the accumulated content
+
+
     def process_conversation(self, thread_id, message_id, run_id, assistant_id,
                              model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
         """
@@ -50,12 +201,41 @@ class TogetherV3Inference(BaseInference):
         - Yields each segment immediately with its type.
         - Supports mid-stream cancellation.
         """
-        self.start_cancellation_listener(run_id)
 
         # Force correct model value
         model = "deepseek-ai/DeepSeek-V3"
 
+        # First, process and scan for tool calls.
+        tool_candidate_data = self.parse_tools_calls(thread_id=thread_id, message_id=message_id,
+                                                     assistant_id=assistant_id, run_id=run_id, model=model)
+
+        # Validate the tool_call_data_structure
+        is_this_a_tool_call = self.check_tool_call_data(tool_candidate_data)
+
+        # Process the tool call
+        if is_this_a_tool_call:
+            logging_utility.info("Tool call detected; proceeding accordingly.")
+
+            self.process_tool_calls(
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                content=tool_candidate_data,
+                run_id=run_id
+            )
+        else:
+            logging_utility.info("No tool call triggered; proceeding with conversation.")
+
+        logging_utility.info(
+            "Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
+            thread_id, run_id, assistant_id
+        )
+
+
+
+        self.start_cancellation_listener(run_id)
         # Retrieve cached data
+        # The assistants instructions are appended to
+        # The system instructions
         assistant = self._assistant_cache(assistant_id)
         conversation_history = self._message_cache(thread_id, assistant.instructions)
         messages = self.normalize_roles(conversation_history)

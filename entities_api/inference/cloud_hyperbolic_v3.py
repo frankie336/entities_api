@@ -43,14 +43,10 @@ class HyperbolicV3Inference(BaseInference):
         Processes streamed tool call content as a single accumulating string.
         Accumulates all chunks and returns the complete content at the end.
         """
-
-
-
         logging_utility.info("Scanning for tool calls: thread_id=%s, run_id=%s, assistant_id=%s",
                              thread_id, run_id, assistant_id)
 
         self.start_cancellation_listener(run_id)
-
         assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
 
         messages = self.normalize_roles(
