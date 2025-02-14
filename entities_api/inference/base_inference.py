@@ -1,10 +1,10 @@
 import os
 import re
-import time
 import threading
+import time
 from abc import ABC, abstractmethod
-from typing import Any
 from functools import lru_cache
+from typing import Any
 
 from entities_api.clients.client_actions_client import ClientActionService
 from entities_api.clients.client_assistant_client import ClientAssistantService
@@ -14,7 +14,6 @@ from entities_api.clients.client_thread_client import ThreadService
 from entities_api.clients.client_tool_client import ClientToolService
 from entities_api.clients.client_user_client import UserService
 from entities_api.services.logging_service import LoggingUtility
-from entities_api.platform_tools.platform_tool_service import PlatformToolService
 
 logging_utility = LoggingUtility()
 

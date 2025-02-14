@@ -176,7 +176,6 @@ class TogetherV3Inference(BaseInference):
 
             if is_this_a_tool_call:
                 logging_utility.info("Validated tool response content: %s", accumulated_content)
-
                 return accumulated_content
             else:
                 return False
@@ -206,6 +205,7 @@ class TogetherV3Inference(BaseInference):
 
         try:
             content_dict = json.loads(content)
+
         except json.JSONDecodeError as e:
             logging_utility.error(f"Error decoding accumulated content: {e}")
             return
@@ -213,7 +213,7 @@ class TogetherV3Inference(BaseInference):
         # Creating action
         # Save the tool invocation for state management.
         action_service = ClientActionService()
-        action_service.create_action(
+        action = action_service.create_action(
             tool_name=content_dict["name"],
             run_id=run_id,
             function_args=content_dict["arguments"]
@@ -225,20 +225,94 @@ class TogetherV3Inference(BaseInference):
         logging_utility.info(f"Run {run_id} status updated to action_required")
 
         platform_tool_service = PlatformToolService()
-        handle_function = platform_tool_service.call_function(function_name=content_dict["name"],
+
+        function_output = platform_tool_service.call_function(function_name=content_dict["name"],
                                                               arguments=content_dict["arguments"])
+
+        if content_dict.get("name")=="code_interpreter":
+            function_output = json.loads(function_output)
+            output_value = function_output['result']['output']
+
+            self.message_service.submit_tool_output(
+                thread_id=thread_id,
+                content=output_value,
+                role="tool",
+                assistant_id=assistant_id,
+                tool_id="dummy"
+            )
+
+            self.action_service.update_action(action_id=action.id, status='completed')
+            logging_utility.info(f"code interpreter tool output inserted!")
 
         return
 
+    def stream_code_interpreter(self, thread_id, assistant_id, content, run_id):
+        """
+        Special case method to stream code_interpreter responses.
+        Streams the code in real time as a markdown-formatted Python code block.
+        """
+        # Save the assistant's structured tool response
+        self.message_service.save_assistant_message_chunk(
+            thread_id=thread_id,
+            content=content,
+            role="assistant",
+            assistant_id=assistant_id,
+            sender_id=assistant_id,
+            is_last_chunk=True
+        )
+        logging_utility.info("Saved triggering message to thread: %s", thread_id)
 
+        try:
+            content_dict = json.loads(content)
+        except json.JSONDecodeError as e:
+            logging_utility.error(f"Error decoding accumulated content: {e}")
+            return
 
+        tool_name = content_dict.get("name")
+        function_args = content_dict.get("arguments", {})
+        code = function_args.get("code", "")
 
+        # Start streaming: yield the opening markdown for a Python code block.
+        opening = "```python\n"
+        logging_utility.info("Streaming code block start: %s", opening.strip())
+        yield opening
 
+        # Stream the code line by line.
+        for line in code.split("\n"):
+            # Log each line
+            logging_utility.info(f"Streaming code chunk: {line}")
+            # Yield the line with a newline appended for proper formatting.
+            yield line + "\n"
+            time.sleep(0.1)  # Simulate delay for real-time effect
 
+        # End streaming: yield the closing markdown backticks.
+        closing = "```"
+        logging_utility.info("Streaming code block end: %s", closing)
+        yield closing
 
+        # Continue with the rest of the platform tool call logic if needed.
+        # For example, creating actions and updating run status:
+        action_service = ClientActionService()
+        action_service.create_action(
+            tool_name=tool_name,
+            run_id=run_id,
+            function_args=function_args
+        )
 
+        run_service = ClientRunService()
+        run_service.update_run_status(run_id=run_id, new_status='action_required')
+        logging_utility.info(f"Run {run_id} status updated to action_required")
 
+        platform_tool_service = PlatformToolService()
+        handle_function = platform_tool_service.call_function(
+            function_name=tool_name,
+            arguments=function_args
+        )
 
+        # Optionally, yield the execution result or log it.
+        result_message = f"\nExecution Result:\n{handle_function}"
+        logging_utility.info("Streaming execution result: %s", result_message.strip())
+        yield result_message
 
     def process_tool_calls(self, thread_id,
                            assistant_id, content,
@@ -292,7 +366,6 @@ class TogetherV3Inference(BaseInference):
 
         return content  # Return the accumulated content
 
-
     def process_conversation(self, thread_id, message_id, run_id, assistant_id,
                              model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
         """
@@ -302,63 +375,56 @@ class TogetherV3Inference(BaseInference):
         - Yields each segment immediately with its type.
         - Supports mid-stream cancellation.
         """
-
         # Force correct model value
         model = "deepseek-ai/DeepSeek-V3"
 
-        # First, process and scan for tool calls.
-        tool_candidate_data = self.parse_tools_calls(thread_id=thread_id, message_id=message_id,
-                                                     assistant_id=assistant_id, run_id=run_id, model=model)
-
-        #Process platform tools
-        if tool_candidate_data:
-            # Parse the string into a dictionary
-            tool_response_to_json = json.loads(tool_candidate_data)
-
-            # Check if the 'name' key is in the list
-            if tool_response_to_json.get('name') in PLATFORM_TOOLS:
-
-                self.process_platform_tool_calls(thread_id=thread_id,
-                                            assistant_id=assistant_id,
-                                            content = tool_candidate_data,
-                                            run_id=run_id)
-
-
-
-
-            else:
-                print("Name is not in the list.")
-
-
-        # Process the tool call
-        if tool_candidate_data:
-            logging_utility.info("Tool call detected; proceeding accordingly.")
-            self.process_tool_calls(
-                thread_id=thread_id,
-                assistant_id=assistant_id,
-                content=tool_candidate_data,
-                run_id=run_id
-            )
-        else:
-            logging_utility.info("No tool call triggered; proceeding with conversation.")
-
-        logging_utility.info(
-            "Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
-            thread_id, run_id, assistant_id
+        # Parse the tool response structured data.
+        tool_candidate_data = self.parse_tools_calls(
+            thread_id=thread_id,
+            message_id=message_id,
+            assistant_id=assistant_id,
+            run_id=run_id,
+            model=model
         )
 
+        if tool_candidate_data and self.is_valid_function_call_response(tool_candidate_data):
+            tool_response_to_json = json.loads(tool_candidate_data)
+            tool_name = tool_response_to_json.get('name')
+
+            if tool_name in PLATFORM_TOOLS:
+                # If it's the code_interpreter, stream the code first.
+                if tool_name == "code_interpreter":
+                    for seg in self.stream_code_interpreter(
+                            thread_id=thread_id,
+                            assistant_id=assistant_id,
+                            content=tool_candidate_data,
+                            run_id=run_id):
+                        yield json.dumps({'type': 'content', 'content': seg})
+                    # Process code interpreter tool call.
+                    self.process_platform_tool_calls(
+                        thread_id=thread_id,
+                        assistant_id=assistant_id,
+                        content=tool_candidate_data,
+                        run_id=run_id
+                    )
+                else:
+                    # For other platform tools, process as ordinary tool calls.
+                    self.process_tool_calls(
+                        thread_id=thread_id,
+                        assistant_id=assistant_id,
+                        content=tool_candidate_data,
+                        run_id=run_id
+                    )
+                    logging_utility.info("Tool call detected; proceeding accordingly.")
+            else:
+                print("Not a platform tool")
+
+        # Begin conversation processing.
         self.start_cancellation_listener(run_id)
-        # Retrieve cached data
-        # The assistants instructions are appended to
-        # The system instructions
         assistant = self._assistant_cache(assistant_id)
-
-
         conversation_history = self.message_service.get_formatted_messages(
             thread_id, system_message=assistant.instructions
         )
-
-        # Formats and orders message history
         conversation_history = self.normalize_roles(conversation_history)
         messages = [{"role": msg['role'], "content": msg['content']} for msg in conversation_history]
 
@@ -380,7 +446,6 @@ class TogetherV3Inference(BaseInference):
 
         try:
             response = self.client.chat.completions.create(**request_payload)
-
             for token in response:
                 if self.check_cancellation_flag():
                     logging_utility.warning(f"Run {run_id} cancelled mid-stream")
@@ -395,11 +460,11 @@ class TogetherV3Inference(BaseInference):
                 if not content:
                     continue
 
-                # Optionally, print the raw content for debugging
+                # Print raw content for debugging.
                 sys.stdout.write(content)
                 sys.stdout.flush()
 
-                # Split the content based on <think> tags
+                # Split content based on <think> tags.
                 segments = self.REASONING_PATTERN.split(content)
                 for seg in segments:
                     if not seg:
@@ -423,7 +488,6 @@ class TogetherV3Inference(BaseInference):
                             assistant_reply += seg
                             logging_utility.debug("Yielding content segment: %s", seg)
                             yield json.dumps({'type': 'content', 'content': seg})
-                # Optional: slight pause to allow incremental delivery
                 time.sleep(0.01)
 
         except Exception as e:
@@ -434,7 +498,6 @@ class TogetherV3Inference(BaseInference):
             yield json.dumps({'type': 'error', 'content': error_msg})
             return
 
-        # Finalize conversation if there's any assistant reply content
         if assistant_reply:
             combined = reasoning_content + assistant_reply
             self.finalize_conversation(combined, thread_id, assistant_id, run_id)
