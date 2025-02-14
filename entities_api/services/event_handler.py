@@ -8,6 +8,9 @@ from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 
+# Global constants
+PLATFORM_TOOLS = ["code_interpreter"]
+
 class EntitiesEventHandler:
     """
     Event handler to monitor AI runs, detect triggered events, and handle callbacks dynamically.
@@ -83,9 +86,6 @@ class EntitiesEventHandler:
         """
         Emit an event and trigger the appropriate callback.
         """
-        #logging_utility.info(f"Event triggered: {event_type}")
-
-        # Directly pass the event_type and event_data to the callback.
         if self.event_callback:
             self.event_callback(event_type, event_data)
 
@@ -105,7 +105,6 @@ class EntitiesEventHandler:
         logging_utility.info(f"Action required for run: {run.id}")
         self._current_run = run
 
-        # Mimic your original behavior:
         # Fetch pending actions by calling get_actions_by_status, then get each action.
         pending_actions = []
         pending_action_ids = self.action_service.get_actions_by_status(run.id, status="pending")
@@ -136,7 +135,6 @@ class EntitiesEventHandler:
         """
         Handle when a run is cancelled.
         """
-        #logging_utility.info(f"Run {run} was cancelled.")
         self._current_run = None
 
     def on_error(self, error: str):
@@ -151,6 +149,11 @@ class EntitiesEventHandler:
         """
         logging_utility.info(f"Tool call created: {tool_call.id} (Tool: {tool_call.tool_name})")
         self._current_tool_call = tool_call
+
+        # Check if the tool is in the excluded list
+        if tool_call.tool_name in PLATFORM_TOOLS:
+            logging_utility.info(f"Skipping emission for platform tool: {tool_call.tool_name}")
+            return
 
         try:
             tool_call_result = self._invoke_tool(tool_call)

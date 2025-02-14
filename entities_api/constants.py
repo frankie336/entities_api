@@ -1,7 +1,7 @@
 #entities_api/constants.py
 
 # Global constants
-PLATFORM_TOOLS = ["internal_tool_1", "internal_tool_2"]
+PLATFORM_TOOLS = ["code_interpreter"]
 API_TIMEOUT = 30
 DEFAULT_MODEL = "llama3.1"
 

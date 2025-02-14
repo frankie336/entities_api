@@ -14,6 +14,7 @@ from entities_api.clients.client_thread_client import ThreadService
 from entities_api.clients.client_tool_client import ClientToolService
 from entities_api.clients.client_user_client import UserService
 from entities_api.services.logging_service import LoggingUtility
+from entities_api.platform_tools.platform_tool_service import PlatformToolService
 
 logging_utility = LoggingUtility()
 
@@ -122,6 +123,8 @@ class BaseInference(ABC):
             )
             logging_utility.info("Assistant response stored successfully.")
             self.run_service.update_run_status(run_id, "completed")
+
+
 
     def start_cancellation_listener(self, run_id: str, poll_interval: float = 1.0) -> None:
         """

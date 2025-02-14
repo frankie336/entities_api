@@ -6,11 +6,13 @@ import time
 from functools import lru_cache
 from dotenv import load_dotenv
 from together import Together  # Using the official Together SDK
-
 from entities_api.clients.client_actions_client import ClientActionService
 from entities_api.clients.client_run_client import ClientRunService
 from entities_api.inference.base_inference import BaseInference
+from entities_api.constants import PLATFORM_TOOLS
 from entities_api.services.logging_service import LoggingUtility
+from entities_api.platform_tools.platform_tool_service import PlatformToolService
+
 
 load_dotenv()
 logging_utility = LoggingUtility()
@@ -155,7 +157,8 @@ class TogetherV3Inference(BaseInference):
                             "Early termination: Invalid JSON start detected in accumulated content: %s",
                             accumulated_content
                         )
-                        result = json.dumps({'type': 'error', 'content': accumulated_content})
+                        #result = json.dumps({'type': 'error', 'content': accumulated_content})
+                        print("EARLY EXIT!")
                         return False
 
                 assistant_reply += content
@@ -184,6 +187,66 @@ class TogetherV3Inference(BaseInference):
             self.handle_error(assistant_reply, thread_id, assistant_id, run_id)
             result = json.dumps({'type': 'error', 'content': error_msg})
             return result
+
+
+    def process_platform_tool_calls(self, thread_id,
+                           assistant_id, content,
+                           run_id):
+
+        # Save the assistants structured tool response
+        self.message_service.save_assistant_message_chunk(
+            thread_id=thread_id,
+            content=content,
+            role="assistant",
+            assistant_id=assistant_id,
+            sender_id=assistant_id,
+            is_last_chunk=True
+        )
+        logging_utility.info("Saved triggering message to thread: %s", thread_id)
+
+        try:
+            content_dict = json.loads(content)
+        except json.JSONDecodeError as e:
+            logging_utility.error(f"Error decoding accumulated content: {e}")
+            return
+
+        # Creating action
+        # Save the tool invocation for state management.
+        action_service = ClientActionService()
+        action_service.create_action(
+            tool_name=content_dict["name"],
+            run_id=run_id,
+            function_args=content_dict["arguments"]
+        )
+
+        # Update run status to 'action_required'
+        run_service = ClientRunService()
+        run_service.update_run_status(run_id=run_id, new_status='action_required')
+        logging_utility.info(f"Run {run_id} status updated to action_required")
+
+        # All of the above logic still holds true
+
+
+
+
+
+
+        # Now wait for the run's status to change from 'action_required'.
+        while True:
+            run = self.run_service.retrieve_run(run_id)
+            if run.status != "action_required":
+                break
+            time.sleep(1)
+
+        logging_utility.info("Action status transition complete. Reprocessing conversation.")
+
+        # Continue processing the conversation transparently.
+        # (Rebuild the conversation history if needed; here we re-use deepseek_messages.)
+
+        logging_utility.info("No tool call triggered; proceeding with conversation.")
+
+        return content  # Return the accumulated content
+
 
     def process_tool_calls(self, thread_id,
                            assistant_id, content,
@@ -254,11 +317,30 @@ class TogetherV3Inference(BaseInference):
         # First, process and scan for tool calls.
         tool_candidate_data = self.parse_tools_calls(thread_id=thread_id, message_id=message_id,
                                                      assistant_id=assistant_id, run_id=run_id, model=model)
+
+        #Process platform tools
+        if tool_candidate_data:
+            # Parse the string into a dictionary
+            tool_response_to_json = json.loads(tool_candidate_data)
+
+            # Check if the 'name' key is in the list
+            if tool_response_to_json.get('name') in PLATFORM_TOOLS:
+
+                self.process_platform_tool_calls(thread_id=thread_id,
+                                            assistant_id=assistant_id,
+                                            content = tool_candidate_data,
+                                            run_id=run_id)
+
+
+
+
+            else:
+                print("Name is not in the list.")
+
+
         # Process the tool call
         if tool_candidate_data:
             logging_utility.info("Tool call detected; proceeding accordingly.")
-            print('PROCESSING TOOL CALL')
-            print(tool_candidate_data)
             self.process_tool_calls(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
@@ -272,8 +354,6 @@ class TogetherV3Inference(BaseInference):
             "Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
             thread_id, run_id, assistant_id
         )
-
-
 
         self.start_cancellation_listener(run_id)
         # Retrieve cached data
