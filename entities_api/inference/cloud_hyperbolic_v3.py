@@ -139,8 +139,6 @@ class HyperbolicV3Inference(BaseInference):
         )
         logging_utility.info("Saved triggering message to thread: %s", thread_id)
 
-
-
         try:
             content_dict = json.loads(content)
         except json.JSONDecodeError as e:

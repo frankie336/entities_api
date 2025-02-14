@@ -27,6 +27,8 @@ class TogetherV3Inference(BaseInference):
         self._assistant_cache = lru_cache(maxsize=32)(self._cache_assistant_retrieval)
         self._message_cache = lru_cache(maxsize=64)(self._cache_message_retrieval)
 
+        self.tool_call_state = False
+
     def setup_services(self):
         """Initialize TogetherAI SDK."""
         logging_utility.info("TogetherAI SDK initialized")
@@ -47,6 +49,43 @@ class TogetherV3Inference(BaseInference):
     def check_tool_call_data(self, input_string):
         """Regex to match the general structure of the string"""
         return super().check_tool_call_data(input_string)
+
+    def is_valid_function_call_response(self, response: str) -> bool:
+        """
+        Validates whether the input string is a correctly formed function call response.
+
+        Expected structure:
+        {
+            "name": "function_name",
+            "arguments": { "key1": "value1", "key2": "value2", ... }
+        }
+
+        - Ensures valid JSON.
+        - Checks that "name" is a string.
+        - Checks that "arguments" is a non-empty dictionary.
+
+        :param response: JSON string representing a function call response.
+        :return: True if valid, False otherwise.
+        """
+        try:
+            data = json.loads(response.strip())  # Ensure it's a valid JSON object
+
+            # Ensure required keys exist
+            if not isinstance(data, dict) or "name" not in data or "arguments" not in data:
+                return False
+
+            # Validate "name" is a non-empty string
+            if not isinstance(data["name"], str) or not data["name"].strip():
+                return False
+
+            # Validate "arguments" is a dictionary with at least one key-value pair
+            if not isinstance(data["arguments"], dict) or not data["arguments"]:
+                return False
+
+            return True  # Passed all checks
+
+        except (json.JSONDecodeError, TypeError):
+            return False  # Invalid JSON or unexpected structure
 
     def parse_tools_calls(self, thread_id, message_id, run_id, assistant_id, model="deepseek-ai/DeepSeek-R1",
                           stream_reasoning=False):
@@ -117,7 +156,7 @@ class TogetherV3Inference(BaseInference):
                             accumulated_content
                         )
                         result = json.dumps({'type': 'error', 'content': accumulated_content})
-                        return result
+                        return False
 
                 assistant_reply += content
 
@@ -130,7 +169,14 @@ class TogetherV3Inference(BaseInference):
             # Log and sleep before returning final content
             logging_utility.info("Final accumulated content: %s", accumulated_content)
 
-            return accumulated_content
+            is_this_a_tool_call = self.is_valid_function_call_response(accumulated_content)
+
+            if is_this_a_tool_call:
+                logging_utility.info("Validated tool response content: %s", accumulated_content)
+
+                return accumulated_content
+            else:
+                return False
 
         except Exception as e:
             error_msg = f"Together SDK error: {str(e)}"
@@ -208,14 +254,11 @@ class TogetherV3Inference(BaseInference):
         # First, process and scan for tool calls.
         tool_candidate_data = self.parse_tools_calls(thread_id=thread_id, message_id=message_id,
                                                      assistant_id=assistant_id, run_id=run_id, model=model)
-
-        # Validate the tool_call_data_structure
-        is_this_a_tool_call = self.check_tool_call_data(tool_candidate_data)
-
         # Process the tool call
-        if is_this_a_tool_call:
+        if tool_candidate_data:
             logging_utility.info("Tool call detected; proceeding accordingly.")
-
+            print('PROCESSING TOOL CALL')
+            print(tool_candidate_data)
             self.process_tool_calls(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
@@ -237,12 +280,19 @@ class TogetherV3Inference(BaseInference):
         # The assistants instructions are appended to
         # The system instructions
         assistant = self._assistant_cache(assistant_id)
-        conversation_history = self._message_cache(thread_id, assistant.instructions)
-        messages = self.normalize_roles(conversation_history)
+
+
+        conversation_history = self.message_service.get_formatted_messages(
+            thread_id, system_message=assistant.instructions
+        )
+
+        # Formats and orders message history
+        conversation_history = self.normalize_roles(conversation_history)
+        messages = [{"role": msg['role'], "content": msg['content']} for msg in conversation_history]
 
         request_payload = {
             "model": model,
-            "messages": [{"role": msg["role"], "content": msg["content"]} for msg in messages],
+            "messages": messages,
             "max_tokens": None,
             "temperature": 0.6,
             "top_p": 0.95,
