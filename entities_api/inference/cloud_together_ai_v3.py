@@ -224,28 +224,20 @@ class TogetherV3Inference(BaseInference):
         run_service.update_run_status(run_id=run_id, new_status='action_required')
         logging_utility.info(f"Run {run_id} status updated to action_required")
 
-        # All of the above logic still holds true
+        platform_tool_service = PlatformToolService()
+        handle_function = platform_tool_service.call_function(function_name=content_dict["name"],
+                                                              arguments=content_dict["arguments"])
+
+        return
 
 
 
 
 
 
-        # Now wait for the run's status to change from 'action_required'.
-        while True:
-            run = self.run_service.retrieve_run(run_id)
-            if run.status != "action_required":
-                break
-            time.sleep(1)
 
-        logging_utility.info("Action status transition complete. Reprocessing conversation.")
 
-        # Continue processing the conversation transparently.
-        # (Rebuild the conversation history if needed; here we re-use deepseek_messages.)
 
-        logging_utility.info("No tool call triggered; proceeding with conversation.")
-
-        return content  # Return the accumulated content
 
 
     def process_tool_calls(self, thread_id,
