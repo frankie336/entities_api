@@ -5,11 +5,10 @@ from typing import Optional, Dict, Any, List
 from entities_api.clients.client_actions_client import ClientActionService
 from entities_api.clients.client_run_client import ClientRunService
 from entities_api.services.logging_service import LoggingUtility
+from entities_api.constants import PLATFORM_TOOLS
 
 logging_utility = LoggingUtility()
 
-# Global constants
-PLATFORM_TOOLS = ["code_interpreter"]
 
 class EntitiesEventHandler:
     """
