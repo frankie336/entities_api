@@ -3,9 +3,9 @@ import re
 import os
 import sys
 import time
+import threading
 from functools import lru_cache
 from dotenv import load_dotenv
-from srsly import json_dumps
 from together import Together  # Using the official Together SDK
 
 from entities_api import code_interpreter
@@ -21,6 +21,9 @@ load_dotenv()
 logging_utility = LoggingUtility()
 
 
+
+code_interpreter_response = False
+
 class TogetherV3Inference(BaseInference):
     # Use <think> tags for reasoning content
     REASONING_PATTERN = re.compile(r'(<think>|</think>)')
@@ -32,7 +35,7 @@ class TogetherV3Inference(BaseInference):
         self._assistant_cache = lru_cache(maxsize=32)(self._cache_assistant_retrieval)
         self._message_cache = lru_cache(maxsize=64)(self._cache_message_retrieval)
 
-        self.code_interpreter_response = False
+
 
     def setup_services(self):
         """Initialize TogetherAI SDK."""
@@ -199,7 +202,7 @@ class TogetherV3Inference(BaseInference):
                         return False
 
                 if self.detect_code_interpreter(accumulated_content):
-                    self.code_interpreter_response = True
+                    code_interpreter_response = True
 
                 assistant_reply += content
 
@@ -241,7 +244,7 @@ class TogetherV3Inference(BaseInference):
         accumulated JSON. If successful, it extracts the "code" field, wraps it in a
         Markdown code block (with Python markup), and yields that formatted content.
         """
-        self.code_interpreter_response = False  # Initially set to False
+        self.code_interpreter_response = True  # Initially set to False
         self.start_cancellation_listener(run_id)
 
         # Force correct model value
@@ -306,8 +309,16 @@ class TogetherV3Inference(BaseInference):
                 if self.detect_code_interpreter(accumulated_content):
                     if not streaming_triggered:
                         streaming_triggered = True
-                        self.code_interpreter_response = True
-                        logging_utility.info("Code interpreter detected. Streaming response...")
+
+                        # Create and start async thread for state change
+                        def set_code_interpreter_state():
+                            self.code_interpreter_response = True
+                            logging_utility.info("Code interpreter detected. Streaming response...")
+
+                        state_thread = threading.Thread(target=set_code_interpreter_state)
+                        state_thread.start()
+
+
 
                     # Attempt to parse the accumulated content as JSON.
                     formatted = None
@@ -668,10 +679,13 @@ class TogetherV3Inference(BaseInference):
 
 
 
-    def process_conversation(self, thread_id, message_id, run_id, assistant_id,
+    def  process_conversation(self, thread_id, message_id, run_id, assistant_id,
                              model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
         model = "deepseek-ai/DeepSeek-V3"
 
+
+
+        # Dealing with real time code interpreter streams here
         collecting_code = False  # Track if we're inside a code block
         code_buffer = []  # Store pieces of the code
 
@@ -682,6 +696,7 @@ class TogetherV3Inference(BaseInference):
                 run_id=run_id,
                 model=model
         ):
+
             try:
                 parsed_obj = json.loads(seg)
                 content = parsed_obj.get("content", "")
@@ -695,6 +710,7 @@ class TogetherV3Inference(BaseInference):
                     continue
 
                 if collecting_code:
+
                     # Stop collecting if we detect a closing character or new object
                     if content in {"\"", "'"}:
                         full_code = "".join(code_buffer).strip()
@@ -718,10 +734,21 @@ class TogetherV3Inference(BaseInference):
                         continue
 
                     # Append the current chunk
+
+
                     code_buffer.append(content)
+
+                if not collecting_code:
+                    print("NO CODE! here to see!")
+                    break
 
             except json.JSONDecodeError:
                 print(f"Skipping invalid JSON: {seg}")
+
+
+
+
+
 
     def __del__(self):
         """Cleanup resources."""

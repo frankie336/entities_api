@@ -24,6 +24,7 @@ class BaseInference(ABC):
         self.available_functions = available_functions
         self._cancelled = False  # Cancellation flag
         self._services = {}  # Lazy-loaded services cache
+        self.code_interpreter_response = False
 
         logging_utility.info("BaseInference initialized with lazy service loading.")
 
