@@ -5,7 +5,10 @@ import sys
 import time
 from functools import lru_cache
 from dotenv import load_dotenv
+from srsly import json_dumps
 from together import Together  # Using the official Together SDK
+
+from entities_api import code_interpreter
 from entities_api.clients.client_actions_client import ClientActionService
 from entities_api.clients.client_run_client import ClientRunService
 from entities_api.inference.base_inference import BaseInference
@@ -29,7 +32,7 @@ class TogetherV3Inference(BaseInference):
         self._assistant_cache = lru_cache(maxsize=32)(self._cache_assistant_retrieval)
         self._message_cache = lru_cache(maxsize=64)(self._cache_message_retrieval)
 
-        self.tool_call_state = False
+        self.code_interpreter_response = False
 
     def setup_services(self):
         """Initialize TogetherAI SDK."""
@@ -89,7 +92,38 @@ class TogetherV3Inference(BaseInference):
         except (json.JSONDecodeError, TypeError):
             return False  # Invalid JSON or unexpected structure
 
-    def parse_tools_calls(self, thread_id, message_id, run_id, assistant_id, model="deepseek-ai/DeepSeek-R1",
+    @staticmethod
+    def detect_code_interpreter(accumulated_content):
+        """
+        Detects if the accumulated content starts with a code_interpreter tool call.
+        Handles markdown wrapping, whitespace, and partial matches.
+        """
+        # Strip leading/trailing whitespace
+        stripped_content = accumulated_content.strip()
+
+        # Handle markdown triple backticks
+        if stripped_content.startswith("```") and stripped_content.endswith("```"):
+            stripped_content = re.sub(r"^```|```$", "", stripped_content).strip()
+
+        # Check for partial or full match of the JSON structure
+        if stripped_content.startswith(('{"name":"code_interpreter"', '```{"name":"code_interpreter"')):
+            logging_utility.debug("CODE DETECTED!")
+            return True
+
+        # Case-insensitive check for robustness
+        if stripped_content.lower().startswith(('{"name":"code_interpreter"', '```{"name":"code_interpreter"')):
+            logging_utility.debug("CODE DETECTED (case-insensitive)!")
+            return True
+
+        # Partial match for early detection
+        if '{"name":"code_interpreter"' in stripped_content:
+            logging_utility.debug("Partial match detected. Waiting for more content...")
+            return False
+
+        logging_utility.debug("No match detected.")
+        return False
+
+    def parse_tools_callsX(self, thread_id, message_id, run_id, assistant_id, model="deepseek-ai/DeepSeek-R1",
                           stream_reasoning=False):
         """
         Handles chat streaming using the TogetherAI SDK.
@@ -128,6 +162,7 @@ class TogetherV3Inference(BaseInference):
         try:
             response = self.client.chat.completions.create(**request_payload)
 
+
             for token in response:
                 # Check for mid-stream cancellation before processing any tokens
                 if self.check_cancellation_flag():
@@ -157,9 +192,14 @@ class TogetherV3Inference(BaseInference):
                             "Early termination: Invalid JSON start detected in accumulated content: %s",
                             accumulated_content
                         )
+
+
                         #result = json.dumps({'type': 'error', 'content': accumulated_content})
                         print("EARLY EXIT!")
                         return False
+
+                if self.detect_code_interpreter(accumulated_content):
+                    self.code_interpreter_response = True
 
                 assistant_reply += content
 
@@ -176,6 +216,7 @@ class TogetherV3Inference(BaseInference):
 
             if is_this_a_tool_call:
                 logging_utility.info("Validated tool response content: %s", accumulated_content)
+                print(accumulated_content)
                 return accumulated_content
             else:
                 return False
@@ -187,6 +228,129 @@ class TogetherV3Inference(BaseInference):
             result = json.dumps({'type': 'error', 'content': error_msg})
             return result
 
+    def parse_tools_calls(self, thread_id, message_id, run_id, assistant_id,
+                          model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
+        """
+        Handles chat streaming using the TogetherAI SDK.
+        - Uses the SDK for inference.
+        - Accumulates full response before yielding.
+        - Supports mid-stream cancellation.
+        - Strips or escapes markdown triple backticks if present.
+
+        Once the code_interpreter is detected, it continuously attempts to parse the
+        accumulated JSON. If successful, it extracts the "code" field, wraps it in a
+        Markdown code block (with Python markup), and yields that formatted content.
+        """
+        self.code_interpreter_response = False  # Initially set to False
+        self.start_cancellation_listener(run_id)
+
+        # Force correct model value
+        model = "deepseek-ai/DeepSeek-V3"
+
+        # Retrieve cached data
+        assistant = self._assistant_cache(assistant_id)
+        conversation_history = self._message_cache(thread_id, assistant.instructions)
+        messages = self.normalize_roles(conversation_history)
+
+        request_payload = {
+            "model": model,
+            "messages": [{"role": msg["role"], "content": msg["content"]} for msg in messages],
+            "max_tokens": None,
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "top_k": 50,
+            "repetition_penalty": 1,
+            "stop": ["<｜end▁of▁sentence｜>"],
+            "stream": True
+        }
+
+        assistant_reply = ""
+        accumulated_content = ""
+        start_checked = False
+        streaming_triggered = False  # Flag indicating that a code_interpreter response was detected
+        last_yield_index = 0  # Index to track what portion has already been sent
+
+        try:
+            response = self.client.chat.completions.create(**request_payload)
+
+            for token in response:
+                if self.check_cancellation_flag():
+                    logging_utility.warning("Run %s cancelled mid-stream", run_id)
+                    result = json.dumps({'type': 'error', 'content': 'Run cancelled'})
+                    return result
+
+                if not hasattr(token, "choices") or not token.choices:
+                    continue
+
+                delta = token.choices[0].delta
+                content = getattr(delta, "content", "")
+                if not content:
+                    continue
+
+                # Append the new content to the accumulator.
+                accumulated_content += content
+
+                # Early JSON validation: once we have at least 2 non-whitespace characters,
+                # ensure the accumulated content starts with a valid JSON opener.
+                if not start_checked and len(accumulated_content.strip()) >= 2:
+                    start_checked = True
+                    if not accumulated_content.strip().startswith(('```{', '{')):
+                        logging_utility.warning(
+                            "Early termination: Invalid JSON start detected in accumulated content: %s",
+                            accumulated_content
+                        )
+                        print("EARLY EXIT!")
+                        return False
+
+                # Check if this is a code_interpreter response.
+                if self.detect_code_interpreter(accumulated_content):
+                    if not streaming_triggered:
+                        streaming_triggered = True
+                        self.code_interpreter_response = True
+                        logging_utility.info("Code interpreter detected. Streaming response...")
+
+                    # Attempt to parse the accumulated content as JSON.
+                    formatted = None
+                    try:
+                        full_response = json.loads(accumulated_content)
+                        # Expect structure: {"name": "code_interpreter", "arguments": {"code": "..."}}
+                        if (full_response.get("arguments") and
+                                full_response["arguments"].get("code")):
+                            code = full_response["arguments"]["code"]
+                            formatted = "```python\n" + code + "\n```"
+                        else:
+                            formatted = accumulated_content  # Fallback if structure not as expected
+                    except Exception as e:
+                        # Likely incomplete JSON; use the raw accumulated content.
+                        formatted = accumulated_content
+
+                    # Only yield the new portion since the last yield.
+                    new_chunk = formatted[last_yield_index:]
+                    if new_chunk:
+                        yield json.dumps({'type': 'code_interpreter_stream', 'content': new_chunk})
+                        last_yield_index = len(formatted)
+
+                assistant_reply += content
+
+            # Once streaming ends, clean up markdown if needed.
+            if accumulated_content.startswith("```") and accumulated_content.endswith("```"):
+                logging_utility.info("Detected markdown-wrapped JSON. Stripping backticks.")
+                accumulated_content = re.sub(r"^```|```$", "", accumulated_content).strip()
+
+            logging_utility.info("Final accumulated content: %s", accumulated_content)
+            is_valid = self.is_valid_function_call_response(accumulated_content)
+            if is_valid:
+                logging_utility.info("Validated tool response content: %s", accumulated_content)
+                return accumulated_content
+            else:
+                return False
+
+        except Exception as e:
+            error_msg = f"Together SDK error: {str(e)}"
+            logging_utility.error(error_msg, exc_info=True)
+            self.handle_error(assistant_reply, thread_id, assistant_id, run_id)
+            result = json.dumps({'type': 'error', 'content': error_msg})
+            return result
 
     def process_platform_tool_calls(self, thread_id,
                            assistant_id, content,
@@ -366,7 +530,7 @@ class TogetherV3Inference(BaseInference):
 
         return content  # Return the accumulated content
 
-    def process_conversation(self, thread_id, message_id, run_id, assistant_id,
+    def process_conversationX(self, thread_id, message_id, run_id, assistant_id,
                              model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
         """
         Handles chat streaming using the TogetherAI SDK.
@@ -501,6 +665,63 @@ class TogetherV3Inference(BaseInference):
         if assistant_reply:
             combined = reasoning_content + assistant_reply
             self.finalize_conversation(combined, thread_id, assistant_id, run_id)
+
+
+
+    def process_conversation(self, thread_id, message_id, run_id, assistant_id,
+                             model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
+        model = "deepseek-ai/DeepSeek-V3"
+
+        collecting_code = False  # Track if we're inside a code block
+        code_buffer = []  # Store pieces of the code
+
+        for seg in self.parse_tools_calls(
+                thread_id=thread_id,
+                message_id=message_id,
+                assistant_id=assistant_id,
+                run_id=run_id,
+                model=model
+        ):
+            try:
+                parsed_obj = json.loads(seg)
+                content = parsed_obj.get("content", "")
+
+                if content == "code":
+                    # Start collecting the next incoming chunks
+                    collecting_code = True
+                    print(collecting_code)
+
+                    code_buffer = []  # Reset buffer
+                    continue
+
+                if collecting_code:
+                    # Stop collecting if we detect a closing character or new object
+                    if content in {"\"", "'"}:
+                        full_code = "".join(code_buffer).strip()
+                        if full_code:
+                            # Remove leading characters like " if present
+                            full_code = full_code[3:] if full_code.startswith('"') else full_code
+
+                            # Wrap the full code in a Markdown code block
+                            markdown_code_block = f"```python\n{full_code}\n```"
+
+                            # Yield the code wrapped in the markdown code block
+                            for char in markdown_code_block:
+                                yield json.dumps({
+                                    'type': 'content',
+                                    'content': char
+                                })
+                                # Optional: simulate real-time delay for streaming effect
+                                time.sleep(0.05)  # Adjust the delay for your use case
+
+                        collecting_code = False  # Reset for the next block
+                        continue
+
+                    # Append the current chunk
+                    code_buffer.append(content)
+
+            except json.JSONDecodeError:
+                print(f"Skipping invalid JSON: {seg}")
 
     def __del__(self):
         """Cleanup resources."""
