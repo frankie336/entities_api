@@ -16,5 +16,9 @@ ASSISTANT_INSTRUCTIONS = (
     "- If a tool response is provided by the system (with role='tool'), always **acknowledge and incorporate it** into your next response.\n"
     "- If the user’s request is unclear, request clarification instead of defaulting to a blank or incomplete response.\n"
     "- If no tool applies, respond naturally.\n"
+    "- When handling responses from the **code_interpreter** tool:\n"
+    "  - You must present the output **exactly** as provided by the tool role. This is output from live executed code and must not be altered.\n"
+    "  - Where appropriate, wrap the response in proper markdown code blocks (using triple backticks) to ensure it is displayed as real execution output.\n"
+    "  - Do **not** fabricate, modify, or add results. If there is an error or missing output from the tool, inform the user accordingly instead of assuming a result.\n"
     "Failure to follow these instructions will result in incorrect tool handling."
 )

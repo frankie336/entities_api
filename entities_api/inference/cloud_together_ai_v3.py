@@ -259,7 +259,7 @@ class TogetherV3Inference(BaseInference):
             "model": model,
             "messages": [{"role": msg["role"], "content": msg["content"]} for msg in messages],
             "max_tokens": None,
-            "temperature": 0.6,
+            "temperature": 0.0,
             "top_p": 0.95,
             "top_k": 50,
             "repetition_penalty": 1,
@@ -363,6 +363,109 @@ class TogetherV3Inference(BaseInference):
             result = json.dumps({'type': 'error', 'content': error_msg})
             return result
 
+
+
+    def parse_tools_calls_normal(self, thread_id, message_id, run_id, assistant_id, model="deepseek-ai/DeepSeek-R1",
+                          stream_reasoning=False):
+        """
+        Handles chat streaming using the TogetherAI SDK.
+        - Uses the SDK for inference.
+        - Accumulates full response before yielding.
+        - Supports mid-stream cancellation.
+        - Strips or escapes markdown triple backticks if present.
+        """
+
+        self.start_cancellation_listener(run_id)
+
+        # Force correct model value
+        model = "deepseek-ai/DeepSeek-V3"
+
+        # Retrieve cached data
+        assistant = self._assistant_cache(assistant_id)
+        conversation_history = self._message_cache(thread_id, assistant.instructions)
+        messages = self.normalize_roles(conversation_history)
+
+        request_payload = {
+            "model": model,
+            "messages": [{"role": msg["role"], "content": msg["content"]} for msg in messages],
+            "max_tokens": None,
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "top_k": 50,
+            "repetition_penalty": 1,
+            "stop": ["<｜end▁of▁sentence｜>"],
+            "stream": True
+        }
+
+        assistant_reply = ""
+        accumulated_content = ""
+        start_checked = False
+
+        try:
+            response = self.client.chat.completions.create(**request_payload)
+
+            for token in response:
+                # Check for mid-stream cancellation before processing any tokens
+                if self.check_cancellation_flag():
+                    logging_utility.warning("Run %s cancelled mid-stream", run_id)
+                    result = json.dumps({'type': 'error', 'content': 'Run cancelled'})
+                    print(result)
+                    return result
+
+                if not hasattr(token, "choices") or not token.choices:
+                    continue
+
+                delta = token.choices[0].delta
+                content = getattr(delta, "content", "")
+
+                if not content:
+                    continue
+
+                # Accumulate content for early JSON validation
+                accumulated_content += content
+
+                # Validate JSON start after accumulating at least 2 non-whitespace characters
+                if not start_checked and len(accumulated_content.strip()) >= 2:
+                    start_checked = True
+
+                    if not accumulated_content.strip().startswith(('```{', '{')):
+                        logging_utility.warning(
+                            "Early termination: Invalid JSON start detected in accumulated content: %s",
+                            accumulated_content
+                        )
+                        #result = json.dumps({'type': 'error', 'content': accumulated_content})
+                        print("EARLY EXIT!")
+                        return False
+
+                assistant_reply += content
+
+            # **Handle potential markdown triple backticks**
+
+            if accumulated_content.startswith("```") and accumulated_content.endswith("```"):
+                logging_utility.info("Detected markdown-wrapped JSON. Stripping backticks.")
+                accumulated_content = re.sub(r"^```|```$", "", accumulated_content).strip()
+
+            # Log and sleep before returning final content
+            logging_utility.info("Final accumulated content: %s", accumulated_content)
+
+            is_this_a_tool_call = self.is_valid_function_call_response(accumulated_content)
+
+            if is_this_a_tool_call:
+                logging_utility.info("Validated tool response content: %s", accumulated_content)
+                return accumulated_content
+            else:
+                return False
+
+        except Exception as e:
+            error_msg = f"Together SDK error: {str(e)}"
+            logging_utility.error(error_msg, exc_info=True)
+            self.handle_error(assistant_reply, thread_id, assistant_id, run_id)
+            result = json.dumps({'type': 'error', 'content': error_msg})
+            return result
+
+
+
+
     def process_platform_tool_calls(self, thread_id,
                            assistant_id, content,
                            run_id):
@@ -380,6 +483,14 @@ class TogetherV3Inference(BaseInference):
 
         try:
             content_dict = json.loads(content)
+
+            # Ensure 'arguments' is properly parsed if it's still a string
+            if isinstance(content_dict, dict) and "arguments" in content_dict:
+                if isinstance(content_dict["arguments"], str):
+                    try:
+                        content_dict["arguments"] = json.loads(content_dict["arguments"])
+                    except json.JSONDecodeError:
+                        logging_utility.warning(f"Failed to decode nested arguments JSON: {content_dict['arguments']}")
 
         except json.JSONDecodeError as e:
             logging_utility.error(f"Error decoding accumulated content: {e}")
@@ -677,17 +788,16 @@ class TogetherV3Inference(BaseInference):
             combined = reasoning_content + assistant_reply
             self.finalize_conversation(combined, thread_id, assistant_id, run_id)
 
-
-
-    def  process_conversation(self, thread_id, message_id, run_id, assistant_id,
+    def process_conversation(self, thread_id, message_id, run_id, assistant_id,
                              model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
+        # There is a model name clash in the LLM router, so forcing the name here.
         model = "deepseek-ai/DeepSeek-V3"
 
-
-
-        # Dealing with real time code interpreter streams here
-        collecting_code = False  # Track if we're inside a code block
-        code_buffer = []  # Store pieces of the code
+        # Dealing with real-time code interpreter streams.
+        collecting_code = False  # Track if we're inside a code block.
+        code_buffer = []  # Store pieces of the code.
+        global_state = {}  # Global state storage for later use.
+        accumulated_contents = []  # List to store plain string content from each segment.
 
         for seg in self.parse_tools_calls(
                 thread_id=thread_id,
@@ -696,59 +806,156 @@ class TogetherV3Inference(BaseInference):
                 run_id=run_id,
                 model=model
         ):
-
             try:
+                # Parse the segment, but only extract the 'content' field.
                 parsed_obj = json.loads(seg)
                 content = parsed_obj.get("content", "")
+                # Append the plain string to our accumulator.
+                accumulated_contents.append(content)
 
                 if content == "code":
-                    # Start collecting the next incoming chunks
+                    # Start collecting code from subsequent chunks.
                     collecting_code = True
-                    print(collecting_code)
-
-                    code_buffer = []  # Reset buffer
+                    code_buffer = []  # Reset code buffer.
                     continue
 
                 if collecting_code:
-
-                    # Stop collecting if we detect a closing character or new object
+                    # When we hit a closing character, finish collecting.
                     if content in {"\"", "'"}:
                         full_code = "".join(code_buffer).strip()
                         if full_code:
-                            # Remove leading characters like " if present
+                            # Optionally remove extra characters.
                             full_code = full_code[3:] if full_code.startswith('"') else full_code
-
-                            # Wrap the full code in a Markdown code block
+                            # Wrap the code in a Markdown code block.
                             markdown_code_block = f"```python\n{full_code}\n```"
-
-                            # Yield the code wrapped in the markdown code block
+                            # Yield each character for streaming.
                             for char in markdown_code_block:
                                 yield json.dumps({
                                     'type': 'content',
                                     'content': char
                                 })
-                                # Optional: simulate real-time delay for streaming effect
-                                time.sleep(0.05)  # Adjust the delay for your use case
-
-                        collecting_code = False  # Reset for the next block
+                                time.sleep(0.01)
+                        collecting_code = False  # End code collection.
                         continue
 
-                    # Append the current chunk
-
-
+                    # Otherwise, keep collecting code chunks.
                     code_buffer.append(content)
-
-                if not collecting_code:
-                    print("NO CODE! here to see!")
-                    break
 
             except json.JSONDecodeError:
                 print(f"Skipping invalid JSON: {seg}")
 
+        # Save the final collecting state.
+        global_state['collecting_code'] = collecting_code
+
+        # Simply join the plain string contents into one final string.
+        accumulated_content = "".join(accumulated_contents)
+        accumulated_content+="}}"
+
+        # Process the accumulated content.
+        if code_buffer:
+
+            print("CODEEE!")
+
+            self.process_platform_tool_calls(
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                content=accumulated_content,
+                run_id=run_id
+            )
 
 
+        else:
 
+            self.parse_tools_calls_normal(
+                thread_id=thread_id,
+                message_id=message_id,
+                run_id=run_id,
+                assistant_id=assistant_id,
+                model=model
+            )
 
+        # Begin conversation processing.
+        self.start_cancellation_listener(run_id)
+        assistant = self._assistant_cache(assistant_id)
+        conversation_history = self.message_service.get_formatted_messages(
+            thread_id, system_message=assistant.instructions
+        )
+        conversation_history = self.normalize_roles(conversation_history)
+        messages = [{"role": msg['role'], "content": msg['content']} for msg in conversation_history]
+
+        request_payload = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": None,
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "top_k": 50,
+            "repetition_penalty": 1,
+            "stop": ["<｜end▁of▁sentence｜>"],
+            "stream": True
+        }
+
+        assistant_reply = ""
+        reasoning_content = ""
+        in_reasoning = False
+
+        try:
+            response = self.client.chat.completions.create(**request_payload)
+            for token in response:
+                if self.check_cancellation_flag():
+                    logging_utility.warning(f"Run {run_id} cancelled mid-stream")
+                    yield json.dumps({'type': 'error', 'content': 'Run cancelled'})
+                    break
+
+                if not hasattr(token, "choices") or not token.choices:
+                    continue
+
+                delta = token.choices[0].delta
+                content = getattr(delta, "content", "")
+                if not content:
+                    continue
+
+                # Print raw content for debugging.
+                sys.stdout.write(content)
+                sys.stdout.flush()
+
+                # Split content based on <think> tags.
+                segments = self.REASONING_PATTERN.split(content)
+                for seg in segments:
+                    if not seg:
+                        continue
+                    if seg == "<think>":
+                        in_reasoning = True
+                        reasoning_content += seg
+                        logging_utility.debug("Yielding reasoning tag: %s", seg)
+                        yield json.dumps({'type': 'reasoning', 'content': seg})
+                    elif seg == "</think>":
+                        in_reasoning = False
+                        reasoning_content += seg
+                        logging_utility.debug("Yielding reasoning tag: %s", seg)
+                        yield json.dumps({'type': 'reasoning', 'content': seg})
+                    else:
+                        if in_reasoning:
+                            reasoning_content += seg
+                            logging_utility.debug("Yielding reasoning segment: %s", seg)
+                            yield json.dumps({'type': 'reasoning', 'content': seg})
+                        else:
+                            assistant_reply += seg
+                            logging_utility.debug("Yielding content segment: %s", seg)
+                            yield json.dumps({'type': 'content', 'content': seg})
+                time.sleep(0.01)
+
+        except Exception as e:
+            error_msg = f"Together SDK error: {str(e)}"
+            logging_utility.error(error_msg, exc_info=True)
+            combined = reasoning_content + assistant_reply
+            self.handle_error(combined, thread_id, assistant_id, run_id)
+            yield json.dumps({'type': 'error', 'content': error_msg})
+            return
+
+        if assistant_reply:
+            combined = reasoning_content + assistant_reply
+            self.finalize_conversation(combined, thread_id, assistant_id, run_id)
 
     def __del__(self):
         """Cleanup resources."""
