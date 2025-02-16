@@ -40,3 +40,4 @@ groq
 openai
 azure-ai-inference
 transformers
+Together

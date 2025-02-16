@@ -77,6 +77,56 @@ class BaseInference(ABC):
         pass
 
     @staticmethod
+    def parse_nested_function_call_json(text):
+        """
+        Parses a JSON-like string with a nested object structure and variable keys,
+        supporting both single and double quotes, as well as multiline values.
+
+        Expected pattern:
+        {
+            <quote>first_key<quote> : <quote>first_value<quote>,
+            <quote>second_key<quote> : {
+                <quote>nested_key<quote> : <quote>nested_value<quote>
+            }
+        }
+
+        The regex uses named groups for the opening quote of each field and backreferences
+        them to ensure the same type of quote is used to close the string.
+
+        Returns a dictionary with the following keys if matched:
+          - 'first_key'
+          - 'first_value'
+          - 'second_key'
+          - 'nested_key'
+          - 'nested_value'
+
+        If no match is found, returns None.
+        """
+        pattern = re.compile(r'''
+            \{\s*                                                      # Opening brace of outer object
+            (?P<q1>["']) (?P<first_key> [^"']+?) (?P=q1) \s* : \s*      # First key
+            (?P<q2>["']) (?P<first_value> [^"']+?) (?P=q2) \s* , \s*    # First value
+            (?P<q3>["']) (?P<second_key> [^"']+?) (?P=q3) \s* : \s*     # Second key
+            \{\s*                                                      # Opening brace of nested object
+            (?P<q4>["']) (?P<nested_key> [^"']+?) (?P=q4) \s* : \s*     # Nested key
+            (?P<q5>["']) (?P<nested_value> .*?) (?P=q5) \s*             # Nested value (multiline allowed)
+            \} \s*                                                     # Closing brace of nested object
+            \} \s*                                                     # Closing brace of outer object
+        ''', re.VERBOSE | re.DOTALL)  # re.DOTALL allows matching multiline values
+
+        match = pattern.search(text)
+        if match:
+            return {
+                'first_key': match.group('first_key'),
+                'first_value': match.group('first_value'),
+                'second_key': match.group('second_key'),
+                'nested_key': match.group('nested_key'),
+                'nested_value': match.group('nested_value').strip(),  # Remove trailing whitespace
+            }
+        else:
+            return None
+
+    @staticmethod
     def is_valid_function_call_response(json_data: json) -> bool:
         """
         Validates whether the input string is a correctly formed function call response.
@@ -120,7 +170,7 @@ class BaseInference(ABC):
         normalized_history = []
         for message in conversation_history:
             role = message.get('role', '').strip().lower()
-            if role not in ['user', 'assistant', 'system', 'tool']:
+            if role not in ['user', 'assistant', 'system', 'tool', 'platform']:
                 role = 'user'
             normalized_history.append({
                 "role": role,

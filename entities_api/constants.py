@@ -9,8 +9,16 @@ DEFAULT_MODEL = "llama3.1"
 ASSISTANT_INSTRUCTIONS = (
     "You must strictly adhere to the following guidelines:\n"
     "- When a tool (function) is called, your response **must** be a valid JSON object containing only the keys 'name' and 'arguments'.\n"
-    "- The 'name' key must **exactly match** the function name as defined in the tool schema. Do not modify or abbreviate it.\n"
+    "- The 'name' key must **exactly match** the function name as defined in the tool schema. Do not modify, abbreviate, or alter it in any way.\n"
     "- The 'arguments' key must contain a JSON object with the **exact parameters** defined in the tool schema. Do not add, remove, or modify parameters.\n"
+    "- Your function call **must always follow this strict formatting example**:\n"
+    "  {\n"
+    '    "name": "code_interpreter",\n'
+    '    "arguments": {\n'
+    '        "code": "import sympy as sp\\nx = sp.symbols(\'x\')\\nintegral = sp.integrate(x**2, x)\\nprint(integral)"\n'
+    "    }\n"
+    "  }\n"
+    "- You must **never** deviate from this format. Any deviation is considered incorrect behavior.\n"
     "- Do **not** wrap JSON responses in markdown (e.g., no triple backticks).\n"
     "- If a tool is invoked, **never** reply with an empty message.\n"
     "- If a tool response is provided by the system (with role='tool'), always **acknowledge and incorporate it** into your next response.\n"

@@ -1,7 +1,8 @@
+from datetime import datetime
 from enum import Enum
-from typing import Optional, List, Any, Dict
-
+from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field, ConfigDict
+from pydantic import validator
 
 
 class UserBase(BaseModel):
@@ -68,24 +69,20 @@ class ThreadIds(BaseModel):
 
 # Define the MessageRole enum
 class MessageRole(str, Enum):
+    PLATFORM = "platform"
     ASSISTANT = "assistant"
     USER = "user"
     SYSTEM = "system"
     TOOL = "tool"
 
-
 # Add role validation to MessageCreate
-from datetime import datetime
-from typing import List, Dict, Any, Optional
-
-from pydantic import BaseModel, validator, ConfigDict
 
 
 class MessageCreate(BaseModel):
     content: str
     thread_id: str
     sender_id: Optional[str] = None
-    assistant_id: str  # Required field
+    assistant_id: str
     role: str  # String-based role instead of Enum
     tool_id: Optional[str] = None
     meta_data: Optional[Dict[str, Any]] = None
@@ -93,7 +90,7 @@ class MessageCreate(BaseModel):
 
     @validator('role', pre=True)
     def validate_role(cls, v):
-        valid_roles = {"assistant", "user", "system", "tool"}
+        valid_roles = {"platform", "assistant", "user", "system", "tool"}
         if isinstance(v, str):
             v = v.lower()
             if v in valid_roles:
@@ -111,7 +108,6 @@ class MessageCreate(BaseModel):
             }
         }
     )
-
 
 
 
@@ -146,7 +142,7 @@ class MessageUpdate(BaseModel):
     def validate_role(cls, v):
         if v is None:
             return v
-        valid_roles = {"assistant", "user", "system", "tool"}
+        valid_roles = {"platform", "assistant", "user", "system", "tool"}
         v = v.lower()
         if v in valid_roles:
             return v
