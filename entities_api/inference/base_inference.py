@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import threading
@@ -75,6 +76,43 @@ class BaseInference(ABC):
         """Process the conversation and yield response chunks."""
         pass
 
+    @staticmethod
+    def is_valid_function_call_response(json_data: json) -> bool:
+        """
+        Validates whether the input string is a correctly formed function call response.
+
+        Expected structure:
+        {
+            "name": "function_name",
+            "arguments": { "key1": "value1", "key2": "value2", ... }
+        }
+
+        - Ensures valid JSON.
+        - Checks that "name" is a string.
+        - Checks that "arguments" is a non-empty dictionary.
+
+        :param json_data: JSON string representing a function call response.
+        :return: True if valid, False otherwise.
+        """
+        try:
+
+            # Ensure required keys exist
+            if not isinstance(json_data, dict) or "name" not in json_data or "arguments" not in json_data:
+                return False
+
+            # Validate "name" is a non-empty string
+            if not isinstance(json_data["name"], str) or not json_data["name"].strip():
+                return False
+
+            # Validate "arguments" is a dictionary with at least one key-value pair
+            if not isinstance(json_data["arguments"], dict) or not json_data["arguments"]:
+                return False
+
+            return True  # Passed all checks
+
+        except (json.JSONDecodeError, TypeError):
+            return False  # Invalid JSON or unexpected structure
+
     def normalize_roles(self, conversation_history):
         """
         Normalize roles to ensure consistency with the Hyperbolic API.
@@ -89,12 +127,6 @@ class BaseInference(ABC):
                 "content": message.get('content', '').strip()
             })
         return normalized_history
-
-    @staticmethod
-    def check_tool_call_data(input_string: str) -> bool:
-        """Regex to match the general structure of the string"""
-        pattern = r'^\{"name":\s*"[^"]+",\s*"arguments":\s*\{(?:\s*"[^"]*":\s*"[^"]*",\s*)*(?:"[^"]*":\s*"[^"]*")\s*\}\}$'
-        return bool(re.match(pattern, input_string))
 
     def handle_error(self, assistant_reply, thread_id, assistant_id, run_id):
         """Handle errors and store partial assistant responses."""
