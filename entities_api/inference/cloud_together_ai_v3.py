@@ -104,7 +104,7 @@ class TogetherV3Inference(BaseInference):
         return self.function_call
 
     def stream_response(self, thread_id, message_id, run_id, assistant_id,
-                             model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
+                        model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
         """
         Streams tool responses in real time using the TogetherAI SDK.
         - Yields each token chunk immediately, split by reasoning tags.
@@ -119,11 +119,9 @@ class TogetherV3Inference(BaseInference):
 
         # Retrieve cached data and normalize conversation history
         assistant = self._assistant_cache(assistant_id)
-
         conversation_history = self.message_service.get_formatted_messages(
             thread_id, system_message=assistant.instructions
         )
-
         messages = self.normalize_roles(conversation_history)
 
         request_payload = {
@@ -144,6 +142,10 @@ class TogetherV3Inference(BaseInference):
         in_reasoning = False
         start_checked = False
 
+        # New flags for code-mode
+        code_mode = False
+        code_buffer = ""
+
         try:
             response = self.client.chat.completions.create(**request_payload)
 
@@ -161,21 +163,33 @@ class TogetherV3Inference(BaseInference):
                 if not content:
                     continue
 
-                # Print raw content for debugging
+                # Write raw content for debugging
                 sys.stdout.write(content)
                 sys.stdout.flush()
 
-                # Accumulate full content for final validation.
+                # Accumulate the full content
                 accumulated_content += content
 
-                #Check for partial match
-                if self.parse_code_interpreter_partial(accumulated_content):
-                    print("BINGO")
-                    print(self.parse_code_interpreter_partial(accumulated_content))
-                    print(accumulated_content)
-                    time.sleep(10000)
+                # Check for the partial code interpreter match if not already in code mode
+                if not code_mode:
+                    partial_match = self.parse_code_interpreter_partial(accumulated_content)
+                    if partial_match:
+                        # Enter code mode and initialize the code buffer with what has been captured
+                        code_mode = True
+                        code_buffer = partial_match.get('code', '')
+                        formatted_code = f"```python\n{code_buffer}\n```"
+                        logging_utility.debug("Code mode activated. Yielding initial code block: %s", formatted_code)
+                        yield json.dumps({'type': 'content', 'content': formatted_code})
+                        # Skip further normal processing for this token
+                        continue
 
-
+                # If already in code mode, accumulate the rest of the code tokens
+                if code_mode:
+                    code_buffer += content
+                    formatted_code = f"```python\n{code_buffer}\n```"
+                    logging_utility.debug("Streaming updated code block: %s", formatted_code)
+                    yield json.dumps({'type': 'content', 'content': formatted_code})
+                    continue
 
                 # Validate JSON start after accumulating at least 2 non-whitespace characters.
                 if not start_checked and len(accumulated_content.strip()) >= 2:
@@ -185,10 +199,9 @@ class TogetherV3Inference(BaseInference):
                             "Early termination: Invalid JSON start detected in accumulated content: %s",
                             accumulated_content)
                         yield json.dumps({'type': 'error', 'content': accumulated_content})
-                        #return
+                        # return
 
-                # Split content using the reasoning pattern.
-                # Assumes self.REASONING_PATTERN is defined as a compiled regex.
+                # Process non-code content: split using the reasoning pattern.
                 segments = self.REASONING_PATTERN.split(content)
                 for seg in segments:
                     if not seg:
@@ -214,16 +227,13 @@ class TogetherV3Inference(BaseInference):
                             yield json.dumps({'type': 'content', 'content': seg})
                 time.sleep(0.01)
 
-
-            # Validate if the  accumulated response is a properly formed tool response.
+            # Validate if the accumulated response is a properly formed tool response.
             if self.parse_nested_function_call_json(text=accumulated_content):
                 accumulated_content = json.loads(accumulated_content)
                 self.set_tool_response_state(True)
                 self.set_function_call_state(accumulated_content)
 
-
             logging_utility.info("Final accumulated content: %s", accumulated_content)
-
 
         except Exception as e:
             error_msg = f"Together SDK error: {str(e)}"
@@ -234,7 +244,6 @@ class TogetherV3Inference(BaseInference):
         if assistant_reply:
             combined = reasoning_content + assistant_reply
             self.finalize_conversation(combined, thread_id, assistant_id, run_id)
-
 
     def stream_function_call_output(self, thread_id, run_id, assistant_id,
                                     model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
