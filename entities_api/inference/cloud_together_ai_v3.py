@@ -103,6 +103,24 @@ class TogetherV3Inference(BaseInference):
     def get_function_call_state(self):
         return self.function_call
 
+    import re
+
+    def remove_outer_quotes(self, text: str) -> str:
+        """
+        Removes a matching pair of single or double quotes from the very start/end of 'text'.
+        If none found, returns text unchanged.
+
+        Example:
+          "'result = 123 * 456\\nprint(result)'}" -> "result = 123 * 456\\nprint(result)}"
+          "\"result = 1\\nprint('test')\""        -> "result = 1\\nprint('test')"
+        """
+        text = text.strip()
+        # Check if first/last chars are the same quote and remove them
+        if len(text) >= 2:
+            if (text.startswith("'") and text.endswith("'")) or (text.startswith('"') and text.endswith('"')):
+                text = text[1:-1]
+        return text
+
     def stream_response(self, thread_id, message_id, run_id, assistant_id,
                         model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
         """
@@ -142,7 +160,7 @@ class TogetherV3Inference(BaseInference):
         in_reasoning = False
         start_checked = False
 
-        # New flags for code-mode
+        # Flags for code-mode
         code_mode = False
         code_buffer = ""
 
@@ -170,34 +188,46 @@ class TogetherV3Inference(BaseInference):
                 # Accumulate the full content
                 accumulated_content += content
 
-                # Check for the partial code interpreter match if not already in code mode
+                # ---------------------------------------------------
+                # 1) Check for partial code-interpreter match
+                # ---------------------------------------------------
                 if not code_mode:
                     partial_match = self.parse_code_interpreter_partial(accumulated_content)
                     if partial_match:
-                        # Enter code mode and initialize the code buffer with what has been captured
+                        # Enter code mode
                         code_mode = True
+                        # Initialize the code buffer with the matched portion
                         code_buffer = partial_match.get('code', '')
-                        formatted_code = f"```python\n{code_buffer}\n```"
-                        logging_utility.debug("Code mode activated. Yielding initial code block: %s", formatted_code)
-                        yield json.dumps({'type': 'content', 'content': formatted_code})
-                        # Skip further normal processing for this token
+
+                        # Remove only the outer quotes
+                        code_buffer = self.remove_outer_quotes(code_buffer)
+
+                        # Emit a single start-of-code-block
+                        yield json.dumps({'type': 'content', 'content': '```python\n'})
+                        # Emit whatever was already found in code_buffer
+                        if code_buffer:
+                            yield json.dumps({'type': 'content', 'content': code_buffer})
                         continue
 
-                # If already in code mode, accumulate the rest of the code tokens
+                # ---------------------------------------------------
+                # 2) Already in code mode -> just accumulate tokens
+                # ---------------------------------------------------
                 if code_mode:
+                    # Append new content without re-wrapping in backticks
                     code_buffer += content
-                    formatted_code = f"```python\n{code_buffer}\n```"
-                    logging_utility.debug("Streaming updated code block: %s", formatted_code)
-                    yield json.dumps({'type': 'content', 'content': formatted_code})
+                    yield json.dumps({'type': 'content', 'content': content})
                     continue
 
-                # Validate JSON start after accumulating at least 2 non-whitespace characters.
+                # ---------------------------------------------------
+                # 3) Normal non-code processing
+                # ---------------------------------------------------
                 if not start_checked and len(accumulated_content.strip()) >= 2:
                     start_checked = True
                     if not accumulated_content.strip().startswith(('```{', '{')):
                         logging_utility.warning(
                             "Early termination: Invalid JSON start detected in accumulated content: %s",
-                            accumulated_content)
+                            accumulated_content
+                        )
                         yield json.dumps({'type': 'error', 'content': accumulated_content})
                         # return
 
@@ -226,6 +256,13 @@ class TogetherV3Inference(BaseInference):
                             logging_utility.debug("Yielding content segment: %s", seg)
                             yield json.dumps({'type': 'content', 'content': seg})
                 time.sleep(0.01)
+
+            # ---------------------------------------------------
+            # 4) End of stream: If we ended in code_mode,
+            #    close out the code block with triple backticks
+            # ---------------------------------------------------
+            if code_mode:
+                yield json.dumps({'type': 'content', 'content': '\n```'})
 
             # Validate if the accumulated response is a properly formed tool response.
             if self.parse_nested_function_call_json(text=accumulated_content):
