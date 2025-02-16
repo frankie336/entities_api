@@ -73,6 +73,20 @@ class TogetherV3Inference(BaseInference):
         """
         return super().parse_nested_function_call_json(text)
 
+    def parse_code_interpreter_partial(self, text):
+        """
+        Parses a partial JSON-like string that begins with:
+        {'name': 'code_interpreter', 'arguments': {'code':
+
+        It captures everything following the 'code': marker.
+        Note: Because the input is partial, the captured code may be incomplete.
+
+        Returns:
+            A dictionary with the key 'code' containing the extracted text,
+            or None if no match is found.
+        """
+        return super().parse_code_interpreter_partial(text)
+
 
 
     # state
@@ -153,6 +167,15 @@ class TogetherV3Inference(BaseInference):
 
                 # Accumulate full content for final validation.
                 accumulated_content += content
+
+                #Check for partial match
+                if self.parse_code_interpreter_partial(accumulated_content):
+                    print("BINGO")
+                    print(self.parse_code_interpreter_partial(accumulated_content))
+                    print(accumulated_content)
+                    time.sleep(10000)
+
+
 
                 # Validate JSON start after accumulating at least 2 non-whitespace characters.
                 if not start_checked and len(accumulated_content.strip()) >= 2:
@@ -329,6 +352,43 @@ class TogetherV3Inference(BaseInference):
             combined = reasoning_content + assistant_reply
             self.finalize_conversation(combined, thread_id, assistant_id, run_id)
 
+    def process_tool_calls(self, thread_id,
+                           assistant_id, content,
+                           run_id):
+
+        # Save the tool invocation for state management.
+        action_service = ClientActionService()
+
+
+
+        action_service.create_action(
+            tool_name=content["name"],
+            run_id=run_id,
+            function_args=content["arguments"]
+        )
+
+        # Update run status to 'action_required'
+        run_service = ClientRunService()
+        run_service.update_run_status(run_id=run_id, new_status='action_required')
+        logging_utility.info(f"Run {run_id} status updated to action_required")
+
+        # Now wait for the run's status to change from 'action_required'.
+        while True:
+            run = self.run_service.retrieve_run(run_id)
+            if run.status != "action_required":
+                break
+            time.sleep(1)
+
+        logging_utility.info("Action status transition complete. Reprocessing conversation.")
+
+        # Continue processing the conversation transparently.
+        # (Rebuild the conversation history if needed; here we re-use deepseek_messages.)
+
+        logging_utility.info("No tool call triggered; proceeding with conversation.")
+
+        return content  # Return the accumulated content
+
+
     def process_platform_tool_calls(self, thread_id,
                            assistant_id, content,
                            run_id):
@@ -378,6 +438,8 @@ class TogetherV3Inference(BaseInference):
         print("The Tool response state is:")
         print(self.get_tool_response_state())
         print(self.get_function_call_state())
+        time.sleep(1000)
+
 
         if self.get_function_call_state():
             if self.get_function_call_state():
@@ -391,19 +453,33 @@ class TogetherV3Inference(BaseInference):
 
                     )
 
+                    # Stream the output to the response:
+                    for chunk in self.stream_function_call_output(thread_id=thread_id,
+                                                                  run_id=run_id,
+                                                                  assistant_id=assistant_id
+                                                                  ):
+                        yield chunk
 
+        #Deal with user side function calls
         if self.get_function_call_state():
             if self.get_function_call_state():
-                self.
+                self.process_tool_calls(
+                    thread_id=thread_id,
+                    assistant_id=assistant_id,
+                    content=self.get_function_call_state(),
+                    run_id=run_id
+                )
+
+                # Stream the output to the response:
+                for chunk in self.stream_function_call_output(thread_id=thread_id,
+                                                              run_id=run_id,
+                                                              assistant_id=assistant_id
+                                                              ):
+                    yield chunk
 
 
 
-        # Stream the output to the response:
-        for chunk in self.stream_function_call_output(thread_id=thread_id,
-                                                      run_id=run_id,
-                                                      assistant_id=assistant_id
-                                                      ):
-            yield chunk
+
 
 
     def __del__(self):

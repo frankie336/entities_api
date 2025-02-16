@@ -77,6 +77,31 @@ class BaseInference(ABC):
         pass
 
     @staticmethod
+    def parse_code_interpreter_partial(text):
+        """
+        Parses a partial JSON-like string that begins with:
+        {'name': 'code_interpreter', 'arguments': {'code':
+
+        It captures everything following the 'code': marker.
+        Note: Because the input is partial, the captured code may be incomplete.
+
+        Returns:
+            A dictionary with the key 'code' containing the extracted text,
+            or None if no match is found.
+        """
+        pattern = re.compile(r"""
+            \{\s*['"]name['"]\s*:\s*['"]code_interpreter['"]\s*,\s*   # "name": "code_interpreter"
+            ['"]arguments['"]\s*:\s*\{\s*['"]code['"]\s*:\s*             # "arguments": {"code":
+            (?P<code>.*)                                               # Capture the rest as code content
+        """, re.VERBOSE | re.DOTALL)
+
+        match = pattern.search(text)
+        if match:
+            return {'code': match.group('code').strip()}
+        else:
+            return None
+
+    @staticmethod
     def parse_nested_function_call_json(text):
         """
         Parses a JSON-like string with a nested object structure and variable keys,
