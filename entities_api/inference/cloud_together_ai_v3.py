@@ -103,24 +103,6 @@ class TogetherV3Inference(BaseInference):
     def get_function_call_state(self):
         return self.function_call
 
-    import re
-
-    def remove_outer_quotes(self, text: str) -> str:
-        """
-        Removes a matching pair of single or double quotes from the very start/end of 'text'.
-        If none found, returns text unchanged.
-
-        Example:
-          "'result = 123 * 456\\nprint(result)'}" -> "result = 123 * 456\\nprint(result)}"
-          "\"result = 1\\nprint('test')\""        -> "result = 1\\nprint('test')"
-        """
-        text = text.strip()
-        # Check if first/last chars are the same quote and remove them
-        if len(text) >= 2:
-            if (text.startswith("'") and text.endswith("'")) or (text.startswith('"') and text.endswith('"')):
-                text = text[1:-1]
-        return text
-
     def stream_response(self, thread_id, message_id, run_id, assistant_id,
                         model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
         """
@@ -129,10 +111,10 @@ class TogetherV3Inference(BaseInference):
         - Accumulates the full response for final validation.
         - Supports mid-stream cancellation.
         - Strips markdown triple backticks from the final accumulated content.
+        - Excludes all characters prior to (and including) the partial code-interpreter match.
         """
         # Force correct model version
         model = "deepseek-ai/DeepSeek-V3"
-
         self.start_cancellation_listener(run_id)
 
         # Retrieve cached data and normalize conversation history
@@ -189,33 +171,40 @@ class TogetherV3Inference(BaseInference):
                 accumulated_content += content
 
                 # ---------------------------------------------------
-                # 1) Check for partial code-interpreter match
+                # 1) Check for partial code-interpreter match and exclude prior characters
                 # ---------------------------------------------------
                 if not code_mode:
                     partial_match = self.parse_code_interpreter_partial(accumulated_content)
                     if partial_match:
                         # Enter code mode
                         code_mode = True
-                        # Initialize the code buffer with the matched portion
+                        # Initialize the code buffer with the matched portion (but we will exclude these characters)
                         code_buffer = partial_match.get('code', '')
+                        # Clear accumulated_content so that everything before partial_match is dropped.
+                        accumulated_content = ""
 
-                        # Remove only the outer quotes
-                        code_buffer = self.remove_outer_quotes(code_buffer)
-
-                        # Emit a single start-of-code-block
-                        yield json.dumps({'type': 'content', 'content': '```python\n'})
-                        # Emit whatever was already found in code_buffer
-                        if code_buffer:
-                            yield json.dumps({'type': 'content', 'content': code_buffer})
+                        # Emit a single start-of-code-block marker.
+                        yield json.dumps({'type': 'hot_code', 'content': '```python\n'})
+                        # Do NOT yield code_buffer from the partial match.
                         continue
 
                 # ---------------------------------------------------
-                # 2) Already in code mode -> just accumulate tokens
+                # 2) Already in code mode -> simply accumulate and yield tokens
                 # ---------------------------------------------------
                 if code_mode:
-                    # Append new content without re-wrapping in backticks
                     code_buffer += content
-                    yield json.dumps({'type': 'content', 'content': content})
+
+                    # Split into lines while preserving order
+                    while '\n' in code_buffer:
+                        newline_pos = code_buffer.find('\n') + 1
+                        line_chunk = code_buffer[:newline_pos]
+                        code_buffer = code_buffer[newline_pos:]
+                        yield json.dumps({'type': 'hot_code', 'content': line_chunk})
+
+                    # Send remaining buffer if it exceeds threshold (100 chars)
+                    if len(code_buffer) > 100:
+                        yield json.dumps({'type': 'hot_code', 'content': code_buffer})
+                        code_buffer = ""
                     continue
 
                 # ---------------------------------------------------
@@ -226,43 +215,15 @@ class TogetherV3Inference(BaseInference):
                     if not accumulated_content.strip().startswith(('```{', '{')):
                         logging_utility.warning(
                             "Early termination: Invalid JSON start detected in accumulated content: %s",
-                            accumulated_content
-                        )
-                        yield json.dumps({'type': 'error', 'content': accumulated_content})
-                        # return
-
-                # Process non-code content: split using the reasoning pattern.
-                segments = self.REASONING_PATTERN.split(content)
-                for seg in segments:
-                    if not seg:
-                        continue
-                    if seg == "<think>":
-                        in_reasoning = True
-                        reasoning_content += seg
-                        logging_utility.debug("Yielding reasoning tag: %s", seg)
-                        yield json.dumps({'type': 'reasoning', 'content': seg})
-                    elif seg == "</think>":
-                        in_reasoning = False
-                        reasoning_content += seg
-                        logging_utility.debug("Yielding reasoning tag: %s", seg)
-                        yield json.dumps({'type': 'reasoning', 'content': seg})
-                    else:
-                        if in_reasoning:
-                            reasoning_content += seg
-                            logging_utility.debug("Yielding reasoning segment: %s", seg)
-                            yield json.dumps({'type': 'reasoning', 'content': seg})
-                        else:
-                            assistant_reply += seg
-                            logging_utility.debug("Yielding content segment: %s", seg)
-                            yield json.dumps({'type': 'content', 'content': seg})
-                time.sleep(0.01)
+                            accumulated_content)
+                        return
 
             # ---------------------------------------------------
-            # 4) End of stream: If we ended in code_mode,
-            #    close out the code block with triple backticks
+            # 4) End of stream: If we ended in code_mode, close the code block.
             # ---------------------------------------------------
             if code_mode:
-                yield json.dumps({'type': 'content', 'content': '\n```'})
+                yield json.dumps({'type': 'hot_code', 'content': '\n```'})
+            yield json.dumps({'type': 'hot_code', 'content': '\n```'})
 
             # Validate if the accumulated response is a properly formed tool response.
             if self.parse_nested_function_call_json(text=accumulated_content):
