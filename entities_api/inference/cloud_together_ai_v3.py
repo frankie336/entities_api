@@ -173,15 +173,15 @@ class TogetherV3Inference(BaseInference):
                 # ---------------------------------------------------
                 # 1) Check for partial code-interpreter match and exclude prior characters
                 # ---------------------------------------------------
+
                 if not code_mode:
                     partial_match = self.parse_code_interpreter_partial(accumulated_content)
+
                     if partial_match:
                         # Enter code mode
                         code_mode = True
                         # Initialize the code buffer with the matched portion (but we will exclude these characters)
                         code_buffer = partial_match.get('code', '')
-                        # Clear accumulated_content so that everything before partial_match is dropped.
-                        accumulated_content = ""
 
                         # Emit a single start-of-code-block marker.
                         yield json.dumps({'type': 'hot_code', 'content': '```python\n'})
@@ -207,31 +207,49 @@ class TogetherV3Inference(BaseInference):
                         code_buffer = ""
                     continue
 
-                # ---------------------------------------------------
-                # 3) Normal non-code processing
-                # ---------------------------------------------------
-                if not start_checked and len(accumulated_content.strip()) >= 2:
-                    start_checked = True
-                    if not accumulated_content.strip().startswith(('```{', '{')):
-                        logging_utility.warning(
-                            "Early termination: Invalid JSON start detected in accumulated content: %s",
-                            accumulated_content)
-                        return
-
             # ---------------------------------------------------
-            # 4) End of stream: If we ended in code_mode, close the code block.
+            # 3) End of stream: If we ended in code_mode, close the code block.
             # ---------------------------------------------------
             if code_mode:
                 yield json.dumps({'type': 'hot_code', 'content': '\n```'})
             yield json.dumps({'type': 'hot_code', 'content': '\n```'})
 
+
             # Validate if the accumulated response is a properly formed tool response.
-            if self.parse_nested_function_call_json(text=accumulated_content):
+            function_call = self.parse_nested_function_call_json(text=accumulated_content)
+
+            if function_call:
                 accumulated_content = json.loads(accumulated_content)
                 self.set_tool_response_state(True)
                 self.set_function_call_state(accumulated_content)
 
+
+            # Saves assistants reply
+            self.finalize_conversation(
+                assistant_reply=str(accumulated_content),
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                run_id=run_id
+            )
             logging_utility.info("Final accumulated content: %s", accumulated_content)
+
+
+            # Deal with not function calls here
+            if not function_call:
+                pass
+
+
+
+
+
+
+
+
+
+
+
+
+
 
         except Exception as e:
             error_msg = f"Together SDK error: {str(e)}"
@@ -242,6 +260,20 @@ class TogetherV3Inference(BaseInference):
         if assistant_reply:
             combined = reasoning_content + assistant_reply
             self.finalize_conversation(combined, thread_id, assistant_id, run_id)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     def stream_function_call_output(self, thread_id, run_id, assistant_id,
                                     model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
