@@ -20,12 +20,7 @@ load_dotenv()
 logging_utility = LoggingUtility()
 
 
-
-code_interpreter_response = False
-
 class TogetherV3Inference(BaseInference):
-    # Use <think> tags for reasoning content
-    REASONING_PATTERN = re.compile(r'(<think>|</think>)')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -128,20 +123,16 @@ class TogetherV3Inference(BaseInference):
             "model": model,
             "messages": [{"role": msg["role"], "content": msg["content"]} for msg in messages],
             "max_tokens": None,
-            "temperature": 0.6,
+            "temperature": 0.5,
             "top_p": 0.95,
             "top_k": 50,
-            "repetition_penalty": 1.2,
-            "stop": ["<｜end▁of▁sentence｜>"],
+            "repetition_penalty": 1,
+            "stop": [""],
             "stream": True
         }
 
         assistant_reply = ""
         accumulated_content = ""
-        reasoning_content = ""
-        in_reasoning = False
-        start_checked = False
-
         # Flags for code-mode
         code_mode = False
         code_buffer = ""
@@ -173,17 +164,24 @@ class TogetherV3Inference(BaseInference):
                 # ---------------------------------------------------
                 # 1) Check for partial code-interpreter match and exclude prior characters
                 # ---------------------------------------------------
-
                 if not code_mode:
                     partial_match = self.parse_code_interpreter_partial(accumulated_content)
-
                     if partial_match:
-                        # Enter code mode
-                        code_mode = True
-                        # Initialize the code buffer with the matched portion (but we will exclude these characters)
-                        code_buffer = partial_match.get('code', '')
+                        # Remove the matched portion from accumulated_content.
+                        full_match = partial_match.get('full_match')
+                        if full_match:
+                            match_index = accumulated_content.find(full_match)
+                            if match_index != -1:
+                                # Remove everything up to and including the full_match.
+                                accumulated_content = accumulated_content[match_index + len(full_match):]
+                        # Alternatively, if no full_match is provided, you could clear accumulated_content:
+                        # else:
+                        #     accumulated_content = ""
 
-                        # Emit a single start-of-code-block marker.
+                        # Enter code mode and initialize the code buffer with any remaining partial code.
+                        code_mode = True
+                        code_buffer = partial_match.get('code', '')
+                        # Emit the start-of-code block marker.
                         yield json.dumps({'type': 'hot_code', 'content': '```python\n'})
                         # Do NOT yield code_buffer from the partial match.
                         continue
@@ -201,21 +199,22 @@ class TogetherV3Inference(BaseInference):
                         code_buffer = code_buffer[newline_pos:]
                         yield json.dumps({'type': 'hot_code', 'content': line_chunk})
 
+                        break
+
                     # Send remaining buffer if it exceeds threshold (100 chars)
                     if len(code_buffer) > 100:
                         yield json.dumps({'type': 'hot_code', 'content': code_buffer})
                         code_buffer = ""
                     continue
 
-            # ---------------------------------------------------
-            # 3) End of stream: If we ended in code_mode, close the code block.
-            # ---------------------------------------------------
-            if code_mode:
-                yield json.dumps({'type': 'hot_code', 'content': '\n```'})
-            yield json.dumps({'type': 'hot_code', 'content': '\n```'})
+                if not code_mode:
+                    yield json.dumps({'type': 'content', 'content': content}) + '\n'
+                else:
+                    yield json.dumps({'type': 'content', 'content': content}) + '\n'
 
-
-            # Validate if the accumulated response is a properly formed tool response.
+            # ---------------------------------------------------
+            # 3) Validate if the accumulated response is a properly formed tool response.
+            # ---------------------------------------------------
             function_call = self.parse_nested_function_call_json(text=accumulated_content)
 
             if function_call:
@@ -223,8 +222,7 @@ class TogetherV3Inference(BaseInference):
                 self.set_tool_response_state(True)
                 self.set_function_call_state(accumulated_content)
 
-
-            # Saves assistants reply
+            # Saves assistant's reply
             self.finalize_conversation(
                 assistant_reply=str(accumulated_content),
                 thread_id=thread_id,
@@ -233,24 +231,6 @@ class TogetherV3Inference(BaseInference):
             )
             logging_utility.info("Final accumulated content: %s", accumulated_content)
 
-
-            # Deal with not function calls here
-            if not function_call:
-                pass
-
-
-
-
-
-
-
-
-
-
-
-
-
-
         except Exception as e:
             error_msg = f"Together SDK error: {str(e)}"
             logging_utility.error(error_msg, exc_info=True)
@@ -258,22 +238,7 @@ class TogetherV3Inference(BaseInference):
             yield json.dumps({'type': 'error', 'content': error_msg})
 
         if assistant_reply:
-            combined = reasoning_content + assistant_reply
-            self.finalize_conversation(combined, thread_id, assistant_id, run_id)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+            self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
 
     def stream_function_call_output(self, thread_id, run_id, assistant_id,
                                     model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
@@ -322,9 +287,6 @@ class TogetherV3Inference(BaseInference):
 
         assistant_reply = ""
         accumulated_content = ""
-        reasoning_content = ""
-        in_reasoning = False
-        start_checked = False
 
         try:
             response = self.client.chat.completions.create(**request_payload)
@@ -342,41 +304,14 @@ class TogetherV3Inference(BaseInference):
                 content = getattr(delta, "content", "")
                 if not content:
                     continue
-
+                yield json.dumps({'type': 'content', 'content': content})
+                assistant_reply += content
                 # Print raw content for debugging
-                sys.stdout.write(content)
-                sys.stdout.flush()
+                #sys.stdout.write(content)
+                #sys.stdout.flush()
 
                 # Accumulate full content for final validation.
                 accumulated_content += content
-
-
-                # Split content using the reasoning pattern.
-                # Assumes self.REASONING_PATTERN is defined as a compiled regex.
-                segments = self.REASONING_PATTERN.split(content)
-                for seg in segments:
-                    if not seg:
-                        continue
-                    if seg == "<think>":
-                        in_reasoning = True
-                        reasoning_content += seg
-                        logging_utility.debug("Yielding reasoning tag: %s", seg)
-                        yield json.dumps({'type': 'reasoning', 'content': seg})
-                    elif seg == "</think>":
-                        in_reasoning = False
-                        reasoning_content += seg
-                        logging_utility.debug("Yielding reasoning tag: %s", seg)
-                        yield json.dumps({'type': 'reasoning', 'content': seg})
-                    else:
-                        if in_reasoning:
-                            reasoning_content += seg
-                            logging_utility.debug("Yielding reasoning segment: %s", seg)
-                            yield json.dumps({'type': 'reasoning', 'content': seg})
-                        else:
-                            assistant_reply += seg
-                            logging_utility.debug("Yielding content segment: %s", seg)
-                            yield json.dumps({'type': 'content', 'content': seg})
-                time.sleep(0.01)
 
             logging_utility.info("Final accumulated content: %s", accumulated_content)
 
@@ -388,19 +323,14 @@ class TogetherV3Inference(BaseInference):
             yield json.dumps({'type': 'error', 'content': error_msg})
 
         if assistant_reply:
-            combined = reasoning_content + assistant_reply
-            self.finalize_conversation(combined, thread_id, assistant_id, run_id)
+            self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
 
     def process_tool_calls(self, thread_id,
                            assistant_id, content,
                            run_id):
 
         # Save the tool invocation for state management.
-        action_service = ClientActionService()
-
-
-
-        action_service.create_action(
+        self.action_service.create_action(
             tool_name=content["name"],
             run_id=run_id,
             function_args=content["arguments"]
@@ -427,28 +357,28 @@ class TogetherV3Inference(BaseInference):
 
         return content  # Return the accumulated content
 
+    def process_platform_tool_calls(self, thread_id, assistant_id, content, run_id):
+        # Creating action using the action_service property
 
-    def process_platform_tool_calls(self, thread_id,
-                           assistant_id, content,
-                           run_id):
-
-        # Creating action
-        action_service = ClientActionService()
-        action = action_service.create_action(
+        action = self.action_service.create_action(
             tool_name=content["name"],
             run_id=run_id,
             function_args=content["arguments"]
         )
 
         # Update run status to 'action_required'
-        run_service = ClientRunService()
-        run_service.update_run_status(run_id=run_id, new_status='action_required')
+        self.run_service.update_run_status(run_id=run_id, new_status='action_required')
         logging_utility.info(f"Run {run_id} status updated to action_required")
-        platform_tool_service = PlatformToolService()
-        function_output = platform_tool_service.call_function(function_name=content["name"],
-                                                              arguments=content["arguments"])
 
-        if content.get("name")=="code_interpreter":
+        # Run the tool/api
+        platform_tool_service = self.platform_tool_service
+
+        function_output = platform_tool_service.call_function(
+            function_name=content["name"],
+            arguments=content["arguments"]
+        )
+
+        if content.get("name") == "code_interpreter":
             function_output = json.loads(function_output)
             output_value = function_output['result']['output']
 
@@ -461,7 +391,7 @@ class TogetherV3Inference(BaseInference):
             )
 
             self.action_service.update_action(action_id=action.id, status='completed')
-            logging_utility.info(f"code interpreter tool output inserted!")
+            logging_utility.info(f"Code interpreter tool output inserted!")
 
         return
 
@@ -477,7 +407,6 @@ class TogetherV3Inference(BaseInference):
         print("The Tool response state is:")
         print(self.get_tool_response_state())
         print(self.get_function_call_state())
-        time.sleep(1000)
 
 
         if self.get_function_call_state():
@@ -515,10 +444,6 @@ class TogetherV3Inference(BaseInference):
                                                               assistant_id=assistant_id
                                                               ):
                     yield chunk
-
-
-
-
 
 
     def __del__(self):

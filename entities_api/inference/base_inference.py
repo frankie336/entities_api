@@ -14,6 +14,7 @@ from entities_api.clients.client_run_client import ClientRunService
 from entities_api.clients.client_thread_client import ThreadService
 from entities_api.clients.client_tool_client import ClientToolService
 from entities_api.clients.client_user_client import UserService
+from entities_api.platform_tools.platform_tool_service import PlatformToolService
 from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
@@ -61,6 +62,10 @@ class BaseInference(ABC):
     @property
     def tool_service(self):
         return self._get_service(ClientToolService)
+
+    @property
+    def platform_tool_service(self):
+        return self._get_service(PlatformToolService)
 
     @property
     def action_service(self):
