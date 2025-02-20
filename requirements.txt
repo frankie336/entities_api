@@ -41,3 +41,5 @@ openai
 azure-ai-inference
 transformers
 Together
+transformers
+jinja2

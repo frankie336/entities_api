@@ -15,28 +15,55 @@ from entities_api.clients.client_thread_client import ThreadService
 from entities_api.clients.client_tool_client import ClientToolService
 from entities_api.clients.client_user_client import UserService
 from entities_api.platform_tools.platform_tool_service import PlatformToolService
+from entities_api.services.conversation_truncator import ConversationTruncator
 from entities_api.services.logging_service import LoggingUtility
+
+
 
 logging_utility = LoggingUtility()
 
 class BaseInference(ABC):
-    def __init__(self, base_url=os.getenv('ASSISTANTS_BASE_URL'), api_key=None, available_functions=None):
+    def __init__(self,
+                 base_url=os.getenv('ASSISTANTS_BASE_URL'),
+                 api_key=None,
+                 # New parameters for ConversationTruncator
+                 model_name="deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+                 max_context_window=128000,
+                 threshold_percentage=0.8,
+                 available_functions=None):
+
         self.base_url = base_url
         self.api_key = api_key
         self.available_functions = available_functions
-        self._cancelled = False  # Cancellation flag
-        self._services = {}  # Lazy-loaded services cache
+        self._cancelled = False
+        self._services = {}
         self.code_interpreter_response = False
 
-        logging_utility.info("BaseInference initialized with lazy service loading.")
+        # Store truncation parameters
+        self.truncator_params = {
+            'model_name': model_name,
+            'max_context_window': max_context_window,
+            'threshold_percentage': threshold_percentage
+        }
 
+        logging_utility.info("BaseInference initialized with lazy service loading.")
         self.setup_services()
 
-    def _get_service(self, service_class):
-        """Lazy-load and cache service instances."""
+    def _get_service(self, service_class, custom_params=None):
+        """Lazy-load and cache service instances with flexible initialization."""
         if service_class not in self._services:
-            self._services[service_class] = service_class(self.base_url, self.api_key)
+            if service_class == ConversationTruncator:
+                # Special handling for ConversationTruncator
+                self._services[service_class] = service_class(
+                    **self.truncator_params
+                )
+            else:
+                # Standard services get base_url and api_key
+                params = custom_params or (self.base_url, self.api_key)
+                self._services[service_class] = service_class(*params)
+
             logging_utility.info(f"Lazy-loaded {service_class.__name__}")
+
         return self._services[service_class]
 
     @property
@@ -70,6 +97,10 @@ class BaseInference(ABC):
     @property
     def action_service(self):
         return self._get_service(ClientActionService)
+
+    @property
+    def conversation_truncator(self):
+        return self._get_service(ConversationTruncator)
 
     @abstractmethod
     def setup_services(self):

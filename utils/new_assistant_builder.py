@@ -91,6 +91,28 @@ if __name__ == "__main__":
             }
         },
         {
+            "type": "web_search",
+            "function": {
+                "name": "web_search",
+                "description": "Performs a web search based on a user-provided query and returns the results in a structured format.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "The search query (e.g., 'latest trends in AI')."
+                        },
+                        "max_results": {
+                            "type": "integer",
+                            "description": "The maximum number of results to return. Default is 5.",
+                            "default": 5
+                        }
+                    },
+                    "required": ["query"]
+                }
+            }
+        },
+        {
             "type": "function",
             "function": {
                 "name": "get_flight_times",

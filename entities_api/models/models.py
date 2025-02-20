@@ -134,7 +134,7 @@ class Assistant(Base):
     name = Column(String(128), nullable=False)
     description = Column(String(256), nullable=True)
     model = Column(String(64), nullable=False)
-    instructions = Column(String(2024), nullable=True)
+    instructions = Column(Text, nullable=True)  # Changed from String(2024) to Text
     meta_data = Column(JSON, nullable=True)
     top_p = Column(Integer, nullable=True)
     temperature = Column(Integer, nullable=True)

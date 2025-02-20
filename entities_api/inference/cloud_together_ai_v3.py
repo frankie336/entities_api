@@ -1,20 +1,17 @@
 import json
 import os
-import re
 import sys
-import threading
 import time
 from functools import lru_cache
 
 from dotenv import load_dotenv
 from together import Together  # Using the official Together SDK
 
-from entities_api.clients.client_actions_client import ClientActionService
 from entities_api.clients.client_run_client import ClientRunService
+from entities_api.constants.assistant import PLATFORM_TOOLS
 from entities_api.inference.base_inference import BaseInference
-from entities_api.platform_tools.platform_tool_service import PlatformToolService
+from entities_api.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS
 from entities_api.services.logging_service import LoggingUtility
-from entities_api.constants import PLATFORM_TOOLS
 
 load_dotenv()
 logging_utility = LoggingUtility()
@@ -114,14 +111,23 @@ class TogetherV3Inference(BaseInference):
 
         # Retrieve cached data and normalize conversation history
         assistant = self._assistant_cache(assistant_id)
+
         conversation_history = self.message_service.get_formatted_messages(
             thread_id, system_message=assistant.instructions
         )
+
         messages = self.normalize_roles(conversation_history)
+
+        #Sliding Windows Truncation
+        truncated_message = self.conversation_truncator.truncate(messages)
+        #print(messages)
+        #print(truncated_message)
+        #time.sleep(10000)
+
 
         request_payload = {
             "model": model,
-            "messages": [{"role": msg["role"], "content": msg["content"]} for msg in messages],
+            "messages": truncated_message,
             "max_tokens": None,
             "temperature": 0.5,
             "top_p": 0.95,
@@ -138,6 +144,7 @@ class TogetherV3Inference(BaseInference):
         code_buffer = ""
 
         try:
+
             response = self.client.chat.completions.create(**request_payload)
 
             for token in response:
@@ -187,7 +194,7 @@ class TogetherV3Inference(BaseInference):
                         continue
 
                 # ---------------------------------------------------
-                # 2) Already in code mode -> simply accumulate and yield tokens
+                # 2) Already in code mode -> simply accumulate and yield token_count
                 # ---------------------------------------------------
                 if code_mode:
                     code_buffer += content
@@ -358,42 +365,149 @@ class TogetherV3Inference(BaseInference):
         return content  # Return the accumulated content
 
     def process_platform_tool_calls(self, thread_id, assistant_id, content, run_id):
-        # Creating action using the action_service property
+        """Process platform tool calls with enhanced logging and error handling."""
+        try:
+            logging_utility.info(
+                "Starting tool call processing for run %s. Tool: %s",
+                run_id, content["name"]
+            )
 
-        action = self.action_service.create_action(
-            tool_name=content["name"],
-            run_id=run_id,
-            function_args=content["arguments"]
-        )
+            # Create action with sanitized logging
+            action = self.action_service.create_action(
+                tool_name=content["name"],
+                run_id=run_id,
+                function_args=content["arguments"]
+            )
+            logging_utility.debug(
+                "Created action %s for tool %s",
+                action.id, content["name"]
+            )
 
-        # Update run status to 'action_required'
-        self.run_service.update_run_status(run_id=run_id, new_status='action_required')
-        logging_utility.info(f"Run {run_id} status updated to action_required")
+            # Update run status
+            self.run_service.update_run_status(run_id=run_id, new_status='action_required')
+            logging_utility.info(
+                "Run %s status updated to action_required for tool %s",
+                run_id, content["name"]
+            )
 
-        # Run the tool/api
-        platform_tool_service = self.platform_tool_service
+            # Execute tool call
+            platform_tool_service = self.platform_tool_service
+            function_output = platform_tool_service.call_function(
+                function_name=content["name"],
+                arguments=content["arguments"]
+            )
+            logging_utility.debug(
+                "Tool %s executed successfully for run %s",
+                content["name"], run_id
+            )
 
-        function_output = platform_tool_service.call_function(
-            function_name=content["name"],
-            arguments=content["arguments"]
-        )
+            # Handle specific tool types
+            tool_handlers = {
+                "code_interpreter": self._handle_code_interpreter,
+                "web_search": self._handle_web_search
+            }
 
-        if content.get("name") == "code_interpreter":
-            function_output = json.loads(function_output)
-            output_value = function_output['result']['output']
+            handler = tool_handlers.get(content["name"])
+            if handler:
+                handler(
+                    thread_id=thread_id,
+                    assistant_id=assistant_id,
+                    function_output=function_output,
+                    action=action
+                )
+            else:
+                logging_utility.warning(
+                    "No specific handler for tool %s, using default processing",
+                    content["name"]
+                )
+                self._submit_tool_output(
+                    thread_id=thread_id,
+                    assistant_id=assistant_id,
+                    content=function_output,
+                    action=action
+                )
 
+        except Exception as e:
+            logging_utility.error(
+                "Failed to process tool call for run %s: %s",
+                run_id, str(e), exc_info=True
+            )
+            self.action_service.update_action(action_id=action.id, status='failed')
+            raise  # Re-raise for upstream handling
+
+    def _handle_code_interpreter(self, thread_id, assistant_id, function_output, action):
+        """Special handling for code interpreter results."""
+        try:
+            parsed_output = json.loads(function_output)
+            output_value = parsed_output['result']['output']
+
+            self._submit_tool_output(
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                content=output_value,
+                action=action
+            )
+            logging_utility.info(
+                "Code interpreter output submitted for action %s",
+                action.id
+            )
+
+        except json.JSONDecodeError as e:
+            logging_utility.error(
+                "Failed to parse code interpreter output for action %s: %s",
+                action.id, str(e)
+            )
+            raise
+
+    def _handle_web_search(self, thread_id, assistant_id, function_output, action):
+        """Special handling for web search results."""
+        try:
+            search_output = str(function_output[0][0]) + WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS
+
+            self._submit_tool_output(
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                content=search_output,
+                action=action
+            )
+            logging_utility.info(
+                "Web search results submitted for action %s",
+                action.id
+            )
+
+        except IndexError as e:
+            logging_utility.error(
+                "Invalid web search output format for action %s: %s",
+                action.id, str(e)
+            )
+            raise
+
+    def _submit_tool_output(self, thread_id, assistant_id, content, action):
+        """Generic tool output submission with consistent logging."""
+        try:
             self.message_service.submit_tool_output(
                 thread_id=thread_id,
-                content=output_value,
+                content=content,
                 role="tool",
                 assistant_id=assistant_id,
                 tool_id="dummy"
             )
-
             self.action_service.update_action(action_id=action.id, status='completed')
-            logging_utility.info(f"Code interpreter tool output inserted!")
+            logging_utility.debug(
+                "Tool output submitted successfully for action %s",
+                action.id
+            )
 
-        return
+        except Exception as e:
+            logging_utility.error(
+                "Failed to submit tool output for action %s: %s",
+                action.id, str(e)
+            )
+            self.action_service.update_action(action_id=action.id, status='failed')
+            raise
+
+
+
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id,
                              model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
@@ -404,10 +518,9 @@ class TogetherV3Inference(BaseInference):
         for chunk in self.stream_response(thread_id, message_id, run_id, assistant_id, model, stream_reasoning):
             yield chunk
 
-        print("The Tool response state is:")
-        print(self.get_tool_response_state())
-        print(self.get_function_call_state())
-
+        #print("The Tool response state is:")
+        #print(self.get_tool_response_state())
+        #print(self.get_function_call_state())
 
         if self.get_function_call_state():
             if self.get_function_call_state():
@@ -420,7 +533,7 @@ class TogetherV3Inference(BaseInference):
                         run_id=run_id
 
                     )
-
+                    # time.sleep(10000)
                     # Stream the output to the response:
                     for chunk in self.stream_function_call_output(thread_id=thread_id,
                                                                   run_id=run_id,
@@ -431,19 +544,19 @@ class TogetherV3Inference(BaseInference):
         #Deal with user side function calls
         if self.get_function_call_state():
             if self.get_function_call_state():
-                self.process_tool_calls(
-                    thread_id=thread_id,
-                    assistant_id=assistant_id,
-                    content=self.get_function_call_state(),
-                    run_id=run_id
-                )
-
-                # Stream the output to the response:
-                for chunk in self.stream_function_call_output(thread_id=thread_id,
-                                                              run_id=run_id,
-                                                              assistant_id=assistant_id
-                                                              ):
-                    yield chunk
+                if self.get_function_call_state().get("name") not in PLATFORM_TOOLS:
+                    self.process_tool_calls(
+                        thread_id=thread_id,
+                        assistant_id=assistant_id,
+                        content=self.get_function_call_state(),
+                        run_id=run_id
+                    )
+                    # Stream the output to the response:
+                    for chunk in self.stream_function_call_output(thread_id=thread_id,
+                                                                  run_id=run_id,
+                                                                  assistant_id=assistant_id
+                                                                  ):
+                        yield chunk
 
 
     def __del__(self):

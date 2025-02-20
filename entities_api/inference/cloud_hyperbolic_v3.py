@@ -185,7 +185,6 @@ class HyperbolicV3Inference(BaseInference):
             tool_candidate_data = self.parse_tools_calls(thread_id=thread_id, message_id=message_id,
                                     assistant_id=assistant_id, run_id=run_id, model=model)
 
-
             # Validate the tool_call_data_structure
             is_this_a_tool_call = self.check_tool_call_data(tool_candidate_data)
 

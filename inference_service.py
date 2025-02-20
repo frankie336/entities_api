@@ -58,7 +58,7 @@ class InferenceService:
     def generate_text(self, messages: list, max_length: int = 200, temperature: float = 0.6) -> str:
         """
         Non-streamed generation.
-        Generates a full response (with default temperature 0.6) and removes any stray <think> tokens.
+        Generates a full response (with default temperature 0.6) and removes any stray <think> token_count.
         Also, enforces that the final answer begins with "<think>\n".
         """
         prompt = self._format_messages(messages)
@@ -80,7 +80,7 @@ class InferenceService:
     def stream_response(self, messages: list, max_length: int = 200, temperature: float = 0.6,
                         show_speed: bool = True) -> str:
         """
-        Streams raw text tokens (after filtering out <think> tokens) as they are generated.
+        Streams raw text token_count (after filtering out <think> token_count) as they are generated.
         A space is inserted before a token if:
           - There is already generated text, and
           - The new token does not start with whitespace or with punctuation (e.g. .,!,?).
@@ -88,7 +88,7 @@ class InferenceService:
         Additionally, we enforce that the response begins with "<think>\n". If the first token from the model
         does not provide this, we prepend it.
 
-        This design streams raw tokens; the client is expected to accumulate them and perform markdown parsing
+        This design streams raw token_count; the client is expected to accumulate them and perform markdown parsing
         and further formatting if needed.
         """
         prompt = self._format_messages(messages)
@@ -135,7 +135,7 @@ class InferenceService:
             input_ids = torch.cat([input_ids, new_token], dim=1)
         elapsed_time = time.time() - start_time
         if elapsed_time > 0 and show_speed:
-            print(f"\nTotal tokens per second: {tokens_received / elapsed_time:.2f}")
+            print(f"\nTotal token_count per second: {tokens_received / elapsed_time:.2f}")
         print()
 
 if __name__ == "__main__":
