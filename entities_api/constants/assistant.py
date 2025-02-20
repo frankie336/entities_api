@@ -59,7 +59,5 @@ WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS = (
     "Next result..."
 )
 
-WEB_SEARCH_BASE_URL="https://www.bing.com/search?q="
-
-
+WEB_SEARCH_BASE_URL="https://www.bing.co.uk/search"
 #WEB_SEARCH_BASE_URL_BBC_TEST=f"https://www.bbc.com/search?q={query}&page={i}"
