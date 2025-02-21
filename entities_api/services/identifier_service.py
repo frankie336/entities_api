@@ -1,5 +1,6 @@
 import random
 import string
+import uuid
 
 
 class IdentifierService:
@@ -63,6 +64,11 @@ class IdentifierService:
     @staticmethod
     def generate_sandbox_id() -> str:
         return IdentifierService.generate_id("cli")
+
+    @staticmethod
+    def generate_vector_id() -> str:
+        """Generate valid UUID4 string for Qdrant compatibility"""
+        return IdentifierService.generate_id("vect")
 
 
 # Example usage:

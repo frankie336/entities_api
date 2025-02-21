@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 from starlette.responses import StreamingResponse, JSONResponse
 
 from db.database import get_db
-from entities_api.schemas import SandboxCreate, SandboxRead, SandboxUpdate
+from entities_api.schemas import SandboxCreate, SandboxRead, SandboxUpdate, VectorStoreRead, VectorStoreCreate, \
+    VectorStoreUpdate
 from entities_api.schemas import (
     UserCreate, UserRead, UserUpdate,
     ThreadCreate, ThreadRead, ThreadReadDetailed, ThreadIds,
@@ -27,6 +28,7 @@ from entities_api.services.sandbox_service import SandboxService
 from entities_api.services.thread_service import ThreadService
 from entities_api.services.tool_service import ToolService
 from entities_api.services.user_service import UserService
+from entities_api.services.vector_store_service import VectorStoreService
 
 logging_utility = LoggingUtility()
 router = APIRouter()
@@ -817,3 +819,138 @@ def list_sandboxes_by_user(user_id: str, db: Session = Depends(get_db)):
     except Exception as e:
         logging_utility.error(f"Unexpected error during listing sandboxes: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+
+
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from entities_api.schemas import VectorStoreCreate, VectorStoreRead
+from entities_api.services.vector_store_service import VectorStoreService
+from entities_api.dependencies import get_db, get_qdrant_client
+from entities_api.services.logging_service import LoggingUtility
+
+
+
+def get_vector_store_service(
+    db: Session = Depends(get_db),
+    qdrant_client=Depends(get_qdrant_client)
+) -> VectorStoreService:
+    """Dependency injection for VectorStoreService"""
+    return VectorStoreService(db, qdrant_client)
+
+@router.post(
+    "/",
+    response_model=VectorStoreRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new vector store"
+)
+def create_vector_store(
+    store_data: VectorStoreCreate,
+    service: VectorStoreService = Depends(get_vector_store_service)
+):
+    """Create a new vector store with associated Qdrant collection"""
+    logging_utility.info("Received request to create vector store")
+    try:
+        return service.create_vector_store(store_data)
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error creating vector store: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"Unexpected error creating vector store: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred"
+        )
+
+@router.get(
+    "/{store_id}",
+    response_model=VectorStoreRead,
+    summary="Get vector store details"
+)
+def get_vector_store(
+    store_id: str,
+    service: VectorStoreService = Depends(get_vector_store_service)
+):
+    """Retrieve details of a specific vector store"""
+    logging_utility.info(f"Received request to get vector store: {store_id}")
+    try:
+        return service.get_vector_store(store_id)
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error getting vector store {store_id}: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"Unexpected error getting vector store {store_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred"
+        )
+
+
+
+@router.put(
+    "/{store_id}",
+    response_model=VectorStoreRead,
+    summary="Update vector store metadata"
+)
+def update_vector_store(
+    store_id: str,
+    update_data: VectorStoreUpdate,
+    service: VectorStoreService = Depends(get_vector_store_service)
+):
+    """Update metadata and configuration of a vector store"""
+    logging_utility.info(f"Received request to update vector store: {store_id}")
+    try:
+        return service.update_vector_store(store_id, update_data)
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error updating vector store {store_id}: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"Unexpected error updating vector store {store_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred"
+        )
+
+@router.delete(
+    "/{store_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a vector store"
+)
+def delete_vector_store(
+    store_id: str,
+    service: VectorStoreService = Depends(get_vector_store_service)
+):
+    """Permanently delete a vector store and its Qdrant collection"""
+    logging_utility.info(f"Received request to delete vector store: {store_id}")
+    try:
+        service.delete_vector_store(store_id)
+        return {"detail": "Vector store deleted successfully"}
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error deleting vector store {store_id}: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"Unexpected error deleting vector store {store_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred"
+        )
+
+@router.get(
+    "/",
+    response_model=List[VectorStoreRead],
+    summary="List vector stores"
+)
+def list_vector_stores(
+    user_id: Optional[str] = None,
+    service: VectorStoreService = Depends(get_vector_store_service)
+):
+    """List all vector stores, optionally filtered by user"""
+    logging_utility.info("Received request to list vector stores")
+    try:
+        return service.list_vector_stores(user_id)
+    except Exception as e:
+        logging_utility.error(f"Error listing vector stores: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred"
+        )

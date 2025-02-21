@@ -20,13 +20,20 @@ assistant_tools = Table(
     Column('tool_id', String(64), ForeignKey('tools.id'))
 )
 
+
+
 user_assistants = Table(
     'user_assistants', Base.metadata,
     Column('user_id', String(64), ForeignKey('users.id'), primary_key=True),
     Column('assistant_id', String(64), ForeignKey('assistants.id'), primary_key=True)
 )
 
-
+# Add this after existing association tables
+vector_store_assistants = Table(
+    'vector_store_assistants', Base.metadata,
+    Column('vector_store_id', String(64), ForeignKey('vector_stores.id'), primary_key=True),
+    Column('assistant_id', String(64), ForeignKey('assistants.id'), primary_key=True)
+)
 
 class StatusEnum(PyEnum):
     queued = "queued"
@@ -134,15 +141,34 @@ class Assistant(Base):
     name = Column(String(128), nullable=False)
     description = Column(String(256), nullable=True)
     model = Column(String(64), nullable=False)
-    instructions = Column(Text, nullable=True)  # Changed from String(2024) to Text
+    instructions = Column(Text, nullable=True)
     meta_data = Column(JSON, nullable=True)
     top_p = Column(Integer, nullable=True)
     temperature = Column(Integer, nullable=True)
     response_format = Column(String(64), nullable=True)
 
-    tools = relationship("Tool", secondary=assistant_tools, back_populates="assistants", lazy="joined")
-    users = relationship("User", secondary=user_assistants, back_populates="assistants")
+    # Existing relationships
+    tools = relationship(
+        "Tool",
+        secondary=assistant_tools,
+        back_populates="assistants",
+        lazy="joined"
+    )
+    users = relationship(
+        "User",
+        secondary=user_assistants,
+        back_populates="assistants",
+        lazy="select"
+    )
 
+    # New vector store relationship
+    vector_stores = relationship(
+        "VectorStore",
+        secondary="vector_store_assistants",
+        back_populates="assistants",
+        lazy="select",  # Different strategy from tools for performance
+        passive_deletes=True
+    )
 
 class Tool(Base):
     __tablename__ = "tools"
@@ -191,3 +217,56 @@ class Sandbox(Base):
     status = Column(String(32), nullable=False, default="active")
     config = Column(JSON, nullable=True)
     user = relationship("User", back_populates="sandboxes")
+
+
+
+class VectorStore(Base):
+    __tablename__ = "vector_stores"
+
+    id = Column(String(64), primary_key=True, index=True)
+    name = Column(String(128), nullable=False, unique=True)
+    user_id = Column(String(64), ForeignKey('users.id'), nullable=False)
+    collection_name = Column(String(128), nullable=False, unique=True)
+    vector_size = Column(Integer, nullable=False)
+    distance_metric = Column(String(32), nullable=False)
+    created_at = Column(Integer, default=lambda: int(time.time()))
+    updated_at = Column(Integer, onupdate=lambda: int(time.time()))
+    status = Column(Enum(StatusEnum), default=StatusEnum.active)
+    config = Column(JSON, nullable=True)
+
+    # Relationships
+    user = relationship(
+        "User",
+        back_populates="vector_stores",
+        lazy="select"
+    )
+    assistants = relationship(
+        "Assistant",
+        secondary="vector_store_assistants",
+        back_populates="vector_stores",
+        lazy="select",
+        passive_deletes=True
+    )
+    files = relationship(
+        "VectorStoreFile",
+        back_populates="vector_store",
+        cascade="all, delete-orphan",
+        lazy="dynamic"
+    )
+
+class VectorStoreFile(Base):
+    __tablename__ = "vector_store_files"
+
+    id = Column(String(64), primary_key=True, index=True)
+    vector_store_id = Column(String(64), ForeignKey('vector_stores.id'), nullable=False)
+    file_name = Column(String(256), nullable=False)
+    file_path = Column(String(1024), nullable=False)
+    processed_at = Column(Integer, nullable=True)
+    status = Column(Enum(StatusEnum), default=StatusEnum.queued)
+    error_message = Column(Text, nullable=True)
+    metadata = Column(JSON, nullable=True)
+
+    vector_store = relationship("VectorStore", back_populates="files")
+
+
+

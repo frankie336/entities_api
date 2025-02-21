@@ -4,6 +4,8 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field, ConfigDict
 from pydantic import validator
 
+from entities_api.models.models import StatusEnum
+
 
 class UserBase(BaseModel):
     id: str
@@ -512,3 +514,77 @@ class CodeExecutionResponse(BaseModel):
     error: Optional[str] = None
 
 
+
+
+# Vector store
+class VectorStoreStatus(str, Enum):
+    active = "active"
+    inactive = "inactive"
+    processing = "processing"
+    error = "error"
+
+class VectorStoreCreate(BaseModel):
+    name: str = Field(..., min_length=3, max_length=128)
+    user_id: str = Field(..., description="Owner of the vector store")
+    vector_size: int = Field(384, ge=128, le=2048, description="Embedding dimension size")
+    distance_metric: str = Field("COSINE", pattern="^(COSINE|EUCLID|DOT)$")
+    config: Optional[Dict[str, Any]] = None
+
+    @validator('name')
+    def validate_name(cls, v):
+        if not v.replace('_', '').replace('-', '').isalnum():
+            raise ValueError("Name must be alphanumeric with underscores or hyphens")
+        return v
+
+class VectorStoreRead(BaseModel):
+    id: str
+    name: str
+    user_id: str
+    collection_name: str
+    vector_size: int
+    distance_metric: str
+    created_at: int
+    updated_at: Optional[int] = None
+    status: VectorStoreStatus
+    config: Optional[Dict[str, Any]] = None
+    file_count: int = Field(0, description="Number of files in store")
+
+    model_config = ConfigDict(from_attributes=True)
+
+class VectorStoreUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=3, max_length=128)
+    status: Optional[VectorStoreStatus] = None
+    config: Optional[Dict[str, Any]] = None
+
+class VectorStoreFileCreate(BaseModel):
+    file_name: str = Field(..., max_length=256)
+    file_path: str = Field(..., max_length=1024)
+    metadata: Optional[Dict[str, Any]] = None
+
+class VectorStoreFileRead(BaseModel):
+    id: str
+    file_name: str
+    file_path: str
+    processed_at: Optional[int] = None
+    status: StatusEnum
+    error_message: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+class VectorStoreFileUpdate(BaseModel):
+    status: Optional[StatusEnum] = None
+    error_message: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+class VectorStoreList(BaseModel):
+    vector_stores: List[VectorStoreRead]
+
+class VectorStoreFileList(BaseModel):
+    files: List[VectorStoreFileRead]
+
+class VectorStoreLinkAssistant(BaseModel):
+    assistant_ids: List[str] = Field(..., min_items=1, description="List of assistant IDs to link")
+
+class VectorStoreUnlinkAssistant(BaseModel):
+    assistant_id: str = Field(..., description="Assistant ID to unlink")
