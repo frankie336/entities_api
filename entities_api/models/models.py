@@ -36,9 +36,10 @@ vector_store_assistants = Table(
 )
 
 class StatusEnum(PyEnum):
+    active = "active"               # Added this member
     queued = "queued"
     in_progress = "in_progress"
-    pending_action ="action_required"
+    pending_action = "action_required"
     completed = "completed"
     failed = "failed"
     cancelling = "cancelling"
@@ -49,16 +50,17 @@ class StatusEnum(PyEnum):
     retrying = "retrying"
 
 
+
 # Models
 class User(Base):
     __tablename__ = "users"
 
     id = Column(String(64), primary_key=True, index=True)
     name = Column(String(128), index=True)
-
     threads = relationship('Thread', secondary=thread_participants, back_populates='participants')
     assistants = relationship('Assistant', secondary=user_assistants, back_populates='users')
     sandboxes = relationship('Sandbox', back_populates='user', cascade="all, delete-orphan")
+    vector_stores = relationship("VectorStore", back_populates="user", lazy="select")
 
 
 class Thread(Base):
@@ -222,7 +224,6 @@ class Sandbox(Base):
 
 class VectorStore(Base):
     __tablename__ = "vector_stores"
-
     id = Column(String(64), primary_key=True, index=True)
     name = Column(String(128), nullable=False, unique=True)
     user_id = Column(String(64), ForeignKey('users.id'), nullable=False)
@@ -264,7 +265,7 @@ class VectorStoreFile(Base):
     processed_at = Column(Integer, nullable=True)
     status = Column(Enum(StatusEnum), default=StatusEnum.queued)
     error_message = Column(Text, nullable=True)
-    metadata = Column(JSON, nullable=True)
+    meta_data = Column(JSON, nullable=True)  # Renamed field
 
     vector_store = relationship("VectorStore", back_populates="files")
 

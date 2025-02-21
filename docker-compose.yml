@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   db:
     image: mysql:8.0
@@ -17,6 +19,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - my_custom_network  # Add the network here
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -31,6 +35,8 @@ services:
       QDRANT__STORAGE__STORAGE_PATH: "/qdrant/storage"
       QDRANT__SERVICE__GRPC_PORT: "6334"
       QDRANT__LOG_LEVEL: "INFO"
+    networks:
+      - my_custom_network  # Add the network here
 
   api:
     build:
@@ -54,6 +60,8 @@ services:
     command: ["./wait-for-it.sh", "db:3306", "--", "uvicorn", "entities_api.main:app", "--host", "0.0.0.0", "--port", "9000"]
     volumes:
       - C:/Users/franc/Models/HuggingFace:/app/models  # Mounting model directory
+    networks:
+      - my_custom_network  # Add the network here
 
   sandbox:
     build:
@@ -74,9 +82,15 @@ services:
         condition: service_healthy  # If sandbox depends on db
     volumes:
       - /tmp/sandbox_logs:/app/logs  # Optional: persist logs
+    networks:
+      - my_custom_network  # Add the network here
 
 volumes:
   mysql_data:
     driver: local
   qdrant_storage:
     driver: local
+
+networks:
+  my_custom_network:
+    driver: bridge  # Defining a custom network for inter-container communication

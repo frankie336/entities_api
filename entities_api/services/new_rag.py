@@ -1,12 +1,12 @@
 from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
-from entities_api.services.vector_store import VectorStore
+from entities_api.services.vector_store_manager import VectorStoreManager
 from entities_api.services.file_processor import FileProcessor
 
 def main():
     # Initialize components
     qdrant = QdrantClient("localhost:6333")  # Or use ":memory:" for testing
-    vector_service = VectorStore(qdrant)
+    vector_service = VectorStoreManager(qdrant)
     file_processor = FileProcessor()
     embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 

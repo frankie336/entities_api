@@ -1,23 +1,27 @@
-# entities_api/services/vector_store.py
+# entities_api/services/vector_store_manager.py
 import time
 import uuid
+from pathlib import Path
 from typing import List, Dict, Optional
-
 from fastapi import HTTPException
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-
 from entities_api.interfaces.base_vector_store import BaseVectorStore, StoreExistsError, VectorStoreError, \
     StoreNotFoundError
 from entities_api.services.logging_service import LoggingUtility
-
 logging_utility = LoggingUtility()
 
-class VectorStore(BaseVectorStore):
-    def __init__(self, qdrant_client: QdrantClient):
-        self.client = qdrant_client
+
+class VectorStoreManager(BaseVectorStore):
+    def __init__(self):
+
+
+        self.client = QdrantClient(url="http://localhost:6333")
+
         self.active_stores: Dict[str, dict] = {}
-        logging_utility.info(f"Initialized VectorStore. Source: {__file__}")
+        logging_utility.info(f"Initialized VectorStoreManager. Source: {__file__}")
+        prefer_grpc = True  # Better for bulk operations
+
 
     def _generate_vector_id(self) -> str:
         """Generate unique vector ID using UUID4"""
@@ -36,6 +40,8 @@ class VectorStore(BaseVectorStore):
                     distance=models.Distance[distance]
                 )
             )
+
+
             self.active_stores[store_name] = {
                 "created_at": int(time.time()),
                 "vector_size": vector_size,
@@ -58,23 +64,78 @@ class VectorStore(BaseVectorStore):
         store_name = f"text_store_{int(time.time())}"
         return self.create_store(store_name, vector_size=384, distance="COSINE")
 
-    def add_to_store(self, store_name: str, texts: List[str], vectors: List[List[float]], metadata: List[dict]) -> dict:
-        """Add text entries to vector store"""
-        try:
-            points = [
+        def add_to_store(self, store_name: str, texts: List[str],
+                         vectors: List[List[float]], metadata: List[dict]):
+            """Validate vectors before insertion"""
+            self._validate_vectors(vectors)
+
+            return self.client.upsert(
+                collection_name=store_name,
+                points=[
+                    models.PointStruct(
+                        id=idx,
+                        vector=vector,
+                        payload={
+                            "text": text,
+                            **meta
+                        }
+                    )
+                    for idx, (text, vector, meta)
+                    in enumerate(zip(texts, vectors, metadata))
+                ]
+            )
+
+        def _validate_vectors(self, vectors: List[List[float]]):
+            """Ensure vector dimensions match expectations"""
+            if not vectors:
+                raise ValueError("Empty vectors list")
+
+            expected_size = len(vectors[0])
+            for i, vec in enumerate(vectors):
+                if len(vec) != expected_size:
+                    raise ValueError(
+                        f"Vector {i} has invalid size {len(vec)} "
+                        f"(expected {expected_size})"
+                    )
+                if not all(isinstance(v, float) for v in vec):
+                    raise TypeError(f"Vector {i} contains non-float values")
+
+    def add_to_store(self, store_name: str, texts: List[str],
+                     vectors: List[List[float]], metadata: List[dict]):
+        """Validate vectors before insertion"""
+        self._validate_vectors(vectors)
+
+        return self.client.upsert(
+            collection_name=store_name,
+            points=[
                 models.PointStruct(
-                    id=self._generate_vector_id(),
+                    id=idx,
                     vector=vector,
-                    payload={"text": text, "metadata": md, "timestamp": int(time.time())}
-                ) for text, vector, md in zip(texts, vectors, metadata)
+                    payload={
+                        "text": text,
+                        **meta
+                    }
+                )
+                for idx, (text, vector, meta)
+                in enumerate(zip(texts, vectors, metadata))
             ]
+        )
 
-            operation = self.client.upsert(collection_name=store_name, points=points)
-            return {"store": store_name, "added": len(points), "status": operation.status}
+    def _validate_vectors(self, vectors: List[List[float]]):
+        """Ensure vector dimensions match expectations"""
+        if not vectors:
+            raise ValueError("Empty vectors list")
 
-        except Exception as e:
-            logging_utility.error(f"Store update failed: {str(e)}")
-            raise VectorStoreError(f"Store update failed: {str(e)}")
+        expected_size = len(vectors[0])
+        for i, vec in enumerate(vectors):
+            if len(vec) != expected_size:
+                raise ValueError(
+                    f"Vector {i} has invalid size {len(vec)} "
+                    f"(expected {expected_size})"
+                )
+            if not all(isinstance(v, float) for v in vec):
+                raise TypeError(f"Vector {i} contains non-float values")
+
 
     def query_store(self, store_name: str, query_vector: List[float], top_k: int = 5, filters: Optional[dict] = None) -> List[dict]:
         """Query store with optional filters"""
@@ -145,3 +206,9 @@ class VectorStore(BaseVectorStore):
     def get_client(self):
         """Get the underlying Qdrant client instance"""
         return self.client
+
+    def get_point_by_id(self, store_name: str, point_id: str) -> dict:
+        """Retrieve a specific point by its ID"""
+        pass
+
+

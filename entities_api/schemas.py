@@ -524,17 +524,20 @@ class VectorStoreStatus(str, Enum):
     error = "error"
 
 class VectorStoreCreate(BaseModel):
-    name: str = Field(..., min_length=3, max_length=128)
-    user_id: str = Field(..., description="Owner of the vector store")
-    vector_size: int = Field(384, ge=128, le=2048, description="Embedding dimension size")
-    distance_metric: str = Field("COSINE", pattern="^(COSINE|EUCLID|DOT)$")
+    name: str = Field(..., min_length=3, max_length=128, description="Human-friendly store name")
+    user_id: str = Field(..., min_length=3, description="Owner user ID (should be valid)")
+    vector_size: int = Field(..., gt=0, description="Must be a positive integer")
+    distance_metric: str = Field(..., description="Distance metric (COSINE, EUCLID, DOT)")
     config: Optional[Dict[str, Any]] = None
 
-    @validator('name')
-    def validate_name(cls, v):
-        if not v.replace('_', '').replace('-', '').isalnum():
-            raise ValueError("Name must be alphanumeric with underscores or hyphens")
+    @validator("distance_metric")
+    def validate_distance_metric(cls, v):
+        allowed_metrics = {"COSINE", "EUCLID", "DOT"}
+        if v.upper() not in allowed_metrics:
+            raise ValueError(f"Invalid distance metric: {v}. Must be one of {allowed_metrics}")
         return v
+
+
 
 class VectorStoreRead(BaseModel):
     id: str

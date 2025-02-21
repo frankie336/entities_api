@@ -10,3 +10,4 @@ docker run -d --gpus=all -v ollama:/root/.ollama -p 11434:11434 --name ollama --
 # Connect the FastAPI and MySQL containers to the custom network
 docker network connect my_custom_network fastapi_cosmic_catalyst
 docker network connect my_custom_network my_mysql_cosmic_catalyst
+docker network connect my_custom_network qdrant_server

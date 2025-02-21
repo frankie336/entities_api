@@ -1,7 +1,7 @@
-# entities_api/interfaces/vector_store.py
+# entities_api/interfaces/vector_store_manager.py
 from abc import ABC, abstractmethod
 from typing import List, Dict, Optional
-from qdrant_client.http import models as qdrant_models
+from qdrant_client import QdrantClient
 
 
 class VectorStoreError(Exception):
@@ -44,8 +44,7 @@ class BaseVectorStore(ABC):
         """Get store metadata"""
         pass
 
-    @abstractmethod
-    def get_client(self) -> qdrant_models.QdrantClient:
+    def get_client(self) -> QdrantClient:
         """Get underlying client instance"""
         pass
 

@@ -43,3 +43,4 @@ transformers
 Together
 transformers
 jinja2
+qdrant_client
