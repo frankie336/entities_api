@@ -59,7 +59,8 @@ setup(
         "together",
         "tenacity"
         "pdfplumber",
-        "sentence_transformers"
+        "sentence_transformers",
+        "validators"
     ],
     extras_require={
         "dev": [

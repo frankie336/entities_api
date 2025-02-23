@@ -502,7 +502,7 @@ class TogetherV3Inference(BaseInference):
         """Special handling for web search results."""
         try:
 
-            search_output = str(function_output[0]) + WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS
+            search_output = str(function_output)
 
             self._submit_tool_output(
                 thread_id=thread_id,
@@ -521,9 +521,6 @@ class TogetherV3Inference(BaseInference):
                 action.id, str(e)
             )
             raise
-
-
-
 
 
 

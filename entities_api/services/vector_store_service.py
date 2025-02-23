@@ -2,7 +2,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from http.client import HTTPException
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, joinedload
@@ -278,9 +278,18 @@ class VectorStoreService:
             raise VectorStoreError(f"File deletion operation failed: {str(e)}")
 
     @retry(stop=stop_after_attempt(3), wait=wait_random_exponential(min=1, max=5))
-    def add_files(self, file_path, destination_store):
+    def add_files(self, file_path: Union[str, Path], destination_store: str,
+                  vector_service, user_metadata: dict = None, source_url: str = None) -> dict:
+
         vector_service = VectorStoreService()
-        result = self.file_processor.process_and_store(file_path, destination_store, vector_service)
+        result = self.file_processor.process_and_store(file_path=file_path,
+                                                       destination_store=destination_store,
+                                                       vector_service=vector_service,
+                                                       user_metadata=user_metadata
+
+                                                       )
+
+
         # Convert the dictionary to a Pydantic object before returning.
         return ProcessOutput(**result)
 
@@ -417,11 +426,6 @@ if __name__ == "__main__":
         print("\nFiles in store:")
         files = vector_service.list_store_files(created_store.collection_name)
         print(f"Stored files: {files}")
-
-
-
-
-
 
 
         # Test file deletion

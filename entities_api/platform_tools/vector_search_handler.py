@@ -1,10 +1,6 @@
+from entities_api import OllamaClient
 from entities_api.schemas import VectorStoreSearchResult
 from entities_api.services.vector_store_service import VectorStoreService
-from entities_api.schemas import VectorStoreRead, VectorStoreStatus
-from entities_api import OllamaClient
-from entities_api.vectorsthis import vector_store
-from entities_api.schemas import VectorStoreRead, VectorStoreStatus
-
 
 client = OllamaClient()
 

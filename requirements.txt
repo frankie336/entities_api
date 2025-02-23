@@ -47,3 +47,4 @@ qdrant_client
 tenacity
 pdfplumber
 sentence_transformers
+ validators
