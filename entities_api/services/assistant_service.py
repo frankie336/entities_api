@@ -14,7 +14,18 @@ class AssistantService:
         self.db = db
 
     def create_assistant(self, assistant: AssistantCreate) -> AssistantRead:
-        assistant_id = IdentifierService.generate_assistant_id()
+        # Use provided ID or generate new
+        assistant_id = assistant.id or IdentifierService.generate_assistant_id()
+
+        # Validate ID uniqueness if provided
+        if assistant.id:
+            existing = self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+            if existing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Assistant with ID '{assistant_id}' already exists"
+                )
+
         db_assistant = Assistant(
             id=assistant_id,
             object="assistant",
@@ -34,6 +45,7 @@ class AssistantService:
         self.db.refresh(db_assistant)
 
         return AssistantRead.model_validate(db_assistant)
+
 
     def retrieve_assistant(self, assistant_id: str) -> AssistantRead:
         db_assistant = self.db.query(Assistant).options(

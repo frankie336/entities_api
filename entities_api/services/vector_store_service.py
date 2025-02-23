@@ -2,9 +2,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from http.client import HTTPException
 from pathlib import Path
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, Any
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, joinedload
 from tenacity import retry, stop_after_attempt, wait_random_exponential, retry_if_exception_type
 
@@ -16,17 +16,16 @@ from entities_api.services.identifier_service import IdentifierService
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.vector_store_manager import VectorStoreManager
 from entities_api.schemas import VectorStoreCreate
+from entities_api.constants.platform import DIRECT_DATABASE_URL
 logging_utility = LoggingUtility()
 
 
 class VectorStoreService:
     def __init__(self):
         # Create a local engine for all DB operations.
-        DATABASE_URL = "mysql+pymysql://ollama:3e4Qv5uo2Cg31zC1@localhost:3307/cosmic_catalyst"
-
-
-        self.engine = create_engine(DATABASE_URL, echo=True)
+        self.engine = create_engine(DIRECT_DATABASE_URL, echo=True)
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+
         Base.metadata.create_all(bind=self.engine)
 
         self.vector_manager = VectorStoreManager()
@@ -357,6 +356,58 @@ class VectorStoreService:
 
             # Convert each VectorStore ORM object into a Pydantic model.
             return [VectorStoreRead.model_validate(vs) for vs in assistant.vector_stores]
+
+    def health_check(self, deep_check: bool = False) -> Dict[str, Any]:
+        """System health check with optional deep validation"""
+        status = {
+            "qdrant_connected": False,
+            "database_connected": False,
+            "storage_types": [],
+            "collection_counts": {},
+            "version": None,
+            "metrics": {}
+        }
+
+        try:
+            # Qdrant basic connectivity
+            status["qdrant_connected"] = self.vector_manager.health_check()
+
+            # Database connection check
+            with self.SessionLocal() as session:
+                session.execute(text("SELECT 1"))
+                status["database_connected"] = True
+
+            # Deep diagnostics
+            if deep_check:
+                # Version info
+                status["version"] = self.vector_manager.client._client.openapi_client.models_api.get_version()
+
+                # Storage metrics
+                metrics = self.vector_manager.client._client.openapi_client.metrics_api.get_metrics()
+                status["metrics"] = metrics.dict()
+
+                # Collection stats
+                collections = self.vector_manager.client.get_collections()
+                status["collection_counts"] = {
+                    "total": len(collections.collections),
+                    "active": sum(1 for c in collections.collections if c.status == "green")
+                }
+
+                # File storage check
+                test_file = Path("/tmp/healthcheck.txt")
+                test_file.write_text("healthcheck")
+                try:
+                    self.add_files(test_file, "healthcheck", self)
+                    status["storage_types"].append("local_files")
+                finally:
+                    test_file.unlink()
+                    self.delete_file_from_store("healthcheck", str(test_file))
+
+        except Exception as e:
+            logging_utility.error(f"Deep health check failed: {str(e)}")
+            status["error"] = str(e)
+
+        return status
 
 
 

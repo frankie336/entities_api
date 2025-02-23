@@ -2,9 +2,11 @@
 from typing import Dict, Any, List, Optional
 
 from fastapi import APIRouter
+from fastapi import  status
 from fastapi import Depends, HTTPException
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
+from starlette.responses import JSONResponse
 
 from entities_api.dependencies import get_db
 from entities_api.schemas import SandboxCreate, SandboxRead, SandboxUpdate, VectorStoreRead, VectorStoreCreate
@@ -17,6 +19,7 @@ from entities_api.schemas import (
     ToolCreate, ToolRead, ToolUpdate, ToolList,
     ActionCreate, ActionRead, ActionUpdate
 )
+from entities_api.services.initialization_service import AssistantInitializationService
 from entities_api.services.action_service import ActionService
 from entities_api.services.assistant_service import AssistantService
 from entities_api.services.logging_service import LoggingUtility
@@ -310,19 +313,16 @@ def cancel_run(run_id: str, db: Session = Depends(get_db)):
 
 @router.post("/assistants", response_model=AssistantRead)
 def create_assistant(assistant: AssistantCreate, db: Session = Depends(get_db)):
-    logging_utility.info(f"Received request to create a new assistant.")
+    logging_utility.info(f"Creating assistant with ID: {assistant.id or 'auto-generated'}")
     assistant_service = AssistantService(db)
     try:
         new_assistant = assistant_service.create_assistant(assistant)
-        logging_utility.info(f"Assistant created successfully with ID: {new_assistant.id}")
         return new_assistant
     except HTTPException as e:
-        logging_utility.error(f"HTTP error occurred while creating assistant: {str(e)}")
-        raise e
+        raise
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while creating assistant: {str(e)}")
-        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
-
+        logging_utility.error(f"Unexpected error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.get("/assistants/{assistant_id}", response_model=AssistantRead)
 def get_assistant(assistant_id: str, db: Session = Depends(get_db)):
@@ -817,3 +817,15 @@ def list_sandboxes_by_user(user_id: str, db: Session = Depends(get_db)):
         logging_utility.error(f"Unexpected error during listing sandboxes: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
+
+
+@router.get("/health", status_code=status.HTTP_200_OK)
+def health_check():
+    status = AssistantInitializationService().get_initialization_status()
+    if status["ready"]:
+        return {"status": "OK", **status}
+    else:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "INITIALIZING", **status}
+        )

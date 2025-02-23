@@ -1,10 +1,9 @@
 #entities_api/assistant.py
 # Global constants
 PLATFORM_TOOLS = ["code_interpreter", "web_search", "search_vector_store"]
+
 API_TIMEOUT = 30
 DEFAULT_MODEL = "llama3.1"
-
-
 BASE_TOOLS = [
         {
             "type": "code_interpreter",
@@ -99,7 +98,7 @@ BASE_TOOLS = [
     ]
 
 
-ASSISTANT_INSTRUCTIONS = (
+BASE_ASSISTANT_INSTRUCTIONS = (
     "You must strictly adhere to the following guidelines:\n"
     "\n"
     "🔹 **GENERAL TOOL USAGE:**\n"

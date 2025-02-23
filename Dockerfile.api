@@ -1,29 +1,16 @@
-# Use the official Python 3.8 slim image as the base image
 FROM python:3.8-slim
 
-# Set the working directory to /app
 WORKDIR /app
 
-# Copy the requirements.txt file into the container
-COPY requirements.txt .
+RUN apt-get update && \
+    apt-get install -y curl && \
+    rm -rf /var/lib/apt/lists/*
 
-# Install the Python dependencies
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Install firejail
-RUN apt-get update && apt-get install -y firejail
-
-# Copy the current directory contents into the container at /app
 COPY . .
 
-# Download the wait-for-it script to wait for the database to be available
-ADD https://raw.githubusercontent.com/vishnubob/wait-for-it/master/wait-for-it.sh /app/wait-for-it.sh
-
-# Make the wait-for-it script executable
-RUN chmod +x /app/wait-for-it.sh
-
-# Expose port 9000 to the outside world
 EXPOSE 9000
 
-# Run the wait-for-it script and then start the FastAPI application
-CMD ["./wait-for-it.sh", "db:3306", "--", "uvicorn", "entities_api.main:app", "--host", "0.0.0.0", "--port", "9000"]
+CMD ["uvicorn", "entities_api.main:app", "--host", "0.0.0.0", "--port", "9000"]

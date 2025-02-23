@@ -255,4 +255,38 @@ class VectorStoreManager(BaseVectorStore):
         """Retrieve a specific point by its ID"""
         pass
 
+    def health_check(self) -> bool:
+        """Perform thorough health check of Qdrant connection"""
+        try:
+            # Basic ping check
+            start_time = time.monotonic()
+            response = self.client._client.openapi_client.models_api.ready()
+            if not response.status == "ok":
+                raise VectorStoreError("Qdrant readiness check failed")
+
+            # Validate storage connectivity
+            collections = self.client.get_collections()
+            if not isinstance(collections.collections, list):
+                raise VectorStoreError("Invalid collections response")
+
+            # Performance check (simple query)
+            test_vector = [0.0] * 384  # Match default vector size
+            self.client.search(
+                collection_name="healthcheck",
+                query_vector=test_vector,
+                limit=1,
+                with_payload=False,
+                timeout=1.0
+            )
+
+            latency = time.monotonic() - start_time
+            if latency > 2.0:  # 2 second threshold
+                logging_utility.warning(f"Qdrant latency warning: {latency:.2f}s")
+
+            return True
+
+        except Exception as e:
+            logging_utility.error(f"Vector store health check failed: {str(e)}")
+            return False
+
 

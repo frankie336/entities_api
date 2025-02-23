@@ -43,8 +43,8 @@ transformers
 Together
 transformers
 jinja2
-qdrant_client
-tenacity
-pdfplumber
-sentence_transformers
- validators
+validators
+tenacity>=8.2.3
+qdrant-client>=1.6.4
+pdfplumber>=0.10.3
+sentence-transformers>=2.2.2

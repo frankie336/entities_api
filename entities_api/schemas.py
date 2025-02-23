@@ -497,6 +497,7 @@ class ProcessOutput(BaseModel):
 
 
 class AssistantCreate(BaseModel):
+    id: Optional[str] = None
     name: Optional[str] = None
     description: Optional[str] = None
     model: str
