@@ -11,12 +11,12 @@ from entities_api.schemas import Run, RunStatusUpdate, RunReadDetailed  # Import
 logging_utility = LoggingUtility()
 
 
-class RunService:
-    def __init__(self, base_url: str, api_key: str):
+class ClientRunService:
+    def __init__(self, base_url="http://localhost:9000/", api_key=None):
         self.base_url = base_url
         self.api_key = api_key
         self.client = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"})
-        logging_utility.info("RunService initialized with base_url: %s", self.base_url)
+        logging_utility.info("ClientRunService initialized with base_url: %s", self.base_url)
 
     def create_run(self, assistant_id: str, thread_id: str, instructions: Optional[str] = "",
                    meta_data: Optional[Dict[str, Any]] = {}) -> Run:  # Return type is now RunReadDetailed
@@ -110,17 +110,27 @@ class RunService:
 
     def update_run_status(self, run_id: str, new_status: str) -> Run:
         logging_utility.info("Updating run status for run_id: %s to %s", run_id, new_status)
+
+        # Prepare the update data for validation
         update_data = {
             "status": new_status
         }
+
         try:
-            validated_data = RunStatusUpdate(**update_data)  # Validate data using Pydantic model
+            # Validate the update data using your RunStatusUpdate model
+            validated_data = RunStatusUpdate(**update_data)
+
+            # Send the validated data to the backend via a PUT request
             response = self.client.put(f"/v1/runs/{run_id}/status", json=validated_data.dict())
             response.raise_for_status()
+
+            # Parse the updated run from the response JSON
             updated_run = response.json()
-            validated_run = Run(**updated_run)  # Validate data using Pydantic model
+            validated_run = Run(**updated_run)  # Validate/parse using your Run Pydantic model
+
             logging_utility.info("Run status updated successfully")
             return validated_run
+
         except ValidationError as e:
             logging_utility.error("Validation error: %s", e.json())
             raise ValueError(f"Validation error: {e}")

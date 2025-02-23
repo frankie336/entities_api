@@ -37,3 +37,13 @@ numpy
 alembic~=1.13.2
 setuptools~=72.1.0
 groq
+openai
+azure-ai-inference
+transformers
+Together
+transformers
+jinja2
+qdrant_client
+tenacity
+pdfplumber
+sentence_transformers

@@ -1,11 +1,13 @@
 # entities_api/routers.py
 from typing import Dict, Any, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter
+from fastapi import Depends, HTTPException
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from db.database import get_db
-from entities_api.schemas import SandboxCreate, SandboxRead, SandboxUpdate
+from entities_api.dependencies import get_db
+from entities_api.schemas import SandboxCreate, SandboxRead, SandboxUpdate, VectorStoreRead, VectorStoreCreate
 from entities_api.schemas import (
     UserCreate, UserRead, UserUpdate,
     ThreadCreate, ThreadRead, ThreadReadDetailed, ThreadIds,
@@ -13,7 +15,7 @@ from entities_api.schemas import (
     Run, RunStatusUpdate,
     AssistantCreate, AssistantRead, AssistantUpdate,
     ToolCreate, ToolRead, ToolUpdate, ToolList,
-    ActionCreate, ActionRead, ActionUpdate, ToolMessageCreate
+    ActionCreate, ActionRead, ActionUpdate
 )
 from entities_api.services.action_service import ActionService
 from entities_api.services.assistant_service import AssistantService
@@ -24,6 +26,8 @@ from entities_api.services.sandbox_service import SandboxService
 from entities_api.services.thread_service import ThreadService
 from entities_api.services.tool_service import ToolService
 from entities_api.services.user_service import UserService
+
+
 
 logging_utility = LoggingUtility()
 router = APIRouter()
@@ -172,6 +176,32 @@ def create_message(message: MessageCreate, db: Session = Depends(get_db)):
         logging_utility.error(f"An unexpected error occurred while creating message: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
+@router.post("/messages/tools", response_model=MessageRead)
+async def submit_tool_response(
+
+    message: MessageCreate,
+    db: Session = Depends(get_db)):
+    logging_utility.info(f"Received request to create a new message in thread ID: {message.thread_id}")
+
+    # Ensure sender_id is explicitly None if missing
+    message_data = message.dict()
+    if "sender_id" not in message_data or message_data["sender_id"] is None:
+        message_data["sender_id"] = None  # Explicitly set None
+
+    logging_utility.info(f"Final payload before saving: {message_data}")
+
+    message_service = MessageService(db)
+    try:
+        new_message = message_service.submit_tool_output(MessageCreate(**message_data))
+        logging_utility.info(f"Message created successfully with ID: {new_message.id}")
+        return new_message
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error occurred while creating message: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"An unexpected error occurred while creating message: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+
 
 @router.get("/messages/{message_id}", response_model=MessageRead)
 def get_message(message_id: str, db: Session = Depends(get_db)):
@@ -240,16 +270,25 @@ def get_run(run_id: str, db: Session = Depends(get_db)):
 @router.put("/runs/{run_id}/status", response_model=Run)
 def update_run_status(run_id: str, status_update: RunStatusUpdate, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to update status of run ID: {run_id} to {status_update.status}")
+
     run_service = RunService(db)
+
     try:
+        # Update the run status using the service layer
         updated_run = run_service.update_run_status(run_id, status_update.status)
         logging_utility.info(f"Run status updated successfully for run ID: {run_id}")
         return updated_run
+
+    except ValidationError as e:
+        logging_utility.error(f"Validation error for run ID: {run_id}, error: {str(e)}")
+        raise HTTPException(status_code=422, detail=f"Validation error: {e.errors()}")
+
     except HTTPException as e:
-        logging_utility.error(f"HTTP error occurred while updating run status {run_id}: {str(e)}")
+        logging_utility.error(f"HTTP error occurred while updating run status for run ID: {run_id}: {str(e)}")
         raise e
+
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while updating run status {run_id}: {str(e)}")
+        logging_utility.error(f"An unexpected error occurred while updating run status for run ID: {run_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
@@ -290,7 +329,7 @@ def get_assistant(assistant_id: str, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to get assistant with ID: {assistant_id}")
     assistant_service = AssistantService(db)
     try:
-        assistant = assistant_service.get_assistant(assistant_id)
+        assistant = assistant_service.retrieve_assistant(assistant_id)
         logging_utility.info(f"Assistant retrieved successfully with ID: {assistant_id}")
         return assistant
     except HTTPException as e:
@@ -392,40 +431,66 @@ def get_formatted_messages(thread_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
+# router.py
 @router.post("/messages/assistant", response_model=MessageRead)
 def save_assistant_message(message: MessageCreate, db: Session = Depends(get_db)):
-    logging_utility.info(f"Received request to save assistant message in thread ID: {message.thread_id}")
+    logging_utility.info(
+        "Received assistant message payload: %s. Source: %s",
+        message.dict(),  # Log the entire payload
+        __file__
+    )
+
     message_service = MessageService(db)
     try:
         new_message = message_service.save_assistant_message_chunk(
             thread_id=message.thread_id,
             content=message.content,
-            is_last_chunk=True  # Assuming we're always sending the complete message
+            role=message.role,
+            assistant_id=message.assistant_id,
+            sender_id=message.sender_id,
+            is_last_chunk=message.is_last_chunk
         )
-        logging_utility.info(f"Assistant message saved successfully with ID: {new_message.id}")
+
+        if new_message is None:
+            logging_utility.debug(
+                "Received non-final chunk. Returning early. Source: %s",
+                __file__
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Message saving failed: No complete message to return (expected for non-final chunks)."
+            )
+
+        logging_utility.info(
+            "Message saved successfully. Message ID: %s. Source: %s"
+
+                    )
+
         return new_message
+
     except HTTPException as e:
-        logging_utility.error(f"HTTP error occurred while saving assistant message: {str(e)}")
+        logging_utility.error(
+            "HTTP error processing message: %s. Payload: %s. Source: %s",
+            str(e),
+            message.dict(),
+            __file__
+        )
         raise e
+
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while saving assistant message: {str(e)}")
-        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+        logging_utility.error(
+            "Unexpected error processing message: %s. Payload: %s. Source: %s",
+            str(e),
+            message.dict(),
+            __file__
+        )
+        raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
-@router.post("/messages/{message_id}/tool", response_model=MessageRead)
-def add_tool_message(message_id: str, tool_message: ToolMessageCreate, db: Session = Depends(get_db)):
-    logging_utility.info(f"Received request to add tool message to message ID: {message_id}")
-    message_service = MessageService(db)
-    try:
-        updated_message = message_service.add_tool_message(message_id, tool_message.content)
-        logging_utility.info(f"Tool message added successfully to message ID: {message_id}")
-        return updated_message
-    except HTTPException as e:
-        logging_utility.error(f"HTTP error occurred while adding tool message to message {message_id}: {str(e)}")
-        raise e
-    except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while adding tool message to message {message_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+
+
+
+
 
 
 @router.post("/tools", response_model=ToolRead)
@@ -628,6 +693,30 @@ def get_actions_by_status(run_id: str, status: Optional[str] = "pending", db: Se
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
+@router.get("/actions/pending/{run_id}", response_model=List[Dict[str, Any]])
+def get_pending_actions(
+    run_id: str,  # Accept run_id as part of the URL path
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieve all pending actions with their function arguments, tool names,
+    and run details. Filter by run_id.
+    """
+    logging_utility.info(f"Received request to list pending actions for run_id: {run_id}")
+    action_service = ActionService(db)
+    try:
+        # Assuming `get_pending_actions` only uses the `run_id` parameter
+        pending_actions = action_service.get_pending_actions(run_id)
+        logging_utility.info(f"Successfully retrieved {len(pending_actions)} pending action(s) for run_id: {run_id}.")
+        return pending_actions
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error occurred while listing pending actions: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"An unexpected error occurred while listing pending actions: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+
+
 @router.delete("/actions/{action_id}", status_code=204)
 def delete_action(action_id: str, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to delete action with ID: {action_id}")
@@ -696,8 +785,6 @@ def update_sandbox(sandbox_id: str, sandbox_update: SandboxUpdate, db: Session =
         logging_utility.error(f"Unexpected error during sandbox update: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
-# Delete Sandbox
-
 
 @router.delete("/sandboxes/{sandbox_id}", status_code=204)
 def delete_sandbox(sandbox_id: str, db: Session = Depends(get_db)):
@@ -729,3 +816,4 @@ def list_sandboxes_by_user(user_id: str, db: Session = Depends(get_db)):
     except Exception as e:
         logging_utility.error(f"Unexpected error during listing sandboxes: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+

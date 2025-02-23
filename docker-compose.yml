@@ -19,6 +19,24 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - my_custom_network  # Add the network here
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant_server
+    restart: always
+    ports:
+      - "6333:6333"  # API port
+      - "6334:6334"  # gRPC port
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    environment:
+      QDRANT__STORAGE__STORAGE_PATH: "/qdrant/storage"
+      QDRANT__SERVICE__GRPC_PORT: "6334"
+      QDRANT__LOG_LEVEL: "INFO"
+    networks:
+      - my_custom_network  # Add the network here
 
   api:
     build:
@@ -28,7 +46,8 @@ services:
     restart: always
     environment:
       - DATABASE_URL=mysql+pymysql://ollama:3e4Qv5uo2Cg31zC1@db:3306/cosmic_catalyst
-      - SANDBOX_SERVER_URL=http://sandbox:8000  # Added environment variable
+      - SANDBOX_SERVER_URL=http://sandbox:8000  # Added environment variable for sandbox server
+      - QDRANT_URL=http://qdrant:6333  # Qdrant connection
     ports:
       - "9000:9000"
     depends_on:
@@ -36,7 +55,13 @@ services:
         condition: service_healthy
       sandbox:
         condition: service_started  # Ensure sandbox is started before api
+      qdrant:
+        condition: service_started  # Ensure Qdrant is started before API
     command: ["./wait-for-it.sh", "db:3306", "--", "uvicorn", "entities_api.main:app", "--host", "0.0.0.0", "--port", "9000"]
+    volumes:
+      - C:/Users/franc/Models/HuggingFace:/app/models  # Mounting model directory
+    networks:
+      - my_custom_network  # Add the network here
 
   sandbox:
     build:
@@ -57,7 +82,15 @@ services:
         condition: service_healthy  # If sandbox depends on db
     volumes:
       - /tmp/sandbox_logs:/app/logs  # Optional: persist logs
+    networks:
+      - my_custom_network  # Add the network here
 
 volumes:
   mysql_data:
     driver: local
+  qdrant_storage:
+    driver: local
+
+networks:
+  my_custom_network:
+    driver: bridge  # Defining a custom network for inter-container communication

@@ -3,7 +3,7 @@
 import os
 from fastapi import FastAPI
 from sqlalchemy import create_engine, text, inspect
-from models.models import Base
+from entities_api.models.models import Base
 from entities_api.routers import api_router  # Importing the combined API router
 from entities_api.services.logging_service import LoggingUtility
 
@@ -12,8 +12,13 @@ logging_utility = LoggingUtility()
 
 # Update this with your actual database URL
 DATABASE_URL = os.getenv("DATABASE_URL")
+engine = create_engine(DATABASE_URL, echo=True)
 
-engine = create_engine(DATABASE_URL)
+# Secondary Engine for a Specific Use Case
+SPECIAL_DB_URL = os.getenv("SPECIAL_DB_URL")  # Define this in your environment
+special_engine = create_engine(SPECIAL_DB_URL, echo=True) if SPECIAL_DB_URL else None
+
+
 
 def drop_constraints():
     logging_utility.info("Dropping constraints")

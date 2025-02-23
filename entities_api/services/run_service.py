@@ -1,14 +1,14 @@
-from datetime import datetime
+import time
+from typing import List
 
 from fastapi import HTTPException
-from entities_api.services.logging_service import LoggingUtility
-from models.models import Run  # Ensure Run is imported
 from pydantic import parse_obj_as
-from entities_api.services.identifier_service import IdentifierService
-from entities_api.schemas import Tool
 from sqlalchemy.orm import Session
-from typing import List
-import time
+
+from entities_api.schemas import Tool
+from entities_api.services.identifier_service import IdentifierService
+from entities_api.services.logging_service import LoggingUtility
+from entities_api.models.models import Run, StatusEnum  # Ensure Run is imported
 
 
 class RunService:
@@ -53,12 +53,18 @@ class RunService:
         self.db.refresh(run)
         return run
 
+
     def update_run_status(self, run_id: str, new_status: str):
         run = self.db.query(Run).filter(Run.id == run_id).first()
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
 
-        run.status = new_status
+        try:
+            # Convert the string to the StatusEnum type
+            run.status = StatusEnum(new_status)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {new_status}")
+
         self.db.commit()
         self.db.refresh(run)
         return run
@@ -112,22 +118,22 @@ class RunService:
             self.logger.info("Run with ID %s found. Current status: %s", run_id, run.status)
 
             # Check if the run can be cancelled
-            if run.status in ["completed", "cancelled"]:
+            if run.status in [StatusEnum.completed, StatusEnum.cancelled]:
                 self.logger.warning("Cannot cancel run with ID %s because it is already %s", run_id, run.status)
                 raise HTTPException(status_code=400, detail="Cannot cancel a completed or already cancelled run")
 
             # Set the status to 'cancelling'
             self.logger.info("Setting status to 'cancelling' for run ID %s", run_id)
-            run.status = "cancelling"
+            run.status = StatusEnum.cancelling
             self.db.commit()
             self.db.refresh(run)
             self.logger.info("Run ID %s status set to 'cancelling'", run_id)
 
             # Now, set the status to 'cancelled'
             self.logger.info("Setting status to 'cancelled' for run ID %s", run_id)
-            run.status = "cancelled"
+            run.status = StatusEnum.cancelled
 
-            #run.cancelled_at = datetime.utcnow()  # Use datetime object instead of Unix timestamp
+            # run.cancelled_at = datetime.utcnow()  # Use datetime object instead of Unix timestamp
 
             self.db.commit()
             self.db.refresh(run)

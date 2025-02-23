@@ -1,8 +1,11 @@
+import time
 from datetime import datetime
-from typing import List, Dict, Any
-from typing import Optional
+from enum import Enum
+from typing import List, Dict, Any, Optional
+from pydantic import BaseModel, Field, ConfigDict
+from pydantic import validator
 
-from pydantic import BaseModel, Field, validator, ConfigDict
+from entities_api.models.models import StatusEnum
 
 
 class UserBase(BaseModel):
@@ -67,24 +70,48 @@ class ThreadIds(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# Define the MessageRole enum
+class MessageRole(str, Enum):
+    PLATFORM = "platform"
+    ASSISTANT = "assistant"
+    USER = "user"
+    SYSTEM = "system"
+    TOOL = "tool"
+
+# Add role validation to MessageCreate
+
+
 class MessageCreate(BaseModel):
     content: str
     thread_id: str
-    sender_id: str
-    role: str = "user"
-    meta_data: Optional[Dict[str, Any]] = {}
+    sender_id: Optional[str] = None
+    assistant_id: str
+    role: str  # String-based role instead of Enum
+    tool_id: Optional[str] = None
+    meta_data: Optional[Dict[str, Any]] = None
+    is_last_chunk: bool = False
+
+    @validator('role', pre=True)
+    def validate_role(cls, v):
+        valid_roles = {"platform", "assistant", "user", "system", "tool"}
+        if isinstance(v, str):
+            v = v.lower()
+            if v in valid_roles:
+                return v
+        raise ValueError(f"Invalid role: {v}. Must be one of {list(valid_roles)}")
 
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
                 "content": "Hello, this is a test message.",
                 "thread_id": "example_thread_id",
-                "sender_id": "example_sender_id",
+                "assistant_id": "example_assistant_id",
                 "meta_data": {"key": "value"},
                 "role": "user"
             }
         }
     )
+
 
 
 class MessageRead(BaseModel):
@@ -98,11 +125,12 @@ class MessageRead(BaseModel):
     incomplete_details: Optional[Dict[str, Any]]
     meta_data: Dict[str, Any]
     object: str
-    role: str
+    role: str  # String-based role
     run_id: Optional[str]
+    tool_id: Optional[str] = None
     status: Optional[str]
     thread_id: str
-    sender_id: str
+    sender_id: Optional[str] = None  # ✅ Made Optional
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -111,8 +139,21 @@ class MessageUpdate(BaseModel):
     content: Optional[str]
     meta_data: Optional[Dict[str, Any]]
     status: Optional[str]
+    role: Optional[str]  # Now a plain string instead of Enum
+
+    @validator('role', pre=True)
+    def validate_role(cls, v):
+        if v is None:
+            return v
+        valid_roles = {"platform", "assistant", "user", "system", "tool"}
+        v = v.lower()
+        if v in valid_roles:
+            return v
+        raise ValueError(f"Invalid role: {v}. Must be one of {list(valid_roles)}")
 
     model_config = ConfigDict(from_attributes=True)
+
+
 
 
 # New schema for creating tool messages
@@ -253,16 +294,64 @@ class Run(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-# ------------------------
-# Action Schemas
-# ------------------------
 
+
+class ActionStatus(str, Enum):
+    pending = "pending"
+    processing = "processing"
+    completed = "completed"
+    failed = "failed"
+    expired = "expired"
+    cancelled = "cancelled"
+    retrying = "retrying"
+
+class ActionCreate(BaseModel):
+    id: Optional[str] = None
+    tool_name: Optional[str] = None
+    run_id: str
+    function_args: Optional[Dict[str, Any]] = {}
+    expires_at: Optional[datetime] = None
+    status: Optional[str] = "pending"  # Default to pending
+
+    @validator('tool_name', pre=True, always=True)
+    def validate_tool_fields(cls, v):
+        if not v:
+            raise ValueError('Tool name must be provided.')
+        return v
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "tool_name": "example_tool_name",
+                "run_id": "example_run_id",
+                "function_args": {"arg1": "value1", "arg2": "value2"},
+                "expires_at": "2024-09-10T12:00:00Z",
+                "status": "pending"
+            }
+        }
+    )
+
+# ------------------------
+# Action Schemas (Corrected)
+# ------------------------
 class ActionRead(BaseModel):
     id: str
-    status: str
-    result: Optional[Dict[str, Any]] = None
+    run_id: Optional[str] = None  # No default
+    tool_id: Optional[str] = None  # No default
+    tool_name: Optional[str] = None  # No default
+    triggered_at: Optional[str] = None  # Removed '123456' default
+    expires_at: Optional[str] = None
+    is_processed: Optional[bool] = None
+    processed_at: Optional[str] = None
+    status: Optional[str] = None  # Use ActionStatus enum for validation
+    function_args: Optional[dict] = None
+    result: Optional[dict] = None
 
-    model_config = ConfigDict(from_attributes=True)
+    # Add configuration to strictly forbid extra fields
+    model_config = ConfigDict(
+        extra='forbid',
+        validate_assignment=True
+    )
 
 
 class RunReadDetailed(BaseModel):
@@ -299,8 +388,112 @@ class RunReadDetailed(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class RunStatus(str, Enum):
+    queued = "queued"
+    in_progress = "in_progress"
+    pending_action = "action_required"
+    completed = "completed"
+    failed = "failed"
+    cancelled = "cancelled"
+    pending = "pending"
+    processing = "processing"
+    expired = "expired"
+    retrying = "retrying"
+
+
 class RunStatusUpdate(BaseModel):
+    status: RunStatus
+
+
+# Vector store
+class VectorStoreStatus(str, Enum):
+    active = "active"
+    inactive = "inactive"
+    processing = "processing"
+    error = "error"
+
+class VectorStoreCreate(BaseModel):
+    name: str = Field(..., min_length=3, max_length=128, description="Human-friendly store name")
+    user_id: str = Field(..., min_length=3, description="Owner user ID (should be valid)")
+    vector_size: int = Field(..., gt=0, description="Must be a positive integer")
+    distance_metric: str = Field(..., description="Distance metric (COSINE, EUCLID, DOT)")
+    config: Optional[Dict[str, Any]] = None
+
+    @validator("distance_metric")
+    def validate_distance_metric(cls, v):
+        allowed_metrics = {"COSINE", "EUCLID", "DOT"}
+        if v.upper() not in allowed_metrics:
+            raise ValueError(f"Invalid distance metric: {v}. Must be one of {allowed_metrics}")
+        return v
+
+
+class VectorStoreRead(BaseModel):
+    id: str
+    name: str
+    user_id: str
+    collection_name: str
+    vector_size: int
+    distance_metric: str
+    created_at: int
+    updated_at: Optional[int] = None
+    status: VectorStoreStatus
+    config: Optional[Dict[str, Any]] = None
+    file_count: int = Field(0, description="Number of files in store")
+
+    model_config = ConfigDict(from_attributes=True)
+
+class VectorStoreUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=3, max_length=128)
+    status: Optional[VectorStoreStatus] = None
+    config: Optional[Dict[str, Any]] = None
+
+class VectorStoreFileCreate(BaseModel):
+    file_name: str = Field(..., max_length=256)
+    file_path: str = Field(..., max_length=1024)
+    metadata: Optional[Dict[str, Any]] = None
+
+class VectorStoreFileRead(BaseModel):
+    id: str
+    file_name: str
+    file_path: str
+    processed_at: Optional[int] = None
+    status: StatusEnum
+    error_message: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+class VectorStoreFileUpdate(BaseModel):
+    status: Optional[StatusEnum] = None
+    error_message: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+class VectorStoreList(BaseModel):
+    vector_stores: List[VectorStoreRead]
+
+class VectorStoreFileList(BaseModel):
+    files: List[VectorStoreFileRead]
+
+class VectorStoreLinkAssistant(BaseModel):
+    assistant_ids: List[str] = Field(..., min_items=1, description="List of assistant IDs to link")
+
+class VectorStoreUnlinkAssistant(BaseModel):
+    assistant_id: str = Field(..., description="Assistant ID to unlink")
+
+
+class VectorStoreSearchResult(BaseModel):
+    text: str
+    metadata: Optional[dict] = None
+    score: float
+    vector_id: str
+    store_id: str
+    retrieved_at: int = int(time.time())
+
+
+class ProcessOutput(BaseModel):
+    store_name: str
     status: str
+    chunks_processed: int
 
 
 class AssistantCreate(BaseModel):
@@ -317,7 +510,7 @@ class AssistantCreate(BaseModel):
 
 class AssistantRead(BaseModel):
     id: str
-    user_id: Optional[str] = None  # Make this optional since it's no longer available at creation time
+    user_id: Optional[str] = None
     object: str
     created_at: int
     name: str
@@ -328,7 +521,7 @@ class AssistantRead(BaseModel):
     top_p: float
     temperature: float
     response_format: str
-
+    vector_stores: Optional[List[VectorStoreRead]] = []
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -360,46 +553,16 @@ class ActionBase(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class ActionCreate(BaseModel):
-    id: Optional[str] = None
-    tool_name: Optional[str] = None
-    run_id: str
-    function_args: Optional[Dict[str, Any]] = {}
-    expires_at: Optional[datetime] = None
-
-    @validator('tool_name', pre=True, always=True)
-    def validate_tool_fields(cls, v):
-        if not v:
-            raise ValueError('Tool name must be provided.')
-        return v
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "tool_name": "example_tool_name",
-                "run_id": "example_run_id",
-                "function_args": {"arg1": "value1", "arg2": "value2"},
-                "expires_at": "2024-09-10T12:00:00Z"
-            }
-        }
-    )
-
-
-class ActionRead(BaseModel):
-    id: str
-    status: str
-    result: Optional[Dict[str, Any]] = None
-
-
 class ActionList(BaseModel):
     actions: List[ActionRead]
 
 
 class ActionUpdate(BaseModel):
-    status: str
+    status: ActionStatus  # Use the ActionStatus enum here
     result: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)
+
 
 
 class SandboxBase(BaseModel):
@@ -438,3 +601,10 @@ class CodeExecutionRequest(BaseModel):
 class CodeExecutionResponse(BaseModel):
     output: Optional[str] = None
     error: Optional[str] = None
+
+
+
+
+
+
+
