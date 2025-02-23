@@ -44,6 +44,16 @@ class BaseVectorStore(ABC):
         """Get store metadata"""
         pass
 
+    @abstractmethod
+    def list_store_files(self, store_name: str) -> List[str]:
+        """List unique source files in a vector store"""
+        pass
+
+    @abstractmethod
+    def delete_file_from_store(self, store_name: str, file_path: str) -> dict:
+        """Delete all vectors associated with a specific file"""
+        pass
+
     def get_client(self) -> QdrantClient:
         """Get underlying client instance"""
         pass

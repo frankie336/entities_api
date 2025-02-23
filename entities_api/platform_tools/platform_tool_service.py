@@ -3,7 +3,9 @@ from functools import lru_cache
 import threading
 from entities_api.platform_tools.code_interpreter_handler import CodeExecutionHandler
 from entities_api.platform_tools.web_search_handler import FirecrawlService
+from entities_api.platform_tools.vector_search_handler import VectorSearchHandler
 from entities_api.services.logging_service import LoggingUtility
+
 
 logging_utility = LoggingUtility()
 
@@ -13,6 +15,8 @@ class PlatformToolService:
     function_handlers = {
         "code_interpreter": None,  # Placeholder for lazy initialization
         "web_search": None,
+        "search_vector_store": None
+
         # Add more handlers here as needed
     }
 
@@ -21,6 +25,7 @@ class PlatformToolService:
         # Lazy initialization of handlers
         self._code_execution_handler = None
         self._web_search_handler = None
+        self._vector_search_handler = None
 
         # Cache for function call results
         self._call_cache = {}
@@ -41,8 +46,15 @@ class PlatformToolService:
             self._web_search_handler = FirecrawlService()
         return self._web_search_handler
 
+    def _get_vector_search_handler(self):
+        """Lazy initialization of CodeExecutionHandler."""
+        if self._vector_search_handler is None:
+            self._vector_search_handler = VectorSearchHandler()
+        return self._vector_search_handler
 
-    def call_function(self, function_name, arguments):
+
+
+    def call_function(self, function_name, arguments, assistant_id):
         """
         Executes a function based on the provided name and arguments.
         Caches results to avoid redundant computations.
@@ -67,10 +79,17 @@ class PlatformToolService:
                 self.function_handlers[function_name] = self._get_code_execution_handler().execute_code
 
             if function_name == "web_search":
-
                 self.function_handlers[function_name] = self._get_web_search_handler().search_orchestrator
 
-            # Add more handlers here as needed
+            if function_name == "search_vector_store":
+                self.function_handlers[function_name] = self._get_vector_search_handler().search_orchestrator
+
+            if function_name == "search_vector_store":
+                arguments["assistant_id"] = assistant_id
+
+
+
+                # Add more handlers here as needed
 
         # Get the handler
         handler = self.function_handlers[function_name]

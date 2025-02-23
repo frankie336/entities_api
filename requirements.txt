@@ -44,3 +44,6 @@ Together
 transformers
 jinja2
 qdrant_client
+tenacity
+pdfplumber
+sentence_transformers

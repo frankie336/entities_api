@@ -222,12 +222,19 @@ class TogetherV3Inference(BaseInference):
             # ---------------------------------------------------
             # 3) Validate if the accumulated response is a properly formed tool response.
             # ---------------------------------------------------
-            function_call = self.parse_nested_function_call_json(text=accumulated_content)
+            code_interpreter_function_call = self.parse_nested_function_call_json(text=accumulated_content)
 
-            if function_call:
+            if code_interpreter_function_call:
                 accumulated_content = json.loads(accumulated_content)
                 self.set_tool_response_state(True)
                 self.set_function_call_state(accumulated_content)
+
+            json_accumulated_content = json.loads(accumulated_content)
+
+            is_function_call = self.is_valid_function_call_response(json_data=json_accumulated_content)
+            if is_function_call:
+                self.set_tool_response_state(True)
+                self.set_function_call_state(json_accumulated_content)
 
             # Saves assistant's reply
             self.finalize_conversation(
@@ -391,11 +398,16 @@ class TogetherV3Inference(BaseInference):
             )
 
             # Execute tool call
+
             platform_tool_service = self.platform_tool_service
             function_output = platform_tool_service.call_function(
                 function_name=content["name"],
-                arguments=content["arguments"]
+                arguments=content["arguments"],
+                assistant_id=assistant_id
             )
+
+
+
             logging_utility.debug(
                 "Tool %s executed successfully for run %s",
                 content["name"], run_id
@@ -404,7 +416,9 @@ class TogetherV3Inference(BaseInference):
             # Handle specific tool types
             tool_handlers = {
                 "code_interpreter": self._handle_code_interpreter,
-                "web_search": self._handle_web_search
+                "web_search": self._handle_web_search,
+                "search_vector_store": self._handle_vector_search
+
             }
 
             handler = tool_handlers.get(content["name"])
@@ -483,6 +497,36 @@ class TogetherV3Inference(BaseInference):
             )
             raise
 
+
+    def _handle_vector_search(self, thread_id, assistant_id, function_output, action):
+        """Special handling for web search results."""
+        try:
+
+            search_output = str(function_output[0]) + WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS
+
+            self._submit_tool_output(
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                content=search_output,
+                action=action
+            )
+            logging_utility.info(
+                "Web search results submitted for action %s",
+                action.id
+            )
+
+        except IndexError as e:
+            logging_utility.error(
+                "Invalid web search output format for action %s: %s",
+                action.id, str(e)
+            )
+            raise
+
+
+
+
+
+
     def _submit_tool_output(self, thread_id, assistant_id, content, action):
         """Generic tool output submission with consistent logging."""
         try:
@@ -519,9 +563,9 @@ class TogetherV3Inference(BaseInference):
         for chunk in self.stream_response(thread_id, message_id, run_id, assistant_id, model, stream_reasoning):
             yield chunk
 
-        #print("The Tool response state is:")
-        #print(self.get_tool_response_state())
-        #print(self.get_function_call_state())
+        print("The Tool response state is:")
+        print(self.get_tool_response_state())
+        print(self.get_function_call_state())
 
         if self.get_function_call_state():
             if self.get_function_call_state():

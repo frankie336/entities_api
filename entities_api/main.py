@@ -14,6 +14,12 @@ logging_utility = LoggingUtility()
 DATABASE_URL = os.getenv("DATABASE_URL")
 engine = create_engine(DATABASE_URL, echo=True)
 
+# Secondary Engine for a Specific Use Case
+SPECIAL_DB_URL = os.getenv("SPECIAL_DB_URL")  # Define this in your environment
+special_engine = create_engine(SPECIAL_DB_URL, echo=True) if SPECIAL_DB_URL else None
+
+
+
 def drop_constraints():
     logging_utility.info("Dropping constraints")
     inspector = inspect(engine)

@@ -64,26 +64,6 @@ class VectorStoreManager(BaseVectorStore):
         store_name = f"text_store_{int(time.time())}"
         return self.create_store(store_name, vector_size=384, distance="COSINE")
 
-        def add_to_store(self, store_name: str, texts: List[str],
-                         vectors: List[List[float]], metadata: List[dict]):
-            """Validate vectors before insertion"""
-            self._validate_vectors(vectors)
-
-            return self.client.upsert(
-                collection_name=store_name,
-                points=[
-                    models.PointStruct(
-                        id=idx,
-                        vector=vector,
-                        payload={
-                            "text": text,
-                            **meta
-                        }
-                    )
-                    for idx, (text, vector, meta)
-                    in enumerate(zip(texts, vectors, metadata))
-                ]
-            )
 
         def _validate_vectors(self, vectors: List[List[float]]):
             """Ensure vector dimensions match expectations"""
@@ -100,6 +80,7 @@ class VectorStoreManager(BaseVectorStore):
                 if not all(isinstance(v, float) for v in vec):
                     raise TypeError(f"Vector {i} contains non-float values")
 
+
     def add_to_store(self, store_name: str, texts: List[str],
                      vectors: List[List[float]], metadata: List[dict]):
         """Validate vectors before insertion"""
@@ -109,15 +90,14 @@ class VectorStoreManager(BaseVectorStore):
             collection_name=store_name,
             points=[
                 models.PointStruct(
-                    id=idx,
+                    id=str(uuid.uuid4()),  # Generate unique IDs
                     vector=vector,
                     payload={
                         "text": text,
-                        **meta
+                        "metadata": meta  # Store metadata under dedicated key
                     }
                 )
-                for idx, (text, vector, meta)
-                in enumerate(zip(texts, vectors, metadata))
+                for text, vector, meta in zip(texts, vectors, metadata)
             ]
         )
 
@@ -163,6 +143,35 @@ class VectorStoreManager(BaseVectorStore):
             logging_utility.error(f"Query failed: {str(e)}")
             raise VectorStoreError(f"Query failed: {str(e)}")
 
+    def delete_file_from_store(self, store_name: str, file_path: str) -> dict:
+        """Delete all vectors associated with a specific file"""
+        logging_utility.info(f"Deleting file '{file_path}' from store '{store_name}'")
+
+        try:
+            # Delete vectors matching the file path
+            self.client.delete(
+                collection_name=store_name,
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(
+                        must=[models.FieldCondition(
+                            key="metadata.source",
+                            match=models.MatchValue(value=file_path)
+                        )]
+                    )
+                )
+            )
+
+            return {
+                "deleted_file": file_path,
+                "store_name": store_name,
+                "status": "success"
+            }
+
+        except Exception as e:
+            logging_utility.error(f"File deletion failed: {str(e)}")
+            raise VectorStoreError(f"Could not delete file: {str(e)}")
+
+
     def delete_store(self, store_name: str) -> dict:
         """Delete a vector store with confirmation"""
         logging_utility.info(f"Deleting store '{store_name}'. Source: {__file__}")
@@ -202,6 +211,41 @@ class VectorStoreManager(BaseVectorStore):
         except Exception as e:
             logging_utility.error(f"Error getting info for '{store_name}': {str(e)}. Source: {__file__}")
             raise VectorStoreError(f"Info retrieval failed: {str(e)}")
+
+    def list_store_files(self, store_name: str) -> List[str]:
+        """List unique source files in a vector store"""
+        logging_utility.info(f"Listing files in store '{store_name}'. Source: {__file__}")
+
+        try:
+            # Get all points with scroll API
+            records = []
+            next_offset = None
+
+            while True:
+                # Get batch of points
+                records_batch, next_offset = self.client.scroll(
+                    collection_name=store_name,
+                    limit=100,
+                    offset=next_offset,
+                    with_payload=["metadata.source"]
+                )
+
+                # Add valid file sources
+                for record in records_batch:
+                    source = record.payload.get("metadata", {}).get("source")
+                    if source and isinstance(source, str):
+                        records.append(source)
+
+                # Break loop if no more results
+                if next_offset is None or not records_batch:
+                    break
+
+            # Return unique sorted list of file paths
+            return sorted(list(set(records)))
+
+        except Exception as e:
+            logging_utility.error(f"File listing failed: {str(e)}. Source: {__file__}")
+            raise VectorStoreError(f"Could not list files: {str(e)}")
 
     def get_client(self):
         """Get the underlying Qdrant client instance"""

@@ -1,6 +1,7 @@
 # entities_api/clients/client.py
 import os
-from typing import Any, Dict, Optional
+from contextlib import contextmanager
+from typing import Any, Dict, Optional, Generator
 
 from dotenv import load_dotenv
 from ollama import Client as OllamaAPIClient
@@ -13,7 +14,9 @@ from entities_api.clients.client_sandbox_client import SandboxClientService
 from entities_api.clients.client_thread_client import ThreadService
 from entities_api.clients.client_tool_client import ClientToolService
 from entities_api.clients.client_user_client import UserService
+from entities_api.dependencies import SessionLocal
 from entities_api.services.logging_service import LoggingUtility
+from entities_api.services.vector_store_service import VectorStoreService
 
 # Load environment variables from .env file
 load_dotenv()
@@ -39,6 +42,7 @@ class OllamaClient:
 
         # Initialize the Ollama API client
         self.ollama_client: OllamaAPIClient = OllamaAPIClient()
+        self._session_factory = SessionLocal
 
         logging_utility.info("OllamaClient initialized with base_url: %s", self.base_url)
 
@@ -51,6 +55,7 @@ class OllamaClient:
         self._run_service: Optional[ClientRunService] = None
         self._action_service: Optional[ClientActionService] = None
         self._sandbox_service: Optional[SandboxClientService] = None
+        self._vector_service: Optional[VectorStoreService] = None
 
     @property
     def user_service(self) -> UserService:
@@ -67,7 +72,6 @@ class OllamaClient:
     @property
     def tool_service(self) -> ClientToolService:
         if self._tool_service is None:
-            # Consider adding dependency injection here if ClientToolService grows more complex.
             self._tool_service = ClientToolService()
         return self._tool_service
 
@@ -95,8 +99,39 @@ class OllamaClient:
             self._action_service = ClientActionService()
         return self._action_service
 
+    # The Vector Database docker container, QDart has some
+    # sort of bug or incorrect implementation
+    # preventing traffic through its client
+    # traversing FastAPI(). This is  special
+    # Case direct call to qdrant/qdrant
+    @property
+    def vector_service(self) -> VectorStoreService:
+        if self._vector_service is None:
+            session = self._session_factory()
+            self._vector_service = VectorStoreService()
+        return self._vector_service
+
     @property
     def sandbox_service(self) -> SandboxClientService:
         if self._sandbox_service is None:
             self._sandbox_service = SandboxClientService(base_url=self.base_url, api_key=self.api_key)
         return self._sandbox_service
+
+    @contextmanager
+    def vector_session(self) -> Generator[VectorStoreService, None, None]:
+        """Context manager for explicit session control"""
+        session = self._session_factory()
+        try:
+            service = VectorStoreService(session)
+            yield service
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+    def close(self):
+        """Clean up resources explicitly"""
+        if self._vector_service:
+            self._vector_service.db.close()

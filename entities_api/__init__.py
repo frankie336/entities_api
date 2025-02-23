@@ -6,7 +6,7 @@ from entities_api.inference.inference_factory import InferenceFactory
 from entities_api.inference.local_inference import LocalInference
 from entities_api.inference.cloud_inference import CloudInference
 from entities_api.inference.llama_local import LlamaLocal
-
+from entities_api.dependencies import get_db
 
 from ollama._types import (
     GenerateResponse,

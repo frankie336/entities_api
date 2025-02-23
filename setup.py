@@ -56,7 +56,10 @@ setup(
         "groq",
         "openai",
         "azure-ai-inference",
-        "together"
+        "together",
+        "tenacity"
+        "pdfplumber",
+        "sentence_transformers"
     ],
     extras_require={
         "dev": [

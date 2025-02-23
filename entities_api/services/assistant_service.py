@@ -35,10 +35,13 @@ class AssistantService:
 
         return AssistantRead.model_validate(db_assistant)
 
-    def get_assistant(self, assistant_id: str) -> AssistantRead:
+    def retrieve_assistant(self, assistant_id: str) -> AssistantRead:
         db_assistant = self.db.query(Assistant).options(
-            joinedload(Assistant.tools)
+            joinedload(Assistant.tools),
+            joinedload(Assistant.vector_stores)
         ).filter(Assistant.id == assistant_id).first()
+
+        logging_utility.debug(f"Retrieved assistant: {db_assistant} with vector_stores: {db_assistant.vector_stores}")
         if not db_assistant:
             raise HTTPException(status_code=404, detail="Assistant not found")
         return AssistantRead.model_validate(db_assistant)

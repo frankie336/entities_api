@@ -1,3 +1,4 @@
+import time
 from datetime import datetime
 from enum import Enum
 from typing import List, Dict, Any, Optional
@@ -330,9 +331,6 @@ class ActionCreate(BaseModel):
         }
     )
 
-
-
-
 # ------------------------
 # Action Schemas (Corrected)
 # ------------------------
@@ -407,6 +405,97 @@ class RunStatusUpdate(BaseModel):
     status: RunStatus
 
 
+# Vector store
+class VectorStoreStatus(str, Enum):
+    active = "active"
+    inactive = "inactive"
+    processing = "processing"
+    error = "error"
+
+class VectorStoreCreate(BaseModel):
+    name: str = Field(..., min_length=3, max_length=128, description="Human-friendly store name")
+    user_id: str = Field(..., min_length=3, description="Owner user ID (should be valid)")
+    vector_size: int = Field(..., gt=0, description="Must be a positive integer")
+    distance_metric: str = Field(..., description="Distance metric (COSINE, EUCLID, DOT)")
+    config: Optional[Dict[str, Any]] = None
+
+    @validator("distance_metric")
+    def validate_distance_metric(cls, v):
+        allowed_metrics = {"COSINE", "EUCLID", "DOT"}
+        if v.upper() not in allowed_metrics:
+            raise ValueError(f"Invalid distance metric: {v}. Must be one of {allowed_metrics}")
+        return v
+
+
+class VectorStoreRead(BaseModel):
+    id: str
+    name: str
+    user_id: str
+    collection_name: str
+    vector_size: int
+    distance_metric: str
+    created_at: int
+    updated_at: Optional[int] = None
+    status: VectorStoreStatus
+    config: Optional[Dict[str, Any]] = None
+    file_count: int = Field(0, description="Number of files in store")
+
+    model_config = ConfigDict(from_attributes=True)
+
+class VectorStoreUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=3, max_length=128)
+    status: Optional[VectorStoreStatus] = None
+    config: Optional[Dict[str, Any]] = None
+
+class VectorStoreFileCreate(BaseModel):
+    file_name: str = Field(..., max_length=256)
+    file_path: str = Field(..., max_length=1024)
+    metadata: Optional[Dict[str, Any]] = None
+
+class VectorStoreFileRead(BaseModel):
+    id: str
+    file_name: str
+    file_path: str
+    processed_at: Optional[int] = None
+    status: StatusEnum
+    error_message: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+class VectorStoreFileUpdate(BaseModel):
+    status: Optional[StatusEnum] = None
+    error_message: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+class VectorStoreList(BaseModel):
+    vector_stores: List[VectorStoreRead]
+
+class VectorStoreFileList(BaseModel):
+    files: List[VectorStoreFileRead]
+
+class VectorStoreLinkAssistant(BaseModel):
+    assistant_ids: List[str] = Field(..., min_items=1, description="List of assistant IDs to link")
+
+class VectorStoreUnlinkAssistant(BaseModel):
+    assistant_id: str = Field(..., description="Assistant ID to unlink")
+
+
+class VectorStoreSearchResult(BaseModel):
+    text: str
+    metadata: Optional[dict] = None
+    score: float
+    vector_id: str
+    store_id: str
+    retrieved_at: int = int(time.time())
+
+
+class ProcessOutput(BaseModel):
+    store_name: str
+    status: str
+    chunks_processed: int
+
+
 class AssistantCreate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
@@ -421,7 +510,7 @@ class AssistantCreate(BaseModel):
 
 class AssistantRead(BaseModel):
     id: str
-    user_id: Optional[str] = None  # Make this optional since it's no longer available at creation time
+    user_id: Optional[str] = None
     object: str
     created_at: int
     name: str
@@ -432,7 +521,7 @@ class AssistantRead(BaseModel):
     top_p: float
     temperature: float
     response_format: str
-
+    vector_stores: Optional[List[VectorStoreRead]] = []
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -516,78 +605,6 @@ class CodeExecutionResponse(BaseModel):
 
 
 
-# Vector store
-class VectorStoreStatus(str, Enum):
-    active = "active"
-    inactive = "inactive"
-    processing = "processing"
-    error = "error"
-
-class VectorStoreCreate(BaseModel):
-    name: str = Field(..., min_length=3, max_length=128, description="Human-friendly store name")
-    user_id: str = Field(..., min_length=3, description="Owner user ID (should be valid)")
-    vector_size: int = Field(..., gt=0, description="Must be a positive integer")
-    distance_metric: str = Field(..., description="Distance metric (COSINE, EUCLID, DOT)")
-    config: Optional[Dict[str, Any]] = None
-
-    @validator("distance_metric")
-    def validate_distance_metric(cls, v):
-        allowed_metrics = {"COSINE", "EUCLID", "DOT"}
-        if v.upper() not in allowed_metrics:
-            raise ValueError(f"Invalid distance metric: {v}. Must be one of {allowed_metrics}")
-        return v
 
 
 
-class VectorStoreRead(BaseModel):
-    id: str
-    name: str
-    user_id: str
-    collection_name: str
-    vector_size: int
-    distance_metric: str
-    created_at: int
-    updated_at: Optional[int] = None
-    status: VectorStoreStatus
-    config: Optional[Dict[str, Any]] = None
-    file_count: int = Field(0, description="Number of files in store")
-
-    model_config = ConfigDict(from_attributes=True)
-
-class VectorStoreUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=3, max_length=128)
-    status: Optional[VectorStoreStatus] = None
-    config: Optional[Dict[str, Any]] = None
-
-class VectorStoreFileCreate(BaseModel):
-    file_name: str = Field(..., max_length=256)
-    file_path: str = Field(..., max_length=1024)
-    metadata: Optional[Dict[str, Any]] = None
-
-class VectorStoreFileRead(BaseModel):
-    id: str
-    file_name: str
-    file_path: str
-    processed_at: Optional[int] = None
-    status: StatusEnum
-    error_message: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
-
-    model_config = ConfigDict(from_attributes=True)
-
-class VectorStoreFileUpdate(BaseModel):
-    status: Optional[StatusEnum] = None
-    error_message: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
-
-class VectorStoreList(BaseModel):
-    vector_stores: List[VectorStoreRead]
-
-class VectorStoreFileList(BaseModel):
-    files: List[VectorStoreFileRead]
-
-class VectorStoreLinkAssistant(BaseModel):
-    assistant_ids: List[str] = Field(..., min_items=1, description="List of assistant IDs to link")
-
-class VectorStoreUnlinkAssistant(BaseModel):
-    assistant_id: str = Field(..., description="Assistant ID to unlink")

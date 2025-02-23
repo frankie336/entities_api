@@ -1,6 +1,6 @@
 import time
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, Text
+from sqlalchemy import Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, Text, BigInteger
 from sqlalchemy.orm import relationship, declarative_base, joinedload
 from sqlalchemy import Enum
 from enum import Enum as PyEnum
@@ -28,14 +28,23 @@ user_assistants = Table(
     Column('assistant_id', String(64), ForeignKey('assistants.id'), primary_key=True)
 )
 
-# Add this after existing association tables
+
 vector_store_assistants = Table(
     'vector_store_assistants', Base.metadata,
     Column('vector_store_id', String(64), ForeignKey('vector_stores.id'), primary_key=True),
     Column('assistant_id', String(64), ForeignKey('assistants.id'), primary_key=True)
 )
 
+
+thread_vector_stores = Table(
+    'thread_vector_stores', Base.metadata,
+    Column('thread_id', String(64), ForeignKey('threads.id'), primary_key=True),
+    Column('vector_store_id', String(64), ForeignKey('vector_stores.id'), primary_key=True)
+)
+
+
 class StatusEnum(PyEnum):
+    deleted = "deleted"
     active = "active"               # Added this member
     queued = "queued"
     in_progress = "in_progress"
@@ -71,8 +80,13 @@ class Thread(Base):
     meta_data = Column(JSON, nullable=False, default={})
     object = Column(String(64), nullable=False)
     tool_resources = Column(JSON, nullable=False, default={})
-
     participants = relationship('User', secondary=thread_participants, back_populates='threads')
+    vector_stores = relationship(
+        "VectorStore",
+        secondary=thread_vector_stores,
+        back_populates="threads",
+        lazy="select"
+    )
 
 
 from sqlalchemy import Text
@@ -221,23 +235,30 @@ class Sandbox(Base):
     user = relationship("User", back_populates="sandboxes")
 
 
-
 class VectorStore(Base):
     __tablename__ = "vector_stores"
+
     id = Column(String(64), primary_key=True, index=True)
-    name = Column(String(128), nullable=False, unique=True)
+    name = Column(String(128), nullable=False, unique=False)
     user_id = Column(String(64), ForeignKey('users.id'), nullable=False)
     collection_name = Column(String(128), nullable=False, unique=True)
     vector_size = Column(Integer, nullable=False)
     distance_metric = Column(String(32), nullable=False)
-    created_at = Column(Integer, default=lambda: int(time.time()))
-    updated_at = Column(Integer, onupdate=lambda: int(time.time()))
+    created_at = Column(BigInteger, default=lambda: int(datetime.now().timestamp()))
+    updated_at = Column(BigInteger, onupdate=lambda: int(datetime.now().timestamp()))
     status = Column(Enum(StatusEnum), default=StatusEnum.active)
     config = Column(JSON, nullable=True)
+    file_count = Column(Integer, default=0, nullable=False)  # Added field
 
     # Relationships
     user = relationship(
         "User",
+        back_populates="vector_stores",
+        lazy="select"
+    )
+    threads = relationship(
+        "Thread",
+        secondary="thread_vector_stores",
         back_populates="vector_stores",
         lazy="select"
     )

@@ -9,7 +9,6 @@ from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 
-
 class FileProcessor:
     def __init__(self, max_workers: int = 4, chunk_size: int = 512):
         self.embedding_model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
@@ -63,8 +62,11 @@ class FileProcessor:
                     "source": str(file_path),
                     "chunks": len(chunks)
                 },
-                "vectors": [v.tolist() for v in vectors]
+                "vectors": [v.tolist() for v in vectors],
+                "chunks": chunks  # Add this line to store individual chunks
             }
+
+
         except Exception as e:
             logging_utility.error(f"Processing failed: {str(e)}")
             raise
@@ -137,23 +139,40 @@ class FileProcessor:
 
         return chunks or [text]
 
-    def process_and_store(self, file_path: Union[str, Path], vector_service) -> dict:
+    # In FileProcessor class
+    def process_and_store(self, file_path: Union[str, Path], destination_store: str, vector_service) -> dict:
         """Synchronous entry point"""
         try:
-            return asyncio.run(self._async_process_and_store(file_path, vector_service))
+            processed = asyncio.run(self._async_process_and_store(file_path, destination_store, vector_service))
+            return {
+                "store_name": destination_store,
+                "status": "success",
+                "chunks_processed": processed["chunks_processed"]  # Changed key
+            }
         except Exception as e:
             logging_utility.error(f"Processing failed: {str(e)}")
             raise
 
-    async def _async_process_and_store(self, file_path: Path, vector_service):
+    async def _async_process_and_store(self, file_path: Path, destination_store: str, vector_service):
         """Internal async processing"""
         processed = await self.process_file(file_path)
-        store_info = vector_service.create_store_for_file_type("text")
+
+        # Create metadata for each chunk
+        chunk_metadata = [{
+            "source": processed["metadata"]["source"],
+            "chunk_index": idx,
+            "total_chunks": processed["metadata"]["chunks"]
+        } for idx in range(processed["metadata"]["chunks"])]
 
         vector_service.add_to_store(
-            store_name=store_info["name"],
-            texts=[processed["content"]],
+            store_name=destination_store,
+            texts=processed["chunks"],
             vectors=processed["vectors"],
-            metadata=[processed["metadata"]]
+            metadata=chunk_metadata
         )
-        return store_info
+
+        # Return the count instead of length of an integer
+        return {
+            "store_name": destination_store,
+            "chunks_processed": processed["metadata"]["chunks"]  # Use metadata count
+        }

@@ -188,41 +188,40 @@ class BaseInference(ABC):
             return None
 
     @staticmethod
-    def is_valid_function_call_response(json_data: json) -> bool:
+    def is_valid_function_call_response(json_data: dict) -> bool:
         """
-        Validates whether the input string is a correctly formed function call response.
-
-        Expected structure:
-        {
-            "name": "function_name",
-            "arguments": { "key1": "value1", "key2": "value2", ... }
-        }
-
-        - Ensures valid JSON.
-        - Checks that "name" is a string.
-        - Checks that "arguments" is a non-empty dictionary.
-
-        :param json_data: JSON string representing a function call response.
-        :return: True if valid, False otherwise.
+        Generalized validation that works for any tool while enforcing protocol rules.
+        Doesn't validate specific parameter values, just ensures proper structure.
         """
         try:
-
-            # Ensure required keys exist
-            if not isinstance(json_data, dict) or "name" not in json_data or "arguments" not in json_data:
+            # Base structure check
+            if not isinstance(json_data, dict):
                 return False
 
-            # Validate "name" is a non-empty string
+            # Required top-level keys
+            if {"name", "arguments"} - json_data.keys():
+                return False
+
+            # Name validation
             if not isinstance(json_data["name"], str) or not json_data["name"].strip():
                 return False
 
-            # Validate "arguments" is a dictionary with at least one key-value pair
-            if not isinstance(json_data["arguments"], dict) or not json_data["arguments"]:
+            # Arguments validation
+            if not isinstance(json_data["arguments"], dict):
                 return False
 
-            return True  # Passed all checks
+            # Value type preservation check
+            for key, value in json_data["arguments"].items():
+                if not isinstance(key, str):
+                    return False
+                if isinstance(value, (list, dict)):
+                    return False  # Prevent nested structures per guidelines
 
-        except (json.JSONDecodeError, TypeError):
-            return False  # Invalid JSON or unexpected structure
+            return True
+
+        except (TypeError, KeyError):
+            return False
+
 
     def normalize_roles(self, conversation_history):
         """

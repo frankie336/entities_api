@@ -27,6 +27,8 @@ from entities_api.services.thread_service import ThreadService
 from entities_api.services.tool_service import ToolService
 from entities_api.services.user_service import UserService
 
+
+
 logging_utility = LoggingUtility()
 router = APIRouter()
 
@@ -327,7 +329,7 @@ def get_assistant(assistant_id: str, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to get assistant with ID: {assistant_id}")
     assistant_service = AssistantService(db)
     try:
-        assistant = assistant_service.get_assistant(assistant_id)
+        assistant = assistant_service.retrieve_assistant(assistant_id)
         logging_utility.info(f"Assistant retrieved successfully with ID: {assistant_id}")
         return assistant
     except HTTPException as e:
@@ -814,24 +816,4 @@ def list_sandboxes_by_user(user_id: str, db: Session = Depends(get_db)):
     except Exception as e:
         logging_utility.error(f"Unexpected error during listing sandboxes: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
-
-from entities_api.services.vector_store_service import VectorStoreService
-
-
-@router.post("/vector-stores")
-def create_vector_store(payload: dict, db: Session = Depends(get_db)):
-    logging_utility.info(f"Received request payload: {payload}")
-    vector_store_service = VectorStoreService()
-
-    vector_store_service.create_vector_store(
-
-        user_id=payload.get("user_id"),
-        store_name=payload.get("store_name")
-
-    )
-
-    return {"message": "Received"}
-
-
-
 
