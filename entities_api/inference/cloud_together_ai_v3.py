@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import time
 from functools import lru_cache
 
 from dotenv import load_dotenv
@@ -227,6 +228,10 @@ class TogetherV3Inference(BaseInference):
 
             if code_interpreter_function_call:
                 accumulated_content = json.loads(accumulated_content)
+
+                print(accumulated_content)
+                time.sleep(1000)
+
                 self.set_tool_response_state(True)
                 self.set_function_call_state(accumulated_content)
 
