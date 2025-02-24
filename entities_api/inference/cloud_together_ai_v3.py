@@ -115,7 +115,8 @@ class TogetherV3Inference(BaseInference):
         conversation_history = self.message_service.get_formatted_messages(
             thread_id, system_message=assistant.instructions
         )
-
+        print(assistant.instructions)
+        time.sleep(10000)
         messages = self.normalize_roles(conversation_history)
 
         #Sliding Windows Truncation
@@ -405,8 +406,6 @@ class TogetherV3Inference(BaseInference):
                 arguments=content["arguments"],
                 assistant_id=assistant_id
             )
-
-
 
             logging_utility.debug(
                 "Tool %s executed successfully for run %s",

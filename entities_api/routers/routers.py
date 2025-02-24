@@ -1,15 +1,12 @@
 # entities_api/routers.py
 from typing import Dict, Any, List, Optional
-
 from fastapi import APIRouter
-from fastapi import  status
 from fastapi import Depends, HTTPException
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
-from starlette.responses import JSONResponse
 
 from entities_api.dependencies import get_db
-from entities_api.schemas import SandboxCreate, SandboxRead, SandboxUpdate, VectorStoreRead, VectorStoreCreate
+from entities_api.schemas import SandboxCreate, SandboxRead, SandboxUpdate
 from entities_api.schemas import (
     UserCreate, UserRead, UserUpdate,
     ThreadCreate, ThreadRead, ThreadReadDetailed, ThreadIds,
@@ -19,7 +16,6 @@ from entities_api.schemas import (
     ToolCreate, ToolRead, ToolUpdate, ToolList,
     ActionCreate, ActionRead, ActionUpdate
 )
-from entities_api.services.initialization_service import AssistantInitializationService
 from entities_api.services.action_service import ActionService
 from entities_api.services.assistant_service import AssistantService
 from entities_api.services.logging_service import LoggingUtility
@@ -29,8 +25,6 @@ from entities_api.services.sandbox_service import SandboxService
 from entities_api.services.thread_service import ThreadService
 from entities_api.services.tool_service import ToolService
 from entities_api.services.user_service import UserService
-
-
 
 logging_utility = LoggingUtility()
 router = APIRouter()
@@ -819,13 +813,3 @@ def list_sandboxes_by_user(user_id: str, db: Session = Depends(get_db)):
 
 
 
-@router.get("/health", status_code=status.HTTP_200_OK)
-def health_check():
-    status = AssistantInitializationService().get_initialization_status()
-    if status["ready"]:
-        return {"status": "OK", **status}
-    else:
-        return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content={"status": "INITIALIZING", **status}
-        )
