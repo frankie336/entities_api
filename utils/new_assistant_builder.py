@@ -48,7 +48,6 @@ def setup_assistant_with_tools(user_name, assistant_name, assistant_description,
         assistant_id="default"
     )
     print(f"Assistant created: ID: {assistant.id}")
-
     # Create and associate tools
     create_and_associate_tools(client, function_definitions, assistant.id)
 
@@ -65,4 +64,6 @@ if __name__ == "__main__":
         instructions=BASE_ASSISTANT_INSTRUCTIONS,
         function_definitions=BASE_TOOLS
     )
+
     print(f"\nSetup complete. Assistant ID: {assistant.id}")
+    print(assistant)

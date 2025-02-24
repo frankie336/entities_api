@@ -1,16 +1,13 @@
 import json
 import os
 import sys
-import time
 from functools import lru_cache
 
 from dotenv import load_dotenv
-from together import Together  # Using the official Together SDK
+from together import Together
 
-from entities_api.clients.client_run_client import ClientRunService
 from entities_api.constants.assistant import PLATFORM_TOOLS
 from entities_api.inference.base_inference import BaseInference
-from entities_api.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS
 from entities_api.services.logging_service import LoggingUtility
 
 load_dotenv()
@@ -80,8 +77,6 @@ class TogetherV3Inference(BaseInference):
         return super().parse_code_interpreter_partial(text)
 
 
-
-    # state
     def set_tool_response_state(self, value):
         self.tool_response = value
 
@@ -112,18 +107,23 @@ class TogetherV3Inference(BaseInference):
         # Retrieve cached data and normalize conversation history
         assistant = self._assistant_cache(assistant_id)
 
+        # Fetch the assistants tools
+        tools = self.tool_service.list_tools(assistant_id=assistant.id, restructure=True)
+
+        # ---------------------------------------------------
+        # Some inference points do not support a tools  definition
+        # in the api payload thus we inject tool definition into
+        # the system message.
+        # ---------------------------------------------------
+
         conversation_history = self.message_service.get_formatted_messages(
-            thread_id, system_message=assistant.instructions
+            thread_id, system_message= "tools:" + str(tools) + assistant.instructions
         )
-        print(assistant.instructions)
-        time.sleep(10000)
         messages = self.normalize_roles(conversation_history)
 
         #Sliding Windows Truncation
         truncated_message = self.conversation_truncator.truncate(messages)
-        #print(messages)
         #print(truncated_message)
-        #time.sleep(10000)
 
 
         request_payload = {
@@ -344,210 +344,16 @@ class TogetherV3Inference(BaseInference):
                            assistant_id, content,
                            run_id):
 
-        # Save the tool invocation for state management.
-        self.action_service.create_action(
-            tool_name=content["name"],
-            run_id=run_id,
-            function_args=content["arguments"]
-        )
-
-        # Update run status to 'action_required'
-        run_service = ClientRunService()
-        run_service.update_run_status(run_id=run_id, new_status='action_required')
-        logging_utility.info(f"Run {run_id} status updated to action_required")
-
-        # Now wait for the run's status to change from 'action_required'.
-        while True:
-            run = self.run_service.retrieve_run(run_id)
-            if run.status != "action_required":
-                break
-            time.sleep(1)
-
-        logging_utility.info("Action status transition complete. Reprocessing conversation.")
-
-        # Continue processing the conversation transparently.
-        # (Rebuild the conversation history if needed; here we re-use deepseek_messages.)
-
-        logging_utility.info("No tool call triggered; proceeding with conversation.")
-
-        return content  # Return the accumulated content
+        return super().process_tool_calls(thread_id=thread_id, assistant_id=assistant_id,
+                                          content=content, run_id=run_id
+                                          )
 
     def process_platform_tool_calls(self, thread_id, assistant_id, content, run_id):
         """Process platform tool calls with enhanced logging and error handling."""
-        try:
-            logging_utility.info(
-                "Starting tool call processing for run %s. Tool: %s",
-                run_id, content["name"]
-            )
 
-            # Create action with sanitized logging
-            action = self.action_service.create_action(
-                tool_name=content["name"],
-                run_id=run_id,
-                function_args=content["arguments"]
-            )
-            logging_utility.debug(
-                "Created action %s for tool %s",
-                action.id, content["name"]
-            )
-
-            # Update run status
-            self.run_service.update_run_status(run_id=run_id, new_status='action_required')
-            logging_utility.info(
-                "Run %s status updated to action_required for tool %s",
-                run_id, content["name"]
-            )
-
-            # Execute tool call
-
-            platform_tool_service = self.platform_tool_service
-            function_output = platform_tool_service.call_function(
-                function_name=content["name"],
-                arguments=content["arguments"],
-                assistant_id=assistant_id
-            )
-
-            logging_utility.debug(
-                "Tool %s executed successfully for run %s",
-                content["name"], run_id
-            )
-
-            # Handle specific tool types
-            tool_handlers = {
-                "code_interpreter": self._handle_code_interpreter,
-                "web_search": self._handle_web_search,
-                "search_vector_store": self._handle_vector_search
-
-            }
-
-            handler = tool_handlers.get(content["name"])
-            if handler:
-                handler(
-                    thread_id=thread_id,
-                    assistant_id=assistant_id,
-                    function_output=function_output,
-                    action=action
-                )
-            else:
-                logging_utility.warning(
-                    "No specific handler for tool %s, using default processing",
-                    content["name"]
-                )
-                self._submit_tool_output(
-                    thread_id=thread_id,
-                    assistant_id=assistant_id,
-                    content=function_output,
-                    action=action
-                )
-
-        except Exception as e:
-            logging_utility.error(
-                "Failed to process tool call for run %s: %s",
-                run_id, str(e), exc_info=True
-            )
-            self.action_service.update_action(action_id=action.id, status='failed')
-            raise  # Re-raise for upstream handling
-
-    def _handle_code_interpreter(self, thread_id, assistant_id, function_output, action):
-        """Special handling for code interpreter results."""
-        try:
-            parsed_output = json.loads(function_output)
-            output_value = parsed_output['result']['output']
-
-            self._submit_tool_output(
-                thread_id=thread_id,
-                assistant_id=assistant_id,
-                content=output_value,
-                action=action
-            )
-            logging_utility.info(
-                "Code interpreter output submitted for action %s",
-                action.id
-            )
-
-        except json.JSONDecodeError as e:
-            logging_utility.error(
-                "Failed to parse code interpreter output for action %s: %s",
-                action.id, str(e)
-            )
-            raise
-
-    def _handle_web_search(self, thread_id, assistant_id, function_output, action):
-        """Special handling for web search results."""
-        try:
-
-            search_output = str(function_output[0]) + WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS
-
-            self._submit_tool_output(
-                thread_id=thread_id,
-                assistant_id=assistant_id,
-                content=search_output,
-                action=action
-            )
-            logging_utility.info(
-                "Web search results submitted for action %s",
-                action.id
-            )
-
-        except IndexError as e:
-            logging_utility.error(
-                "Invalid web search output format for action %s: %s",
-                action.id, str(e)
-            )
-            raise
-
-
-    def _handle_vector_search(self, thread_id, assistant_id, function_output, action):
-        """Special handling for web search results."""
-        try:
-
-            search_output = str(function_output)
-
-            self._submit_tool_output(
-                thread_id=thread_id,
-                assistant_id=assistant_id,
-                content=search_output,
-                action=action
-            )
-            logging_utility.info(
-                "Web search results submitted for action %s",
-                action.id
-            )
-
-        except IndexError as e:
-            logging_utility.error(
-                "Invalid web search output format for action %s: %s",
-                action.id, str(e)
-            )
-            raise
-
-
-
-    def _submit_tool_output(self, thread_id, assistant_id, content, action):
-        """Generic tool output submission with consistent logging."""
-        try:
-            self.message_service.submit_tool_output(
-                thread_id=thread_id,
-                content=content,
-                role="tool",
-                assistant_id=assistant_id,
-                tool_id="dummy"
-            )
-            self.action_service.update_action(action_id=action.id, status='completed')
-            logging_utility.debug(
-                "Tool output submitted successfully for action %s",
-                action.id
-            )
-
-        except Exception as e:
-            logging_utility.error(
-                "Failed to submit tool output for action %s: %s",
-                action.id, str(e)
-            )
-            self.action_service.update_action(action_id=action.id, status='failed')
-            raise
-
-
+        return super().process_platform_tool_calls(
+            thread_id=thread_id, assistant_id=assistant_id, content=content, run_id=run_id
+        )
 
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id,
@@ -574,8 +380,7 @@ class TogetherV3Inference(BaseInference):
                         run_id=run_id
 
                     )
-                    # time.sleep(10000)
-                    # Stream the output to the response:
+
                     for chunk in self.stream_function_call_output(thread_id=thread_id,
                                                                   run_id=run_id,
                                                                   assistant_id=assistant_id
