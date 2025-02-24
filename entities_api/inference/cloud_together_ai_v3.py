@@ -237,6 +237,9 @@ class TogetherV3Inference(BaseInference):
 
             json_accumulated_content = json.loads(accumulated_content)
 
+            print(accumulated_content)
+            time.sleep(100000)
+
             is_function_call = self.is_valid_function_call_response(json_data=json_accumulated_content)
             if is_function_call:
                 self.set_tool_response_state(True)
