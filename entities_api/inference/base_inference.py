@@ -262,7 +262,7 @@ class BaseInference(ABC):
     def finalize_conversation(self, assistant_reply, thread_id, assistant_id, run_id):
         """Finalize the conversation by storing the assistant's reply."""
         if assistant_reply:
-            self.message_service.save_assistant_message_chunk(
+            message = self.message_service.save_assistant_message_chunk(
                 thread_id=thread_id,
                 content=assistant_reply,
                 role="assistant",
@@ -270,8 +270,31 @@ class BaseInference(ABC):
                 sender_id=assistant_id,
                 is_last_chunk=True
             )
+
             logging_utility.info("Assistant response stored successfully.")
             self.run_service.update_run_status(run_id, "completed")
+
+            return message
+
+    def get_vector_store_id_for_assistant(self, assistant_id: str, store_suffix: str = "chat") -> str:
+        """
+        Retrieve the vector store ID for a specific assistant and store suffix.
+
+        Args:
+            assistant_id (str): The ID of the assistant.
+            store_suffix (str): The suffix of the vector store name (default: "chat").
+
+        Returns:
+            str: The collection name of the vector store.
+        """
+        # Retrieve a list of vector stores per assistant
+        vector_stores = self.vector_store_service.get_vector_stores_for_assistant(assistant_id=assistant_id)
+
+        # Map name to collection_name
+        vector_store_mapping = {vs.name: vs.collection_name for vs in vector_stores}
+
+        # Return the collection name for the specific store
+        return vector_store_mapping[f"{assistant_id}-{store_suffix}"]
 
 
 

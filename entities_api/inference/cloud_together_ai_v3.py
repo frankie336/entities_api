@@ -172,6 +172,19 @@ class TogetherV3Inference(BaseInference):
             return True
         return False
 
+    def get_vector_store_id_for_assistant(self, assistant_id: str, store_suffix: str = "chat") -> str:
+        """
+        Retrieve the vector store ID for a specific assistant and store suffix.
+
+        Args:
+            assistant_id (str): The ID of the assistant.
+            store_suffix (str): The suffix of the vector store name (default: "chat").
+
+        Returns:
+            str: The collection name of the vector store.
+        """
+        return super().get_vector_store_id_for_assistant(assistant_id=assistant_id, store_suffix=store_suffix)
+
     def stream_response(self, thread_id, message_id, run_id, assistant_id,
                         model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
         """
@@ -297,32 +310,37 @@ class TogetherV3Inference(BaseInference):
             logging_utility.info("Final accumulated content: %s", accumulated_content)
 
 
-
             #-----------------------
             # Save to vector store
             # -----------------------
-            message=self.message_service.retrieve_message(
-                message_id=message_id
+
+            # Retrieve the vector store ID for the assistant's chat store
+            message = self.message_service.retrieve_message(message_id=message_id)
+            vector_store_id = self.get_vector_store_id_for_assistant(assistant_id=assistant_id)
+
+            # Process and save the user's message to the vector store
+            self.vector_store_service.store_message_in_vector_store(
+                message=message,
+                vector_store_id=vector_store_id
             )
-
-            # Retrieve a list of vector stores per assistant
-            vector_stores = self.vector_store_service.get_vector_stores_for_assistant(assistant_id=assistant_id)
-
-            #  Map name to collection_name
-            vector_store_mapping = {vs.name: vs.collection_name for vs in vector_stores}
-            vector_store_id = vector_store_mapping[f"{assistant_id}-chat"]
-            # Process and save to vector store
-            self.vector_store_service.store_message_in_vector_store( message=message, vector_store_id=vector_store_id)
-
 
         except Exception as e:
             error_msg = f"Together SDK error: {str(e)}"
             logging_utility.error(error_msg, exc_info=True)
-            self.handle_error(assistant_reply, thread_id, assistant_id, run_id)
+            self.handle_error(assistant_reply or '', thread_id, assistant_id, run_id)
             yield json.dumps({'type': 'error', 'content': error_msg})
 
         if assistant_reply:
-            self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
+            # Save the assistant's message to the main database
+            message = self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
+
+            # Save the assistant's response to the chat-memory vector store
+            vector_store_id = self.get_vector_store_id_for_assistant(assistant_id=assistant_id)
+
+            self.vector_store_service.store_message_in_vector_store(
+                message=message,
+                vector_store_id=vector_store_id
+            )
 
     def stream_function_call_output(self, thread_id, run_id, assistant_id,
                                     model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
