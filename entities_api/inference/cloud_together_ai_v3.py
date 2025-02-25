@@ -301,6 +301,7 @@ class TogetherV3Inference(BaseInference):
                         self.set_tool_response_state(True)
                         self.set_function_call_state(legacy_match)
 
+
             self.finalize_conversation(
                 assistant_reply=str(accumulated_content),
                 thread_id=thread_id,
@@ -310,10 +311,9 @@ class TogetherV3Inference(BaseInference):
             logging_utility.info("Final accumulated content: %s", accumulated_content)
 
 
-            #-----------------------
+            # -----------------------
             # Save to vector store
             # -----------------------
-
             # Retrieve the vector store ID for the assistant's chat store
             message = self.message_service.retrieve_message(message_id=message_id)
             vector_store_id = self.get_vector_store_id_for_assistant(assistant_id=assistant_id)
@@ -324,6 +324,8 @@ class TogetherV3Inference(BaseInference):
                 vector_store_id=vector_store_id
             )
 
+
+
         except Exception as e:
             error_msg = f"Together SDK error: {str(e)}"
             logging_utility.error(error_msg, exc_info=True)
@@ -331,16 +333,17 @@ class TogetherV3Inference(BaseInference):
             yield json.dumps({'type': 'error', 'content': error_msg})
 
         if assistant_reply:
+
             # Save the assistant's message to the main database
             message = self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
 
             # Save the assistant's response to the chat-memory vector store
-            vector_store_id = self.get_vector_store_id_for_assistant(assistant_id=assistant_id)
+           # vector_store_id = self.get_vector_store_id_for_assistant(assistant_id=assistant_id)
 
-            self.vector_store_service.store_message_in_vector_store(
-                message=message,
-                vector_store_id=vector_store_id
-            )
+            #self.vector_store_service.store_message_in_vector_store(
+            #    message=message,
+            #    vector_store_id=vector_store_id
+            #)
 
     def stream_function_call_output(self, thread_id, run_id, assistant_id,
                                     model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):

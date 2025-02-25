@@ -52,15 +52,28 @@ class PlatformToolService:
             self._vector_search_handler = VectorSearchHandler()
         return self._vector_search_handler
 
-
-
-    def call_function(self, function_name, arguments, assistant_id):
+    def call_function(self, function_name, arguments, assistant_id=None):
         """
         Executes a function based on the provided name and arguments.
         Caches results to avoid redundant computations.
         """
+
+        # merge assistant_id passed in manually with the
+        # function call args
+        arguments['assistant_id'] = assistant_id
+
+        if not isinstance(arguments, dict):
+            logging_utility.error(
+                "Invalid 'arguments' type: Expected dictionary but got %s", type(arguments)
+            )
+            return {"error": "Invalid arguments format. Expected a dictionary."}
+
         # Create a cache key from function name and arguments
-        cache_key = (function_name, frozenset(arguments.items()))
+        try:
+            cache_key = (function_name, frozenset(arguments.items()))
+        except TypeError as e:
+            logging_utility.error("Failed to create cache key: %s", str(e))
+            return {"error": "Arguments contain unhashable values."}
 
         # Check if the result is already cached
         with self._cache_lock:
@@ -71,32 +84,35 @@ class PlatformToolService:
         # Validate if the function is supported
         if function_name not in self.function_handlers:
             logging_utility.error("Unsupported function: %s", function_name)
-            return "Error: Unsupported function"
+            return {"error": f"Unsupported function: {function_name}"}
 
         # Lazy initialization of the handler if not already initialized
         if self.function_handlers[function_name] is None:
             if function_name == "code_interpreter":
                 self.function_handlers[function_name] = self._get_code_execution_handler().execute_code
 
-            if function_name == "web_search":
+            elif function_name == "web_search":
                 self.function_handlers[function_name] = self._get_web_search_handler().search_orchestrator
 
-            if function_name == "search_vector_store":
+            elif function_name == "search_vector_store":
                 self.function_handlers[function_name] = self._get_vector_search_handler().search_orchestrator
 
-            if function_name == "search_vector_store":
-                arguments["assistant_id"] = assistant_id
-
-
-
-                # Add more handlers here as needed
+            else:
+                logging_utility.error("No handler available for function: %s", function_name)
+                return {"error": f"No handler available for function: {function_name}"}
 
         # Get the handler
         handler = self.function_handlers[function_name]
 
         # Execute the function and cache the result
-        # Pass all arguments dynamically using **kwargs
-        result = handler(**arguments)
+        try:
+            result = handler(**arguments)
+        except TypeError as e:
+            logging_utility.error(
+                "Error calling function '%s' with arguments %s: %s",
+                function_name, arguments, str(e)
+            )
+            return {"error": f"Function '{function_name}' received incorrect arguments: {str(e)}"}
 
         with self._cache_lock:
             self._call_cache[cache_key] = result
