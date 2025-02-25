@@ -10,7 +10,7 @@ from tenacity import retry, stop_after_attempt, wait_random_exponential, retry_i
 
 from entities_api.interfaces.base_vector_store import StoreNotFoundError, VectorStoreError
 from entities_api.models.models import VectorStore, Base, Assistant
-from entities_api.schemas import StatusEnum, VectorStoreRead, VectorStoreSearchResult, ProcessOutput
+from entities_api.schemas import StatusEnum, VectorStoreRead, VectorStoreSearchResult, ProcessOutput, MessageRead
 from entities_api.services.file_processor import FileProcessor
 from entities_api.services.identifier_service import IdentifierService
 from entities_api.services.logging_service import LoggingUtility
@@ -21,8 +21,11 @@ logging_utility = LoggingUtility()
 
 
 class VectorStoreService:
-    def __init__(self):
+    def __init__(self, base_url=None, api_key=None):
         # Create a local engine for all DB operations.
+        self.base_url = base_url
+        self.api_key = api_key
+
         self.engine = create_engine(DIRECT_DATABASE_URL, echo=True)
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
 
@@ -357,6 +360,28 @@ class VectorStoreService:
             # Convert each VectorStore ORM object into a Pydantic model.
             return [VectorStoreRead.model_validate(vs) for vs in assistant.vector_stores]
 
+    def get_stores_by_user(self, user_id: str) -> List[VectorStoreRead]:
+        """
+        Retrieve all vector stores belonging to a specific user.
+
+        Args:
+            user_id (str): The ID of the user whose stores are to be retrieved.
+
+        Returns:
+            List[VectorStoreRead]: A list of vector stores associated with the user.
+        """
+        try:
+            with self.SessionLocal() as session:
+                # Query the database for stores belonging to the user
+                stores = session.query(VectorStore).filter(VectorStore.user_id == user_id).all()
+
+                # Convert the ORM objects to Pydantic models
+                return [VectorStoreRead.model_validate(store) for store in stores]
+        except Exception as e:
+            logging_utility.error(f"Error retrieving stores for user {user_id}: {str(e)}")
+            raise
+
+
     def health_check(self, deep_check: bool = False) -> Dict[str, Any]:
         """System health check with optional deep validation"""
         status = {
@@ -409,6 +434,34 @@ class VectorStoreService:
 
         return status
 
+    def format_message_for_storage(self, message: MessageRead) -> dict:
+        return {
+            "text": message.content,
+            "metadata": {
+                "role": message.role,
+                "created_at": message.created_at,
+                "thread_id": message.thread_id,
+                "sender_id": message.sender_id,
+                "status": message.status,
+                "run_id": message.run_id,
+                "assistant_id": message.assistant_id,
+                "meta_data": message.meta_data
+            }
+        }
+
+    def store_message_in_vector_store(self, message, vector_store_id):
+        formatted_message = self.format_message_for_storage(message)
+
+        # Get embedding and convert to native float list
+        embedding = self.file_processor.embedding_model.encode(formatted_message["text"])
+        vector_as_floats = [float(val) for val in embedding]  # Convert numpy floats to Python floats
+
+        self.add_to_store(
+            store_name=vector_store_id,
+            texts=[formatted_message["text"]],
+            vectors=[vector_as_floats],  # Now contains native floats
+            metadata=[formatted_message["metadata"]]
+        )
 
 
 # ==============================

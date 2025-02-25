@@ -17,10 +17,8 @@ class AssistantVectorWaves:
                 "description": "Long-term knowledge storage"
             },
 
-
-
             "conversation": {
-                "name": f"{assistant_id}-conversation",
+                "name": f"{assistant_id}-chat",
                 "vector_size": 768,
                 "description": "Dialog context history"
             },

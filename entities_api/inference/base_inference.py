@@ -14,6 +14,7 @@ from entities_api.clients.client_run_client import ClientRunService
 from entities_api.clients.client_thread_client import ThreadService
 from entities_api.clients.client_tool_client import ClientToolService
 from entities_api.clients.client_user_client import UserService
+from entities_api.services.vector_store_service import VectorStoreService
 from entities_api.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS
 from entities_api.platform_tools.platform_tool_service import PlatformToolService
 from entities_api.services.conversation_truncator import ConversationTruncator
@@ -39,6 +40,7 @@ class BaseInference(ABC):
         self._cancelled = False
         self._services = {}
         self.code_interpreter_response = False
+
 
         # Store truncation parameters
         self.truncator_params = {
@@ -98,6 +100,10 @@ class BaseInference(ABC):
     @property
     def action_service(self):
         return self._get_service(ClientActionService)
+
+    @property
+    def vector_store_service(self):
+        return self._get_service(VectorStoreService)
 
     @property
     def conversation_truncator(self):

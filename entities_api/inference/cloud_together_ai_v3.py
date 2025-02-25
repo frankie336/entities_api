@@ -1,7 +1,8 @@
 import json
 import os
+import re
 import sys
-import time
+from datetime import date
 from functools import lru_cache
 
 from dotenv import load_dotenv
@@ -91,6 +92,86 @@ class TogetherV3Inference(BaseInference):
     def get_function_call_state(self):
         return self.function_call
 
+    def extract_function_candidates(self, text):
+        """
+        Extracts potential JSON function call patterns from arbitrary text positions.
+        Handles cases where function calls are embedded within other content.
+        """
+        import re
+
+        # Regex pattern explanation:
+        # - Looks for {...} structures with 'name' and 'arguments' keys
+        # - Allows for nested JSON structures
+        # - Tolerates some invalid JSON formatting that might appear in streams
+        pattern = r'''
+            \{                      # Opening curly brace
+            \s*                     # Optional whitespace
+            (["'])name\1\s*:\s*     # 'name' key with quotes
+            (["'])(.*?)\2\s*,\s*    # Capture tool name
+            (["'])arguments\4\s*:\s* # 'arguments' key
+            (\{.*?\})               # Capture arguments object
+            \s*\}                   # Closing curly brace
+        '''
+
+        candidates = []
+        try:
+            matches = re.finditer(pattern, text, re.DOTALL | re.VERBOSE)
+            for match in matches:
+                candidate = match.group(0)
+                # Validate basic structure before adding
+                if '"name"' in candidate and '"arguments"' in candidate:
+                    candidates.append(candidate)
+        except Exception as e:
+            logging_utility.error(f"Candidate extraction error: {str(e)}")
+
+        return candidates
+
+    def ensure_valid_json(self, text: str):
+        """
+        Ensures the accumulated tool response is in valid JSON format.
+        - Fixes incorrect single quotes (`'`) → double quotes (`"`)
+        - Ensures proper key formatting
+        - Removes trailing commas if present
+        """
+        if not isinstance(text, str) or not text.strip():
+            logging_utility.error("Received empty or non-string JSON content.")
+            return None
+
+        try:
+            # Step 1: Standardize Quotes
+            if "'" in text and '"' not in text:
+                logging_utility.warning(f"Malformed JSON detected, attempting fix: {text}")
+                text = text.replace("'", '"')
+
+            # Step 2: Remove trailing commas (e.g., {"name": "web_search", "arguments": {"query": "test",},})
+            text = re.sub(r",\s*}", "}", text)
+            text = re.sub(r",\s*\]", "]", text)
+
+            # Step 3: Validate JSON
+            parsed_json = json.loads(text)  # Will raise JSONDecodeError if invalid
+            return parsed_json  # Return corrected JSON object
+
+        except json.JSONDecodeError as e:
+            logging_utility.error(f"JSON decoding failed: {e} | Raw: {text}")
+            return None  # Skip processing invalid JSON
+
+    def normalize_content(self, content):
+        """Smart format normalization with fallback"""
+        try:
+            return content if isinstance(content, dict) else \
+                json.loads(self.ensure_valid_json(str(content)))
+        except Exception as e:
+            logging_utility.warning(f"Normalization failed: {str(e)}")
+            return content  # Preserve for legacy handling
+
+    def validate_and_set(self, content):
+        """Core validation pipeline"""
+        if self.is_valid_function_call_response(content):
+            self.set_tool_response_state(True)
+            self.set_function_call_state(content)
+            return True
+        return False
+
     def stream_response(self, thread_id, message_id, run_id, assistant_id,
                         model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
         """
@@ -111,21 +192,16 @@ class TogetherV3Inference(BaseInference):
         # Fetch the assistants tools
         tools = self.tool_service.list_tools(assistant_id=assistant.id, restructure=True)
 
-        # ---------------------------------------------------
-        # Some inference points do not support a tools  definition
-        # in the api payload thus we inject tool definition into
-        # the system message.
-        # ---------------------------------------------------
+        # Get today's date
+        today = date.today()
 
         conversation_history = self.message_service.get_formatted_messages(
-            thread_id, system_message= "tools:" + str(tools) + assistant.instructions
+            thread_id, system_message="tools:" + str(tools) + assistant.instructions + f"Today's date:, {str(today)}"
         )
         messages = self.normalize_roles(conversation_history)
 
-        #Sliding Windows Truncation
+        # Sliding Windows Truncation
         truncated_message = self.conversation_truncator.truncate(messages)
-        #print(truncated_message)
-
 
         request_payload = {
             "model": model,
@@ -141,12 +217,10 @@ class TogetherV3Inference(BaseInference):
 
         assistant_reply = ""
         accumulated_content = ""
-        # Flags for code-mode
         code_mode = False
         code_buffer = ""
 
         try:
-
             response = self.client.chat.completions.create(**request_payload)
 
             for token in response:
@@ -163,89 +237,57 @@ class TogetherV3Inference(BaseInference):
                 if not content:
                     continue
 
-                # Write raw content for debugging
                 sys.stdout.write(content)
                 sys.stdout.flush()
 
-                # Accumulate the full content
                 accumulated_content += content
 
-                # ---------------------------------------------------
-                # 1) Check for partial code-interpreter match and exclude prior characters
-                # ---------------------------------------------------
+                # Handle Partial Code Interpreter Match
+                # Allows for  code interpreter code block sto be streamed in real time
                 if not code_mode:
                     partial_match = self.parse_code_interpreter_partial(accumulated_content)
                     if partial_match:
-                        # Remove the matched portion from accumulated_content.
                         full_match = partial_match.get('full_match')
                         if full_match:
                             match_index = accumulated_content.find(full_match)
                             if match_index != -1:
-                                # Remove everything up to and including the full_match.
                                 accumulated_content = accumulated_content[match_index + len(full_match):]
-                        # Alternatively, if no full_match is provided, you could clear accumulated_content:
-                        # else:
-                        #     accumulated_content = ""
-
-                        # Enter code mode and initialize the code buffer with any remaining partial code.
                         code_mode = True
                         code_buffer = partial_match.get('code', '')
-                        # Emit the start-of-code block marker.
                         yield json.dumps({'type': 'hot_code', 'content': '```python\n'})
-                        # Do NOT yield code_buffer from the partial match.
                         continue
 
-                # ---------------------------------------------------
-                # 2) Already in code mode -> simply accumulate and yield token_count
-                # ---------------------------------------------------
                 if code_mode:
                     code_buffer += content
-
-                    # Split into lines while preserving order
                     while '\n' in code_buffer:
                         newline_pos = code_buffer.find('\n') + 1
                         line_chunk = code_buffer[:newline_pos]
                         code_buffer = code_buffer[newline_pos:]
                         yield json.dumps({'type': 'hot_code', 'content': line_chunk})
-
                         break
 
-                    # Send remaining buffer if it exceeds threshold (100 chars)
                     if len(code_buffer) > 100:
                         yield json.dumps({'type': 'hot_code', 'content': code_buffer})
                         code_buffer = ""
                     continue
 
-                if not code_mode:
-                    yield json.dumps({'type': 'content', 'content': content}) + '\n'
+                yield json.dumps({'type': 'content', 'content': content}) + '\n'
+
+            # Final Processing
+            accumulated_content = self.ensure_valid_json(str(accumulated_content))
+            normalized = self.normalize_content(accumulated_content)
+
+
+            # Finds function calls embedded within surrounding text
+            if not self.validate_and_set(normalized):
+                for candidate in self.extract_function_candidates(normalized):
+                    if self.validate_and_set(candidate):
+                        break
                 else:
-                    yield json.dumps({'type': 'content', 'content': content}) + '\n'
+                    if legacy_match := self.parse_nested_function_call_json(json.dumps(accumulated_content)):
+                        self.set_tool_response_state(True)
+                        self.set_function_call_state(legacy_match)
 
-            # ---------------------------------------------------
-            # 3) Validate if the accumulated response is a properly formed tool response.
-            # ---------------------------------------------------
-            code_interpreter_function_call = self.parse_nested_function_call_json(text=accumulated_content)
-
-            if code_interpreter_function_call:
-                accumulated_content = json.loads(accumulated_content)
-
-                print(accumulated_content)
-                time.sleep(1000)
-
-                self.set_tool_response_state(True)
-                self.set_function_call_state(accumulated_content)
-
-            json_accumulated_content = json.loads(accumulated_content)
-
-            print(accumulated_content)
-            time.sleep(100000)
-
-            is_function_call = self.is_valid_function_call_response(json_data=json_accumulated_content)
-            if is_function_call:
-                self.set_tool_response_state(True)
-                self.set_function_call_state(json_accumulated_content)
-
-            # Saves assistant's reply
             self.finalize_conversation(
                 assistant_reply=str(accumulated_content),
                 thread_id=thread_id,
@@ -253,6 +295,25 @@ class TogetherV3Inference(BaseInference):
                 run_id=run_id
             )
             logging_utility.info("Final accumulated content: %s", accumulated_content)
+
+
+
+            #-----------------------
+            # Save to vector store
+            # -----------------------
+            message=self.message_service.retrieve_message(
+                message_id=message_id
+            )
+
+            # Retrieve a list of vector stores per assistant
+            vector_stores = self.vector_store_service.get_vector_stores_for_assistant(assistant_id=assistant_id)
+
+            #  Map name to collection_name
+            vector_store_mapping = {vs.name: vs.collection_name for vs in vector_stores}
+            vector_store_id = vector_store_mapping[f"{assistant_id}-chat"]
+            # Process and save to vector store
+            self.vector_store_service.store_message_in_vector_store( message=message, vector_store_id=vector_store_id)
+
 
         except Exception as e:
             error_msg = f"Together SDK error: {str(e)}"
@@ -376,6 +437,7 @@ class TogetherV3Inference(BaseInference):
         print("The Tool response state is:")
         print(self.get_tool_response_state())
         print(self.get_function_call_state())
+
 
         if self.get_function_call_state():
             if self.get_function_call_state():

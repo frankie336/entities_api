@@ -4,6 +4,7 @@ PLATFORM_TOOLS = ["code_interpreter", "web_search", "search_vector_store"]
 
 API_TIMEOUT = 30
 DEFAULT_MODEL = "llama3.1"
+
 BASE_TOOLS = [
         {
             "type": "code_interpreter",
@@ -69,25 +70,14 @@ BASE_TOOLS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "assistant_id": {
-                    "type": "string",
-                    "description": "The ID of the assistant performing the search."
-                },
-                "vector_store_id": {
-                    "type": "string",
-                    "description": "The ID of the vector store to search in."
-                },
+
                 "query": {
                     "type": "string",
                     "description": "The text query to search for in the vector store."
                 },
-                "top_k": {
-                    "type": "integer",
-                    "description": "The number of top results to return. Default is 5.",
-                    "default": 5
-                }
+
             },
-            "required": ["assistant_id", "vector_store_id", "query"]
+            "required": ["query"]
         }
     }
 }
@@ -110,69 +100,54 @@ BASE_ASSISTANT_INSTRUCTIONS = (
     '    }\n'
     "  }\n"
     "- Validate all tool calls before execution:\n"
-    "  1. Tool name must EXACTLY match registered function.\n"
-    "  2. Arguments must contain ONLY expected parameters.\n"
-    "  3. JSON must be valid with correct data types.\n"
+    "  1. Tool name must EXACTLY match the registered function.\n"
+    "  2. Arguments must contain ONLY the expected parameters.\n"
+    "  3. **JSON must be strictly valid:**\n"
+    "     - Use double quotes (`\"`) for keys and string values.\n"
+    "     - Do **NOT** use single quotes (`'`).\n"
+    "     - Ensure proper comma placement—no trailing or missing commas.\n"
+    "     - Keys must be lowercase and match the tool schema.\n"
     "\n"
-    "🔹 **VECTOR STORE SEARCH RULES:**\n"
-    "- ALWAYS use `search_vector_store` when:\n"
-    "  • User asks about previously discussed topics.\n"
-    "  • User references past interactions, files, or custom knowledge.\n"
-    "  • User requests retrieval of specific stored content.\n"
-    "- DO NOT use `search_vector_store` for real-time or web-based information.\n"
-    "- Ensure the tool call follows this format:\n"
-    "  {\n"
-    '    "name": "search_vector_store",\n'
-    '    "arguments": {\n'
-    '      "query": "<user’s request>",\n'
-    '      "top_k": 5\n'
-    '    }\n'
-    "  }\n"
-    "- If search results are returned:\n"
-    "  • Extract key insights and summarize.\n"
-    "  • Present findings in a clear, structured format.\n"
-    "  • If needed, synthesize multiple results into a coherent response.\n"
-    "- If NO relevant results are found:\n"
-    "  • Inform the user clearly: 'No stored knowledge found on this topic.'\n"
-    "  • Ask if they want to rephrase the query.\n"
-    "  • Offer to search the web instead.\n"
-    "\n"
-    "🔹 **WEB SEARCH RULES:**\n"
+    "🔹 **WEB SEARCH RULES & EFFECTIVE SEARCH GUIDELINES:**\n"
     "- Use `web_search` when:\n"
-    "  • User asks about current events or trending topics.\n"
-    "  • User seeks external knowledge beyond stored data.\n"
-    "  • Vector store search yields no relevant results.\n"
-    "- Always verify JSON structure before invoking:\n"
+    "  • The user asks about current events or trending topics.\n"
+    "  • The user seeks external knowledge beyond stored data.\n"
+    "  • A vector store search yields no relevant results.\n"
+    "\n"
+    "• **Before executing a web search, follow these effective search guidelines:**\n"
+    "  1. **Extract Core Keywords:** Identify and focus on the main subjects and remove filler words.\n"
+    "  2. **Exact Phrase Matching:** Enclose key phrases in double quotes (e.g., \"latest developments\").\n"
+    "  3. **Boolean Operators:** Use operators like AND, OR, and the minus sign (`-`) to refine your query.\n"
+    "  4. **Advanced Operators:** Utilize commands such as `site:`, `intitle:`, or `filetype:` to narrow results.\n"
+    "  5. **Contextual Enrichment:** Expand the query with synonyms or clarify ambiguous terms to ensure precision.\n"
+    "  6. **Iterative Refinement:** If initial results are unsatisfactory, adjust the query by adding/removing terms or incorporating date filters.\n"
+    "\n"
+    "- Always verify JSON structure before invoking web search:\n"
     "  {\n"
     '    "name": "web_search",\n'
     '    "arguments": {\n'
-    '      "query": "<search term>",\n'
-    '      "max_results": 5\n'
+    '      "query": "<search term>"\n'
     '    }\n'
     "  }\n"
-    "\n"
-    "🔹 **CODE INTERPRETER RULES:**\n"
-    "- Only use `code_interpreter` for tasks involving:\n"
-    "  • Data analysis, calculations, and simulations.\n"
-    "  • Generating plots or structured outputs.\n"
-    "- Ensure code integrity:\n"
-    "  1. Full Python code block inside 'code' parameter.\n"
-    "  2. Proper escape characters where needed.\n"
-    "  3. No partial or incomplete snippets.\n"
+    "- **STRICT JSON FORMAT ENFORCEMENT:**\n"
+    "  • Always use double quotes (`\"`) for JSON keys and values.\n"
+    "  • Do **NOT** use single quotes (`'`), backticks, or non-standard formatting.\n"
+    "  • Ensure the arguments object contains only expected parameters.\n"
+    "  • If the JSON format is incorrect, **abort execution** and correct it before proceeding.\n"
     "\n"
     "🔹 **ERROR HANDLING:**\n"
-    "- If tool call structure is invalid → Abort and request clarification.\n"
-    "- If tool is unknown → Respond naturally without execution.\n"
-    "- If parameters are missing → Ask user for clarification.\n"
+    "- If a tool call structure is invalid → Abort and request clarification.\n"
+    "- If a tool is unknown → Respond naturally without execution.\n"
+    "- If parameters are missing → Ask the user for clarification.\n"
+    "- If the JSON format is incorrect (e.g., uses single quotes, missing commas, or is malformed), **abort and correct before executing**.\n"
     "\n"
-    "🔹 **PRESENTATION RULES:**\n"
-    "- Web search results must be formatted in a clean, vertical layout.\n"
-    "- Code outputs must be wrapped in proper markdown blocks.\n"
-    "- Vector store results should be structured, summarized, and contextualized.\n"
-    "- NEVER mix response formats (e.g., avoid interleaving raw JSON and text).\n"
+    "🔹 **ADDITIONAL VALIDATION RULE:**\n"
+    "- Before executing any tool call, internally validate the JSON structure.\n"
+    "- If any issue is detected (such as incorrect quoting, malformed JSON, or extra/missing parameters), fix it first before sending.\n"
     "\n"
     "Failure to comply will result in system rejection."
 )
+
 
 
 WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS = (
@@ -193,5 +168,6 @@ WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS = (
     "Next result..."
 )
 
-WEB_SEARCH_BASE_URL="https://www.bing.co.uk/search"
+WEB_SEARCH_BASE_URL="https://www.bing.com/search"
+
 #WEB_SEARCH_BASE_URL_BBC_TEST=f"https://www.bbc.com/search?q={query}&page={i}"

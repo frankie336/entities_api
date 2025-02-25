@@ -14,7 +14,7 @@ class VectorSearchHandler:
                        score_threshold: float = 0.5) -> List[VectorStoreSearchResult]:
         return self.vector_store_service.search_vector_store()
 
-    def search_orchestrator(self, query: str, top_k: int, assistant_id: str) -> List[VectorStoreSearchResult]:
+    def search_orchestrator(self, query: str, assistant_id: str, top_k=5) -> List[VectorStoreSearchResult]:
         """Now accepts both tool arguments and assistant_id"""
         assistant_service = client.assistant_service
         retrieve_assistant = assistant_service.retrieve_assistant(assistant_id=assistant_id)
