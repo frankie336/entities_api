@@ -1,7 +1,7 @@
 import json
 import os
-import re
 import sys
+import time
 from datetime import date
 from functools import lru_cache
 
@@ -80,51 +80,24 @@ class TogetherV3Inference(BaseInference):
 
 
     def set_tool_response_state(self, value):
-        self.tool_response = value
+        return super().set_tool_response_state(value=value)
 
     def get_tool_response_state(self):
-        return self.tool_response
-
+        return super().get_tool_response_state()
 
     def set_function_call_state(self, value):
-        self.function_call = value
+        return super().set_function_call_state(value=value)
 
     def get_function_call_state(self):
-        return self.function_call
+        return super().get_function_call_state()
 
     def extract_function_candidates(self, text):
         """
         Extracts potential JSON function call patterns from arbitrary text positions.
         Handles cases where function calls are embedded within other content.
         """
-        import re
+        return super().extract_function_candidates(text=text)
 
-        # Regex pattern explanation:
-        # - Looks for {...} structures with 'name' and 'arguments' keys
-        # - Allows for nested JSON structures
-        # - Tolerates some invalid JSON formatting that might appear in streams
-        pattern = r'''
-            \{                      # Opening curly brace
-            \s*                     # Optional whitespace
-            (["'])name\1\s*:\s*     # 'name' key with quotes
-            (["'])(.*?)\2\s*,\s*    # Capture tool name
-            (["'])arguments\4\s*:\s* # 'arguments' key
-            (\{.*?\})               # Capture arguments object
-            \s*\}                   # Closing curly brace
-        '''
-
-        candidates = []
-        try:
-            matches = re.finditer(pattern, text, re.DOTALL | re.VERBOSE)
-            for match in matches:
-                candidate = match.group(0)
-                # Validate basic structure before adding
-                if '"name"' in candidate and '"arguments"' in candidate:
-                    candidates.append(candidate)
-        except Exception as e:
-            logging_utility.error(f"Candidate extraction error: {str(e)}")
-
-        return candidates
 
     def ensure_valid_json(self, text: str):
         """
@@ -133,44 +106,15 @@ class TogetherV3Inference(BaseInference):
         - Ensures proper key formatting
         - Removes trailing commas if present
         """
-        if not isinstance(text, str) or not text.strip():
-            logging_utility.error("Received empty or non-string JSON content.")
-            return None
-
-        try:
-            # Step 1: Standardize Quotes
-            if "'" in text and '"' not in text:
-                logging_utility.warning(f"Malformed JSON detected, attempting fix: {text}")
-                text = text.replace("'", '"')
-
-            # Step 2: Remove trailing commas (e.g., {"name": "web_search", "arguments": {"query": "test",},})
-            text = re.sub(r",\s*}", "}", text)
-            text = re.sub(r",\s*\]", "]", text)
-
-            # Step 3: Validate JSON
-            parsed_json = json.loads(text)  # Will raise JSONDecodeError if invalid
-            return parsed_json  # Return corrected JSON object
-
-        except json.JSONDecodeError as e:
-            logging_utility.error(f"JSON decoding failed: {e} | Raw: {text}")
-            return None  # Skip processing invalid JSON
+        return super().ensure_valid_json(text=text)
 
     def normalize_content(self, content):
         """Smart format normalization with fallback"""
-        try:
-            return content if isinstance(content, dict) else \
-                json.loads(self.ensure_valid_json(str(content)))
-        except Exception as e:
-            logging_utility.warning(f"Normalization failed: {str(e)}")
-            return content  # Preserve for legacy handling
+        return super().normalize_content(content=content)
 
     def validate_and_set(self, content):
         """Core validation pipeline"""
-        if self.is_valid_function_call_response(content):
-            self.set_tool_response_state(True)
-            self.set_function_call_state(content)
-            return True
-        return False
+        return super().validate_and_set(content=content)
 
     def get_vector_store_id_for_assistant(self, assistant_id: str, store_suffix: str = "chat") -> str:
         """
@@ -202,7 +146,7 @@ class TogetherV3Inference(BaseInference):
         # Retrieve cached data and normalize conversation history
         assistant = self._assistant_cache(assistant_id)
 
-        # Fetch the assistants tools
+        # Fetch the assistant's tools
         tools = self.tool_service.list_tools(assistant_id=assistant.id, restructure=True)
 
         # Get today's date
@@ -228,10 +172,13 @@ class TogetherV3Inference(BaseInference):
             "stream": True
         }
 
-        assistant_reply = ""
+        assistant_reply = ""  # This will store the full assistant response
         accumulated_content = ""
         code_mode = False
         code_buffer = ""
+        # Initialize reasoning variables
+        in_reasoning = False
+        reasoning_content = ""
 
         try:
             response = self.client.chat.completions.create(**request_payload)
@@ -250,13 +197,14 @@ class TogetherV3Inference(BaseInference):
                 if not content:
                     continue
 
+                # Optionally, print the raw content for debugging
                 sys.stdout.write(content)
                 sys.stdout.flush()
 
+                # Append the raw content to our accumulator
                 accumulated_content += content
 
                 # Handle Partial Code Interpreter Match
-                # Allows for  code interpreter code block sto be streamed in real time
                 if not code_mode:
                     partial_match = self.parse_code_interpreter_partial(accumulated_content)
                     if partial_match:
@@ -284,12 +232,55 @@ class TogetherV3Inference(BaseInference):
                         code_buffer = ""
                     continue
 
-                yield json.dumps({'type': 'content', 'content': content}) + '\n'
+                # Process reasoning content if streaming reasoning is enabled
+                if stream_reasoning:
+                    segments = self.REASONING_PATTERN.split(content)
+                    for seg in segments:
+                        if not seg:
+                            continue
+                        if seg == "<think>":
+                            in_reasoning = True
+                            reasoning_content += seg
+                            logging_utility.debug("Yielding reasoning tag: %s", seg)
+                            yield json.dumps({'type': 'reasoning', 'content': seg})
+                        elif seg == "</think>":
+                            in_reasoning = False
+                            reasoning_content += seg
+                            logging_utility.debug("Yielding reasoning tag: %s", seg)
+                            yield json.dumps({'type': 'reasoning', 'content': seg})
+                        else:
+                            if in_reasoning:
+                                reasoning_content += seg
+                                logging_utility.debug("Yielding reasoning segment: %s", seg)
+                                yield json.dumps({'type': 'reasoning', 'content': seg})
+                            else:
+                                assistant_reply += seg
+                                logging_utility.debug("Yielding content segment: %s", seg)
+                                yield json.dumps({'type': 'content', 'content': seg})
+                    time.sleep(0.01)
+                else:
+                    assistant_reply += content
+                    yield json.dumps({'type': 'content', 'content': content}) + '\n'
+
+            vector_store_id = self.get_vector_store_id_for_assistant(assistant_id=assistant_id)
+
+            # Save the assistant's response to the main db
+            if assistant_reply:
+                message = self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
+                logging_utility.info("Final accumulated content: %s", assistant_reply)
+
+                # -----------------------
+                # Save the assistant's response to the vector store for memory recall
+                # -----------------------
+                self.vector_store_service.store_message_in_vector_store(
+                    message=message,
+                    vector_store_id=vector_store_id
+                )
 
             # Final Processing
             accumulated_content = self.ensure_valid_json(str(accumulated_content))
+            assistant_reply = self.ensure_valid_json(str(assistant_reply))  # Ensure full response is validated
             normalized = self.normalize_content(accumulated_content)
-
 
             # Finds function calls embedded within surrounding text
             if not self.validate_and_set(normalized):
@@ -301,30 +292,14 @@ class TogetherV3Inference(BaseInference):
                         self.set_tool_response_state(True)
                         self.set_function_call_state(legacy_match)
 
-
-            self.finalize_conversation(
-                assistant_reply=str(accumulated_content),
-                thread_id=thread_id,
-                assistant_id=assistant_id,
-                run_id=run_id
-            )
-            logging_utility.info("Final accumulated content: %s", accumulated_content)
-
-
-            # -----------------------
-            # Save to vector store
-            # -----------------------
-            # Retrieve the vector store ID for the assistant's chat store
+            # --------------------------------------
+            # Save the user's message to vector store
+            # --------------------------------------
             message = self.message_service.retrieve_message(message_id=message_id)
-            vector_store_id = self.get_vector_store_id_for_assistant(assistant_id=assistant_id)
-
-            # Process and save the user's message to the vector store
             self.vector_store_service.store_message_in_vector_store(
                 message=message,
                 vector_store_id=vector_store_id
             )
-
-
 
         except Exception as e:
             error_msg = f"Together SDK error: {str(e)}"
@@ -332,21 +307,9 @@ class TogetherV3Inference(BaseInference):
             self.handle_error(assistant_reply or '', thread_id, assistant_id, run_id)
             yield json.dumps({'type': 'error', 'content': error_msg})
 
-        if assistant_reply:
 
-            # Save the assistant's message to the main database
-            message = self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
-
-            # Save the assistant's response to the chat-memory vector store
-           # vector_store_id = self.get_vector_store_id_for_assistant(assistant_id=assistant_id)
-
-            #self.vector_store_service.store_message_in_vector_store(
-            #    message=message,
-            #    vector_store_id=vector_store_id
-            #)
-
-    def stream_function_call_output(self, thread_id, run_id, assistant_id,
-                                    model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
+    def stream_function_call_response(self, thread_id, run_id, assistant_id,
+                                      model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
 
         """
                 Streams tool responses in real time using the TogetherAI SDK.
@@ -472,13 +435,17 @@ class TogetherV3Inference(BaseInference):
 
                     )
 
-                    for chunk in self.stream_function_call_output(thread_id=thread_id,
-                                                                  run_id=run_id,
-                                                                  assistant_id=assistant_id
-                                                                  ):
+                    for chunk in self.stream_function_call_response(thread_id=thread_id,
+                                                                    run_id=run_id,
+                                                                    assistant_id=assistant_id
+                                                                    ):
                         yield chunk
 
-        #Deal with user side function calls
+        #-----------------------------------
+        # User tools are function calls
+        # defined by API users.
+        # Deal with user side function calls
+        # -----------------------------------
         if self.get_function_call_state():
             if self.get_function_call_state():
                 if self.get_function_call_state().get("name") not in PLATFORM_TOOLS:
@@ -489,10 +456,9 @@ class TogetherV3Inference(BaseInference):
                         run_id=run_id
                     )
                     # Stream the output to the response:
-                    for chunk in self.stream_function_call_output(thread_id=thread_id,
-                                                                  run_id=run_id,
-                                                                  assistant_id=assistant_id
-                                                                  ):
+                    for chunk in self.stream_function_call_response(thread_id=thread_id,
+                                                                    run_id=run_id,
+                                                                    assistant_id=assistant_id                                         ):
                         yield chunk
 
 

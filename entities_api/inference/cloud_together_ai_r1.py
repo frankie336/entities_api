@@ -41,6 +41,18 @@ class TogetherR1Inference(BaseInference):
         """Reuse parent class normalization."""
         return super().normalize_roles(conversation_history)
 
+
+
+
+
+
+
+
+
+
+
+
+
     def process_conversation(self, thread_id, message_id, run_id, assistant_id,
                              model="deepseek-ai/DeepSeek-R1", stream_reasoning=True):
         """

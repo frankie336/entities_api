@@ -25,6 +25,9 @@ from entities_api.services.logging_service import LoggingUtility
 logging_utility = LoggingUtility()
 
 class BaseInference(ABC):
+
+    REASONING_PATTERN = re.compile(r'(<think>|</think>)')
+
     def __init__(self,
                  base_url=os.getenv('ASSISTANTS_BASE_URL'),
                  api_key=None,
@@ -40,6 +43,9 @@ class BaseInference(ABC):
         self._cancelled = False
         self._services = {}
         self.code_interpreter_response = False
+        self.tool_response = None
+        self.function_call = None
+
 
 
         # Store truncation parameters
@@ -244,6 +250,83 @@ class BaseInference(ABC):
                 "content": message.get('content', '').strip()
             })
         return normalized_history
+
+
+
+    def extract_function_candidates(self, text):
+        """
+        Extracts potential JSON function call patterns from arbitrary text positions.
+        Handles cases where function calls are embedded within other content.
+        """
+        # Regex pattern explanation:
+        # - Looks for {...} structures with 'name' and 'arguments' keys
+        # - Allows for nested JSON structures
+        # - Tolerates some invalid JSON formatting that might appear in streams
+        pattern = r'''
+            \{                      # Opening curly brace
+            \s*                     # Optional whitespace
+            (["'])name\1\s*:\s*     # 'name' key with quotes
+            (["'])(.*?)\2\s*,\s*    # Capture tool name
+            (["'])arguments\4\s*:\s* # 'arguments' key
+            (\{.*?\})               # Capture arguments object
+            \s*\}                   # Closing curly brace
+        '''
+
+        candidates = []
+        try:
+            matches = re.finditer(pattern, text, re.DOTALL | re.VERBOSE)
+            for match in matches:
+                candidate = match.group(0)
+                # Validate basic structure before adding
+                if '"name"' in candidate and '"arguments"' in candidate:
+                    candidates.append(candidate)
+        except Exception as e:
+            logging_utility.error(f"Candidate extraction error: {str(e)}")
+
+        return candidates
+
+
+    def ensure_valid_json(self, text: str):
+        """
+        Ensures the accumulated tool response is in valid JSON format.
+        - Fixes incorrect single quotes (`'`) → double quotes (`"`)
+        - Ensures proper key formatting
+        - Removes trailing commas if present
+        """
+        if not isinstance(text, str) or not text.strip():
+            logging_utility.error("Received empty or non-string JSON content.")
+            return None
+
+        try:
+            # Step 1: Standardize Quotes
+            if "'" in text and '"' not in text:
+                logging_utility.warning(f"Malformed JSON detected, attempting fix: {text}")
+                text = text.replace("'", '"')
+
+            # Step 2: Remove trailing commas (e.g., {"name": "web_search", "arguments": {"query": "test",},})
+            text = re.sub(r",\s*}", "}", text)
+            text = re.sub(r",\s*\]", "]", text)
+
+            # Step 3: Validate JSON
+            parsed_json = json.loads(text)  # Will raise JSONDecodeError if invalid
+            return parsed_json  # Return corrected JSON object
+
+        except json.JSONDecodeError as e:
+            logging_utility.error(f"JSON decoding failed: {e} | Raw: {text}")
+            return None  # Skip processing invalid JSON
+
+
+    def normalize_content(self, content):
+        """Smart format normalization with fallback"""
+        try:
+            return content if isinstance(content, dict) else \
+                json.loads(self.ensure_valid_json(str(content)))
+        except Exception as e:
+            logging_utility.warning(f"Normalization failed: {str(e)}")
+            return content  # Preserve for legacy handling
+
+
+
 
     def handle_error(self, assistant_reply, thread_id, assistant_id, run_id):
         """Handle errors and store partial assistant responses."""
@@ -533,6 +616,28 @@ class BaseInference(ABC):
             )
             self.action_service.update_action(action_id=action.id, status='failed')
             raise
+
+    def set_tool_response_state(self, value):
+        self.tool_response = value
+
+    def get_tool_response_state(self):
+        return self.tool_response
+
+    def set_function_call_state(self, value):
+        self.function_call = value
+
+    def get_function_call_state(self):
+        return self.function_call
+
+
+    def validate_and_set(self, content):
+        """Core validation pipeline"""
+        if self.is_valid_function_call_response(content):
+            self.set_tool_response_state(True)
+            self.set_function_call_state(content)
+            return True
+        return False
+
 
 
     @lru_cache(maxsize=128)
