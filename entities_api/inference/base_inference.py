@@ -452,6 +452,7 @@ class BaseInference(ABC):
     def _handle_web_search(self, thread_id, assistant_id, function_output, action):
         """Special handling for web search results."""
         try:
+
             search_output = str(function_output[0]) + WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS
 
             self._submit_tool_output(
@@ -562,12 +563,10 @@ class BaseInference(ABC):
             # Execute tool call
             platform_tool_service = self.platform_tool_service
 
-
-
             function_output = platform_tool_service.call_function(
                 function_name=content["name"],
                 arguments=content["arguments"],
-                assistant_id=assistant_id
+
             )
 
             #print("Hello, yes we are here!")

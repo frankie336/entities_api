@@ -291,7 +291,6 @@ class TogetherV3Inference(BaseInference):
                     if legacy_match := self.parse_nested_function_call_json(json.dumps(accumulated_content)):
                         self.set_tool_response_state(True)
                         self.set_function_call_state(legacy_match)
-
             # --------------------------------------
             # Save the user's message to vector store
             # --------------------------------------
@@ -300,6 +299,17 @@ class TogetherV3Inference(BaseInference):
                 message=message,
                 vector_store_id=vector_store_id
             )
+            # --------------------------------------
+            # Save the assistants message to vector store
+            # --------------------------------------
+            if assistant_reply:
+                message = self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
+                logging_utility.info("Final accumulated content: %s", assistant_reply)
+
+                self.vector_store_service.store_message_in_vector_store(
+                    message=message,
+                    vector_store_id=vector_store_id
+                )
 
         except Exception as e:
             error_msg = f"Together SDK error: {str(e)}"

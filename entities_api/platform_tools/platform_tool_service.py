@@ -52,17 +52,11 @@ class PlatformToolService:
             self._vector_search_handler = VectorSearchHandler(assistant_id=self.assistant_id)
         return self._vector_search_handler
 
-    def call_function(self, function_name, arguments, assistant_id=None):
+    def call_function(self, function_name, arguments):
         """
         Executes a function based on the provided name and arguments.
         Caches results to avoid redundant computations.
         """
-
-        # merge assistant_id passed in manually with the
-        # function call args
-        arguments['assistant_id'] = assistant_id
-
-
         if not isinstance(arguments, dict):
             logging_utility.error(
                 "Invalid 'arguments' type: Expected dictionary but got %s", type(arguments)
