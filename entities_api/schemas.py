@@ -481,6 +481,8 @@ class VectorStoreUnlinkAssistant(BaseModel):
     assistant_id: str = Field(..., description="Assistant ID to unlink")
 
 
+
+
 class VectorStoreSearchResult(BaseModel):
     text: str
     metadata: Optional[dict] = None

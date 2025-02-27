@@ -117,26 +117,44 @@ class VectorStoreManager(BaseVectorStore):
                 raise TypeError(f"Vector {i} contains non-float values")
 
 
-    def query_store(self, store_name: str, query_vector: List[float], top_k: int = 5, filters: Optional[dict] = None) -> List[dict]:
-        """Query store with optional filters"""
+    def query_store(
+        self,
+        store_name: str,
+        query_vector: List[float],
+        top_k: int = 5,
+        filters: Optional[models.Filter] = None,
+        score_threshold: float = 0.0,
+        offset: int = 0,
+        limit: Optional[int] = None,
+        **kwargs
+    ) -> List[dict]:
+        """
+        Enhanced store query with:
+        - Server-side filtering
+        - Pagination support
+        - Score thresholding
+        - Advanced Qdrant filters
+        """
         try:
-            query_filter = models.Filter(must=[
-                models.FieldCondition(key=f"metadata.{k}", match=models.MatchValue(v))
-                for k, v in (filters or {}).items()
-            ]) if filters else None
+            # Use limit if provided, otherwise use top_k
+            actual_limit = limit if limit is not None else top_k
 
             results = self.client.search(
                 collection_name=store_name,
                 query_vector=query_vector,
-                query_filter=query_filter,
-                limit=top_k
+                query_filter=filters,
+                limit=actual_limit,
+                offset=offset,
+                score_threshold=score_threshold,
+                with_payload=True,
+                with_vectors=False
             )
 
             return [{
                 "id": r.id,
                 "score": r.score,
                 "text": r.payload.get("text"),
-                "metadata": r.payload.get("metadata")
+                "metadata": r.payload.get("metadata", {})
             } for r in results]
 
         except Exception as e:

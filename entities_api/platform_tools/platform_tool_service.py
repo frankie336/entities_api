@@ -15,17 +15,17 @@ class PlatformToolService:
     function_handlers = {
         "code_interpreter": None,  # Placeholder for lazy initialization
         "web_search": None,
-        "search_vector_store": None
-
+        "vector_store_search": None
         # Add more handlers here as needed
     }
 
 
-    def __init__(self, base_url=None, api_key=None):
+    def __init__(self, base_url=None, api_key=None, assistant_id=None):
         # Lazy initialization of handlers
         self._code_execution_handler = None
         self._web_search_handler = None
         self._vector_search_handler = None
+        self.assistant_id = assistant_id
 
         # Cache for function call results
         self._call_cache = {}
@@ -49,7 +49,7 @@ class PlatformToolService:
     def _get_vector_search_handler(self):
         """Lazy initialization of CodeExecutionHandler."""
         if self._vector_search_handler is None:
-            self._vector_search_handler = VectorSearchHandler()
+            self._vector_search_handler = VectorSearchHandler(assistant_id=self.assistant_id)
         return self._vector_search_handler
 
     def call_function(self, function_name, arguments, assistant_id=None):
@@ -61,6 +61,7 @@ class PlatformToolService:
         # merge assistant_id passed in manually with the
         # function call args
         arguments['assistant_id'] = assistant_id
+
 
         if not isinstance(arguments, dict):
             logging_utility.error(
@@ -94,8 +95,8 @@ class PlatformToolService:
             elif function_name == "web_search":
                 self.function_handlers[function_name] = self._get_web_search_handler().search_orchestrator
 
-            elif function_name == "search_vector_store":
-                self.function_handlers[function_name] = self._get_vector_search_handler().search_orchestrator
+            elif function_name == "vector_store_search":
+                self.function_handlers[function_name] = self._get_vector_search_handler().execute_search
 
             else:
                 logging_utility.error("No handler available for function: %s", function_name)

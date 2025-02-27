@@ -31,6 +31,7 @@ class BaseInference(ABC):
     def __init__(self,
                  base_url=os.getenv('ASSISTANTS_BASE_URL'),
                  api_key=None,
+                 assistant_id=None,
                  # New parameters for ConversationTruncator
                  model_name="deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
                  max_context_window=128000,
@@ -39,6 +40,7 @@ class BaseInference(ABC):
 
         self.base_url = base_url
         self.api_key = api_key
+        self.assistant_id = assistant_id
         self.available_functions = available_functions
         self._cancelled = False
         self._services = {}
@@ -59,20 +61,26 @@ class BaseInference(ABC):
         self.setup_services()
 
     def _get_service(self, service_class, custom_params=None):
-        """Lazy-load and cache service instances with flexible initialization."""
+        """Modified to handle PlatformToolService with assistant_id"""
         if service_class not in self._services:
-            if service_class == ConversationTruncator:
-                # Special handling for ConversationTruncator
+            if service_class == PlatformToolService:
+                # Special initialization for PlatformToolService
+                if not self.get_assistant_id():
+                    raise ValueError("PlatformToolService requires assistant_id")
+                self._services[service_class] = service_class(
+                    self.base_url,
+                    self.api_key,
+                    assistant_id=self.get_assistant_id()
+                )
+            elif service_class == ConversationTruncator:
                 self._services[service_class] = service_class(
                     **self.truncator_params
                 )
             else:
-                # Standard services get base_url and api_key
                 params = custom_params or (self.base_url, self.api_key)
                 self._services[service_class] = service_class(*params)
 
             logging_utility.info(f"Lazy-loaded {service_class.__name__}")
-
         return self._services[service_class]
 
     @property
@@ -325,9 +333,6 @@ class BaseInference(ABC):
             logging_utility.warning(f"Normalization failed: {str(e)}")
             return content  # Preserve for legacy handling
 
-
-
-
     def handle_error(self, assistant_reply, thread_id, assistant_id, run_id):
         """Handle errors and store partial assistant responses."""
         if assistant_reply:
@@ -447,7 +452,6 @@ class BaseInference(ABC):
     def _handle_web_search(self, thread_id, assistant_id, function_output, action):
         """Special handling for web search results."""
         try:
-
             search_output = str(function_output[0]) + WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS
 
             self._submit_tool_output(
@@ -492,7 +496,6 @@ class BaseInference(ABC):
             )
             raise
 
-
     def _handle_vector_search(self, thread_id, assistant_id, function_output, action):
         """Special handling for web search results."""
         try:
@@ -517,8 +520,18 @@ class BaseInference(ABC):
             )
             raise
 
+
+    def set_assistant_id(self, assistant_id):
+        self.assistant_id = assistant_id
+
+    def get_assistant_id(self):
+        return self.assistant_id
+
     def process_platform_tool_calls(self, thread_id, assistant_id, content, run_id):
         """Process platform tool calls with enhanced logging and error handling."""
+
+        self.set_assistant_id(assistant_id=assistant_id)
+
         try:
             logging_utility.info(
                 "Starting tool call processing for run %s. Tool: %s",
@@ -536,6 +549,9 @@ class BaseInference(ABC):
                 action.id, content["name"]
             )
 
+
+
+
             # Update run status
             self.run_service.update_run_status(run_id=run_id, new_status='action_required')
             logging_utility.info(
@@ -545,11 +561,18 @@ class BaseInference(ABC):
 
             # Execute tool call
             platform_tool_service = self.platform_tool_service
+
+
+
             function_output = platform_tool_service.call_function(
                 function_name=content["name"],
                 arguments=content["arguments"],
                 assistant_id=assistant_id
             )
+
+            #print("Hello, yes we are here!")
+            #print(content)
+            #time.sleep(10000)
 
             logging_utility.debug(
                 "Tool %s executed successfully for run %s",
@@ -560,7 +583,7 @@ class BaseInference(ABC):
             tool_handlers = {
                 "code_interpreter": self._handle_code_interpreter,
                 "web_search": self._handle_web_search,
-                "search_vector_store": self._handle_vector_search
+                "vector_store_search": self._handle_vector_search
 
             }
 

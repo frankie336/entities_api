@@ -1,6 +1,6 @@
 #entities_api/assistant.py
 # Global constants
-PLATFORM_TOOLS = ["code_interpreter", "web_search", "search_vector_store"]
+PLATFORM_TOOLS = ["code_interpreter", "web_search", "search_vector_store", "vector_store_search"]
 
 API_TIMEOUT = 30
 DEFAULT_MODEL = "llama3.1"
@@ -51,11 +51,8 @@ BASE_TOOLS = [
                             "type": "string",
                             "description": "The search query (e.g., 'latest trends in AI')."
                         },
-                        "max_results": {
-                            "type": "integer",
-                            "description": "The maximum number of results to return. Default is 5.",
-                            "default": 5
-                        }
+
+
                     },
                     "required": ["query"]
                 }
@@ -65,23 +62,51 @@ BASE_TOOLS = [
 {
     "type": "function",
     "function": {
-        "name": "search_vector_store",
-        "description": "Searches a vector store for the most relevant stored embeddings based on a query.",
+        "name": "vector_store_search",
+        "description": "Performs semantic search across various data sources with advanced capabilities",
         "parameters": {
             "type": "object",
             "properties": {
-
                 "query": {
                     "type": "string",
-                    "description": "The text query to search for in the vector store."
+                    "description": "Natural language query for semantic search"
                 },
-
+                "search_type": {
+                    "type": "string",
+                    "enum": [
+                        "basic_semantic",
+                        "filtered",
+                        "complex_filters",
+                        "temporal",
+                        "explainable",
+                        "hybrid"
+                    ],
+                    "description": """Type of search to perform:
+- basic_semantic: Simple vector similarity search
+- filtered: Metadata-filtered results
+- complex_filters: Boolean logic filter combinations
+- temporal: Time-weighted results
+- explainable: Results with scoring explanations
+- hybrid: Combined vector + keyword search"""
+                },
+                "source_type": {
+                    "type": "string",
+                    "enum": ["chat", "documents", "memory"],
+                    "description": "Data domain to search"
+                },
+                "filters": {
+                    "type": "object",
+                    "description": "Metadata filters in Qdrant syntax"
+                },
+                "score_boosts": {
+                    "type": "object",
+                    "description": "Field-specific score multipliers"
+                }
             },
-            "required": ["query"]
+            "required": ["query", "search_type", "source_type"]
         }
     }
 }
-
 
 
 
@@ -108,6 +133,7 @@ BASE_ASSISTANT_INSTRUCTIONS = (
     "     - Ensure proper comma placement—no trailing or missing commas.\n"
     "     - Keys must be lowercase and match the tool schema.\n"
     "\n"
+    
     "🔹 **WEB SEARCH RULES & EFFECTIVE SEARCH GUIDELINES:**\n"
     "- Use `web_search` when:\n"
     "  • The user asks about current events or trending topics.\n"
@@ -115,13 +141,27 @@ BASE_ASSISTANT_INSTRUCTIONS = (
     "  • A vector store search yields no relevant results.\n"
     "\n"
     "• **Before executing a web search, follow these effective search guidelines:**\n"
-    "  1. **Extract Core Keywords:** Identify and focus on the main subjects and remove filler words.\n"
-    "  2. **Exact Phrase Matching:** Enclose key phrases in double quotes (e.g., \"latest developments\").\n"
-    "  3. **Boolean Operators:** Use operators like AND, OR, and the minus sign (`-`) to refine your query.\n"
-    "  4. **Advanced Operators:** Utilize commands such as `site:`, `intitle:`, or `filetype:` to narrow results.\n"
-    "  5. **Contextual Enrichment:** Expand the query with synonyms or clarify ambiguous terms to ensure precision.\n"
-    "  6. **Iterative Refinement:** If initial results are unsatisfactory, adjust the query by adding/removing terms or incorporating date filters.\n"
     "\n"
+    "**Examples of Searches"
+    "Keep search terms terse. Do not copy convoluted questions from the user to make the search. Use terse terms like\n"
+    "a human would. Search Engines will return relevant results as long as the core terms are included.\n"
+    "Ensure that results are in English.\n"
+    "About News:"
+    "  {\n"
+    '    "name": "web_search",\n'
+    '    "arguments": {\n'
+    '      "query": "Donald Trump+news site:.uk&setlang=en"\n'
+    '    }\n'
+    "  }\n"
+    "About a Person:"
+    "  {\n"
+    '    "name": "web_search",\n'
+    '    "arguments": {\n'
+    '      "query": "Pearl Davis+move back to USA site:.uk&setlang=en"\n'
+    '    }\n'
+    "  }\n"
+    "EXTRAPOLATE THE CORRECT SEARCH PATTERN FROM THE USERS INTENT. DO NOT USE THE USERS WORDS AS SEARCH PATTERNS SINCE"
+    "THESE MAY NOT BE OPTIMAL FOR SEARCH ENGINES."
     "- Always verify JSON structure before invoking web search:\n"
     "  {\n"
     '    "name": "web_search",\n'
@@ -129,6 +169,28 @@ BASE_ASSISTANT_INSTRUCTIONS = (
     '      "query": "<search term>"\n'
     '    }\n'
     "  }\n"
+    
+    "\n\n🔹 **VECTOR SEARCH STRATEGIES:**\n"
+    "Choose search types based on query context:\n"
+    "1. Use 'basic_semantic' for general similarity searches\n"
+    "2. Use 'filtered' when specific metadata criteria are known\n"
+    "3. Use 'complex_filters' for boolean logic combinations\n"
+    "4. Use 'temporal' for time-sensitive queries\n"
+    "5. Use 'explainable' when justification is needed\n"
+    "6. Use 'hybrid' for combined keyword/vector search\n\n"
+    "Match source types to data domains:\n"
+    "- 'chat': Conversation history\n"
+    "- 'documents': Knowledge base/articles\n"
+    "- 'memory': User-specific memories\n\n"
+    "Example complex filter:\n"
+    "{\n"
+    '  "$or": [\n'
+    '    {"priority": {"$gt": 7}},\n'
+    '    {"category": "security"}\n'
+    '  ],\n'
+    '  "status": "active"\n'
+    "}"
+    
     "- **STRICT JSON FORMAT ENFORCEMENT:**\n"
     "  • Always use double quotes (`\"`) for JSON keys and values.\n"
     "  • Do **NOT** use single quotes (`'`), backticks, or non-standard formatting.\n"
@@ -170,7 +232,6 @@ BASE_ASSISTANT_INSTRUCTIONS = (
 )
 
 
-
 WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS = (
     "Presentation Requirements:\n"
     "1. Strictly NO code block formatting\n"
@@ -189,6 +250,6 @@ WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS = (
     "Next result..."
 )
 
-WEB_SEARCH_BASE_URL="https://www.bing.com/search"
+WEB_SEARCH_BASE_URL="https://www.bing.co.uk/search"
 
 #WEB_SEARCH_BASE_URL_BBC_TEST=f"https://www.bbc.com/search?q={query}&page={i}"

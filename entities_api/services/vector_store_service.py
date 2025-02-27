@@ -2,12 +2,14 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from http.client import HTTPException
 from pathlib import Path
-from typing import List, Dict, Optional, Union, Any
+from typing import Any
 
+from qdrant_client.http import models
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, joinedload
 from tenacity import retry, stop_after_attempt, wait_random_exponential, retry_if_exception_type
 
+from entities_api.constants.platform import DIRECT_DATABASE_URL
 from entities_api.interfaces.base_vector_store import StoreNotFoundError, VectorStoreError
 from entities_api.models.models import VectorStore, Base, Assistant
 from entities_api.schemas import StatusEnum, VectorStoreRead, VectorStoreSearchResult, ProcessOutput, MessageRead
@@ -15,10 +17,29 @@ from entities_api.services.file_processor import FileProcessor
 from entities_api.services.identifier_service import IdentifierService
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.vector_store_manager import VectorStoreManager
-from entities_api.schemas import VectorStoreCreate
-from entities_api.constants.platform import DIRECT_DATABASE_URL
+
 logging_utility = LoggingUtility()
 
+
+
+
+from typing import List, Dict, Optional, Union
+from pydantic import BaseModel
+
+
+# NEW: Added search explanation model
+class SearchExplanation(BaseModel):
+    """Provides transparency into search scoring and filtering"""
+    base_score: float
+    filters_passed: List[str]
+    boosts_applied: Dict[str, float]
+    final_score: float
+
+# NEW: Enhanced result model with explainability
+class EnhancedVectorSearchResult(VectorStoreSearchResult):
+    explanation: Optional[SearchExplanation] = None
+
+from entities_api.schemas import VectorStoreCreate
 
 class VectorStoreService:
     def __init__(self, base_url=None, api_key=None):
@@ -111,25 +132,36 @@ class VectorStoreService:
         retry=retry_if_exception_type(VectorStoreError),
         retry_error_callback=lambda state: state.outcome.result()
     )
-
     def search_vector_store(
             self,
             store_name: str,
             query_text: str,
             top_k: int = 5,
             filters: Optional[Dict] = None,
-            score_threshold: float = 0.5
-    ) -> List[VectorStoreSearchResult]:
-
-
+            score_threshold: float = 0.5,
+            # NEW: Added pagination and scoring controls
+            page: int = 1,
+            page_size: int = 10,
+            score_boosts: Optional[Dict[str, float]] = None,
+            explain: bool = False
+    ) -> List[EnhancedVectorSearchResult]:
         """
-        Semantic search with hybrid filtering.
-        - query_text: Natural language query
-        - top_k: Number of results to return
-        - filters: Key-value filters for metadata
-        - score_threshold: Minimum relevance score (0-1)
+        Enhanced semantic search with:
+        - Advanced filtering
+        - Hybrid scoring
+        - Pagination
+        - Explainability
+        - Server-side optimizations
+
+        Maintains backward compatibility with original parameters
         """
         try:
+            # NEW: Pagination validation
+            if page < 1 or page_size < 1:
+                raise ValueError("Invalid pagination parameters")
+            offset = (page - 1) * page_size
+
+            # Existing store validation remains unchanged
             with self.SessionLocal() as session:
                 store = session.query(VectorStore).filter(
                     VectorStore.collection_name == store_name,
@@ -137,30 +169,152 @@ class VectorStoreService:
                 ).first()
             if not store:
                 raise StoreNotFoundError(f"Vector store {store_name} not found")
+
+            # Existing vector encoding remains unchanged
             query_vector = self.file_processor.embedding_model.encode(
                 [query_text],
                 convert_to_numpy=True
             ).tolist()[0]
+
+            # NEW: Advanced filter parsing
+            qdrant_filter = self._parse_advanced_filters(filters) if filters else None
+
+            # Modified: Added pagination and server-side threshold
             raw_results = self.vector_manager.query_store(
                 store_name=store_name,
                 query_vector=query_vector,
                 top_k=top_k,
-                filters=filters
+                filters=qdrant_filter,
+                score_threshold=score_threshold,
+                offset=offset,
+                limit=page_size
             )
+
+            # Modified: Added score boosting and explanations
             processed_results = []
             for result in raw_results:
-                if result['score'] >= score_threshold:
-                    processed_results.append(VectorStoreSearchResult(
-                        text=result['text'],
-                        metadata=result.get('metadata', {}),
-                        score=result['score'],
-                        vector_id=str(result['id']),
-                        store_id=store.id
-                    ))
+                processed = self._process_result(
+                    result,
+                    store.id,
+                    score_boosts,
+                    explain
+                )
+                processed_results.append(processed)
+
             return processed_results
+
         except Exception as e:
             logging_utility.error(f"Search failed: {str(e)}")
             raise VectorStoreError(f"Search operation failed: {str(e)}")
+
+    # NEW: Added helper methods for enhanced functionality
+    def _parse_advanced_filters(self, filters: Dict) -> models.Filter:
+        """Convert advanced filter syntax to Qdrant filters"""
+        conditions = []
+
+        for key, value in filters.items():
+            # Handle logical operators
+            if key.startswith("$"):
+                if key == "$or":
+                    or_conditions = [
+                        self._parse_advanced_filters(cond)
+                        for cond in value
+                    ]
+                    conditions.append(models.Filter(should=or_conditions))
+                elif key == "$and":
+                    and_conditions = [
+                        self._parse_advanced_filters(cond)
+                        for cond in value
+                    ]
+                    conditions.append(models.Filter(must=and_conditions))
+                continue
+
+            # Handle comparison operators
+            if isinstance(value, dict):
+                for op, op_value in value.items():
+                    if op == "$gt":
+                        conditions.append(models.FieldCondition(
+                            key=f"metadata.{key}",
+                            range=models.Range(gt=op_value)
+                        ))
+                    elif op == "$contains":
+                        conditions.append(models.FieldCondition(
+                            key=f"metadata.{key}",
+                            match=models.MatchAny(any=[op_value])
+                        ))
+            else:
+                # Default to exact match
+                conditions.append(models.FieldCondition(
+                    key=f"metadata.{key}",
+                    match=models.MatchValue(value=value)
+                ))
+
+        return models.Filter(must=conditions) if conditions else None
+
+    def _process_result(self, result, store_id, score_boosts, explain):
+        """Apply scoring boosts and build explanations"""
+        base_score = result['score']
+        boosts = {}
+
+        if score_boosts:
+            for field, boost in score_boosts.items():
+                # Handle nested metadata fields (e.g., "meta_data.priority")
+                if '.' in field:
+                    parts = field.split('.')
+                    value = result['metadata'].get(parts[0], {})
+                    for part in parts[1:]:
+                        value = value.get(part, None) if isinstance(value, dict) else None
+                else:
+                    value = result['metadata'].get(field)
+
+                if value is not None:
+                    base_score *= boost
+                    boosts[field] = {
+                        'value': value,
+                        'boost': boost
+                    }
+                else:
+                    # Log missing boost fields for debugging
+                    logging_utility.debug(
+                        f"Boost field '{field}' not found in metadata for result: {result['id']}"
+                    )
+
+        # Build explanation if requested
+        explanation = None
+        if explain:
+            explanation = SearchExplanation(
+                base_score=result['score'],
+                filters_passed=self._get_passed_filters(result),
+                boosts_applied={k: v['boost'] for k, v in boosts.items()},
+                final_score=base_score
+            )
+
+        return EnhancedVectorSearchResult(
+            text=result['text'],
+            metadata=result.get('metadata', {}),
+            score=base_score,
+            vector_id=str(result['id']),
+            store_id=store_id,
+            explanation=explanation
+        )
+
+
+    def _get_passed_filters(self, result):
+        """Identify which filters the result passed"""
+        # Implementation note: This should compare result metadata against
+        # the original query filters to determine which ones were matched
+        # Current simplified version returns all filters
+        return list(result.get('metadata', {}).keys())
+
+
+
+
+
+
+
+
+
+
 
     def batch_search(
             self,
