@@ -269,9 +269,12 @@ class TogetherV3Inference(BaseInference):
 
             assistant_reply = self.ensure_valid_json(str(assistant_reply))  # Ensure full response is validated
 
-            #normalized = self.normalize_content(accumulated_content)
+            normalized = self.normalize_content(accumulated_content)
             self.set_tool_response_state(True)
             self.set_function_call_state(accumulated_content)
+
+
+
             # --------------------------------------
             # Save the user's message to vector store
             # --------------------------------------
@@ -283,32 +286,15 @@ class TogetherV3Inference(BaseInference):
             )
 
 
-
-
         except Exception as e:
             error_msg = f"Together SDK error: {str(e)}"
             logging_utility.error(error_msg, exc_info=True)
             self.handle_error(assistant_reply or '', thread_id, assistant_id, run_id)
             yield json.dumps({'type': 'error', 'content': error_msg})
 
-
-        vector_store_id = self.get_vector_store_id_for_assistant(assistant_id=assistant_id)
-        # Save the assistant's response to the main db
         if assistant_reply:
-            message = self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
-            print("***************************")
-            print(message)
-            print("***************************")
-            logging_utility.info("Final accumulated content: %s", assistant_reply)
+            self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
 
-            # -----------------------
-            # Save the assistant's response to the vector store for memory recall
-            # -----------------------
-            self.vector_store_service.store_message_in_vector_store(
-                message=message,
-                vector_store_id=vector_store_id,
-                role="assistant"
-             )
 
 
     def stream_function_call_response(self, thread_id, run_id, assistant_id,
