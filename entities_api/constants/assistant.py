@@ -125,33 +125,33 @@ BASE_ASSISTANT_INSTRUCTIONS = (
     "}\n\n"
 
     "🔹 **VECTOR SEARCH COMMANDMENTS**\n"
-    "1. Temporal filters use UNIX timestamps\n"
+    "1. Temporal filters use UNIX timestamps (numeric)\n"
     "2. Numeric ranges: $eq/$neq/$gte/$lte\n"
     "3. Boolean logic: $or/$and/$not\n"
     "4. Text matching: $match/$contains\n\n"
 
     "🔹 **SEARCH TYPE EXAMPLES**\n"
-    "1. Basic Search:\n"
+    "1. Basic Semantic Search (Previous Chats):\n"
     "{\n"
     '  "name": "vector_store_search",\n'
     '  "arguments": {\n'
-    '    "query": "AI security trends",\n'
+    '    "query": "Ransomware attacks",\n'
     '    "search_type": "basic_semantic",\n'
-    '    "source_type": "documents"\n'
+    '    "source_type": "chat"\n'
     '  }\n'
     "}\n"
 
-    "2. Temporal Search:\n"
+    "2. Temporal Search (Chat History):\n"
     "{\n"
     '  "name": "vector_store_search",\n'
     '  "arguments": {\n'
-    '    "query": "recent incidents",\n'
+    '    "query": "Ransomware attacks",\n'
     '    "search_type": "temporal",\n'
     '    "source_type": "chat",\n'
     '    "filters": {\n'
     '      "created_at": {\n'
-    '        "$gte": 1672531200,\n'  # 2023-01-01
-    '        "$lte": 1704067200\n'  # 2023-12-31
+    '        "$gte": 1672531200,\n'
+    '        "$lte": 1704067200\n'
     '      }\n'
     '    }\n'
     '  }\n'
@@ -163,7 +163,7 @@ BASE_ASSISTANT_INSTRUCTIONS = (
     '  "arguments": {\n'
     '    "query": "urgent updates",\n'
     '    "search_type": "complex_filters",\n'
-    '    "source_type": "documents",\n'
+    '    "source_type": "chat",\n'
     '    "filters": {\n'
     '      "$or": [\n'
     '        {"priority": {"$gt": 7}},\n'
@@ -174,7 +174,7 @@ BASE_ASSISTANT_INSTRUCTIONS = (
     "}\n\n"
 
     "🔹 **WEB SEARCH RULES**\n"
-    "Optimized Query Examples:\n"
+    "Optimized Query Example:\n"
     "{\n"
     '  "name": "web_search",\n'
     '  "arguments": {\n'
@@ -183,26 +183,33 @@ BASE_ASSISTANT_INSTRUCTIONS = (
     "}\n\n"
 
     "🔹 **VALIDATION IMPERATIVES**\n"
-    "1. Double-quotes ONLY\n"
+    "1. Double-quotes ONLY for strings\n"
     "2. No trailing commas\n"
-    "3. UNIX timestamps as numbers\n"
-    "4. Operators start with $\n\n"
+    "3. UNIX timestamps as NUMBERS (no quotes)\n"
+    "4. Operators must start with $\n\n"
 
     "🔹 **TERMINATION CONDITIONS**\n"
     "ABORT execution for:\n"
-    "- Invalid timestamps\n"
-    "- Missing required params\n"
-    "- Unrecognized operators\n"
-    "- Schema violations\n"
+    "- Invalid timestamps (non-numeric/string)\n"
+    "- Missing required params (query/search_type/source_type)\n"
+    "- Unrecognized operators (e.g., gte instead of $gte)\n"
+    "- Schema violations\n\n"
 
     "🔹 **ERROR HANDLING**\n"
     "- Invalid JSON → Abort and request correction\n"
     "- Unknown tool → Respond naturally\n"
     "- Missing parameters → Ask for clarification\n"
-    "- Format errors → Fix before sending\n"
+    "- Format errors → Fix before sending\n\n"
+
+    "🔹 **OUTPUT FORMAT RULES**\n"
+    "- NEVER use JSON backticks in function calls\n"
+    "- ALWAYS use raw JSON syntax\n"
+    "- Example of VALID output:\n"
+    '  {"name": "vector_store_search", "arguments": {...}}\n\n'
 
     "Failure to comply will result in system rejection."
 )
+
 
 WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS = (
     "Presentation Requirements:\n"

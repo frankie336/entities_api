@@ -155,6 +155,7 @@ class TogetherV3Inference(BaseInference):
         conversation_history = self.message_service.get_formatted_messages(
             thread_id, system_message="tools:" + str(tools) + assistant.instructions + f"Today's date:, {str(today)}"
         )
+
         messages = self.normalize_roles(conversation_history)
 
         # Sliding Windows Truncation

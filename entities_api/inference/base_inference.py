@@ -243,6 +243,26 @@ class BaseInference(ABC):
         except (TypeError, KeyError):
             return False
 
+    def is_complex_vector_search(self, data: dict) -> bool:
+        """Recursively validate operators with $ prefix"""
+        for key, value in data.items():
+            if key.startswith('$'):
+                # Operator values can be primitives or nested structures
+                if isinstance(value, dict) and not self.is_complex_vector_search(value):
+                    return False
+                elif isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, dict) and not self.is_complex_vector_search(item):
+                            return False
+            else:
+                # Non-operator keys can have any value EXCEPT unvalidated dicts
+                if isinstance(value, dict):
+                    if not self.is_complex_vector_search(value):  # Recurse into nested dicts
+                        return False
+                elif isinstance(value, list):
+                    return False  # Maintain original list prohibition
+
+        return True
 
     def normalize_roles(self, conversation_history):
         """

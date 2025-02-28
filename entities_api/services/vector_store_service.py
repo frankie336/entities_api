@@ -590,10 +590,6 @@ class VectorStoreService:
     def format_message_for_storage(self, message: MessageRead, role) -> dict:
         """Properly structure messages with role at metadata level"""
 
-        print(MessageRead)
-        time.sleep(100000)
-
-
         return {
             "text": message.content,
             "metadata": {
