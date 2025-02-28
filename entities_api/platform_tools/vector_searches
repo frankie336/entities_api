@@ -1,0 +1,25 @@
+//working search for the specified date range.
+{
+“name”: “vector_store_search”,
+“arguments”: {
+“query”: “not also no errors right ?”,
+“search_type”: “temporal”,
+“source_type”: “chat”,
+“filters”: {
+“created_at”: {
+“gte”: 1738022399,
+“lte”: 1738022399
+}
+}
+}
+
+
+//Basic Search
+{
+“name”: “vector_store_search”,
+“arguments”: {
+“query”: “Conclusion:”,
+“search_type”: “basic_semantic”,
+“source_type”: “documents”
+}
+}

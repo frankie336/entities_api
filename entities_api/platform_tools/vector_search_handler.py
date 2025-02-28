@@ -1,4 +1,7 @@
+import json
+import time
 from entities_api import OllamaClient
+from entities_api.interfaces.base_vector_store import VectorStoreError
 from entities_api.schemas import VectorStoreSearchResult
 from entities_api.services.vector_store_service import VectorStoreService
 from typing import Optional, List, Dict, Any, Union
@@ -31,11 +34,23 @@ class VectorSearchHandler:
                 )
         return mapping
 
+    # Add to VectorSearchHandler
     def execute_search(self, **kwargs) -> List[VectorStoreSearchResult]:
-        """Main entry point for vector searches"""
-        search_type = kwargs.get("search_type", "basic_semantic")
-        handler = getattr(self, f"handle_{search_type}", self.handle_basic_semantic)
-        return handler(kwargs)
+        try:
+            self._validate_search_params(kwargs)
+            handler = getattr(self, f"handle_{kwargs['search_type']}", None)
+            if not handler:
+                raise ValueError(f"Invalid search_type: {kwargs['search_type']}")
+            return handler(kwargs)
+        except Exception as e:
+            logging.error(f"Search failed: {str(e)}")
+            return [VectorStoreSearchResult(
+                text=f"Search Error: {str(e)}",
+                metadata={"error": True, "type": type(e).__name__},
+                score=0.0,
+                vector_id="",  # Return empty string
+                store_id=""  # Return empty string
+            )]
 
     def handle_basic_semantic(self, params: Dict) -> List[VectorStoreSearchResult]:
         """Basic vector similarity search"""
@@ -55,21 +70,65 @@ class VectorSearchHandler:
         )
 
     def handle_complex_filters(self, params: Dict) -> List[VectorStoreSearchResult]:
-        """Boolean logic filter search"""
+        """Handle complex filters search with all required parameters"""
         return self.vector_store_service.search_vector_store(
-            store_name=self._get_collection_name(params["source_type"]),
-            query_text=params["query"],
-            filters=self._parse_complex_filters(params["filters"]),
-            explain=params.get("explain", True)
+            store_name=self._get_collection_name(params["source_type"]),  # ✅ Added
+            query_text=params["query"],  # ✅ Added
+            filters=params.get("filters", {}),  # ✅ Pass filters
+            score_boosts=params.get("score_boosts", {}),  # ✅ Pass score boosts
+            search_type="complex_filters",  # ✅ Explicit type
+            top_k=params.get("top_k", 5),  # ✅ Default top_k
+            score_threshold=params.get("score_threshold", 0.5),  # ✅ Default threshold
+            explain=params.get("explain", False)  # ✅ Optional explain
         )
 
+    def _validate_search_params(self, params: Dict):
+        """Ensure assistant-provided parameters match tool schema"""
+        required = {"query", "search_type", "source_type"}
+        if missing := required - params.keys():
+            raise ValueError(f"Missing required params: {missing}")
+
+        if params["search_type"] not in [
+            "basic_semantic", "filtered", "complex_filters",
+            "temporal", "explainable", "hybrid"
+        ]:
+            raise ValueError(f"Invalid search_type: {params['search_type']}")
+
+        if params["source_type"] not in ["chat", "documents", "memory"]:
+            raise ValueError(f"Invalid source_type: {params['source_type']}")
+
+    def validate_filters(self, filters: dict):
+        """Ensure all filter values are JSON-serializable"""
+        allowed_types = (str, int, float, bool, type(None))
+
+        def check_value(value):
+            if isinstance(value, dict):
+                for k, v in value.items():
+                    if not isinstance(k, str):
+                        raise ValueError(f"Invalid filter key type: {type(k)}")
+                    check_value(v)
+            elif isinstance(value, list):
+                for item in value:
+                    check_value(item)
+            elif not isinstance(value, allowed_types):
+                raise ValueError(f"Unserializable type {type(value)} in filters")
+
+        check_value(filters)
+
     def handle_temporal(self, params: Dict) -> List[VectorStoreSearchResult]:
-        """Time-weighted search"""
+        """Time-weighted search with validation"""
+
+        self._validate_search_params(params)  # ✅ New validation
+
         return self.vector_store_service.search_vector_store(
             store_name=self._get_collection_name(params["source_type"]),
             query_text=params["query"],
-            score_boosts=params.get("score_boosts", {"created_at": 1.05})
+            search_type="temporal",  # ✅ Explicit type
+            filters=params.get("filters", {}),
+            score_boosts=params.get("score_boosts", {"created_at": 1.05}),
+            explain=params.get("explain", False)
         )
+
 
     def handle_explainable(self, params: Dict) -> List[VectorStoreSearchResult]:
         """Search with scoring explanations"""
@@ -80,12 +139,13 @@ class VectorSearchHandler:
         )
 
     def handle_hybrid(self, params: Dict) -> List[VectorStoreSearchResult]:
-        """Hybrid vector + keyword search"""
         return self.vector_store_service.search_vector_store(
             store_name=self._get_collection_name(params["source_type"]),
             query_text=params["query"],
-            filters={"text_contains": params["search_query"]},
-            score_boosts=params.get("score_boosts", {"keywords": 1.2})
+            search_type="hybrid",
+            filters=params.get("filters", {}),
+            score_boosts=params.get("score_boosts", {}),  # ✅ Added
+            explain=params.get("explain", False)
         )
 
     def _get_collection_name(self, source_type: str) -> str:
@@ -100,8 +160,8 @@ class VectorSearchHandler:
         return collection_name
 
     def _parse_complex_filters(self, filters: Dict) -> models.Filter:
-        """Convert JSON filters to Qdrant Filter objects"""
-        return self._recursive_filter_builder(filters)
+        return self.vector_store_service._parse_advanced_filters(filters)
+
 
     def _recursive_filter_builder(self, condition: Union[Dict, List]) -> Union[models.Filter, models.FieldCondition]:
         """Recursively build Qdrant filter conditions"""
@@ -171,3 +231,4 @@ class VectorSearchHandler:
                 match=models.MatchAny(**match_params)
             )
         raise ValueError("No valid operators found")
+

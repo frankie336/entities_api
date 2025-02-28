@@ -55,7 +55,7 @@ class PlatformToolService:
     def call_function(self, function_name, arguments):
         """
         Executes a function based on the provided name and arguments.
-        Caches results to avoid redundant computations.
+        Caches results to avoid redundant computations but bypasses caching if arguments are unhashable.
         """
         if not isinstance(arguments, dict):
             logging_utility.error(
@@ -63,18 +63,19 @@ class PlatformToolService:
             )
             return {"error": "Invalid arguments format. Expected a dictionary."}
 
-        # Create a cache key from function name and arguments
+        # Attempt to create a cache key
         try:
             cache_key = (function_name, frozenset(arguments.items()))
         except TypeError as e:
-            logging_utility.error("Failed to create cache key: %s", str(e))
-            return {"error": "Arguments contain unhashable values."}
+            logging_utility.warning("Cache key creation failed due to unhashable arguments: %s", str(e))
+            cache_key = None  # Indicate that caching should be bypassed
 
-        # Check if the result is already cached
-        with self._cache_lock:
-            if cache_key in self._call_cache:
-                logging_utility.info("Returning cached result for function: %s", function_name)
-                return self._call_cache[cache_key]
+        # Check if we can use caching
+        if cache_key is not None:
+            with self._cache_lock:
+                if cache_key in self._call_cache:
+                    logging_utility.info("Returning cached result for function: %s", function_name)
+                    return self._call_cache[cache_key]
 
         # Validate if the function is supported
         if function_name not in self.function_handlers:
@@ -85,13 +86,10 @@ class PlatformToolService:
         if self.function_handlers[function_name] is None:
             if function_name == "code_interpreter":
                 self.function_handlers[function_name] = self._get_code_execution_handler().execute_code
-
             elif function_name == "web_search":
                 self.function_handlers[function_name] = self._get_web_search_handler().search_orchestrator
-
             elif function_name == "vector_store_search":
                 self.function_handlers[function_name] = self._get_vector_search_handler().execute_search
-
             else:
                 logging_utility.error("No handler available for function: %s", function_name)
                 return {"error": f"No handler available for function: {function_name}"}
@@ -99,7 +97,7 @@ class PlatformToolService:
         # Get the handler
         handler = self.function_handlers[function_name]
 
-        # Execute the function and cache the result
+        # Execute the function
         try:
             result = handler(**arguments)
         except TypeError as e:
@@ -109,8 +107,10 @@ class PlatformToolService:
             )
             return {"error": f"Function '{function_name}' received incorrect arguments: {str(e)}"}
 
-        with self._cache_lock:
-            self._call_cache[cache_key] = result
+        # Store the result in cache only if caching is enabled
+        if cache_key is not None:
+            with self._cache_lock:
+                self._call_cache[cache_key] = result
+            logging_utility.info("Function %s executed and result cached.", function_name)
 
-        logging_utility.info("Function %s executed and result cached.", function_name)
         return result

@@ -1,14 +1,15 @@
 # entities_api/services/vector_store_manager.py
 import time
 import uuid
-from pathlib import Path
 from typing import List, Dict, Optional
-from fastapi import HTTPException
+
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
+
 from entities_api.interfaces.base_vector_store import BaseVectorStore, StoreExistsError, VectorStoreError, \
     StoreNotFoundError
 from entities_api.services.logging_service import LoggingUtility
+
 logging_utility = LoggingUtility()
 
 

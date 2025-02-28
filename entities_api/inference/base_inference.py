@@ -539,19 +539,19 @@ class BaseInference(ABC):
                 run_id, content["name"]
             )
 
+
             # Create action with sanitized logging
             action = self.action_service.create_action(
                 tool_name=content["name"],
                 run_id=run_id,
                 function_args=content["arguments"]
             )
+
+
             logging_utility.debug(
                 "Created action %s for tool %s",
                 action.id, content["name"]
             )
-
-
-
 
             # Update run status
             self.run_service.update_run_status(run_id=run_id, new_status='action_required')
@@ -568,6 +568,7 @@ class BaseInference(ABC):
                 arguments=content["arguments"],
 
             )
+
 
             #print("Hello, yes we are here!")
             #print(content)
@@ -617,6 +618,7 @@ class BaseInference(ABC):
 
     def _submit_tool_output(self, thread_id, assistant_id, content, action):
         """Generic tool output submission with consistent logging."""
+
         try:
             self.message_service.submit_tool_output(
                 thread_id=thread_id,

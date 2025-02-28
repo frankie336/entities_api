@@ -1,14 +1,25 @@
+import hashlib
+import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 from http.client import HTTPException
 from pathlib import Path
 from typing import Any
-
+from entities_api.schemas import (
+    EnhancedVectorSearchResult,
+    SearchExplanation,
+    VectorStoreCreate,
+    VectorStoreRead,
+    StatusEnum,
+    ProcessOutput,
+    MessageRead
+)
 from qdrant_client.http import models
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, joinedload
 from tenacity import retry, stop_after_attempt, wait_random_exponential, retry_if_exception_type
-
+from typing import List, Dict, Optional, Union
+from entities_api.schemas import EnhancedVectorSearchResult
 from entities_api.constants.platform import DIRECT_DATABASE_URL
 from entities_api.interfaces.base_vector_store import StoreNotFoundError, VectorStoreError
 from entities_api.models.models import VectorStore, Base, Assistant
@@ -17,29 +28,9 @@ from entities_api.services.file_processor import FileProcessor
 from entities_api.services.identifier_service import IdentifierService
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.vector_store_manager import VectorStoreManager
-
+from entities_api.schemas import VectorStoreCreate
 logging_utility = LoggingUtility()
 
-
-
-
-from typing import List, Dict, Optional, Union
-from pydantic import BaseModel
-
-
-# NEW: Added search explanation model
-class SearchExplanation(BaseModel):
-    """Provides transparency into search scoring and filtering"""
-    base_score: float
-    filters_passed: List[str]
-    boosts_applied: Dict[str, float]
-    final_score: float
-
-# NEW: Enhanced result model with explainability
-class EnhancedVectorSearchResult(VectorStoreSearchResult):
-    explanation: Optional[SearchExplanation] = None
-
-from entities_api.schemas import VectorStoreCreate
 
 class VectorStoreService:
     def __init__(self, base_url=None, api_key=None):
@@ -126,6 +117,24 @@ class VectorStoreService:
     def create_store_for_file_type(self, file_type):
         return self.vector_manager.create_store_for_file_type(file_type)
 
+    def _generate_cache_key(self, filters: dict) -> str:
+        """Generate consistent hash-based cache key for filters"""
+
+        def serialize(obj):
+            if isinstance(obj, dict):
+                return {k: serialize(v) for k, v in sorted(obj.items())}
+            elif isinstance(obj, (list, tuple)):
+                return [serialize(item) for item in obj]
+            else:
+                return str(obj)
+
+        try:
+            normalized = serialize(filters)
+            serialized = json.dumps(normalized, sort_keys=True)
+            return hashlib.sha256(serialized.encode()).hexdigest()[:16]
+        except TypeError as e:
+            logging_utility.error(f"Serialization failed: {str(e)}")
+            raise ValueError("Invalid filter structure for caching")
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_random_exponential(min=1, max=10),
@@ -139,11 +148,13 @@ class VectorStoreService:
             top_k: int = 5,
             filters: Optional[Dict] = None,
             score_threshold: float = 0.5,
-            # NEW: Added pagination and scoring controls
             page: int = 1,
             page_size: int = 10,
             score_boosts: Optional[Dict[str, float]] = None,
-            explain: bool = False
+            explain: bool = False,
+            cache_key: Optional[str] = None,
+            search_type = None
+
     ) -> List[EnhancedVectorSearchResult]:
         """
         Enhanced semantic search with:
@@ -152,16 +163,14 @@ class VectorStoreService:
         - Pagination
         - Explainability
         - Server-side optimizations
-
-        Maintains backward compatibility with original parameters
         """
         try:
-            # NEW: Pagination validation
+            # Validate pagination
             if page < 1 or page_size < 1:
                 raise ValueError("Invalid pagination parameters")
             offset = (page - 1) * page_size
 
-            # Existing store validation remains unchanged
+            # Validate store existence
             with self.SessionLocal() as session:
                 store = session.query(VectorStore).filter(
                     VectorStore.collection_name == store_name,
@@ -170,16 +179,16 @@ class VectorStoreService:
             if not store:
                 raise StoreNotFoundError(f"Vector store {store_name} not found")
 
-            # Existing vector encoding remains unchanged
+            # Generate query embedding
             query_vector = self.file_processor.embedding_model.encode(
                 [query_text],
                 convert_to_numpy=True
             ).tolist()[0]
 
-            # NEW: Advanced filter parsing
+            # Parse filters to Qdrant format
             qdrant_filter = self._parse_advanced_filters(filters) if filters else None
 
-            # Modified: Added pagination and server-side threshold
+            # Execute vector search
             raw_results = self.vector_manager.query_store(
                 store_name=store_name,
                 query_vector=query_vector,
@@ -187,10 +196,11 @@ class VectorStoreService:
                 filters=qdrant_filter,
                 score_threshold=score_threshold,
                 offset=offset,
-                limit=page_size
+                limit=page_size,
+                cache_key=cache_key
             )
 
-            # Modified: Added score boosting and explanations
+            # Process and enhance results
             processed_results = []
             for result in raw_results:
                 processed = self._process_result(
@@ -206,6 +216,7 @@ class VectorStoreService:
         except Exception as e:
             logging_utility.error(f"Search failed: {str(e)}")
             raise VectorStoreError(f"Search operation failed: {str(e)}")
+
 
     # NEW: Added helper methods for enhanced functionality
     def _parse_advanced_filters(self, filters: Dict) -> models.Filter:
@@ -258,14 +269,13 @@ class VectorStoreService:
 
         if score_boosts:
             for field, boost in score_boosts.items():
-                # Handle nested metadata fields (e.g., "meta_data.priority")
+                # Handle nested metadata fields
+                value = result['metadata']
                 if '.' in field:
-                    parts = field.split('.')
-                    value = result['metadata'].get(parts[0], {})
-                    for part in parts[1:]:
+                    for part in field.split('.'):
                         value = value.get(part, None) if isinstance(value, dict) else None
-                else:
-                    value = result['metadata'].get(field)
+                        if value is None:
+                            break
 
                 if value is not None:
                     base_score *= boost
@@ -273,11 +283,6 @@ class VectorStoreService:
                         'value': value,
                         'boost': boost
                     }
-                else:
-                    # Log missing boost fields for debugging
-                    logging_utility.debug(
-                        f"Boost field '{field}' not found in metadata for result: {result['id']}"
-                    )
 
         # Build explanation if requested
         explanation = None
@@ -305,12 +310,6 @@ class VectorStoreService:
         # the original query filters to determine which ones were matched
         # Current simplified version returns all filters
         return list(result.get('metadata', {}).keys())
-
-
-
-
-
-
 
 
 
@@ -588,11 +587,18 @@ class VectorStoreService:
 
         return status
 
-    def format_message_for_storage(self, message: MessageRead) -> dict:
+    def format_message_for_storage(self, message: MessageRead, role) -> dict:
+        """Properly structure messages with role at metadata level"""
+
+        print(MessageRead)
+        time.sleep(100000)
+
+
         return {
             "text": message.content,
             "metadata": {
-                "role": message.role,
+                # Maintain role in metadata but add explicit typing
+                "message_role": role,  # Changed key to be explicit
                 "created_at": message.created_at,
                 "thread_id": message.thread_id,
                 "sender_id": message.sender_id,
@@ -603,112 +609,32 @@ class VectorStoreService:
             }
         }
 
-    def store_message_in_vector_store(self, message, vector_store_id):
-        formatted_message = self.format_message_for_storage(message)
+    def store_message_in_vector_store(self, message, vector_store_id, role="user"):
+        """Updated storage method with explicit role assignment"""
+        logging_utility.info("Storing message in vector store %s", vector_store_id)
 
-        # Get embedding and convert to native float list
-        embedding = self.file_processor.embedding_model.encode(formatted_message["text"])
-        vector_as_floats = [float(val) for val in embedding]  # Convert numpy floats to Python floats
-
-        self.add_to_store(
-            store_name=vector_store_id,
-            texts=[formatted_message["text"]],
-            vectors=[vector_as_floats],  # Now contains native floats
-            metadata=[formatted_message["metadata"]]
-        )
-
-
-# ==============================
-# Test the workflow in the main block
-# ==============================
-if __name__ == "__main__":
-    logging_utility = LoggingUtility()
-
-    # Since the service creates its own engine, just instantiate it.
-    vector_service = VectorStoreService()
-    test_file_path = Path("test_file.txt")
-
-    # Create a test payload using VectorStoreCreate (for reference)
-    from entities_api.schemas import VectorStoreCreate
-
-    test_payload = VectorStoreCreate(
-        name="Test_Vector_Store",
-        user_id="test_user",
-        vector_size=384,
-        distance_metric="COSINE",
-        config={"example": "value"}
-    )
-
-    try:
-        # Create the vector store
-        created_store = vector_service.create_vector_store(test_payload.name, test_payload.user_id)
-        print(f"Created Vector Store: {created_store}")
-
-        # Create a test file
-        test_file_path.write_text("This is a test document for the vector store.", encoding="utf-8")
-        print(f"Created test file at: {test_file_path}")
-
-        # Process the file and add to the store using the file processor
-        file_processor = FileProcessor()
-        response = file_processor.process_and_store(test_file_path, created_store.collection_name, vector_service)
-        print(f"File processed successfully: {response}")
-
-        # Verify store content (using the vector manager directly)
-        store_info = vector_service.vector_manager.get_store_info(created_store.collection_name)
-        print(f"Store info: {store_info}")
-
-        # Perform a search
-
-        search_query = "test document"
-        print(f"\nSearching store for: '{search_query}'")
-        search_results = vector_service.search_vector_store(
-            store_name=created_store.collection_name,
-            query_text=search_query,
-            top_k=3,
-            score_threshold=0.3
-        )
-
-
-
-        if search_results:
-            print("\nSearch Results:")
-            for i, result in enumerate(search_results, 1):
-                print(f"\nResult {i}:")
-                print(f"  Text: {result.text}")
-                print(f"  Score: {result.score:.3f}")
-                print(f"  Metadata: {result.metadata}")
-        else:
-            print("No results found matching the query.")
-
-        # List store files
-        print("\nFiles in store:")
-        files = vector_service.list_store_files(created_store.collection_name)
-        print(f"Stored files: {files}")
-
-
-        # Test file deletion
-        print("\nTesting file deletion...")
-        delete_result = vector_service.delete_file_from_store(
-            store_name=created_store.collection_name,
-            file_path=str(test_file_path)
-        )
-        print(f"Deletion result: {delete_result}")
-        print("Remaining files:")
-        print(vector_service.list_store_files(created_store.collection_name))
-
-        # Test store deletion
-        print("\nTesting store deletion...")
-        delete_result = vector_service.delete_vector_store(created_store.collection_name)
-        print(f"Deletion result: {delete_result}")
         try:
-            vector_service.search_vector_store(created_store.collection_name, "test")
-        except StoreNotFoundError:
-            print("Store successfully deleted")
+            # Validate message role before storage
+            if role not in ["user", "assistant"]:
+                raise ValueError(f"Invalid message role: {role}")
 
-    except Exception as e:
-        logging_utility.error(f"Main process error: {str(e)}")
-        print(f"Error: {str(e)}")
-    finally:
-        # Cleanup: remove the test file if it exists.
-        if test_file_path.exists():
-            test_file_path.unlink()
+
+            formatted_message = self.format_message_for_storage(message=message, role=role)
+            logging_utility.debug("Formatted message: %s", formatted_message)
+
+            embedding = self.file_processor.embedding_model.encode(
+                formatted_message["text"]
+            )
+            vector_as_floats = [float(val) for val in embedding]
+
+            self.add_to_store(
+                store_name=vector_store_id,
+                texts=[formatted_message["text"]],
+                vectors=[vector_as_floats],
+                metadata=[formatted_message["metadata"]]
+            )
+            logging_utility.info("Message stored successfully")
+
+        except Exception as e:
+            logging_utility.error("Message storage failed: %s", str(e))
+            raise

@@ -482,14 +482,14 @@ class VectorStoreUnlinkAssistant(BaseModel):
 
 
 
-
 class VectorStoreSearchResult(BaseModel):
     text: str
     metadata: Optional[dict] = None
     score: float
-    vector_id: str
-    store_id: str
+    vector_id: Optional[str] = ""  # Made optional with default empty string
+    store_id: Optional[str] = ""   # Made optional with default empty string
     retrieved_at: int = int(time.time())
+
 
 
 class ProcessOutput(BaseModel):
@@ -606,8 +606,17 @@ class CodeExecutionResponse(BaseModel):
     error: Optional[str] = None
 
 
+# NEW: Added search explanation model
+from pydantic import BaseModel
+from typing import List, Dict, Optional
 
+class SearchExplanation(BaseModel):
+    """Provides transparency into search scoring and filtering"""
+    base_score: float
+    filters_passed: List[str]
+    boosts_applied: Dict[str, float]
+    final_score: float
 
-
-
+class EnhancedVectorSearchResult(VectorStoreSearchResult):
+    explanation: Optional[SearchExplanation] = None
 
