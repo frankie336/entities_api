@@ -49,6 +49,11 @@ class TogetherR1Inference(BaseInference):
     def _set_up_context_window(self, assistant_id, thread_id, trunk=True):
         return super()._set_up_context_window(assistant_id, thread_id, trunk=True)
 
+
+    def stream_function_call_output(self, thread_id, run_id, assistant_id,
+                                    model, stream_reasoning=False):
+        return
+
     def stream_response(self, thread_id, message_id, run_id, assistant_id,
                              model, stream_reasoning=True):
 
@@ -62,7 +67,7 @@ class TogetherR1Inference(BaseInference):
 
         request_payload = {
             "model": model,
-            "messages": self._set_up_context_window ,
+            "messages": self._set_up_context_window(assistant_id, thread_id, trunk=True) ,
             "max_tokens": None,
             "temperature": 0.6,
             "top_p": 0.95,
@@ -139,6 +144,8 @@ class TogetherR1Inference(BaseInference):
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id,
                              model, stream_reasoning=False):
+
+        print("Hello world")
 
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)

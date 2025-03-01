@@ -75,6 +75,86 @@ class TogetherV3Inference(BaseInference):
                             run_id):
         return super()._process_tool_calls(thread_id, assistant_id, content, run_id)
 
+    def stream_function_call_output(self, thread_id, run_id, assistant_id,
+                                    model, stream_reasoning=False):
+
+        """
+                Streams tool responses in real time using the TogetherAI SDK.
+                - Yields each token chunk immediately, split by reasoning tags.
+                - Accumulates the full response for final validation.
+                - Supports mid-stream cancellation.
+                - Strips markdown triple backticks from the final accumulated content.
+                """
+
+
+        if self._get_model_map(value=model):
+            model = self._get_model_map(value=model)
+
+        self.start_cancellation_listener(run_id)
+
+        # Send the assistant a reminder message about protocol
+        # Create message and run
+        self.message_service.create_message(
+            thread_id=thread_id,
+            assistant_id=assistant_id,
+            content='give the user the output from tool as advised in system message',
+            role='user',
+        )
+        logging_utility.info("Sent the assistant a reminder message: %s", )
+
+        request_payload = {
+            "model": model,
+            "messages": self._set_up_context_window(assistant_id, thread_id, trunk=True),
+            "max_tokens": None,
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "top_k": 50,
+            "repetition_penalty": 1,
+            "stop": ["<｜end▁of▁sentence｜>"],
+            "stream": True
+        }
+
+        assistant_reply = ""
+        accumulated_content = ""
+
+        try:
+
+            response = self.client.chat.completions.create(**request_payload)
+
+            for token in response:
+                if self.check_cancellation_flag():
+                    logging_utility.warning("Run %s cancelled mid-stream", run_id)
+                    yield json.dumps({'type': 'error', 'content': 'Run cancelled'})
+                    break
+
+                if not hasattr(token, "choices") or not token.choices:
+                    continue
+
+                delta = token.choices[0].delta
+                content = getattr(delta, "content", "")
+                if not content:
+                    continue
+                yield json.dumps({'type': 'content', 'content': content})
+                assistant_reply += content
+                # Print raw content for debugging
+                # sys.stdout.write(content)
+                # sys.stdout.flush()
+
+                # Accumulate full content for final validation.
+                accumulated_content += content
+
+            logging_utility.info("Final accumulated content: %s", accumulated_content)
+
+
+        except Exception as e:
+            error_msg = f"Together SDK error: {str(e)}"
+            logging_utility.error(error_msg, exc_info=True)
+            self.handle_error(assistant_reply, thread_id, assistant_id, run_id)
+            yield json.dumps({'type': 'error', 'content': error_msg})
+
+        if assistant_reply:
+            self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
+
     def stream_response(self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=False):
         """
         Streams tool responses in real time using the TogetherAI SDK.
@@ -212,7 +292,6 @@ class TogetherV3Inference(BaseInference):
                 run_id=run_id
             )
             logging_utility.info("Final accumulated content: %s", accumulated_content)
-
             # ---------------------------------------------------
             # Handle saving to vector store!
             # ---------------------------------------------------
@@ -223,11 +302,15 @@ class TogetherV3Inference(BaseInference):
                 vector_store_id=vector_store_id,
                 role="user"
             )
-            self.vector_store_service.store_message_in_vector_store(
-                message=assistant_message,
-                vector_store_id=vector_store_id,
-                role="assistant"
-            )
+            # ---------------------------------------------------
+            #Avoid saving function call responses to the vector store
+            # ---------------------------------------------------
+            if not self.get_tool_response_state():
+                self.vector_store_service.store_message_in_vector_store(
+                    message=assistant_message,
+                    vector_store_id=vector_store_id,
+                    role="assistant"
+                )
 
         except Exception as e:
             error_msg = f"Together SDK error: {str(e)}"
@@ -264,6 +347,7 @@ class TogetherV3Inference(BaseInference):
 
                     # Stream the output to the response:
                     for chunk in self.stream_function_call_output(thread_id=thread_id,
+                                                                  model=model,
                                                                   run_id=run_id,
                                                                   assistant_id=assistant_id
                                                                   ):
