@@ -4,8 +4,11 @@ import re
 import threading
 import time
 from abc import ABC, abstractmethod
+from datetime import date, datetime
 from functools import lru_cache
 from typing import Any
+
+from together import Together
 
 from entities_api.clients.client_actions_client import ClientActionService
 from entities_api.clients.client_assistant_client import ClientAssistantService
@@ -14,13 +17,12 @@ from entities_api.clients.client_run_client import ClientRunService
 from entities_api.clients.client_thread_client import ThreadService
 from entities_api.clients.client_tool_client import ClientToolService
 from entities_api.clients.client_user_client import UserService
-from entities_api.services.vector_store_service import VectorStoreService
 from entities_api.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS
+from entities_api.constants.platform import MODEL_MAP
 from entities_api.platform_tools.platform_tool_service import PlatformToolService
 from entities_api.services.conversation_truncator import ConversationTruncator
 from entities_api.services.logging_service import LoggingUtility
-
-
+from entities_api.services.vector_store_service import VectorStoreService
 
 logging_utility = LoggingUtility()
 
@@ -47,6 +49,7 @@ class BaseInference(ABC):
         self.code_interpreter_response = False
         self.tool_response = None
         self.function_call = None
+        self.client = Together(api_key=os.getenv("TOGETHER_API_KEY"))
 
 
 
@@ -123,15 +126,25 @@ class BaseInference(ABC):
     def conversation_truncator(self):
         return self._get_service(ConversationTruncator)
 
+
     @abstractmethod
     def setup_services(self):
         """Initialize any additional services required by child classes."""
         pass
 
-    @abstractmethod
-    def process_conversation(self, *args, **kwargs):
-        """Process the conversation and yield response chunks."""
-        pass
+        # state
+
+    def set_tool_response_state(self, value):
+        self.tool_response = value
+
+    def get_tool_response_state(self):
+        return self.tool_response
+
+    def set_function_call_state(self, value):
+        self.function_call = value
+
+    def get_function_call_state(self):
+        return self.function_call
 
     @staticmethod
     def parse_code_interpreter_partial(text):
@@ -208,6 +221,18 @@ class BaseInference(ABC):
         else:
             return None
 
+    def convert_smart_quotes(self, text: str) -> str:
+
+        replacements = {
+            '‘': "'",  # smart single quote to standard single quote
+            '’': "'",
+            '“': '"',  # smart double quote to standard double quote
+            '”': '"'
+        }
+        for smart, standard in replacements.items():
+            text = text.replace(smart, standard)
+        return text
+
     @staticmethod
     def is_valid_function_call_response(json_data: dict) -> bool:
         """
@@ -263,6 +288,7 @@ class BaseInference(ABC):
                     return False  # Maintain original list prohibition
 
         return True
+
 
     def normalize_roles(self, conversation_history):
         """
@@ -369,6 +395,7 @@ class BaseInference(ABC):
 
     def finalize_conversation(self, assistant_reply, thread_id, assistant_id, run_id):
         """Finalize the conversation by storing the assistant's reply."""
+
         if assistant_reply:
             message = self.message_service.save_assistant_message_chunk(
                 thread_id=thread_id,
@@ -442,9 +469,9 @@ class BaseInference(ABC):
         return self._cancelled
 
 
-    def process_tool_calls(self, thread_id,
-                           assistant_id, content,
-                           run_id):
+    def _process_tool_calls(self, thread_id,
+                            assistant_id, content,
+                            run_id):
 
         # Save the tool invocation for state management.
         self.action_service.create_action(
@@ -548,7 +575,7 @@ class BaseInference(ABC):
     def get_assistant_id(self):
         return self.assistant_id
 
-    def process_platform_tool_calls(self, thread_id, assistant_id, content, run_id):
+    def _process_platform_tool_calls(self, thread_id, assistant_id, content, run_id):
         """Process platform tool calls with enhanced logging and error handling."""
 
         self.set_assistant_id(assistant_id=assistant_id)
@@ -588,11 +615,6 @@ class BaseInference(ABC):
                 arguments=content["arguments"],
 
             )
-
-
-            #print("Hello, yes we are here!")
-            #print(content)
-            #time.sleep(10000)
 
             logging_utility.debug(
                 "Tool %s executed successfully for run %s",
@@ -661,19 +683,6 @@ class BaseInference(ABC):
             self.action_service.update_action(action_id=action.id, status='failed')
             raise
 
-    def set_tool_response_state(self, value):
-        self.tool_response = value
-
-    def get_tool_response_state(self):
-        return self.tool_response
-
-    def set_function_call_state(self, value):
-        self.function_call = value
-
-    def get_function_call_state(self):
-        return self.function_call
-
-
     def validate_and_set(self, content):
         """Core validation pipeline"""
         if self.is_valid_function_call_response(content):
@@ -682,6 +691,226 @@ class BaseInference(ABC):
             return True
         return False
 
+    def _get_model_map(self, value):
+        """
+        Front end model naming can clash with back end selection logic.
+        This function is a mapper to resolve clashing names to unique values.
+        """
+        try:
+            return MODEL_MAP[value]
+        except KeyError:
+            return False
+
+
+    def stream_response(self, thread_id, message_id, run_id, assistant_id,
+                        model, stream_reasoning=False):
+        """
+        Streams tool responses in real time using the TogetherAI SDK.
+        - Yields each token chunk immediately, split by reasoning tags.
+        - Accumulates the full response for final validation.
+        - Supports mid-stream cancellation.
+        - Strips markdown triple backticks from the final accumulated content.
+        - Excludes all characters prior to (and including) the partial code-interpreter match.
+        """
+        pass
+
+    def stream_function_call_output(self, thread_id, run_id, assistant_id,
+                                    model="deepseek-ai/DeepSeek-R1", stream_reasoning=False):
+
+        """
+                Streams tool responses in real time using the TogetherAI SDK.
+                - Yields each token chunk immediately, split by reasoning tags.
+                - Accumulates the full response for final validation.
+                - Supports mid-stream cancellation.
+                - Strips markdown triple backticks from the final accumulated content.
+                """
+
+        if self._get_model_map(value=model):
+            model = self._get_model_map(value=model)
+
+        self.start_cancellation_listener(run_id)
+
+        # Send the assistant a reminder message about protocol
+        # Create message and run
+        self.message_service.create_message(
+            thread_id=thread_id,
+            assistant_id=assistant_id,
+            content='give the user the output from tool as advised in system message',
+            role='user',
+        )
+        logging_utility.info("Sent the assistant a reminder message: %s", )
+
+        assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
+
+        # Fetch the assistant's tools
+        tools = self.tool_service.list_tools(assistant_id=assistant.id, restructure=True)
+
+        today = date.today()
+
+        conversation_history = self.message_service.get_formatted_messages(
+            thread_id,
+            system_message="tools:" + str(tools) + "\n" + assistant.instructions + f"Today's date:, {str(today)}"
+        )
+        messages = self.normalize_roles(conversation_history)
+
+        # Sliding Windows Truncation
+        truncated_message = self.conversation_truncator.truncate(messages)
+
+        request_payload = {
+            "model": model,
+            "messages": truncated_message,
+            "max_tokens": None,
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "top_k": 50,
+            "repetition_penalty": 1,
+            "stop": ["<｜end▁of▁sentence｜>"],
+            "stream": True
+        }
+
+        assistant_reply = ""
+        accumulated_content = ""
+
+        try:
+
+            response = self.client.chat.completions.create(**request_payload)
+
+            for token in response:
+                if self.check_cancellation_flag():
+                    logging_utility.warning("Run %s cancelled mid-stream", run_id)
+                    yield json.dumps({'type': 'error', 'content': 'Run cancelled'})
+                    break
+
+                if not hasattr(token, "choices") or not token.choices:
+                    continue
+
+                delta = token.choices[0].delta
+                content = getattr(delta, "content", "")
+                if not content:
+                    continue
+                yield json.dumps({'type': 'content', 'content': content})
+                assistant_reply += content
+                # Print raw content for debugging
+                #sys.stdout.write(content)
+                #sys.stdout.flush()
+
+                # Accumulate full content for final validation.
+                accumulated_content += content
+
+            logging_utility.info("Final accumulated content: %s", accumulated_content)
+
+
+        except Exception as e:
+            error_msg = f"Together SDK error: {str(e)}"
+            logging_utility.error(error_msg, exc_info=True)
+            self.handle_error(assistant_reply, thread_id, assistant_id, run_id)
+            yield json.dumps({'type': 'error', 'content': error_msg})
+
+        if assistant_reply:
+            self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
+
+    def _set_up_context_window(self, assistant_id, thread_id, trunk=True):
+        """Prepares and optimizes conversation context for model processing.
+
+        Constructs the conversation history while ensuring it fits within the model's
+        context window limits through intelligent truncation. Combines multiple elements
+        to create rich context:
+        - Assistant's configured tools
+        - Current instructions
+        - Temporal awareness (today's date)
+        - Complete conversation history
+
+        Args:
+            assistant_id (str): UUID of the assistant profile to retrieve tools/instructions
+            thread_id (str): UUID of conversation thread for message history retrieval
+            trunk (bool): Enable context window optimization via truncation (default: True)
+
+        Returns:
+            list: Processed message list containing either:
+                - Truncated messages (if trunk=True)
+                - Full normalized messages (if trunk=False)
+
+        Processing Pipeline:
+            1. Retrieve assistant configuration and tools
+            2. Fetch complete conversation history
+            3. Inject system message with:
+               - Active tools list
+               - Current instructions
+               - Temporal context (today's date)
+            4. Normalize message roles for API consistency
+            5. Apply sliding window truncation when enabled
+
+        Note:
+            Uses LRU-cached service calls for assistant/message retrieval to optimize
+            repeated requests with identical parameters.
+        """
+        assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
+        tools = self.tool_service.list_tools(assistant_id=assistant_id, restructure=True)
+
+        # Get the current date and time
+        today = datetime.now()
+
+        # Format the date and time as a string
+        formatted_datetime = today.strftime("%Y-%m-%d %H:%M:%S")
+
+        # Include the formatted date and time in the system message
+        conversation_history = self.message_service.get_formatted_messages(
+            thread_id,
+            system_message="tools:" + str(
+                tools) + "\n" + assistant.instructions + "\n" + f"Today's date and time:, {formatted_datetime}"
+        )
+
+        messages = self.normalize_roles(conversation_history)
+
+        # Sliding Windows Truncation
+        truncated_message = self.conversation_truncator.truncate(messages)
+
+        if trunk:
+            return truncated_message
+        else:
+            return messages
+
+
+    @abstractmethod
+    def process_conversation(self, thread_id, message_id, run_id, assistant_id,
+                             model,  stream_reasoning=False):
+        """Orchestrates conversation processing with real-time streaming and tool handling.
+
+        Manages the complete lifecycle of assistant interactions including:
+        - Streaming response generation
+        - Function call detection and validation
+        - Platform vs user tool execution
+        - State management for tool responses
+        - Conversation history preservation
+
+        Args:
+            thread_id (str): UUID of the conversation thread
+            message_id (str): UUID of the initiating message
+            run_id (str): UUID for tracking this execution instance
+            assistant_id (str): UUID of the assistant profile
+            model (str): Model identifier for response generation
+            stream_reasoning (bool): Enable real-time reasoning stream
+
+        Yields:
+            dict: Streaming chunks with keys:
+                - 'type': content/hot_code/error
+                - 'content': chunk payload
+
+        Process Flow:
+            1. Stream initial LLM response
+            2. Detect and validate function call candidates
+            3. Process platform tools first (priority)
+            4. Handle user-defined tools second
+            5. Stream tool execution outputs
+            6. Maintain conversation state throughout
+
+        Maintains tool response state through:
+            - set_tool_response_state()
+            - get_tool_response_state()
+            - set_function_call_state()
+            - get_function_call_state()
+        """
+        pass
 
 
     @lru_cache(maxsize=128)

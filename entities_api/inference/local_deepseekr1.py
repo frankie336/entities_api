@@ -37,7 +37,7 @@ class DeepSeekR1Local(BaseInference):
 
         return filtered_messages
 
-    def process_tool_calls(self, run_id, tool_calls, message_id, thread_id):
+    def _process_tool_calls(self, run_id, tool_calls, message_id, thread_id):
         # ... existing method code ...
         tool_results = []
         try:
@@ -82,7 +82,7 @@ class DeepSeekR1Local(BaseInference):
                     raise ValueError(f"Function '{function_name}' is not available in available_functions")
 
         except Exception as e:
-            logging_utility.error(f"Error in process_tool_calls: {str(e)}", exc_info=True)
+            logging_utility.error(f"Error in _process_tool_calls: {str(e)}", exc_info=True)
 
         return tool_results  # Return collected results, excluding any that had errors
 
@@ -183,7 +183,7 @@ class DeepSeekR1Local(BaseInference):
         logging_utility.debug("Initial chat response: %s", response)
 
         if response['message'].get('tool_calls'):
-            tool_results = self.process_tool_calls(
+            tool_results = self._process_tool_calls(
                 run_id, response['message']['tool_calls'], message_id, thread_id
             )
 

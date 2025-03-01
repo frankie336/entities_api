@@ -1,12 +1,12 @@
-import json
-import time
 from entities_api import OllamaClient
-from entities_api.interfaces.base_vector_store import VectorStoreError
+import logging
+from typing import List, Dict, Union
+
+from qdrant_client.http import models
+
+from entities_api import OllamaClient
 from entities_api.schemas import VectorStoreSearchResult
 from entities_api.services.vector_store_service import VectorStoreService
-from typing import Optional, List, Dict, Any, Union
-from qdrant_client.http import models
-import logging
 
 client = OllamaClient()
 

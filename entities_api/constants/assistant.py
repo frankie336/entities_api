@@ -113,7 +113,6 @@ BASE_TOOLS = [
     }
 ]
 
-# Unified instruction set with validation examples
 BASE_ASSISTANT_INSTRUCTIONS = (
     "🔹 **STRICT TOOL USAGE PROTOCOL**\n"
     "ALL tool calls MUST follow EXACT structure:\n"
@@ -209,7 +208,6 @@ BASE_ASSISTANT_INSTRUCTIONS = (
 
     "Failure to comply will result in system rejection."
 )
-
 
 WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS = (
     "Presentation Requirements:\n"

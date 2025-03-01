@@ -20,7 +20,7 @@ class LlamaLocal(BaseInference):
         last_user_message = next((msg for msg in reversed(messages) if msg['role'] == 'user'), None)
         return [system_message, last_user_message] if system_message and last_user_message else messages
 
-    def process_tool_calls(self, run_id, tool_calls, message_id, thread_id):
+    def _process_tool_calls(self, run_id, tool_calls, message_id, thread_id):
         tool_results = []
         try:
             for tool in tool_calls:
@@ -135,7 +135,7 @@ class LlamaLocal(BaseInference):
 
         tool_results = []
         if initial_response['message'].get('tool_calls'):
-            tool_results = self.process_tool_calls(
+            tool_results = self._process_tool_calls(
                 run_id,
                 initial_response['message']['tool_calls'],
                 message_id,
