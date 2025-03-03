@@ -11,7 +11,7 @@ from entities_api.services.logging_service import LoggingUtility
 load_dotenv()
 logging_utility = LoggingUtility()
 
-class HyperbolicV3Inference(BaseInference):
+class DeepSeekV3Cloud(BaseInference):
     def setup_services(self):
         """
         Initialize the DeepSeek client and other services.
@@ -128,7 +128,7 @@ class HyperbolicV3Inference(BaseInference):
             thread_id, run_id, assistant_id
         )
 
-        model = "deepseek-ai/DeepSeek-V3"
+        model = "deepseek-ai/DeepSeek-R1"
 
         try:
             stream_response = self.deepseek_client.chat.completions.create(

@@ -186,9 +186,6 @@ class TogetherV3Inference(BaseInference, ABC):
             - Strips markdown triple backticks from the final accumulated content.
             - Excludes all characters prior to (and including) the partial code-interpreter match.
             """
-            if self._get_model_map(value=model):
-                model = self._get_model_map(value=model)
-
             request_payload = {
                 "model": model,
                 "messages": self._set_up_context_window(assistant_id, thread_id, trunk=True),
