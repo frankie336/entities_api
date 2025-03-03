@@ -1,14 +1,15 @@
 # entities_api/services/vector_store_manager.py
 import time
 import uuid
-from pathlib import Path
 from typing import List, Dict, Optional
-from fastapi import HTTPException
+
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
+
 from entities_api.interfaces.base_vector_store import BaseVectorStore, StoreExistsError, VectorStoreError, \
     StoreNotFoundError
 from entities_api.services.logging_service import LoggingUtility
+
 logging_utility = LoggingUtility()
 
 
@@ -117,26 +118,44 @@ class VectorStoreManager(BaseVectorStore):
                 raise TypeError(f"Vector {i} contains non-float values")
 
 
-    def query_store(self, store_name: str, query_vector: List[float], top_k: int = 5, filters: Optional[dict] = None) -> List[dict]:
-        """Query store with optional filters"""
+    def query_store(
+        self,
+        store_name: str,
+        query_vector: List[float],
+        top_k: int = 5,
+        filters: Optional[models.Filter] = None,
+        score_threshold: float = 0.0,
+        offset: int = 0,
+        limit: Optional[int] = None,
+        **kwargs
+    ) -> List[dict]:
+        """
+        Enhanced store query with:
+        - Server-side filtering
+        - Pagination support
+        - Score thresholding
+        - Advanced Qdrant filters
+        """
         try:
-            query_filter = models.Filter(must=[
-                models.FieldCondition(key=f"metadata.{k}", match=models.MatchValue(v))
-                for k, v in (filters or {}).items()
-            ]) if filters else None
+            # Use limit if provided, otherwise use top_k
+            actual_limit = limit if limit is not None else top_k
 
             results = self.client.search(
                 collection_name=store_name,
                 query_vector=query_vector,
-                query_filter=query_filter,
-                limit=top_k
+                query_filter=filters,
+                limit=actual_limit,
+                offset=offset,
+                score_threshold=score_threshold,
+                with_payload=True,
+                with_vectors=False
             )
 
             return [{
                 "id": r.id,
                 "score": r.score,
                 "text": r.payload.get("text"),
-                "metadata": r.payload.get("metadata")
+                "metadata": r.payload.get("metadata", {})
             } for r in results]
 
         except Exception as e:
@@ -254,5 +273,39 @@ class VectorStoreManager(BaseVectorStore):
     def get_point_by_id(self, store_name: str, point_id: str) -> dict:
         """Retrieve a specific point by its ID"""
         pass
+
+    def health_check(self) -> bool:
+        """Perform thorough health check of Qdrant connection"""
+        try:
+            # Basic ping check
+            start_time = time.monotonic()
+            response = self.client._client.openapi_client.models_api.ready()
+            if not response.status == "ok":
+                raise VectorStoreError("Qdrant readiness check failed")
+
+            # Validate storage connectivity
+            collections = self.client.get_collections()
+            if not isinstance(collections.collections, list):
+                raise VectorStoreError("Invalid collections response")
+
+            # Performance check (simple query)
+            test_vector = [0.0] * 384  # Match default vector size
+            self.client.search(
+                collection_name="healthcheck",
+                query_vector=test_vector,
+                limit=1,
+                with_payload=False,
+                timeout=1.0
+            )
+
+            latency = time.monotonic() - start_time
+            if latency > 2.0:  # 2 second threshold
+                logging_utility.warning(f"Qdrant latency warning: {latency:.2f}s")
+
+            return True
+
+        except Exception as e:
+            logging_utility.error(f"Vector store health check failed: {str(e)}")
+            return False
 
 

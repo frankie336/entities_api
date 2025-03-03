@@ -136,3 +136,12 @@ if __name__ == "__main__":
     )
 
     print(f"\nSetup complete. Assistant ID: {assistant.id}")
+    print(assistant)
+
+    client = OllamaClient()
+
+    tool_service = client.tool_service.list_tools(assistant_id=assistant.id, restructure=True)
+
+    print("**************")
+    print(tool_service[0])
+

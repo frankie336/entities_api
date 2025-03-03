@@ -53,7 +53,7 @@ class Runner:
 
         return filtered_messages
 
-    def process_tool_calls(self, run_id, tool_calls, message_id, thread_id):
+    def _process_tool_calls(self, run_id, tool_calls, message_id, thread_id):
         """
         Processes tool calls and waits for status to change to 'ready'.
         Returns the response of tool functions, filtering out errors.
@@ -101,7 +101,7 @@ class Runner:
                     raise ValueError(f"Function '{function_name}' is not available in available_functions")
 
         except Exception as e:
-            logging_utility.error(f"Error in process_tool_calls: {str(e)}", exc_info=True)
+            logging_utility.error(f"Error in _process_tool_calls: {str(e)}", exc_info=True)
 
         return tool_results  # Return collected results, excluding any that had errors
 

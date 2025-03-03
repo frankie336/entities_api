@@ -1,6 +1,8 @@
 # entities_api/main.py
 
 import os
+import time
+
 from fastapi import FastAPI
 from sqlalchemy import create_engine, text, inspect
 from entities_api.models.models import Base
@@ -43,6 +45,10 @@ def update_messages_content_column():
         connection.execute(text("ALTER TABLE messages MODIFY COLUMN content TEXT"))
 
 def create_app(init_db=True):
+
+
+
+
     logging_utility.info("Creating FastAPI app")
     app = FastAPI()
 
@@ -69,4 +75,5 @@ def create_test_app():
     drop_tables()
     create_tables()
     update_messages_content_column()
+
     return create_app(init_db=False)

@@ -40,7 +40,7 @@ def count_tokens(input_string: str, tokenizer_path: str =tokenizer_path) -> int:
 
 # Example usage
 if __name__ == "__main__":
-    #input_text = ASSISTANT_INSTRUCTIONS
+    #input_text = BASE_ASSISTANT_INSTRUCTIONS
     input_text = markdown_dict["markdown"]
     try:
         token_count = count_tokens(input_text, tokenizer_path)

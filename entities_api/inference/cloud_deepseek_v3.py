@@ -1,14 +1,12 @@
 import json
 import time
+
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from entities_api.constants.assistant import PLATFORM_TOOLS
 from entities_api.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
-from entities_api.clients.client_message_client import ClientMessageService
-from entities_api.clients.client_actions_client import ClientActionService
-from entities_api.clients.client_tool_client import ClientToolService
-from entities_api.clients.client_run_client import ClientRunService
 
 load_dotenv()
 logging_utility = LoggingUtility()
@@ -24,148 +22,74 @@ class DeepSeekV3Cloud(BaseInference):
         )
         logging_utility.info("DeepSeekV3Cloud specific setup completed.")
 
-    def normalize_roles(self, conversation_history):
-        """
-        Normalize roles to ensure consistency with DeepSeek's API.
-        """
-        normalized_history = []
-        for message in conversation_history:
-            role = message.get('role', '').strip().lower()
-            if role not in ['user', 'assistant', 'system']:
-                role = 'user'
-            normalized_history.append({
-                "role": role,
-                "content": message.get('content', '').strip()
-            })
-        return normalized_history
 
-    def look_for_tool_call_trigger(self, message_id, model, assistant_id):
-        """
-        Check if the incoming message triggers a tool call.
-        """
-        message_service = ClientMessageService()
-        message_data = message_service.retrieve_message(message_id=message_id)
-        message = message_data.content
+    # state
+    def set_tool_response_state(self, value):
+        self.tool_response = value
 
-        tool_service = ClientToolService()
-        tools_data = tool_service.list_tools(assistant_id=assistant_id)
-        tools = tool_service.restructure_tools(tools_data)
+    def get_tool_response_state(self):
+        return self.tool_response
 
-        response = self.deepseek_client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": message}],
-            stream=False,
-            temperature=0.3,
-            tools=tools
-        )
+    def set_function_call_state(self, value):
+        self.function_call = value
 
-        return response.choices[0].message
+    def get_function_call_state(self):
+        return self.function_call
 
-    def process_conversation(self, thread_id, message_id, run_id, assistant_id,
-                             model='deepseek-reasoner', stream_reasoning=True):
-        """
-        Process conversation with dual streaming (content + reasoning). If a tool call trigger
-        is detected, update run status to 'action_required', then wait for the status to change,
-        and reprocess the original prompt.
-        """
+    def _set_up_context_window(self, assistant_id, thread_id, trunk=True):
+        return super()._set_up_context_window(assistant_id, thread_id, trunk=True)
+
+    def finalize_conversation(self, assistant_reply, thread_id, assistant_id, run_id):
+        return super().finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
+
+    def _process_platform_tool_calls(self, thread_id, assistant_id, content, run_id):
+        return super()._process_platform_tool_calls(thread_id, assistant_id, content, run_id)
+
+    def _process_tool_calls(self, thread_id,
+                            assistant_id, content,
+                            run_id):
+        return super()._process_tool_calls(thread_id, assistant_id, content, run_id)
+
+    def stream_function_call_output(self, thread_id, run_id, assistant_id,
+                                    model, stream_reasoning=False):
+
         logging_utility.info(
             "Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
             thread_id, run_id, assistant_id
         )
 
-        # Retrieve the assistant (and its instructions) via some service.
-        assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
-        logging_utility.info("Retrieved assistant: id=%s, name=%s, model=%s",
-                             assistant.id, assistant.name, assistant.model)
-
-        # Retrieve conversation history and normalize roles.
-        conversation_history = self.message_service.get_formatted_messages(
-            thread_id, system_message=assistant.instructions
-        )
-        conversation_history = self.normalize_roles(conversation_history)
-        deepseek_messages = [{"role": msg['role'], "content": msg['content']} for msg in conversation_history]
-
-        # Look for a tool call trigger in the initial assistant response.
-        tool_call = self.look_for_tool_call_trigger(message_id, model, assistant_id)
-        if tool_call and hasattr(tool_call, 'tool_calls') and tool_call.tool_calls:
-            tool_call_check = tool_call.tool_calls[0]
-            logging_utility.info("Tool call triggered: %s", tool_call_check)
-
-            # Save the user message that triggered the tool.
-            message_service = ClientMessageService()
-            message_data = message_service.retrieve_message(message_id=message_id)
-            message = message_data.content
-            self.message_service.save_assistant_message_chunk(
-                thread_id=thread_id,
-                content=message,
-                role="user",
-                assistant_id=assistant_id,
-                sender_id=assistant_id,
-                is_last_chunk=True
-            )
-            logging_utility.info("Saved triggering message to thread: %s", thread_id)
-
-            # Save the tool invocation for state management.
-            action_service = ClientActionService()
-            data_dict = json.loads(tool_call_check.function.arguments)
-            action_service.create_action(
-                tool_name=tool_call_check.function.name,
-                run_id=run_id,
-                function_args=data_dict
-            )
-
-            # Update run status to 'action_required'
-            run_service = ClientRunService()
-            run_service.update_run_status(run_id=run_id, new_status='action_required')
-            logging_utility.info(f"Run {run_id} status updated to action_required")
-
-            # Now wait for the run's status to change from 'action_required'.
-            while True:
-                run = self.run_service.retrieve_run(run_id)
-                if run.status != "action_required":
-                    break
-                time.sleep(1)
-            logging_utility.info("Action status transition complete. Reprocessing conversation.")
-
-            # Continue processing the conversation transparently.
-            # (Rebuild the conversation history if needed; here we re-use deepseek_messages.)
-        else:
-            logging_utility.info("No tool call triggered; proceeding with conversation.")
-
-        # Retrieve tools again (in case they changed)
-        tool_service = ClientToolService()
-        tools_data = tool_service.list_tools(assistant_id=assistant_id)
-        tools = tool_service.restructure_tools(tools_data)
 
         try:
             stream_response = self.deepseek_client.chat.completions.create(
                 model=model,
-                messages=deepseek_messages,
+                messages=self._set_up_context_window(assistant_id, thread_id, trunk=True),
                 stream=True,
-                temperature=0.3,
-                tools=tools
+                temperature=0.6
             )
 
             assistant_reply = ""
+            accumulated_content = ""
             reasoning_content = ""
 
             for chunk in stream_response:
                 logging_utility.debug("Raw chunk received: %s", chunk)
                 reasoning_chunk = getattr(chunk.choices[0].delta, 'reasoning_content', '')
+
                 if reasoning_chunk:
                     reasoning_content += reasoning_chunk
                     yield json.dumps({
                         'type': 'reasoning',
                         'content': reasoning_chunk
                     })
+
                 content_chunk = getattr(chunk.choices[0].delta, 'content', '')
                 if content_chunk:
                     assistant_reply += content_chunk
-                    yield json.dumps({
-                        'type': 'content',
-                        'content': content_chunk
-                    })
+                    accumulated_content += content_chunk
+                    yield json.dumps({'type': 'content', 'content': content_chunk}) + '\n'
+
                 time.sleep(0.01)
+
         except Exception as e:
             error_msg = "[ERROR] DeepSeek API streaming error"
             logging_utility.error(f"{error_msg}: {str(e)}", exc_info=True)
@@ -176,16 +100,224 @@ class DeepSeekV3Cloud(BaseInference):
             return
 
         if assistant_reply:
-            self.message_service.save_assistant_message_chunk(
+            assistant_message = self.finalize_conversation(
+                assistant_reply=assistant_reply,
                 thread_id=thread_id,
-                content=assistant_reply,
-                role="assistant",
                 assistant_id=assistant_id,
-                sender_id=assistant_id,
-                is_last_chunk=True
+                run_id=run_id
             )
-            self.run_service.update_run_status(run_id, "completed")
             logging_utility.info("Assistant response stored successfully.")
 
+        self.run_service.update_run_status(run_id, "completed")
         if reasoning_content:
             logging_utility.info("Final reasoning content: %s", reasoning_content)
+
+
+
+    def stream_response(self, thread_id, message_id, run_id, assistant_id,
+                        model, stream_reasoning=True):
+
+
+        """
+        Process conversation with dual streaming (content + reasoning). If a tool call trigger
+        is detected, update run status to 'action_required', then wait for the status to change,
+        and reprocess the original prompt.
+        """
+        logging_utility.info(
+            "Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
+            thread_id, run_id, assistant_id
+        )
+
+        try:
+            stream_response = self.deepseek_client.chat.completions.create(
+                model=model,
+                messages=self._set_up_context_window(assistant_id, thread_id, trunk=True),
+                stream=True,
+                temperature=0.6,
+                # tools=tools
+            )
+
+            assistant_reply = ""
+            accumulated_content = ""
+            reasoning_content = ""
+            code_mode = False
+            code_buffer = ""
+
+            for chunk in stream_response:
+                logging_utility.debug("Raw chunk received: %s", chunk)
+
+                # Process reasoning tokens as before.
+                reasoning_chunk = getattr(chunk.choices[0].delta, 'reasoning_content', '')
+                if reasoning_chunk:
+                    reasoning_content += reasoning_chunk
+                    yield json.dumps({
+                        'type': 'reasoning',
+                        'content': reasoning_chunk
+                    })
+
+                # Process content tokens with code-mode logic.
+                content_chunk = getattr(chunk.choices[0].delta, 'content', '')
+                if content_chunk:
+                    # Always accumulate the full content.
+                    assistant_reply += content_chunk
+                    accumulated_content += content_chunk
+
+                    # ---------------------------------------------------
+                    # 1) Check for partial code-interpreter match and exclude prior characters
+                    # ---------------------------------------------------
+                    if not code_mode:
+                        partial_match = self.parse_code_interpreter_partial(accumulated_content)
+                        if partial_match:
+                            full_match = partial_match.get('full_match')
+                            if full_match:
+                                match_index = accumulated_content.find(full_match)
+                                if match_index != -1:
+                                    # Remove everything up to and including the full_match.
+                                    accumulated_content = accumulated_content[match_index + len(full_match):]
+                            # Enter code mode and initialize the code buffer with any remaining partial code.
+                            code_mode = True
+                            code_buffer = partial_match.get('code', '')
+                            # Emit the start-of-code block marker.
+                            yield json.dumps({'type': 'hot_code', 'content': '```python\n'})
+                            # Do NOT yield the code_buffer from the partial match.
+                            continue
+
+                    # ---------------------------------------------------
+                    # 2) Already in code mode -> simply accumulate and yield code chunks
+                    # ---------------------------------------------------
+                    if code_mode:
+                        code_buffer += content_chunk
+                        while "\n" in code_buffer:
+                            newline_pos = code_buffer.find("\n") + 1
+                            line_chunk = code_buffer[:newline_pos]
+                            code_buffer = code_buffer[newline_pos:]
+                            yield json.dumps({'type': 'hot_code', 'content': line_chunk})
+                            break
+                        if len(code_buffer) > 100:
+                            yield json.dumps({'type': 'hot_code', 'content': code_buffer})
+                            code_buffer = ""
+                        continue
+
+                    # If not in code mode, yield content as normal.
+                    yield json.dumps({'type': 'content', 'content': content_chunk}) + '\n'
+
+                time.sleep(0.01)
+
+        except Exception as e:
+            error_msg = "[ERROR] DeepSeek API streaming error"
+            logging_utility.error(f"{error_msg}: {str(e)}", exc_info=True)
+            yield json.dumps({
+                'type': 'error',
+                'content': error_msg
+            })
+            return
+
+        if assistant_reply:
+            # Saves assistant's reply
+            assistant_message = self.finalize_conversation(
+                assistant_reply=assistant_reply,
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                run_id=run_id
+            )
+            logging_utility.info("Assistant response stored successfully.")
+
+            # ---------------------------------------------------
+            # Handle saving to vector store!
+            # ---------------------------------------------------
+            vector_store_id = self.get_vector_store_id_for_assistant(assistant_id=assistant_id)
+            user_message = self.message_service.retrieve_message(message_id=message_id)
+            self.vector_store_service.store_message_in_vector_store(
+                message=user_message,
+                vector_store_id=vector_store_id,
+                role="user"
+            )
+
+            # ---------------------------------------------------
+            # Avoid saving function call responses to the vector store
+            # ---------------------------------------------------
+            if not self.get_tool_response_state():
+                self.vector_store_service.store_message_in_vector_store(
+                    message=assistant_message,
+                    vector_store_id=vector_store_id,
+                    role="assistant"
+                )
+
+        # ---------------------------------------------------
+        # 3) Validate if the accumulated response is a properly formed tool response.
+        # ---------------------------------------------------
+        if accumulated_content:
+            json_accumulated_content = self.ensure_valid_json(text=accumulated_content)
+            function_call = self.is_valid_function_call_response(json_data=json_accumulated_content)
+            complex_vector_search = self.is_complex_vector_search(data=json_accumulated_content)
+
+            if function_call or complex_vector_search:
+                self.set_tool_response_state(True)
+                self.set_function_call_state(json_accumulated_content)
+
+        self.run_service.update_run_status(run_id, "completed")
+        if reasoning_content:
+            logging_utility.info("Final reasoning content: %s", reasoning_content)
+
+    def process_conversation(self, thread_id, message_id, run_id, assistant_id,
+                             model, stream_reasoning=False):
+
+        if self._get_model_map(value=model):
+            model = self._get_model_map(value=model)
+
+        # ---------------------------------------------
+        # Stream the response and yield each chunk.
+        # --------------------------------------------
+        for chunk in self.stream_response(thread_id, message_id, run_id, assistant_id, model, stream_reasoning):
+            yield chunk
+
+        #print("The Tool response state is:")
+        #print(self.get_tool_response_state())
+        #print(self.get_function_call_state())
+
+        if self.get_function_call_state():
+            if self.get_function_call_state():
+                if self.get_function_call_state().get("name") in PLATFORM_TOOLS:
+
+                    self._process_platform_tool_calls(
+                        thread_id=thread_id,
+                        assistant_id=assistant_id,
+                        content=self.get_function_call_state(),
+                        run_id=run_id
+
+                    )
+
+                    # Stream the output to the response:
+                    for chunk in self.stream_function_call_output(thread_id=thread_id,
+                                                                  run_id=run_id,
+                                                                  model=model,
+                                                                  assistant_id=assistant_id
+                                                                  ):
+                        yield chunk
+
+        # Deal with user side function calls
+        if self.get_function_call_state():
+            if self.get_function_call_state():
+                if self.get_function_call_state().get("name") not in PLATFORM_TOOLS:
+                    self._process_tool_calls(
+                        thread_id=thread_id,
+                        assistant_id=assistant_id,
+                        content=self.get_function_call_state(),
+                        run_id=run_id
+                    )
+                    # Stream the output to the response:
+                    for chunk in self.stream_function_call_output(thread_id=thread_id,
+                                                                  run_id=run_id,
+                                                                  assistant_id=assistant_id
+                                                                  ):
+                        yield chunk
+
+
+
+
+
+
+
+def __del__(self):
+        """Cleanup resources."""
+        super().__del__()

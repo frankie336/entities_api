@@ -1,198 +1,276 @@
-#entities_api/assistant.py
-# Global constants
-PLATFORM_TOOLS = ["code_interpreter", "web_search", "search_vector_store"]
+# entities_api/assistant.py
+# Global constants with enhanced validation
+PLATFORM_TOOLS = ["code_interpreter", "web_search", "vector_store_search"]
 API_TIMEOUT = 30
 DEFAULT_MODEL = "llama3.1"
 
-
+# Tool schemas with strict validation rules
 BASE_TOOLS = [
-        {
-            "type": "code_interpreter",
-            "function": {
-                "name": "code_interpreter",
-                "description": "Executes a provided Python code snippet remotely in a sandbox environment and returns the raw output as a JSON object...",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "code": {"type": "string", "description": "The Python code snippet to execute."},
-                        "language": {"type": "string", "description": "The programming language.", "enum": ["python"]}
-                    },
-                    "required": ["code", "language", "user_id"]
-                }
+    {
+        "type": "code_interpreter",
+        "function": {
+            "name": "code_interpreter",
+            "description": "Executes Python code in a sandbox environment and returns JSON output.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "Python code to execute"},
+                    "language": {"type": "string", "enum": ["python"]},
+                    "user_id": {"type": "string", "description": "User identifier"}
+                },
+                "required": ["code", "language", "user_id"]
             }
-        },
-
-        {
-            "type": "function",
-            "function": {
-                "name": "getAnnouncedPrefixes",
-                "description": "Retrieves the announced prefixes for a given ASN",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "resource": {"type": "string", "description": "The ASN for which to retrieve the announced prefixes"},
-                        "starttime": {"type": "string", "description": "The start time for the query"},
-                        "endtime": {"type": "string", "description": "The end time for the query"},
-                        "min_peers_seeing": {"type": "integer", "description": "Minimum RIS peers seeing the prefix"}
-                    },
-                    "required": ["resource"]
-                }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "getAnnouncedPrefixes",
+            "description": "Retrieves announced prefixes for an ASN",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "resource": {"type": "string", "description": "ASN to query"},
+                    "starttime": {"type": "string", "description": "Start time (ISO 8601)"},
+                    "endtime": {"type": "string", "description": "End time (ISO 8601)"},
+                    "min_peers_seeing": {
+                        "type": "integer",
+                        "description": "Minimum RIS peers seeing prefix",
+                        "minimum": 1
+                    }
+                },
+                "required": ["resource"]
             }
-        },
-        {
-            "type": "web_search",
-            "function": {
-                "name": "web_search",
-                "description": "Performs a web search based on a user-provided query and returns the results in a structured format.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "The search query (e.g., 'latest trends in AI')."
-                        },
-                        "max_results": {
-                            "type": "integer",
-                            "description": "The maximum number of results to return. Default is 5.",
-                            "default": 5
+        }
+    },
+    {
+        "type": "web_search",
+        "function": {
+            "name": "web_search",
+            "description": "Performs web searches with structured results",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search terms using advanced operators",
+                        "examples": [
+                            "filetype:pdf cybersecurity report 2023",
+                            "site:github.com AI framework"
+                        ]
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "vector_store_search",
+            "description": "Qdrant-compatible semantic search with advanced filters",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language search query"
+                    },
+                    "search_type": {
+                        "type": "string",
+                        "enum": [
+                            "basic_semantic",
+                            "filtered",
+                            "complex_filters",
+                            "temporal",
+                            "explainable",
+                            "hybrid"
+                        ],
+                        "description": "Search methodology"
+                    },
+                    "source_type": {
+                        "type": "string",
+                        "enum": ["chat", "documents", "memory"],
+                        "description": "Data domain to search"
+                    },
+                    "filters": {
+                        "type": "object",
+                        "description": "Qdrant-compatible filter syntax",
+                        "examples": {
+                            "temporal": {"created_at": {"$gte": 1672531200, "$lte": 1704067200}},
+                            "boolean": {"$or": [{"status": "active"}, {"priority": {"$gte": 7}}]}
                         }
                     },
-                    "required": ["query"]
-                }
+                    "score_boosts": {
+                        "type": "object",
+                        "description": "Field-specific score multipliers",
+                        "examples": {"priority": 1.5, "relevance": 2.0}
+                    }
+                },
+                "required": ["query", "search_type", "source_type"]
             }
-        },
-
-{
-    "type": "function",
-    "function": {
-        "name": "search_vector_store",
-        "description": "Searches a vector store for the most relevant stored embeddings based on a query.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "assistant_id": {
-                    "type": "string",
-                    "description": "The ID of the assistant performing the search."
-                },
-                "vector_store_id": {
-                    "type": "string",
-                    "description": "The ID of the vector store to search in."
-                },
-                "query": {
-                    "type": "string",
-                    "description": "The text query to search for in the vector store."
-                },
-                "top_k": {
-                    "type": "integer",
-                    "description": "The number of top results to return. Default is 5.",
-                    "default": 5
-                }
-            },
-            "required": ["assistant_id", "vector_store_id", "query"]
         }
     }
-}
+]
 
+BASE_ASSISTANT_INSTRUCTIONS = (
+    "🔹 **STRICT TOOL USAGE PROTOCOL**\n"
+    "ALL tool calls MUST follow EXACT structure:\n"
+    "{\n"
+    '  "name": "<tool_name>",\n'
+    '  "arguments": {\n'
+    '    "<param>": "<value>"\n'
+    '  }\n'
+    "}\n\n"
 
+    "🔹 **VECTOR SEARCH COMMANDMENTS**\n"
+    "1. Temporal filters use UNIX timestamps (numeric)\n"
+    "2. Numeric ranges: $eq/$neq/$gte/$lte\n"
+    "3. Boolean logic: $or/$and/$not\n"
+    "4. Text matching: $match/$contains\n\n"
 
+    "🔹 **SEARCH TYPE EXAMPLES**\n"
+    "1. Basic Semantic Search:\n"
+    "{\n"
+    '  "name": "vector_store_search",\n'
+    '  "arguments": {\n'
+    '    "query": "Ransomware attack patterns",\n'
+    '    "search_type": "basic_semantic",\n'
+    '    "source_type": "chat"\n'
+    '  }\n'
+    "}\n\n"
 
-    ]
-
-
-ASSISTANT_INSTRUCTIONS = (
-    "You must strictly adhere to the following guidelines:\n"
-    "\n"
-    "🔹 **GENERAL TOOL USAGE:**\n"
-    "- When invoking tools, ALWAYS follow this exact JSON structure:\n"
-    "  {\n"
-    '    "name": "<tool_name>",\n'
-    '    "arguments": {\n'
-    '      "<param1>": "<value1>"\n'
+    "2. Temporal Search:\n"
+    "{\n"
+    '  "name": "vector_store_search",\n'
+    '  "arguments": {\n'
+    '    "query": "Zero-day vulnerabilities",\n'
+    '    "search_type": "temporal",\n'
+    '    "source_type": "chat",\n'
+    '    "filters": {\n'
+    '      "created_at": {\n'
+    '        "$gte": 1672531200,\n'
+    '        "$lte": 1704067200\n'
+    '      }\n'
     '    }\n'
-    "  }\n"
-    "- Validate all tool calls before execution:\n"
-    "  1. Tool name must EXACTLY match registered function.\n"
-    "  2. Arguments must contain ONLY expected parameters.\n"
-    "  3. JSON must be valid with correct data types.\n"
-    "\n"
-    "🔹 **VECTOR STORE SEARCH RULES:**\n"
-    "- ALWAYS use `search_vector_store` when:\n"
-    "  • User asks about previously discussed topics.\n"
-    "  • User references past interactions, files, or custom knowledge.\n"
-    "  • User requests retrieval of specific stored content.\n"
-    "- DO NOT use `search_vector_store` for real-time or web-based information.\n"
-    "- Ensure the tool call follows this format:\n"
-    "  {\n"
-    '    "name": "search_vector_store",\n'
-    '    "arguments": {\n'
-    '      "query": "<user’s request>",\n'
-    '      "top_k": 5\n'
+    '  }\n'
+    "}\n\n"
+
+    "3. Complex Filter Search:\n"
+    "{\n"
+    '  "name": "vector_store_search",\n'
+    '  "arguments": {\n'
+    '    "query": "Critical security patches",\n'
+    '    "search_type": "complex_filters",\n'
+    '    "source_type": "chat",\n'
+    '    "filters": {\n'
+    '      "$or": [\n'
+    '        {"priority": {"$gt": 7}},\n'
+    '        {"category": "emergency"}\n'
+    '      ]\n'
     '    }\n'
-    "  }\n"
-    "- If search results are returned:\n"
-    "  • Extract key insights and summarize.\n"
-    "  • Present findings in a clear, structured format.\n"
-    "  • If needed, synthesize multiple results into a coherent response.\n"
-    "- If NO relevant results are found:\n"
-    "  • Inform the user clearly: 'No stored knowledge found on this topic.'\n"
-    "  • Ask if they want to rephrase the query.\n"
-    "  • Offer to search the web instead.\n"
-    "\n"
-    "🔹 **WEB SEARCH RULES:**\n"
-    "- Use `web_search` when:\n"
-    "  • User asks about current events or trending topics.\n"
-    "  • User seeks external knowledge beyond stored data.\n"
-    "  • Vector store search yields no relevant results.\n"
-    "- Always verify JSON structure before invoking:\n"
-    "  {\n"
-    '    "name": "web_search",\n'
-    '    "arguments": {\n'
-    '      "query": "<search term>",\n'
-    '      "max_results": 5\n'
+    '  }\n'
+    "}\n\n"
+
+    "4. Assistant-Centric Search:\n"
+    "{\n"
+    '  "name": "vector_store_search",\n'
+    '  "arguments": {\n'
+    '    "query": "Quantum-resistant key exchange",\n'
+    '    "search_type": "complex_filters",\n'
+    '    "source_type": "chat",\n'
+    '    "filters": {\n'
+    '      "$and": [\n'
+    '        {"message_role": "assistant"},\n'
+    '        {"created_at": {"$gte": 1700000000}}\n'
+    '      ]\n'
     '    }\n'
-    "  }\n"
-    "\n"
-    "🔹 **CODE INTERPRETER RULES:**\n"
-    "- Only use `code_interpreter` for tasks involving:\n"
-    "  • Data analysis, calculations, and simulations.\n"
-    "  • Generating plots or structured outputs.\n"
-    "- Ensure code integrity:\n"
-    "  1. Full Python code block inside 'code' parameter.\n"
-    "  2. Proper escape characters where needed.\n"
-    "  3. No partial or incomplete snippets.\n"
-    "\n"
-    "🔹 **ERROR HANDLING:**\n"
-    "- If tool call structure is invalid → Abort and request clarification.\n"
-    "- If tool is unknown → Respond naturally without execution.\n"
-    "- If parameters are missing → Ask user for clarification.\n"
-    "\n"
-    "🔹 **PRESENTATION RULES:**\n"
-    "- Web search results must be formatted in a clean, vertical layout.\n"
-    "- Code outputs must be wrapped in proper markdown blocks.\n"
-    "- Vector store results should be structured, summarized, and contextualized.\n"
-    "- NEVER mix response formats (e.g., avoid interleaving raw JSON and text).\n"
-    "\n"
+    '  }\n'
+    "}\n\n"
+
+    "5. Hybrid Source Search:\n"
+    "{\n"
+    '  "name": "vector_store_search",\n'
+    '  "arguments": {\n'
+    '    "query": "NIST PQC standardization",\n'
+    '    "search_type": "temporal",\n'
+    '    "source_type": "both",\n'
+    '    "filters": {\n'
+    '      "$or": [\n'
+    '        {"doc_type": "technical_spec"},\n'
+    '        {"thread_id": "thread_*"}\n'
+    '      ]\n'
+    '    }\n'
+    '  }\n'
+    "}\n\n"
+
+    "🔹 **WEB SEARCH RULES**\n"
+    "Optimized Query Example:\n"
+    "{\n"
+    '  "name": "web_search",\n'
+    '  "arguments": {\n'
+    '    "query": "CRYSTALS-Kyber site:nist.gov filetype:pdf"\n'
+    '  }\n'
+    "}\n\n"
+
+    "🔹 **QUERY OPTIMIZATION PROTOCOL**\n"
+    "1. Auto-condense queries to 5-7 key terms\n"
+    "2. Default temporal filter: last 12 months\n"
+    "3. Prioritize chat sources 2:1 over documents\n\n"
+
+    "🔹 **RESULT CURATION RULES**\n"
+    "1. Hide results with similarity scores <0.65\n"
+    "2. Convert UNIX timestamps to human-readable dates\n"
+    "3. Suppress raw JSON unless explicitly requested\n\n"
+
+    "🔹 **VALIDATION IMPERATIVES**\n"
+    "1. Double-quotes ONLY for strings\n"
+    "2. No trailing commas\n"
+    "3. UNIX timestamps as NUMBERS (no quotes)\n"
+    "4. Operators must start with $\n\n"
+
+    "🔹 **TERMINATION CONDITIONS**\n"
+    "ABORT execution for:\n"
+    "- Invalid timestamps (non-numeric/string)\n"
+    "- Missing required params (query/search_type/source_type)\n"
+    "- Unrecognized operators (e.g., gte instead of $gte)\n"
+    "- Schema violations\n\n"
+
+    "🔹 **ERROR HANDLING**\n"
+    "- Invalid JSON → Abort and request correction\n"
+    "- Unknown tool → Respond naturally\n"
+    "- Missing parameters → Ask for clarification\n"
+    "- Format errors → Fix before sending\n\n"
+
+    "🔹 **OUTPUT FORMAT RULES**\n"
+    "- NEVER use JSON backticks\n"
+    "- ALWAYS use raw JSON syntax\n"
+    "- Bold timestamps: **2025-03-01**\n"
+    "- Example output:\n"
+    '  {"name": "vector_store_search", "arguments": {\n'
+    '    "query": "post-quantum migration",\n'
+    '    "search_type": "basic_semantic",\n'
+    '    "source_type": "chat"\n'
+    '  }}\n\n'
+
     "Failure to comply will result in system rejection."
 )
 
 
 WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS = (
     "Presentation Requirements:\n"
-    "1. Strictly NO code block formatting\n"
-    "2. Use --- separators between items\n"
-    "3. Embed favicons using markdown images\n"
-    "4. Prioritize mobile-friendly layout\n"
-    "5. Highlight domain authority\n"
-    "6. Maintain source URL integrity\n"
-    "7. Never modify search results content\n"
-    "8. Mark metadata as hidden annotations\n"
-    "Format Example:\n"
-    "[Source Name](url)  \n"
+    "1. Mobile-first layout\n"
+    "2. Domain authority badges\n"
+    "3. Preserved source URLs\n"
+    "4. Hidden metadata annotations\n"
+    "Format Template:\n"
+    "[Source](url)  \n"
     "![Favicon](favicon_url)  \n"
-    "Relevant excerpt...  \n"
+    "Excerpt...  \n"
     "---\n"
-    "Next result..."
 )
 
-WEB_SEARCH_BASE_URL="https://www.bing.co.uk/search"
-#WEB_SEARCH_BASE_URL_BBC_TEST=f"https://www.bbc.com/search?q={query}&page={i}"
+WEB_SEARCH_BASE_URL = "https://www.bing.co.uk/search"
+JSON_VALIDATION_PATTERN = r'\{\s*"name"\s*:\s*".+?"\s*,\s*"arguments"\s*:\s*\{.*?\}\s*\}'
+
+

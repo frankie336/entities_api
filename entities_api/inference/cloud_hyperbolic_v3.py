@@ -125,9 +125,9 @@ class HyperbolicV3Inference(BaseInference):
         logging_utility.info("Final accumulated_content: %s", accumulated_content)
         return accumulated_content
 
-    def process_tool_calls(self, thread_id,
-                           assistant_id, content,
-                           run_id):
+    def _process_tool_calls(self, thread_id,
+                            assistant_id, content,
+                            run_id):
 
         self.message_service.save_assistant_message_chunk(
             thread_id=thread_id,
@@ -192,7 +192,7 @@ class HyperbolicV3Inference(BaseInference):
             if is_this_a_tool_call:
                 logging_utility.info("Tool call detected; proceeding accordingly.")
 
-                self.process_tool_calls(
+                self._process_tool_calls(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
                     content=tool_candidate_data,

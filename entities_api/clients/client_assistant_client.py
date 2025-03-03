@@ -1,5 +1,5 @@
 import httpx
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pydantic import ValidationError
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.schemas import AssistantCreate, AssistantRead, AssistantUpdate
@@ -17,11 +17,13 @@ class ClientAssistantService:
 
     def create_assistant(self, model: str, name: str = "", description: str = "", instructions: str = "",
                          meta_data: Dict[str, Any] = None,
-                         top_p: float = 1.0, temperature: float = 1.0, response_format: str = "auto") -> AssistantRead:
+                         top_p: float = 1.0, temperature: float = 1.0, response_format: str = "auto",
+                         assistant_id: Optional[str] = None) -> AssistantRead:
         """
         Create an assistant without requiring user_id, as the association is handled separately.
         """
         assistant_data = {
+            "id": assistant_id,
             "name": name,
             "description": description,
             "model": model,

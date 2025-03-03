@@ -1,11 +1,13 @@
 import json
-import re
 import os
+import re
 import sys
 import time
 from functools import lru_cache
+
 from dotenv import load_dotenv
 from together import Together  # Using the official Together SDK
+
 from entities_api.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
 
@@ -41,28 +43,31 @@ class TogetherR1Inference(BaseInference):
         """Reuse parent class normalization."""
         return super().normalize_roles(conversation_history)
 
-    def process_conversation(self, thread_id, message_id, run_id, assistant_id,
-                             model="deepseek-ai/DeepSeek-R1", stream_reasoning=True):
-        """
-        Handles chat streaming using the TogetherAI SDK.
-        - Uses the SDK for inference.
-        - Splits the streamed content on <think> and </think> markers.
-        - Yields each segment immediately with its type.
-        - Supports mid-stream cancellation.
-        """
+    def _get_model_map(self, value):
+        return super()._get_model_map(value)
+
+    def _set_up_context_window(self, assistant_id, thread_id, trunk=True):
+        return super()._set_up_context_window(assistant_id, thread_id, trunk=True)
+
+
+    def stream_function_call_output(self, thread_id, run_id, assistant_id,
+                                    model, stream_reasoning=False):
+        return
+
+    def stream_response(self, thread_id, message_id, run_id, assistant_id,
+                             model, stream_reasoning=True):
+
+
         self.start_cancellation_listener(run_id)
 
         # Force correct model value
-        model = "deepseek-ai/DeepSeek-R1"
+        if self._get_model_map(value=model):
+            model = self._get_model_map(value=model)
 
-        # Retrieve cached data
-        assistant = self._assistant_cache(assistant_id)
-        conversation_history = self._message_cache(thread_id, assistant.instructions)
-        messages = self.normalize_roles(conversation_history)
 
         request_payload = {
             "model": model,
-            "messages": [{"role": msg["role"], "content": msg["content"]} for msg in messages],
+            "messages": self._set_up_context_window(assistant_id, thread_id, trunk=True) ,
             "max_tokens": None,
             "temperature": 0.6,
             "top_p": 0.95,
@@ -136,6 +141,21 @@ class TogetherR1Inference(BaseInference):
         if assistant_reply:
             combined = reasoning_content + assistant_reply
             self.finalize_conversation(combined, thread_id, assistant_id, run_id)
+
+    def process_conversation(self, thread_id, message_id, run_id, assistant_id,
+                             model, stream_reasoning=False):
+
+        print("Hello world")
+
+        if self._get_model_map(value=model):
+            model = self._get_model_map(value=model)
+
+        # ---------------------------------------------
+        # Stream the response and yield each chunk.
+        # --------------------------------------------
+        for chunk in self.stream_response(thread_id, message_id, run_id, assistant_id, model, stream_reasoning):
+            yield chunk
+
 
     def __del__(self):
         """Cleanup resources."""
