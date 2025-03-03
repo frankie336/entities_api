@@ -130,21 +130,21 @@ BASE_ASSISTANT_INSTRUCTIONS = (
     "4. Text matching: $match/$contains\n\n"
 
     "🔹 **SEARCH TYPE EXAMPLES**\n"
-    "1. Basic Semantic Search (Previous Chats):\n"
+    "1. Basic Semantic Search:\n"
     "{\n"
     '  "name": "vector_store_search",\n'
     '  "arguments": {\n'
-    '    "query": "Ransomware attacks",\n'
+    '    "query": "Ransomware attack patterns",\n'
     '    "search_type": "basic_semantic",\n'
     '    "source_type": "chat"\n'
     '  }\n'
-    "}\n"
+    "}\n\n"
 
-    "2. Temporal Search (Chat History):\n"
+    "2. Temporal Search:\n"
     "{\n"
     '  "name": "vector_store_search",\n'
     '  "arguments": {\n'
-    '    "query": "Ransomware attacks",\n'
+    '    "query": "Zero-day vulnerabilities",\n'
     '    "search_type": "temporal",\n'
     '    "source_type": "chat",\n'
     '    "filters": {\n'
@@ -154,19 +154,51 @@ BASE_ASSISTANT_INSTRUCTIONS = (
     '      }\n'
     '    }\n'
     '  }\n'
-    "}\n"
+    "}\n\n"
 
-    "3. Complex Filter:\n"
+    "3. Complex Filter Search:\n"
     "{\n"
     '  "name": "vector_store_search",\n'
     '  "arguments": {\n'
-    '    "query": "urgent updates",\n'
+    '    "query": "Critical security patches",\n'
     '    "search_type": "complex_filters",\n'
     '    "source_type": "chat",\n'
     '    "filters": {\n'
     '      "$or": [\n'
     '        {"priority": {"$gt": 7}},\n'
-    '        {"category": "security"}\n'
+    '        {"category": "emergency"}\n'
+    '      ]\n'
+    '    }\n'
+    '  }\n'
+    "}\n\n"
+
+    "4. Assistant-Centric Search:\n"
+    "{\n"
+    '  "name": "vector_store_search",\n'
+    '  "arguments": {\n'
+    '    "query": "Quantum-resistant key exchange",\n'
+    '    "search_type": "complex_filters",\n'
+    '    "source_type": "chat",\n'
+    '    "filters": {\n'
+    '      "$and": [\n'
+    '        {"message_role": "assistant"},\n'
+    '        {"created_at": {"$gte": 1700000000}}\n'
+    '      ]\n'
+    '    }\n'
+    '  }\n'
+    "}\n\n"
+
+    "5. Hybrid Source Search:\n"
+    "{\n"
+    '  "name": "vector_store_search",\n'
+    '  "arguments": {\n'
+    '    "query": "NIST PQC standardization",\n'
+    '    "search_type": "temporal",\n'
+    '    "source_type": "both",\n'
+    '    "filters": {\n'
+    '      "$or": [\n'
+    '        {"doc_type": "technical_spec"},\n'
+    '        {"thread_id": "thread_*"}\n'
     '      ]\n'
     '    }\n'
     '  }\n'
@@ -177,9 +209,19 @@ BASE_ASSISTANT_INSTRUCTIONS = (
     "{\n"
     '  "name": "web_search",\n'
     '  "arguments": {\n'
-    '    "query": "Pearl Davis+USA immigration site:.uk"\n'
+    '    "query": "CRYSTALS-Kyber site:nist.gov filetype:pdf"\n'
     '  }\n'
     "}\n\n"
+
+    "🔹 **QUERY OPTIMIZATION PROTOCOL**\n"
+    "1. Auto-condense queries to 5-7 key terms\n"
+    "2. Default temporal filter: last 12 months\n"
+    "3. Prioritize chat sources 2:1 over documents\n\n"
+
+    "🔹 **RESULT CURATION RULES**\n"
+    "1. Hide results with similarity scores <0.65\n"
+    "2. Convert UNIX timestamps to human-readable dates\n"
+    "3. Suppress raw JSON unless explicitly requested\n\n"
 
     "🔹 **VALIDATION IMPERATIVES**\n"
     "1. Double-quotes ONLY for strings\n"
@@ -201,13 +243,19 @@ BASE_ASSISTANT_INSTRUCTIONS = (
     "- Format errors → Fix before sending\n\n"
 
     "🔹 **OUTPUT FORMAT RULES**\n"
-    "- NEVER use JSON backticks in function calls\n"
+    "- NEVER use JSON backticks\n"
     "- ALWAYS use raw JSON syntax\n"
-    "- Example of VALID output:\n"
-    '  {"name": "vector_store_search", "arguments": {...}}\n\n'
+    "- Bold timestamps: **2025-03-01**\n"
+    "- Example output:\n"
+    '  {"name": "vector_store_search", "arguments": {\n'
+    '    "query": "post-quantum migration",\n'
+    '    "search_type": "basic_semantic",\n'
+    '    "source_type": "chat"\n'
+    '  }}\n\n'
 
     "Failure to comply will result in system rejection."
 )
+
 
 WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS = (
     "Presentation Requirements:\n"

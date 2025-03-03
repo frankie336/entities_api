@@ -50,9 +50,74 @@ class DeepSeekV3Cloud(BaseInference):
                             run_id):
         return super()._process_tool_calls(thread_id, assistant_id, content, run_id)
 
+    def stream_function_call_output(self, thread_id, run_id, assistant_id,
+                                    model, stream_reasoning=False):
+
+        logging_utility.info(
+            "Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
+            thread_id, run_id, assistant_id
+        )
+
+
+        try:
+            stream_response = self.deepseek_client.chat.completions.create(
+                model=model,
+                messages=self._set_up_context_window(assistant_id, thread_id, trunk=True),
+                stream=True,
+                temperature=0.6
+            )
+
+            assistant_reply = ""
+            accumulated_content = ""
+            reasoning_content = ""
+
+            for chunk in stream_response:
+                logging_utility.debug("Raw chunk received: %s", chunk)
+                reasoning_chunk = getattr(chunk.choices[0].delta, 'reasoning_content', '')
+
+                if reasoning_chunk:
+                    reasoning_content += reasoning_chunk
+                    yield json.dumps({
+                        'type': 'reasoning',
+                        'content': reasoning_chunk
+                    })
+
+                content_chunk = getattr(chunk.choices[0].delta, 'content', '')
+                if content_chunk:
+                    assistant_reply += content_chunk
+                    accumulated_content += content_chunk
+                    yield json.dumps({'type': 'content', 'content': content_chunk}) + '\n'
+
+                time.sleep(0.01)
+
+        except Exception as e:
+            error_msg = "[ERROR] DeepSeek API streaming error"
+            logging_utility.error(f"{error_msg}: {str(e)}", exc_info=True)
+            yield json.dumps({
+                'type': 'error',
+                'content': error_msg
+            })
+            return
+
+        if assistant_reply:
+            assistant_message = self.finalize_conversation(
+                assistant_reply=assistant_reply,
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                run_id=run_id
+            )
+            logging_utility.info("Assistant response stored successfully.")
+
+        self.run_service.update_run_status(run_id, "completed")
+        if reasoning_content:
+            logging_utility.info("Final reasoning content: %s", reasoning_content)
+
+
 
     def stream_response(self, thread_id, message_id, run_id, assistant_id,
-                        model='deepseek-reasoner', stream_reasoning=True):
+                        model, stream_reasoning=True):
+
+
         """
         Process conversation with dual streaming (content + reasoning). If a tool call trigger
         is detected, update run status to 'action_required', then wait for the status to change,
@@ -68,7 +133,7 @@ class DeepSeekV3Cloud(BaseInference):
                 model=model,
                 messages=self._set_up_context_window(assistant_id, thread_id, trunk=True),
                 stream=True,
-                temperature=0.3,
+                temperature=0.6,
                 # tools=tools
             )
 
@@ -93,6 +158,8 @@ class DeepSeekV3Cloud(BaseInference):
                 # Process content tokens with code-mode logic.
                 content_chunk = getattr(chunk.choices[0].delta, 'content', '')
                 if content_chunk:
+                    # Always accumulate the full content.
+                    assistant_reply += content_chunk
                     accumulated_content += content_chunk
 
                     # ---------------------------------------------------
@@ -132,7 +199,6 @@ class DeepSeekV3Cloud(BaseInference):
                         continue
 
                     # If not in code mode, yield content as normal.
-                    assistant_reply += content_chunk
                     yield json.dumps({'type': 'content', 'content': content_chunk}) + '\n'
 
                 time.sleep(0.01)
@@ -146,6 +212,37 @@ class DeepSeekV3Cloud(BaseInference):
             })
             return
 
+        if assistant_reply:
+            # Saves assistant's reply
+            assistant_message = self.finalize_conversation(
+                assistant_reply=assistant_reply,
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                run_id=run_id
+            )
+            logging_utility.info("Assistant response stored successfully.")
+
+            # ---------------------------------------------------
+            # Handle saving to vector store!
+            # ---------------------------------------------------
+            vector_store_id = self.get_vector_store_id_for_assistant(assistant_id=assistant_id)
+            user_message = self.message_service.retrieve_message(message_id=message_id)
+            self.vector_store_service.store_message_in_vector_store(
+                message=user_message,
+                vector_store_id=vector_store_id,
+                role="user"
+            )
+
+            # ---------------------------------------------------
+            # Avoid saving function call responses to the vector store
+            # ---------------------------------------------------
+            if not self.get_tool_response_state():
+                self.vector_store_service.store_message_in_vector_store(
+                    message=assistant_message,
+                    vector_store_id=vector_store_id,
+                    role="assistant"
+                )
+
         # ---------------------------------------------------
         # 3) Validate if the accumulated response is a properly formed tool response.
         # ---------------------------------------------------
@@ -158,16 +255,7 @@ class DeepSeekV3Cloud(BaseInference):
                 self.set_tool_response_state(True)
                 self.set_function_call_state(json_accumulated_content)
 
-        if assistant_reply:
-            # Saves assistant's reply
-            assistant_message = self.finalize_conversation(
-                assistant_reply=assistant_reply,
-                thread_id=thread_id,
-                assistant_id=assistant_id,
-                run_id=run_id
-            )
-            logging_utility.info("Assistant response stored successfully.")
-
+        self.run_service.update_run_status(run_id, "completed")
         if reasoning_content:
             logging_utility.info("Final reasoning content: %s", reasoning_content)
 
@@ -202,6 +290,7 @@ class DeepSeekV3Cloud(BaseInference):
                     # Stream the output to the response:
                     for chunk in self.stream_function_call_output(thread_id=thread_id,
                                                                   run_id=run_id,
+                                                                  model=model,
                                                                   assistant_id=assistant_id
                                                                   ):
                         yield chunk

@@ -403,7 +403,6 @@ class BaseInference(ABC):
                 sender_id=assistant_id,
                 is_last_chunk=True
             )
-
             logging_utility.info("Assistant response stored successfully.")
             self.run_service.update_run_status(run_id, "completed")
 
@@ -591,7 +590,6 @@ class BaseInference(ABC):
                 function_args=content["arguments"]
             )
 
-
             logging_utility.debug(
                 "Created action %s for tool %s",
                 action.id, content["name"]
@@ -715,14 +713,37 @@ class BaseInference(ABC):
                                     model, stream_reasoning=False):
 
         """
-                Streams tool responses in real time using the TogetherAI SDK.
-                - Yields each token chunk immediately, split by reasoning tags.
-                - Accumulates the full response for final validation.
-                - Supports mid-stream cancellation.
-                - Strips markdown triple backticks from the final accumulated content.
-                """
-        pass
+        Simplified streaming handler for enforced tool response presentation.
 
+        Forces assistant output formatting compliance through protocol-aware streaming:
+        - Directly triggers tool output rendering from assistant's system instructions
+        - Bypasses complex reasoning streams for direct tool response delivery
+        - Maintains API compatibility with core streaming interface
+
+        Protocol Enforcement:
+        1. Injects protocol reminder message to assistant context
+        2. Uses minimal temperature (0.6) for deterministic output
+        3. Disables markdown wrapping in final output
+        4. Maintains cancellation safety during tool output streaming
+
+        Args:
+            thread_id (str): UUID of active conversation thread
+            run_id (str): Current execution run identifier
+            assistant_id (str): Target assistant profile UUID
+            model (str): Model identifier override for tool responses
+            stream_reasoning (bool): [Reserved] Compatibility placeholder
+
+        Yields:
+            str: JSON-stringified chunks with structure:
+                {'type': 'content'|'error', 'content': <payload>}
+
+        Implementation Notes:
+        - Bypasses complex message processing pipelines
+        - Maintains separate cancellation listener instance
+        - Enforces tool response protocol through system message injection
+        - Accumulates raw content for final validation (JSON/format checks)
+        """
+        pass
 
     def _set_up_context_window(self, assistant_id, thread_id, trunk=True):
         """Prepares and optimizes conversation context for model processing.
@@ -819,7 +840,7 @@ class BaseInference(ABC):
             5. Stream tool execution outputs
             6. Maintain conversation state throughout
 
-        Maintains tool response state through:
+        Maintains t ool response state through:
             - set_tool_response_state()
             - get_tool_response_state()
             - set_function_call_state()
