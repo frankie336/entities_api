@@ -1,5 +1,6 @@
 import json
 import time
+import os
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -19,7 +20,7 @@ class DeepSeekR1Cloud(BaseInference):
         Initialize the DeepSeek client and other services.
         """
         self.deepseek_client = OpenAI(
-            api_key="sk-33b3dbc54dd7408793117d410788acbf",
+            api_key=os.getenv('DEEP_SEEK_API_KEY'),
             base_url="https://api.deepseek.com"
         )
         logging_utility.info("DeepSeekV3Cloud specific setup completed.")

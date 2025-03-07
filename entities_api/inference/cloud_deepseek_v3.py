@@ -1,5 +1,7 @@
 import json
 import time
+import os
+from typing import Dict, Any, List
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -17,7 +19,7 @@ class DeepSeekV3Cloud(BaseInference):
         Initialize the DeepSeek client and other services.
         """
         self.deepseek_client = OpenAI(
-            api_key="sk-33b3dbc54dd7408793117d410788acbf",
+            api_key=os.getenv('DEEP_SEEK_API_KEY'),
             base_url="https://api.deepseek.com"
         )
         logging_utility.info("DeepSeekV3Cloud specific setup completed.")
@@ -35,6 +37,16 @@ class DeepSeekV3Cloud(BaseInference):
 
     def get_function_call_state(self):
         return self.function_call
+
+    # Parsing
+    def extract_tool_invocations(self, text: str) -> List[Dict[str, Any]]:
+        return super().extract_tool_invocations(text)
+
+    def parse_code_interpreter_partial(self, text):
+        return super().parse_code_interpreter_partial(text)
+
+    def ensure_valid_json(self, text: str):
+        return super().ensure_valid_json(text)
 
     def _set_up_context_window(self, assistant_id, thread_id, trunk=True):
         return super()._set_up_context_window(assistant_id, thread_id, trunk=True)
@@ -254,6 +266,20 @@ class DeepSeekV3Cloud(BaseInference):
             if function_call or complex_vector_search:
                 self.set_tool_response_state(True)
                 self.set_function_call_state(json_accumulated_content)
+
+            # ---------------------------------------------------
+            # Deals with tool calls with preambles and or within
+            # multi line text.
+            # If a tool invocation is parsed from surrounding text,
+            # and it has not already been dealt with.
+            # ---------------------------------------------------
+            tool_invocation_in_multi_line_text = self.extract_tool_invocations(text=accumulated_content)
+            if tool_invocation_in_multi_line_text and not self.get_tool_response_state():
+                self.set_tool_response_state(True)
+                self.set_function_call_state(tool_invocation_in_multi_line_text[0])
+
+
+
 
         self.run_service.update_run_status(run_id, "completed")
         if reasoning_content:

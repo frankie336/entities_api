@@ -1,5 +1,6 @@
 import json
 import time
+import os
 
 from dotenv import load_dotenv
 from groq import Groq
@@ -20,7 +21,7 @@ class GroqCloud(BaseInference):
         Initialize the Groq client and services.
         """
         self.groq_client = Groq(
-            api_key="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"
+            api_key=os.getenv('GROQ_API_KEY')
         )
         logging_utility.info("GroqCloud specific setup completed.")
 

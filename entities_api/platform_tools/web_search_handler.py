@@ -92,7 +92,7 @@ class FirecrawlService:
         logging_utility.warning(f"Max retries ({self.max_retries}) reached. Job may still be in progress.")
         return None
 
-    def search_orchestrator(self, query, max_pages=1):
+    def search_orchestrator(self, query, max_pages=7):
         """
         Orchestrates the search process by crawling web pages and collecting results.
 
@@ -145,6 +145,7 @@ class FirecrawlService:
 # Example usage
 if __name__ == "__main__":
     service = FirecrawlService()
-    query = "war"
-    service.search_orchestrator(query=query, max_pages=1)
+    query = "Donald Trump"
+    search = service.search_orchestrator(query=query, max_pages=10)
+    print(search)
 

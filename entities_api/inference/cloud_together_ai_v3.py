@@ -4,6 +4,7 @@ import sys
 import time
 from abc import ABC
 from functools import lru_cache
+from typing import Dict, Any, List
 
 from dotenv import load_dotenv
 from together import Together  # Using the official Together SDK
@@ -41,6 +42,16 @@ class TogetherV3Inference(BaseInference, ABC):
 
     def get_function_call_state(self):
         return self.function_call
+
+    # Parsing
+    def extract_tool_invocations(self, text: str) -> List[Dict[str, Any]]:
+        return super().extract_tool_invocations(text)
+
+    def parse_code_interpreter_partial(self, text):
+        return super().parse_code_interpreter_partial(text)
+
+    def ensure_valid_json(self, text: str):
+        return super().ensure_valid_json(text)
 
     def setup_services(self):
         """Initialize TogetherAI SDK."""
@@ -310,6 +321,19 @@ class TogetherV3Inference(BaseInference, ABC):
                 if function_call or complex_vector_search:
                     self.set_tool_response_state(True)
                     self.set_function_call_state(json_accumulated_content)
+
+                # ---------------------------------------------------
+                # Deals with tool calls with preambles and or within
+                # multi line text.
+                # If a tool invocation is parsed from surrounding text,
+                # and it has not already been dealt with.
+                # ---------------------------------------------------
+                tool_invocation_in_multi_line_text = self.extract_tool_invocations(text=accumulated_content)
+                if tool_invocation_in_multi_line_text and not self.get_tool_response_state():
+                    self.set_tool_response_state(True)
+                    self.set_function_call_state(tool_invocation_in_multi_line_text[0])
+
+
 
                 # Saves assistant's reply
                 assistant_message = self.finalize_conversation(

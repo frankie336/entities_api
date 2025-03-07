@@ -1,5 +1,7 @@
 import json
 import time
+import os
+from typing import Dict, Any, List
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -17,7 +19,7 @@ class HyperbolicV3Inference(BaseInference):
         Initialize the DeepSeek client and other services.
         """
         self.deepseek_client = OpenAI(
-            api_key="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJwcmltZS50aGFub3MzMzZAZ21haWwuY29tIiwiaWF0IjoxNzM4NDc2MzgyfQ.4V27eTb-TRwPKcA5zit4pJckoEUEa7kxmHwFEn9kwTQ",
+            api_key=os.getenv("HYPERBOLIC_API_KEY"),
             base_url="https://api.hyperbolic.xyz/v1"
         )
         logging_utility.info("DeepSeekV3Cloud specific setup completed.")
@@ -36,6 +38,17 @@ class HyperbolicV3Inference(BaseInference):
     def get_function_call_state(self):
         return self.function_call
 
+    # Parsing
+    def extract_tool_invocations(self, text: str) -> List[Dict[str, Any]]:
+        return super().extract_tool_invocations(text)
+
+    def parse_code_interpreter_partial(self, text):
+        return super().parse_code_interpreter_partial(text)
+
+    def ensure_valid_json(self, text: str):
+        return super().ensure_valid_json(text)
+
+
     def _set_up_context_window(self, assistant_id, thread_id, trunk=True):
         return super()._set_up_context_window(assistant_id, thread_id, trunk=True)
 
@@ -50,6 +63,7 @@ class HyperbolicV3Inference(BaseInference):
                             run_id):
         return super()._process_tool_calls(thread_id, assistant_id, content, run_id)
 
+
     def stream_function_call_output(self, thread_id, run_id, assistant_id,
                                     model, stream_reasoning=False):
 
@@ -58,6 +72,16 @@ class HyperbolicV3Inference(BaseInference):
             thread_id, run_id, assistant_id
         )
 
+        # Send the assistant a reminder message about protocol
+        # Create message and run
+        self.message_service.create_message(
+            thread_id=thread_id,
+            assistant_id=assistant_id,
+            content='give the user the output from tool as advised in system message',
+            role='user',
+        )
+
+        logging_utility.info("Sent the assistant a reminder message: %s", )
 
         try:
             stream_response = self.deepseek_client.chat.completions.create(
@@ -112,16 +136,43 @@ class HyperbolicV3Inference(BaseInference):
         if reasoning_content:
             logging_utility.info("Final reasoning content: %s", reasoning_content)
 
-
-
-    def stream_response(self, thread_id, message_id, run_id, assistant_id,
-                        model, stream_reasoning=True):
-
-
+    def _process_code_chunks(self, content_chunk, code_buffer):
         """
-        Process conversation with dual streaming (content + reasoning). If a tool call trigger
-        is detected, update run status to 'action_required', then wait for the status to change,
-        and reprocess the original prompt.
+        Process code chunks while in code mode.
+
+        Appends the incoming content_chunk to code_buffer,
+        then extracts a single line (if a newline exists) and handles buffer overflow.
+
+        Returns:
+            tuple: (results, updated code_buffer)
+                - results: list of JSON strings representing code chunks.
+                - updated code_buffer: the remaining buffer content.
+        """
+        forbidden_functions = ['os.system', 'subprocess.run', 'eval', 'exec']
+        results = []
+        code_buffer += content_chunk
+
+        # Process one line at a time if a newline is present.
+        if "\n" in code_buffer:
+            newline_pos = code_buffer.find("\n") + 1
+            line_chunk = code_buffer[:newline_pos]
+            code_buffer = code_buffer[newline_pos:]
+            # Optionally, you can add security checks here for forbidden patterns.
+            results.append(json.dumps({'type': 'hot_code', 'content': line_chunk}))
+
+        # Buffer overflow protection: if the code_buffer grows too large,
+        # yield its content as a chunk and reset it.
+        if len(code_buffer) > 100:
+            results.append(json.dumps({'type': 'hot_code', 'content': code_buffer}))
+            code_buffer = ""
+
+        return results, code_buffer
+
+    def stream_response(self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=True):
+        """
+        Process conversation with dual streaming (content + reasoning).
+        If a tool call trigger is detected, update run status to 'action_required',
+        then wait for the status to change and reprocess the original prompt.
         """
         logging_utility.info(
             "Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
@@ -135,8 +186,7 @@ class HyperbolicV3Inference(BaseInference):
                 model=model,
                 messages=self._set_up_context_window(assistant_id, thread_id, trunk=True),
                 stream=True,
-                temperature=0.6,
-                # tools=tools
+                temperature=0.7,
             )
 
             assistant_reply = ""
@@ -165,7 +215,8 @@ class HyperbolicV3Inference(BaseInference):
                     accumulated_content += content_chunk
 
                     # ---------------------------------------------------
-                    # 1) Check for partial code-interpreter match and exclude prior characters
+                    # 1) Check for a partial code-interpreter match and
+                    # exclude preceding characters.
                     # ---------------------------------------------------
                     if not code_mode:
                         partial_match = self.parse_code_interpreter_partial(accumulated_content)
@@ -181,23 +232,15 @@ class HyperbolicV3Inference(BaseInference):
                             code_buffer = partial_match.get('code', '')
                             # Emit the start-of-code block marker.
                             yield json.dumps({'type': 'hot_code', 'content': '```python\n'})
-                            # Do NOT yield the code_buffer from the partial match.
                             continue
 
                     # ---------------------------------------------------
-                    # 2) Already in code mode -> simply accumulate and yield code chunks
+                    # 2) Already in code mode -> delegate processing to helper function.
                     # ---------------------------------------------------
                     if code_mode:
-                        code_buffer += content_chunk
-                        while "\n" in code_buffer:
-                            newline_pos = code_buffer.find("\n") + 1
-                            line_chunk = code_buffer[:newline_pos]
-                            code_buffer = code_buffer[newline_pos:]
-                            yield json.dumps({'type': 'hot_code', 'content': line_chunk})
-                            break
-                        if len(code_buffer) > 100:
-                            yield json.dumps({'type': 'hot_code', 'content': code_buffer})
-                            code_buffer = ""
+                        results, code_buffer = self._process_code_chunks(content_chunk, code_buffer)
+                        for r in results:
+                            yield r
                         continue
 
                     # If not in code mode, yield content as normal.
@@ -215,7 +258,7 @@ class HyperbolicV3Inference(BaseInference):
             return
 
         if assistant_reply:
-            # Saves assistant's reply
+            # Save assistant's reply.
             assistant_message = self.finalize_conversation(
                 assistant_reply=assistant_reply,
                 thread_id=thread_id,
@@ -225,7 +268,7 @@ class HyperbolicV3Inference(BaseInference):
             logging_utility.info("Assistant response stored successfully.")
 
             # ---------------------------------------------------
-            # Handle saving to vector store!
+            # Handle saving to vector store.
             # ---------------------------------------------------
             vector_store_id = self.get_vector_store_id_for_assistant(assistant_id=assistant_id)
             user_message = self.message_service.retrieve_message(message_id=message_id)
@@ -235,9 +278,7 @@ class HyperbolicV3Inference(BaseInference):
                 role="user"
             )
 
-            # ---------------------------------------------------
-            # Avoid saving function call responses to the vector store
-            # ---------------------------------------------------
+            # Avoid saving function call responses to the vector store.
             if not self.get_tool_response_state():
                 self.vector_store_service.store_message_in_vector_store(
                     message=assistant_message,
@@ -257,9 +298,17 @@ class HyperbolicV3Inference(BaseInference):
                 self.set_tool_response_state(True)
                 self.set_function_call_state(json_accumulated_content)
 
+            # Handle tool calls with preambles or multi-line text.
+            tool_invocation_in_multi_line_text = self.extract_tool_invocations(text=accumulated_content)
+            if tool_invocation_in_multi_line_text and not self.get_tool_response_state():
+                self.set_tool_response_state(True)
+                self.set_function_call_state(tool_invocation_in_multi_line_text[0])
+
         self.run_service.update_run_status(run_id, "completed")
         if reasoning_content:
             logging_utility.info("Final reasoning content: %s", reasoning_content)
+
+
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id,
                              model, stream_reasoning=False):
@@ -267,15 +316,20 @@ class HyperbolicV3Inference(BaseInference):
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)
 
+
+        #print(model)
+        #time.sleep(1000)
+
         # ---------------------------------------------
         # Stream the response and yield each chunk.
         # --------------------------------------------
         for chunk in self.stream_response(thread_id, message_id, run_id, assistant_id, model, stream_reasoning):
             yield chunk
 
-        #print("The Tool response state is:")
-        #print(self.get_tool_response_state())
-        #print(self.get_function_call_state())
+        print("The Tool response state is:")
+        print(self.get_tool_response_state())
+        print(self.get_function_call_state())
+
 
         if self.get_function_call_state():
             if self.get_function_call_state():

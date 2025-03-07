@@ -6,7 +6,7 @@ import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import lru_cache
-from typing import Any
+from typing import List, Dict, Any
 
 from together import Together
 
@@ -146,6 +146,7 @@ class BaseInference(ABC):
 
     @staticmethod
     def parse_code_interpreter_partial(text):
+
         """
         Parses a partial JSON-like string that begins with:
         {'name': 'code_interpreter', 'arguments': {'code':
@@ -303,8 +304,6 @@ class BaseInference(ABC):
             })
         return normalized_history
 
-
-
     def extract_function_candidates(self, text):
         """
         Extracts potential JSON function call patterns from arbitrary text positions.
@@ -337,8 +336,52 @@ class BaseInference(ABC):
 
         return candidates
 
+    def extract_tool_invocations(self, text: str):
+        """
+        Extracts and validates all tool invocation patterns from unstructured text.
+        Handles multi-line JSON and schema validation without recursive patterns.
+        """
+        # Remove markdown code fences (e.g., ```json ... ```)
+        text = re.sub(r'```(?:json)?(.*?)```', r'\1', text, flags=re.DOTALL)
+
+        # Normalization phase
+        text = re.sub(r'[“”]', '"', text)
+        text = re.sub(r'(\s|\\n)+', ' ', text)
+
+        # Simplified pattern without recursion
+        pattern = r'''
+            \{         # Opening curly brace
+            .*?        # Any characters
+            "name"\s*:\s*"(?P<name>[^"]+)" 
+            .*?        # Any characters
+            "arguments"\s*:\s*\{(?P<args>.*?)\}
+            .*?        # Any characters
+            \}         # Closing curly brace
+        '''
+
+        tool_matches = []
+        for match in re.finditer(pattern, text, re.DOTALL | re.VERBOSE):
+            try:
+                # Reconstruct with proper JSON formatting
+                raw_json = match.group()
+                parsed = json.loads(raw_json)
+
+                # Schema validation
+                if not all(key in parsed for key in ['name', 'arguments']):
+                    continue
+                if not isinstance(parsed['arguments'], dict):
+                    continue
+
+                tool_matches.append(parsed)
+            except (json.JSONDecodeError, KeyError):
+                continue
+
+        return tool_matches
+
 
     def ensure_valid_json(self, text: str):
+
+
         """
         Ensures the accumulated tool response is in valid JSON format.
         - Fixes incorrect single quotes (`'`) → double quotes (`"`)

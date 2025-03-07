@@ -1,6 +1,7 @@
 import json
 import sys
 import time
+import os
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -8,6 +9,7 @@ from openai import OpenAI
 from entities_api.constants.assistant import PLATFORM_TOOLS
 from entities_api.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
+
 
 load_dotenv()
 logging_utility = LoggingUtility()
@@ -18,7 +20,7 @@ class HyperbolicR1Inference(BaseInference):
         Initialize the DeepSeek client and other services.
         """
         self.deepseek_client = OpenAI(
-            api_key="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJwcmltZS50aGFub3MzMzZAZ21haWwuY29tIiwiaWF0IjoxNzM4NDc2MzgyfQ.4V27eTb-TRwPKcA5zit4pJckoEUEa7kxmHwFEn9kwTQ",
+            api_key=os.getenv("HYPERBOLIC_API_KEY"),
             base_url="https://api.hyperbolic.xyz/v1"
         )
         logging_utility.info("DeepSeekV3Cloud specific setup completed.")
@@ -254,12 +256,6 @@ class HyperbolicR1Inference(BaseInference):
                                                                   ):
                         yield chunk
 
-
-
-
-
-
-
-def __del__(self):
+    def __del__(self):
         """Cleanup resources."""
         super().__del__()
