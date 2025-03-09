@@ -1,6 +1,7 @@
 from transformers import AutoTokenizer
 import os
-from entities_api.constants import ASSISTANT_INSTRUCTIONS
+
+#from entities_api.constants import ASSISTANT_INSTRUCTIONS
 
 tokenizer_path = r"\USERS\FRANC\MODELS\HUGGINGFACE\DEEPSEEK-R1-DISTILL-QWEN-1.5B"  # Path to your local tokenizer
 

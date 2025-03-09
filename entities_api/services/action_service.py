@@ -19,6 +19,50 @@ class ActionService:
         self.db = db
         logging_utility.info("ActionService initialized with database session.")
 
+    # In ActionService class
+    def update_action_stream_state(self, action_id: str, state: dict):
+        action = self.db.query(Action).get(action_id)
+        if not action:
+            raise HTTPException(status_code=404, detail="Action not found")
+
+        action.meta = action.meta or {}
+        action.meta['stream_state'] = {
+            'buffer': state.get('buffer', []),
+            'received_lines': state.get('received_lines', 0),
+            'last_update': datetime.utcnow().isoformat()
+        }
+        self.db.commit()
+
+    def update_action_output(self, action_id: str,
+                           new_content: str,
+                           is_partial: bool = True):
+        action = self.db.query(Action).get(action_id)
+        if not action:
+            raise HTTPException(status_code=404, detail="Action not found")
+
+        # Initialize structured result
+        if not action.result or isinstance(action.result, str):
+            action.result = {
+                'full_output': '',
+                'partials': [],
+                'status': 'in_progress'
+            }
+
+        if is_partial:
+            action.result['partials'].append({
+                'content': new_content,
+                'timestamp': datetime.utcnow().isoformat()
+            })
+        else:
+            action.result['full_output'] = new_content
+            action.result['status'] = 'completed'
+            action.status = ActionStatus.completed
+            action.processed_at = datetime.utcnow()
+
+        self.db.commit()
+
+
+
     def create_action(self, action_data: ActionCreate) -> ActionRead:
         logging_utility.info("Creating action for tool_name: %s, run_id: %s", action_data.tool_name, action_data.run_id)
         try:
@@ -64,7 +108,6 @@ class ActionService:
                 status=new_action.status,
                 result=new_action.result
             )
-
         except IntegrityError as e:
             self.db.rollback()
             logging_utility.error("IntegrityError during action creation: %s", str(e))

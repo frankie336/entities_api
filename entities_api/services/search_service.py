@@ -85,16 +85,15 @@ class FirecrawlService:
         return None
 
     def search_orchestrator(self, query, max_pages):
-
         for i in range(max_pages):
-            #url_to_crawl = f"https://www.bbc.com/search?q={query}&page={i}"
-            url_to_crawl = WEB_SEARCH_BASE_URL+{query}
+            # Properly format the URL using f-string
+            url_to_crawl = f"{WEB_SEARCH_BASE_URL}{query}&page={i + 1}"
 
             job_id = self.crawl_url(url_to_crawl)
 
             if job_id:
                 # Wait for the job to complete
-                results = service.wait_for_completion(job_id)
+                results = self.wait_for_completion(job_id)
                 if results:
                     logging_utility.info("Crawl results retrieved successfully.")
                     print(results)
@@ -102,15 +101,14 @@ class FirecrawlService:
                     print(results_data)
                     results_markdown_dict = results_data[0]
                     print(results_markdown_dict)
-                    current_page =  extract_skip_to_content_url(results_markdown_dict["markdown"])
+                    current_page = extract_skip_to_content_url(results_markdown_dict["markdown"])
                     if current_page:
                         tokens_per_current_page = count_tokens(input_string=current_page)
                         self.token_count.append(tokens_per_current_page)
                         print(self.token_count)
                         print(current_page)
 
-                    time.sleep(00.1)
-
+                    time.sleep(0.1)
 
 
 

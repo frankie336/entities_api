@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import re
@@ -8,6 +9,7 @@ from datetime import datetime
 from functools import lru_cache
 from typing import List, Dict, Any
 
+from starlette import websockets
 from together import Together
 
 from entities_api.clients.client_actions_client import ClientActionService
@@ -508,33 +510,31 @@ class BaseInference(ABC):
         """Non-blocking check of the cancellation flag."""
         return self._cancelled
 
+    async def _process_tool_calls(self, thread_id, assistant_id, content, run_id):
 
-    def _process_tool_calls(self, thread_id,
-                            assistant_id, content,
-                            run_id):
 
-        # Save the tool invocation for state management.
-        self.action_service.create_action(
+        action = self.action_service.create_action(
             tool_name=content["name"],
             run_id=run_id,
             function_args=content["arguments"]
         )
 
-        # Update run status to 'action_required'
-        self.run_service.update_run_status(run_id=run_id, new_status='action_required')
-        logging_utility.info(f"Run {run_id} status updated to action_required")
+        self.run_service.update_run_status(run_id, 'in_progress')
 
-        # Now wait for the run's status to change from 'action_required'.
+        if content["name"] == "code_interpreter":
+            await self._handle_code_interpreter(
+                thread_id, assistant_id,
+                content["arguments"]["code"], action
+            )
+
+        # Check for terminal states
         while True:
-            run = self.run_service.retrieve_run(run_id)
-            if run.status != "action_required":
+            current_action = self.action_service.get_action(action.id)
+            if current_action.status in ['completed', 'failed']:
                 break
-            time.sleep(1)
+            await asyncio.sleep(0.5)
 
-        logging_utility.info("Action status transition complete. Reprocessing conversation.")
-
-        return content
-
+        return current_action.result.get('full_output', '')
 
     def _handle_web_search(self, thread_id, assistant_id, function_output, action):
         """Special handling for web search results."""
@@ -560,29 +560,99 @@ class BaseInference(ABC):
             )
             raise
 
-    def _handle_code_interpreter(self, thread_id, assistant_id, function_output, action):
-        """Special handling for code interpreter results."""
+    async def _handle_code_interpreter(self, thread_id, assistant_id, function_output, action):
+        """
+        Handle streaming code execution and return output chunks with the structure:
+        json.dumps({'type': 'hot_code', 'content': line_chunk})
+        Logs (prints) each chunk as it is generated.
+        """
         try:
-            parsed_output = json.loads(function_output)
-            output_value = parsed_output['result']['output']
+            websocket_url = f"ws://localhost:4000/ws/execute?thread={thread_id}&action={action.id}"
+            full_output = []  # Track complete execution output
 
-            self._submit_tool_output(
-                thread_id=thread_id,
-                assistant_id=assistant_id,
-                content=output_value,
-                action=action
-            )
-            logging_utility.info(
-                "Code interpreter output submitted for action %s",
-                action.id
-            )
+            async with websockets.connect(websocket_url) as ws:
+                # Send the code to be executed.
+                await ws.send(json.dumps({
+                    "code": function_output,
+                    "action_id": action.id,
+                    "thread_id": thread_id
+                }))
 
-        except json.JSONDecodeError as e:
-            logging_utility.error(
-                "Failed to parse code interpreter output for action %s: %s",
-                action.id, str(e)
-            )
-            raise
+                buffer = []
+                while True:
+                    try:
+                        message = await asyncio.wait_for(ws.recv(), timeout=30.0)
+                        data = json.loads(message)
+                        full_output.append(data)  # Capture all messages
+
+                        if 'error' in data:
+                            # If an error occurs, yield it in the JSON structure.
+                            error_chunk = json.dumps({
+                                'type': 'hot_code',
+                                'content': f"ERROR: {data['error']}"
+                            })
+                            print(f"Streaming chunk: {error_chunk}")
+                            yield error_chunk
+                            break
+
+                        elif 'output' in data:
+                            buffer.append(data['output'])
+                            # When the buffer has accumulated 2 or more lines, yield them.
+                            if len(buffer) >= 2:
+                                line_chunk = "\n".join(buffer)
+                                chunk = json.dumps({
+                                    'type': 'hot_code',
+                                    'content': line_chunk
+                                })
+                                print(f"Streaming chunk: {chunk}")
+                                yield chunk
+                                buffer = []
+
+                        elif data.get('status') == 'complete':
+                            # Flush any remaining output in the buffer.
+                            if buffer:
+                                line_chunk = "\n".join(buffer)
+                                chunk = json.dumps({
+                                    'type': 'hot_code',
+                                    'content': line_chunk
+                                })
+                                print(f"Streaming chunk: {chunk}")
+                                yield chunk
+
+                            # Optionally, yield the complete output as a final chunk.
+                            complete_output = "\n".join(
+                                [msg.get('output', '') for msg in full_output if 'output' in msg]
+                            )
+                            final_chunk = json.dumps({
+                                'type': 'hot_code',
+                                'content': complete_output
+                            })
+                            print(f"Final streaming chunk: {final_chunk}")
+                            yield final_chunk
+                            break
+
+                    except asyncio.TimeoutError:
+                        timeout_chunk = json.dumps({
+                            'type': 'hot_code',
+                            'content': "[Timeout reached]"
+                        })
+                        print(f"Streaming chunk: {timeout_chunk}")
+                        yield timeout_chunk
+                        break
+
+            print(full_output)
+
+        except Exception as e:
+            error_msg = f"Stream failed: {str(e)}"
+            error_chunk = json.dumps({
+                'type': 'hot_code',
+                'content': error_msg
+            })
+            print(f"Streaming chunk: {error_chunk}")
+            yield error_chunk
+
+
+
 
     def _handle_vector_search(self, thread_id, assistant_id, function_output, action):
         """Special handling for web search results."""
@@ -697,29 +767,32 @@ class BaseInference(ABC):
 
 
     def _submit_tool_output(self, thread_id, assistant_id, content, action):
-        """Generic tool output submission with consistent logging."""
+        """Enhanced output submission with streaming support"""
+        # Append to thread history
+        self.thread_service.append_message(
+            thread_id,
+            {
+                "role": "tool",
+                "name": action.tool_name,
+                "content": content,
+                "metadata": {
+                    "action_id": action.id,
+                    "stream_chunk": True,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            }
+        )
 
-        try:
-            self.message_service.submit_tool_output(
-                thread_id=thread_id,
-                content=content,
-                role="tool",
-                assistant_id=assistant_id,
-                tool_id="dummy"
-            )
-            self.action_service.update_action(action_id=action.id, status='completed')
-            logging_utility.debug(
-                "Tool output submitted successfully for action %s",
-                action.id
-            )
+        # Update action state
+        self.action_service.update_action_output(
+            action.id,
+            new_content=content,
+            is_partial=True
+        )
 
-        except Exception as e:
-            logging_utility.error(
-                "Failed to submit tool output for action %s: %s",
-                action.id, str(e)
-            )
-            self.action_service.update_action(action_id=action.id, status='failed')
-            raise
+
+
+
 
     def validate_and_set(self, content):
         """Core validation pipeline"""

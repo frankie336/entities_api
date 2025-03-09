@@ -1,13 +1,12 @@
-# entities_api/main.py
-
 import os
-import time
-
-from fastapi import FastAPI
+import json
+from fastapi import FastAPI, WebSocket
 from sqlalchemy import create_engine, text, inspect
+
 from entities_api.models.models import Base
 from entities_api.routers import api_router  # Importing the combined API router
 from entities_api.services.logging_service import LoggingUtility
+from entities_api.platform_tools.code_interpreter_handler import CodeExecutionHandler
 
 # Initialize the logging utility
 logging_utility = LoggingUtility()
@@ -17,38 +16,14 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 engine = create_engine(DATABASE_URL, echo=True)
 
 # Secondary Engine for a Specific Use Case
-SPECIAL_DB_URL = os.getenv("SPECIAL_DB_URL")  # Define this in your environment
+SPECIAL_DB_URL = os.getenv("SPECIAL_DB_URL")
 special_engine = create_engine(SPECIAL_DB_URL, echo=True) if SPECIAL_DB_URL else None
 
+# Initialize the code execution handler
+handler = CodeExecutionHandler()  # Ensure this class is implemented properly
 
-
-def drop_constraints():
-    logging_utility.info("Dropping constraints")
-    inspector = inspect(engine)
-    with engine.connect() as connection:
-        for table_name in inspector.get_table_names():
-            foreign_keys = inspector.get_foreign_keys(table_name)
-            for fk in foreign_keys:
-                connection.execute(text(f"ALTER TABLE {table_name} DROP FOREIGN KEY {fk['name']}"))
-
-def drop_tables():
-    logging_utility.info("Dropping all tables")
-    Base.metadata.drop_all(bind=engine)
-
-def create_tables():
-    logging_utility.info("Creating all tables")
-    Base.metadata.create_all(bind=engine)
-
-def update_messages_content_column():
-    logging_utility.info("Updating messages.content column to TEXT")
-    with engine.connect() as connection:
-        connection.execute(text("ALTER TABLE messages MODIFY COLUMN content TEXT"))
 
 def create_app(init_db=True):
-
-
-
-
     logging_utility.info("Creating FastAPI app")
     app = FastAPI()
 
@@ -60,20 +35,37 @@ def create_app(init_db=True):
         logging_utility.info("Root endpoint accessed")
         return {"message": "Welcome to the API!"}
 
+    @app.websocket("/ws/execute")
+    async def websocket_endpoint(websocket: WebSocket):
+        await websocket.accept()
+        try:
+            # Parse incoming data. Expecting thread_id, assistant_id, code, and optionally action_id.
+            data = await websocket.receive_text()
+            parsed_data = json.loads(data)
+            thread_id = parsed_data.get("thread_id", "default_thread")
+            assistant_id = parsed_data.get("assistant_id", "default_assistant")
+            code = parsed_data.get("code")
+
+            class DummyAction:
+                def __init__(self, id):
+                    self.id = id
+
+            action = DummyAction(parsed_data.get("action_id", "default_action"))
+
+            # Use _handle_code_interpreter as an async generator
+            async for chunk in handler._handle_code_interpreter(thread_id, assistant_id, code, action):
+                await websocket.send_text(chunk)
+
+        except json.JSONDecodeError:
+            await websocket.close(code=1003)
+
     if init_db:
         logging_utility.info("Initializing database")
-        create_tables()
-        update_messages_content_column()
+        Base.metadata.create_all(bind=engine)
+        with engine.connect() as connection:
+            connection.execute(text("ALTER TABLE messages MODIFY COLUMN content TEXT"))
 
     return app
 
+
 app = create_app()
-
-def create_test_app():
-    logging_utility.info("Creating test app")
-    drop_constraints()
-    drop_tables()
-    create_tables()
-    update_messages_content_column()
-
-    return create_app(init_db=False)

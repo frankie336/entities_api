@@ -279,8 +279,6 @@ class DeepSeekV3Cloud(BaseInference):
                 self.set_function_call_state(tool_invocation_in_multi_line_text[0])
 
 
-
-
         self.run_service.update_run_status(run_id, "completed")
         if reasoning_content:
             logging_utility.info("Final reasoning content: %s", reasoning_content)
@@ -304,7 +302,6 @@ class DeepSeekV3Cloud(BaseInference):
         if self.get_function_call_state():
             if self.get_function_call_state():
                 if self.get_function_call_state().get("name") in PLATFORM_TOOLS:
-
                     self._process_platform_tool_calls(
                         thread_id=thread_id,
                         assistant_id=assistant_id,
