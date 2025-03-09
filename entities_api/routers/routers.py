@@ -482,11 +482,6 @@ def save_assistant_message(message: MessageCreate, db: Session = Depends(get_db)
 
 
 
-
-
-
-
-
 @router.post("/tools", response_model=ToolRead)
 def create_tool(tool: ToolCreate, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to create a new tool.")

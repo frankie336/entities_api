@@ -1,11 +1,11 @@
-import time
-from functools import lru_cache
+import inspect
 import threading
-from entities_api.platform_tools.code_interpreter_handler import CodeExecutionHandler
-from entities_api.platform_tools.web_search_handler import FirecrawlService
-from entities_api.platform_tools.vector_search_handler import VectorSearchHandler
-from entities_api.services.logging_service import LoggingUtility
+from typing import Union, Any, Generator, Dict
 
+from entities_api.platform_tools.code_interpreter.code_execution_client import StreamOutput
+from entities_api.platform_tools.vector_store.vector_search_handler import VectorSearchHandler
+from entities_api.platform_tools.web.web_search_handler import FirecrawlService
+from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 
@@ -13,104 +13,103 @@ logging_utility = LoggingUtility()
 class PlatformToolService:
     # Class-level cache for function handlers
     function_handlers = {
-        "code_interpreter": None,  # Placeholder for lazy initialization
+        "code_interpreter": None,
         "web_search": None,
         "vector_store_search": None
-        # Add more handlers here as needed
     }
-
 
     def __init__(self, base_url=None, api_key=None, assistant_id=None):
         # Lazy initialization of handlers
-        self._code_execution_handler = None
+        self._stream_output_handler = None
         self._web_search_handler = None
         self._vector_search_handler = None
         self.assistant_id = assistant_id
-
-        # Cache for function call results
         self._call_cache = {}
-
-        # Lock for thread-safe caching
         self._cache_lock = threading.Lock()
 
-    def _get_code_execution_handler(self):
-        """Lazy initialization of CodeExecutionHandler."""
-        if self._code_execution_handler is None:
-            self._code_execution_handler = CodeExecutionHandler()
-        return self._code_execution_handler
-
+    def _get_stream_output_handler(self) -> StreamOutput:
+        """Lazy initialization of streaming handler"""
+        if self._stream_output_handler is None:
+            self._stream_output_handler = StreamOutput()
+        return self._stream_output_handler
 
     def _get_web_search_handler(self):
-        """Lazy initialization of CodeExecutionHandler."""
         if self._web_search_handler is None:
             self._web_search_handler = FirecrawlService()
         return self._web_search_handler
 
-    def _get_vector_search_handler(self):
-        """Lazy initialization of CodeExecutionHandler."""
+    def _get_vector__search_handler(self):
         if self._vector_search_handler is None:
-            self._vector_search_handler = VectorSearchHandler(assistant_id=self.assistant_id)
+            self._vector_search_handler = VectorSearchHandler(
+                assistant_id=self.assistant_id
+            )
         return self._vector_search_handler
 
-    def call_function(self, function_name, arguments):
+    def call_function(
+            self,
+            function_name: str,
+            arguments: Dict[str, Any]
+    ) -> Union[Dict, Generator[str, None, None]]:
         """
-        Executes a function based on the provided name and arguments.
-        Caches results to avoid redundant computations but bypasses caching if arguments are unhashable.
+        Enhanced function executor with streaming support
+        Returns:
+            - Generator for streaming outputs
+            - Dict for static results
         """
         if not isinstance(arguments, dict):
-            logging_utility.error(
-                "Invalid 'arguments' type: Expected dictionary but got %s", type(arguments)
-            )
-            return {"error": "Invalid arguments format. Expected a dictionary."}
+            logging_utility.error("Invalid arguments type: %s", type(arguments))
+            return {"error": "Arguments must be a dictionary"}
 
-        # Attempt to create a cache key
-        try:
-            cache_key = (function_name, frozenset(arguments.items()))
-        except TypeError as e:
-            logging_utility.warning("Cache key creation failed due to unhashable arguments: %s", str(e))
-            cache_key = None  # Indicate that caching should be bypassed
+        # Cache handling
+        cache_key = None
+        if function_name != "code_interpreter":  # Disable cache for streams
+            try:
+                cache_key = (function_name, frozenset(arguments.items()))
+                with self._cache_lock:
+                    if cache_key in self._call_cache:
+                        return self._call_cache[cache_key]
+            except TypeError as e:
+                logging_utility.warning("Cache bypassed: %s", str(e))
 
-        # Check if we can use caching
-        if cache_key is not None:
-            with self._cache_lock:
-                if cache_key in self._call_cache:
-                    logging_utility.info("Returning cached result for function: %s", function_name)
-                    return self._call_cache[cache_key]
-
-        # Validate if the function is supported
-        if function_name not in self.function_handlers:
-            logging_utility.error("Unsupported function: %s", function_name)
-            return {"error": f"Unsupported function: {function_name}"}
-
-        # Lazy initialization of the handler if not already initialized
+        # Handler initialization
         if self.function_handlers[function_name] is None:
-            if function_name == "code_interpreter":
-                self.function_handlers[function_name] = self._get_code_execution_handler().execute_code
+            if function_name == "code_interpreter__":
+                self.function_handlers[function_name] = (
+                    self._get_stream_output_handler().stream_output
+                )
             elif function_name == "web_search":
-                self.function_handlers[function_name] = self._get_web_search_handler().search_orchestrator
+                self.function_handlers[function_name] = (
+                    self._get_web_search_handler().search_orchestrator
+                )
             elif function_name == "vector_store_search":
-                self.function_handlers[function_name] = self._get_vector_search_handler().execute_search
+                self.function_handlers[function_name] = (
+                    self._get_vector_search_handler().execute_search
+                )
             else:
-                logging_utility.error("No handler available for function: %s", function_name)
-                return {"error": f"No handler available for function: {function_name}"}
+                return {"error": f"Unsupported function: {function_name}"}
 
-        # Get the handler
         handler = self.function_handlers[function_name]
 
-        # Execute the function
+        # Execution
         try:
             result = handler(**arguments)
-        except TypeError as e:
-            logging_utility.error(
-                "Error calling function '%s' with arguments %s: %s",
-                function_name, arguments, str(e)
-            )
-            return {"error": f"Function '{function_name}' received incorrect arguments: {str(e)}"}
 
-        # Store the result in cache only if caching is enabled
-        if cache_key is not None:
-            with self._cache_lock:
-                self._call_cache[cache_key] = result
-            logging_utility.info("Function %s executed and result cached.", function_name)
+            # Stream handling
+            if inspect.isgenerator(result):
+                return result  # Directly return generator
 
-        return result
+            # Cache static results
+            if cache_key is not None:
+                with self._cache_lock:
+                    self._call_cache[cache_key] = result
+
+            return result
+
+        except Exception as e:
+            logging_utility.error("Execution failed: %s", str(e))
+            return {"error": str(e)}
+
+    def __del__(self):
+        """Cleanup streaming resources"""
+        if self._stream_output_handler:
+            self._stream_output_handler.close()

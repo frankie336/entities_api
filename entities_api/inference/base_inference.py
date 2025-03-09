@@ -560,6 +560,7 @@ class BaseInference(ABC):
             )
             raise
 
+    @staticmethod
     async def _handle_code_interpreter(self, thread_id, assistant_id, function_output, action):
         """
         Handle streaming code execution and return output chunks with the structure:

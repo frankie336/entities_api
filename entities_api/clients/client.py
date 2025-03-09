@@ -1,4 +1,4 @@
-# entities_api/clients/client.py
+# entities_api/clients/code_execution_client.py
 import os
 from contextlib import contextmanager
 from typing import Any, Dict, Optional, Generator
