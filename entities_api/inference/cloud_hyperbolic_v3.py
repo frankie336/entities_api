@@ -64,6 +64,11 @@ class HyperbolicV3Inference(BaseInference):
                             run_id):
         return super()._process_tool_calls(thread_id, assistant_id, content, run_id)
 
+    def _submit_tool_output(self, thread_id, assistant_id, content, action):
+        return super()._submit_tool_output(thread_id, assistant_id, content, action)
+
+    def handle_code_interpreter_action(self, thread_id, run_id, assistant_id, arguments_dict):
+        return super().handle_code_interpreter_action(thread_id, run_id, assistant_id, arguments_dict)
 
     def stream_function_call_output(self, thread_id, run_id, assistant_id,
                                     model, stream_reasoning=False):
@@ -336,6 +341,7 @@ class HyperbolicV3Inference(BaseInference):
         if reasoning_content:
             logging_utility.info("Final reasoning content: %s", reasoning_content)
 
+
     def process_conversation(self, thread_id, message_id, run_id, assistant_id,
                              model, stream_reasoning=False):
 
@@ -353,40 +359,27 @@ class HyperbolicV3Inference(BaseInference):
             #  Function call structures should look something like this:
             #  {'name': 'code_interpreter', 'arguments': {'code': 'import math; result = math.sqrt(66); result'}}
             #----------------------------------------------------------------------------------------------------
-
             if self.get_function_call_state():
 
-                print("The Tool response state is:")
-                print(self.get_tool_response_state())
-                print(self.get_function_call_state())
-                #time.sleep(1000)
-
+                #print("The Tool response state is:")
+                #print(self.get_tool_response_state())
+                #print(self.get_function_call_state())
                 if self.get_function_call_state().get("name") in PLATFORM_TOOLS:
                     # -----------------------------------
                     # Special handling for code interpreter
                     # -----------------------------------
                     if self.get_function_call_state().get("name") == "code_interpreter":
-                        arguments_dict = self.get_function_call_state().get("arguments")
-                        code = arguments_dict.get("code")
-
-                        # Reset buffer for new execution
-                        hot_code_buffer = []
-
-                        for chunk in self.code_execution_client.stream_output(code):
-                            parsed = json.loads(chunk)
-                            print("Received chunk:", parsed)
-
-                            # Capture and preserve hot_code content
-                            if parsed.get('type') == 'hot_code':
-                                # Preserve original whitespace and newlines
-                                hot_code_buffer.append(parsed['content'])
-
+                        for chunk in self.handle_code_interpreter_action(thread_id=thread_id,
+                                                                         run_id=run_id,
+                                                                         assistant_id=assistant_id,
+                                                                         arguments_dict=self.get_function_call_state().get(
+                                                                             "arguments")
+                                                                         ):
                             yield chunk
 
-                        print(hot_code_buffer)
 
-                        # Now do something with the accumulated code output
-                        # Example: joined_output = '\n'.join(self.hot_code_buffer)
+
+
 
                     if self.get_function_call_state().get("name") != "code_interpreter":
 
@@ -401,16 +394,12 @@ class HyperbolicV3Inference(BaseInference):
                     # Applies to all function calls
                     # Stream the output to the response:
                     #------------------------------------
-
                     for chunk in self.stream_function_call_output(thread_id=thread_id,
                                                                   run_id=run_id,
                                                                   model=model,
                                                                   assistant_id=assistant_id
                                                                   ):
                         yield chunk
-
-
-
 
 
         # ------------------------------------

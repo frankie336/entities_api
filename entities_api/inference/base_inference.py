@@ -7,7 +7,7 @@ import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import lru_cache
-from typing import List, Dict, Any
+from typing import Any
 
 from together import Together
 
@@ -18,13 +18,12 @@ from entities_api.clients.client_run_client import ClientRunService
 from entities_api.clients.client_thread_client import ThreadService
 from entities_api.clients.client_tool_client import ClientToolService
 from entities_api.clients.client_user_client import UserService
-from entities_api.platform_tools.code_interpreter.code_execution_client import StreamOutput
 from entities_api.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS
 from entities_api.constants.platform import MODEL_MAP
+from entities_api.platform_tools.code_interpreter.code_execution_client import StreamOutput
 from entities_api.platform_tools.platform_tool_service import PlatformToolService
 from entities_api.services.conversation_truncator import ConversationTruncator
 from entities_api.services.logging_service import LoggingUtility
-
 from entities_api.services.vector_store_service import VectorStoreService
 
 logging_utility = LoggingUtility()
@@ -808,6 +807,39 @@ class BaseInference(ABC):
             )
             self.action_service.update_action(action_id=action.id, status='failed')
             raise
+
+
+
+    def handle_code_interpreter_action(self, thread_id, run_id, assistant_id, arguments_dict):
+        """Handles code interpreter execution with streaming support."""
+        action = self.action_service.create_action(
+            tool_name="code_interpreter",
+            run_id=run_id,
+            function_args=arguments_dict
+        )
+
+        code = arguments_dict.get("code")
+        hot_code_buffer = []
+
+        # Stream code execution output
+        for chunk in self.code_execution_client.stream_output(code):
+            parsed = json.loads(chunk)
+
+            if parsed.get('type') == 'hot_code_output':
+                hot_code_buffer.append(parsed['content'])
+
+            yield chunk  # Preserve streaming
+
+        # Submit final output after execution completes
+        content = '\n'.join(hot_code_buffer)
+        self._submit_tool_output(
+            thread_id=thread_id,
+            assistant_id=assistant_id,
+            content=content,
+            action=action
+        )
+
+
 
     def validate_and_set(self, content):
         """Core validation pipeline"""

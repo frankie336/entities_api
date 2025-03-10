@@ -110,7 +110,7 @@ class CodeExecutionClient:
                         })
                 except json.JSONDecodeError:
                     yield json.dumps({
-                        'type': 'raw_output',
+                        'type': 'hot_code_output',
                         'content': message
                     })
 
@@ -125,7 +125,52 @@ async def run_client(code):
 
 
 code = """
-print(math.sqrt(96))
+
+
+class MathOperations:
+    def __init__(self):
+        pass
+
+    def power(self, base: int, exponent: int) -> int:
+   
+        result = 1
+        for _ in range(exponent):
+            result *= base
+        return result
+
+    def matrix_multiply(self, matrix1: list, matrix2: list) -> list:
+     
+        # Validate matrix dimensions
+        if (len(matrix1) != 2 or len(matrix1[0]) != 2 or
+            len(matrix2) != 2 or len(matrix2[0]) != 2):
+            raise ValueError("Both matrices must be 2x2")
+
+        # Initialize result matrix with zeros
+        result = [[0 for _ in range(2)] for _ in range(2)]
+
+        # Perform multiplication
+        for i in range(2):
+            for j in range(2):
+                for k in range(2):
+                    result[i][j] += matrix1[i][k] * matrix2[k][j]
+        return result
+
+
+
+if __name__ == "__main__":
+    # Create an instance of MathOperations
+    ops = MathOperations()
+
+    # Exponentiation: Compute 2^10
+    print("2^10:", ops.power(2, 10))  # Output: 2^10: 1024
+
+    # Matrix Multiplication: Multiply two 2x2 matrices
+    matrix1 = [[1, 2], [3, 4]]
+    matrix2 = [[5, 6], [7, 8]]
+    print("Matrix Multiplication Result:", ops.matrix_multiply(matrix1, matrix2))
+    # Output: Matrix Multiplication Result: [[19, 22], [43, 50]]
+
+
 """.strip()
 
 
