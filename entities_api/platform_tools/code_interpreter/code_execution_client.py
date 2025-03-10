@@ -71,7 +71,6 @@ class CodeExecutionClient:
     async def execute_code(
             self,
             code: str,
-            user_id: str = "system",
             **metadata: Dict[str, Any]
     ) -> AsyncGenerator[str, None]:
         if not self._connection:
@@ -80,38 +79,43 @@ class CodeExecutionClient:
         try:
             await self._connection.send(json.dumps({
                 "code": code,
-                "user_id": user_id,
                 "metadata": metadata
             }))
 
             while True:
+                message = await self._connection.recv()
+                if not message:
+                    continue
+
                 try:
-                    message = await asyncio.wait_for(
-                        self._connection.recv(),
-                        timeout=self.config.timeout
-                    )
-
-                    if isinstance(message, str):
-                        try:
-                            data = json.loads(message)
-                            if 'status' in data:
-                                yield json.dumps({
-                                    'type': 'hot_code',
-                                    'content': json.dumps(data)
-                                })
-                                break
-                        except json.JSONDecodeError:
+                    data = json.loads(message)
+                    if isinstance(data, dict):
+                        if 'error' in data:
+                            raise ExecutionSecurityViolation(data['error'])
+                        if 'status' in data:
                             yield json.dumps({
-                                'type': 'hot_code',
-                                'content': message
+                                'type': 'status',
+                                'content': data['status']
                             })
+                            break
+                        if 'output' in data:
+                            yield json.dumps({
+                                'type': 'output',
+                                'content': data['output']
+                            })
+                    else:
+                        yield json.dumps({
+                            'type': 'hot_code_output',
+                            'content': str(data)
+                        })
+                except json.JSONDecodeError:
+                    yield json.dumps({
+                        'type': 'raw_output',
+                        'content': message
+                    })
 
-                except asyncio.TimeoutError:
-                    raise ExecutionTimeoutError("No response from server")
-
-        except websockets.exceptions.ConnectionClosedOK:
-            raise CodeExecutionClientError("Connection closed during execution")
-
+        except websockets.exceptions.ConnectionClosed:
+            raise CodeExecutionClientError("Connection closed unexpectedly")
 
 async def run_client(code):
     config = ExecutionClientConfig()
@@ -121,10 +125,7 @@ async def run_client(code):
 
 
 code = """
-import time
-for i in range(3):
-    print("Hello world")
-    time.sleep(0.5)
+print(math.sqrt(96))
 """.strip()
 
 
@@ -151,6 +152,8 @@ class StreamOutput:
         except StopAsyncIteration:
             pass
 
-output = StreamOutput()
-for chunk in output.stream_output(code):
-    print("Received chunk:", json.loads(chunk))
+
+if __name__ == '__main__':
+    output = StreamOutput()
+    for chunk in output.stream_output(code):
+        print("Received chunk:", json.loads(chunk))

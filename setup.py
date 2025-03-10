@@ -60,7 +60,8 @@ setup(
         "tenacity"
         "pdfplumber",
         "sentence_transformers",
-        "validators"
+        "validators",
+        "websockets"
     ],
     extras_require={
         "dev": [

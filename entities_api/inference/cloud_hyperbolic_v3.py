@@ -342,14 +342,18 @@ class HyperbolicV3Inference(BaseInference):
 
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)
-
-        # ---------------------------------------------
+        # --------------------------------------------
         # Stream the response and yield each chunk.
         # --------------------------------------------
         for chunk in self.stream_response(thread_id, message_id, run_id, assistant_id, model, stream_reasoning):
             yield chunk
 
         if self.get_function_call_state():
+            #---------------------------------------------------------------------------------------------------
+            #  Function call structures should look something like this:
+            #  {'name': 'code_interpreter', 'arguments': {'code': 'import math; result = math.sqrt(66); result'}}
+            #----------------------------------------------------------------------------------------------------
+
             if self.get_function_call_state():
 
                 print("The Tool response state is:")
@@ -358,16 +362,46 @@ class HyperbolicV3Inference(BaseInference):
                 #time.sleep(1000)
 
                 if self.get_function_call_state().get("name") in PLATFORM_TOOLS:
+                    # -----------------------------------
+                    # Special handling for code interpreter
+                    # -----------------------------------
+                    if self.get_function_call_state().get("name") == "code_interpreter":
+                        arguments_dict = self.get_function_call_state().get("arguments")
+                        code = arguments_dict.get("code")
 
-                    self._process_platform_tool_calls(
-                        thread_id=thread_id,
-                        assistant_id=assistant_id,
-                        content=self.get_function_call_state(),
-                        run_id=run_id
+                        # Reset buffer for new execution
+                        hot_code_buffer = []
 
-                    )
+                        for chunk in self.code_execution_client.stream_output(code):
+                            parsed = json.loads(chunk)
+                            print("Received chunk:", parsed)
 
+                            # Capture and preserve hot_code content
+                            if parsed.get('type') == 'hot_code':
+                                # Preserve original whitespace and newlines
+                                hot_code_buffer.append(parsed['content'])
+
+                            yield chunk
+
+                        print(hot_code_buffer)
+
+                        # Now do something with the accumulated code output
+                        # Example: joined_output = '\n'.join(self.hot_code_buffer)
+
+                    if self.get_function_call_state().get("name") != "code_interpreter":
+
+                        self._process_platform_tool_calls(
+                            thread_id=thread_id,
+                            assistant_id=assistant_id,
+                            content=self.get_function_call_state(),
+                            run_id=run_id
+                        )
+
+                    # ----------------------------------
+                    # Applies to all function calls
                     # Stream the output to the response:
+                    #------------------------------------
+
                     for chunk in self.stream_function_call_output(thread_id=thread_id,
                                                                   run_id=run_id,
                                                                   model=model,
@@ -375,7 +409,13 @@ class HyperbolicV3Inference(BaseInference):
                                                                   ):
                         yield chunk
 
+
+
+
+
+        # ------------------------------------
         # Deal with user side function calls
+        #-------------------------------------
         if self.get_function_call_state():
             if self.get_function_call_state():
                 if self.get_function_call_state().get("name") not in PLATFORM_TOOLS:

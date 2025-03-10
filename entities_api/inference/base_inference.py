@@ -1,4 +1,4 @@
-import asyncio
+import inspect
 import json
 import os
 import re
@@ -9,7 +9,6 @@ from datetime import datetime
 from functools import lru_cache
 from typing import List, Dict, Any
 
-from starlette import websockets
 from together import Together
 
 from entities_api.clients.client_actions_client import ClientActionService
@@ -19,14 +18,25 @@ from entities_api.clients.client_run_client import ClientRunService
 from entities_api.clients.client_thread_client import ThreadService
 from entities_api.clients.client_tool_client import ClientToolService
 from entities_api.clients.client_user_client import UserService
+from entities_api.platform_tools.code_interpreter.code_execution_client import StreamOutput
 from entities_api.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS
 from entities_api.constants.platform import MODEL_MAP
 from entities_api.platform_tools.platform_tool_service import PlatformToolService
 from entities_api.services.conversation_truncator import ConversationTruncator
 from entities_api.services.logging_service import LoggingUtility
+
 from entities_api.services.vector_store_service import VectorStoreService
 
 logging_utility = LoggingUtility()
+
+class MissingParameterError(ValueError):
+    """Specialized error for missing service parameters"""
+
+class ConfigurationError(RuntimeError):
+    """Error for invalid service configurations"""
+
+class AuthenticationError(PermissionError):
+    """Error for credential-related issues"""
 
 class BaseInference(ABC):
 
@@ -64,27 +74,74 @@ class BaseInference(ABC):
         self.setup_services()
 
     def _get_service(self, service_class, custom_params=None):
-        """Modified to handle PlatformToolService with assistant_id"""
+        """Intelligent service initializer with parametric awareness"""
         if service_class not in self._services:
-            if service_class == PlatformToolService:
-                # Special initialization for PlatformToolService
-                if not self.get_assistant_id():
-                    raise ValueError("PlatformToolService requires assistant_id")
-                self._services[service_class] = service_class(
-                    self.base_url,
-                    self.api_key,
-                    assistant_id=self.get_assistant_id()
-                )
-            elif service_class == ConversationTruncator:
-                self._services[service_class] = service_class(
-                    **self.truncator_params
-                )
-            else:
-                params = custom_params or (self.base_url, self.api_key)
-                self._services[service_class] = service_class(*params)
+            try:
+                if service_class == PlatformToolService:
+                    self._services[service_class] = self._init_platform_tool_service()
+                elif service_class == ConversationTruncator:
+                    self._services[service_class] = self._init_conversation_truncator()
+                elif service_class == StreamOutput:
+                    # Explicitly initialize StreamOutput with no args
+                    self._services[service_class] = self._init_stream_output()
+                else:
+                    self._services[service_class] = self._init_general_service(service_class, custom_params)
 
-            logging_utility.info(f"Lazy-loaded {service_class.__name__}")
+                logging_utility.debug(f"Initialized {service_class.__name__}")
+            except Exception as e:
+                logging_utility.error(f"Service init failed for {service_class.__name__}: {str(e)}")
+                raise
         return self._services[service_class]
+
+    def _init_platform_tool_service(self):
+        """Dedicated initializer for platform tools"""
+        self._validate_platform_dependencies()
+        return PlatformToolService(
+            self.base_url,
+            self.api_key,
+            assistant_id=self.get_assistant_id()
+        )
+
+    def _init_stream_output(self):
+        return StreamOutput()
+
+
+    def _init_conversation_truncator(self):
+        """Config-driven truncator initialization"""
+        return ConversationTruncator(**self.truncator_params)
+
+    def _init_general_service(self, service_class, custom_params):
+        """Parametric service initialization with signature analysis"""
+        if custom_params is not None:
+            return service_class(*custom_params)
+
+        signature = inspect.signature(service_class.__init__)
+        params = self._resolve_init_parameters(signature)
+        return service_class(*params)
+
+    @lru_cache(maxsize=32)
+    def _resolve_init_parameters(self, signature):
+        """Cached parameter resolution with attribute matching"""
+        params = []
+        for name, param in signature.parameters.items():
+            if name == 'self':
+                continue
+            if hasattr(self, name):
+                params.append(getattr(self, name))
+            elif param.default != inspect.Parameter.empty:
+                params.append(param.default)
+            else:
+                raise MissingParameterError(f"Required parameter '{name}' not found")
+        return params
+
+    def _validate_platform_dependencies(self):
+        """Centralized platform service validation"""
+        if not self.get_assistant_id():
+            raise ConfigurationError("Platform services require assistant_id")
+        if not all([self.base_url, self.api_key]):
+            raise AuthenticationError("Missing platform credentials")
+
+
 
     @property
     def user_service(self):
@@ -117,6 +174,10 @@ class BaseInference(ABC):
     @property
     def action_service(self):
         return self._get_service(ClientActionService)
+
+    @property
+    def code_execution_client(self):
+        return self._get_service(StreamOutput)
 
     @property
     def vector_store_service(self):
@@ -510,31 +571,33 @@ class BaseInference(ABC):
         """Non-blocking check of the cancellation flag."""
         return self._cancelled
 
-    async def _process_tool_calls(self, thread_id, assistant_id, content, run_id):
 
+    def _process_tool_calls(self, thread_id,
+                            assistant_id, content,
+                            run_id):
 
-        action = self.action_service.create_action(
+        # Save the tool invocation for state management.
+        self.action_service.create_action(
             tool_name=content["name"],
             run_id=run_id,
             function_args=content["arguments"]
         )
 
-        self.run_service.update_run_status(run_id, 'in_progress')
+        # Update run status to 'action_required'
+        self.run_service.update_run_status(run_id=run_id, new_status='action_required')
+        logging_utility.info(f"Run {run_id} status updated to action_required")
 
-        if content["name"] == "code_interpreter":
-            await self._handle_code_interpreter(
-                thread_id, assistant_id,
-                content["arguments"]["code"], action
-            )
-
-        # Check for terminal states
+        # Now wait for the run's status to change from 'action_required'.
         while True:
-            current_action = self.action_service.get_action(action.id)
-            if current_action.status in ['completed', 'failed']:
+            run = self.run_service.retrieve_run(run_id)
+            if run.status != "action_required":
                 break
-            await asyncio.sleep(0.5)
+            time.sleep(1)
 
-        return current_action.result.get('full_output', '')
+        logging_utility.info("Action status transition complete. Reprocessing conversation.")
+
+        return content
+
 
     def _handle_web_search(self, thread_id, assistant_id, function_output, action):
         """Special handling for web search results."""
@@ -560,100 +623,29 @@ class BaseInference(ABC):
             )
             raise
 
-    @staticmethod
-    async def _handle_code_interpreter(self, thread_id, assistant_id, function_output, action):
-        """
-        Handle streaming code execution and return output chunks with the structure:
-        json.dumps({'type': 'hot_code', 'content': line_chunk})
-        Logs (prints) each chunk as it is generated.
-        """
+    def _handle_code_interpreter(self, thread_id, assistant_id, function_output, action):
+        """Special handling for code interpreter results."""
         try:
-            websocket_url = f"ws://localhost:4000/ws/execute?thread={thread_id}&action={action.id}"
-            full_output = []  # Track complete execution output
+            parsed_output = json.loads(function_output)
+            output_value = parsed_output['result']['output']
 
-            async with websockets.connect(websocket_url) as ws:
-                # Send the code to be executed.
-                await ws.send(json.dumps({
-                    "code": function_output,
-                    "action_id": action.id,
-                    "thread_id": thread_id
-                }))
+            self._submit_tool_output(
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                content=output_value,
+                action=action
+            )
+            logging_utility.info(
+                "Code interpreter output submitted for action %s",
+                action.id
+            )
 
-                buffer = []
-                while True:
-                    try:
-                        message = await asyncio.wait_for(ws.recv(), timeout=30.0)
-                        data = json.loads(message)
-                        full_output.append(data)  # Capture all messages
-
-                        if 'error' in data:
-                            # If an error occurs, yield it in the JSON structure.
-                            error_chunk = json.dumps({
-                                'type': 'hot_code',
-                                'content': f"ERROR: {data['error']}"
-                            })
-                            print(f"Streaming chunk: {error_chunk}")
-                            yield error_chunk
-                            break
-
-                        elif 'output' in data:
-                            buffer.append(data['output'])
-                            # When the buffer has accumulated 2 or more lines, yield them.
-                            if len(buffer) >= 2:
-                                line_chunk = "\n".join(buffer)
-                                chunk = json.dumps({
-                                    'type': 'hot_code',
-                                    'content': line_chunk
-                                })
-                                print(f"Streaming chunk: {chunk}")
-                                yield chunk
-                                buffer = []
-
-                        elif data.get('status') == 'complete':
-                            # Flush any remaining output in the buffer.
-                            if buffer:
-                                line_chunk = "\n".join(buffer)
-                                chunk = json.dumps({
-                                    'type': 'hot_code',
-                                    'content': line_chunk
-                                })
-                                print(f"Streaming chunk: {chunk}")
-                                yield chunk
-
-                            # Optionally, yield the complete output as a final chunk.
-                            complete_output = "\n".join(
-                                [msg.get('output', '') for msg in full_output if 'output' in msg]
-                            )
-                            final_chunk = json.dumps({
-                                'type': 'hot_code',
-                                'content': complete_output
-                            })
-                            print(f"Final streaming chunk: {final_chunk}")
-                            yield final_chunk
-                            break
-
-                    except asyncio.TimeoutError:
-                        timeout_chunk = json.dumps({
-                            'type': 'hot_code',
-                            'content': "[Timeout reached]"
-                        })
-                        print(f"Streaming chunk: {timeout_chunk}")
-                        yield timeout_chunk
-                        break
-
-            print(full_output)
-
-        except Exception as e:
-            error_msg = f"Stream failed: {str(e)}"
-            error_chunk = json.dumps({
-                'type': 'hot_code',
-                'content': error_msg
-            })
-            print(f"Streaming chunk: {error_chunk}")
-            yield error_chunk
-
-
-
+        except json.JSONDecodeError as e:
+            logging_utility.error(
+                "Failed to parse code interpreter output for action %s: %s",
+                action.id, str(e)
+            )
+            raise
 
     def _handle_vector_search(self, thread_id, assistant_id, function_output, action):
         """Special handling for web search results."""
@@ -685,6 +677,31 @@ class BaseInference(ABC):
 
     def get_assistant_id(self):
         return self.assistant_id
+
+    def _submit_code_interpreter_output(self, thread_id, assistant_id, content, action):
+        """special case code interpreter output submission"""
+
+        try:
+            self.message_service.submit_tool_output(
+                thread_id=thread_id,
+                content=content,
+                role="tool",
+                assistant_id=assistant_id,
+                tool_id="dummy"
+            )
+            self.action_service.update_action(action_id=action.id, status='completed')
+            logging_utility.debug(
+                "Tool output submitted successfully for action %s",
+                action.id
+            )
+
+        except Exception as e:
+            logging_utility.error(
+                "Failed to submit tool output for action %s: %s",
+                action.id, str(e)
+            )
+            self.action_service.update_action(action_id=action.id, status='failed')
+            raise
 
     def _process_platform_tool_calls(self, thread_id, assistant_id, content, run_id):
         """Process platform tool calls with enhanced logging and error handling."""
@@ -768,32 +785,29 @@ class BaseInference(ABC):
 
 
     def _submit_tool_output(self, thread_id, assistant_id, content, action):
-        """Enhanced output submission with streaming support"""
-        # Append to thread history
-        self.thread_service.append_message(
-            thread_id,
-            {
-                "role": "tool",
-                "name": action.tool_name,
-                "content": content,
-                "metadata": {
-                    "action_id": action.id,
-                    "stream_chunk": True,
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-            }
-        )
+        """Generic tool output submission with consistent logging."""
 
-        # Update action state
-        self.action_service.update_action_output(
-            action.id,
-            new_content=content,
-            is_partial=True
-        )
+        try:
+            self.message_service.submit_tool_output(
+                thread_id=thread_id,
+                content=content,
+                role="tool",
+                assistant_id=assistant_id,
+                tool_id="dummy"
+            )
+            self.action_service.update_action(action_id=action.id, status='completed')
+            logging_utility.debug(
+                "Tool output submitted successfully for action %s",
+                action.id
+            )
 
-
-
-
+        except Exception as e:
+            logging_utility.error(
+                "Failed to submit tool output for action %s: %s",
+                action.id, str(e)
+            )
+            self.action_service.update_action(action_id=action.id, status='failed')
+            raise
 
     def validate_and_set(self, content):
         """Core validation pipeline"""
