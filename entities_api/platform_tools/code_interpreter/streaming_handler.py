@@ -96,15 +96,17 @@ class StreamingCodeExecutionHandler(CodeExecutionService):
     async def _stream_process_output(self, proc, websocket, execution_id):
         try:
             while True:
-                # Read one byte at a time to simulate a typing effect
-                chunk = await proc.stdout.read(1)
-                if not chunk:
+                # Read one full line from the process output
+                line = await proc.stdout.readline()
+                if not line:
                     break
                 try:
-                    # Send the chunk over the WebSocket
-                    await websocket.send_text(chunk.decode())
-                    # Introduce a slight delay to simulate typing (adjust as needed)
-                    await asyncio.sleep(0.05)
+                    # Send the entire line over the WebSocket
+                    await websocket.send_text(line.decode())
+                    # Optionally, if you still want a typing simulation, iterate over characters:
+                    # for ch in line.decode():
+                    #     await websocket.send_text(ch)
+                    #     await asyncio.sleep(0.05)
                 except WebSocketDisconnect:
                     self.logging_utility.warning("Client disconnected from execution %s", execution_id)
                     proc.terminate()
@@ -115,9 +117,6 @@ class StreamingCodeExecutionHandler(CodeExecutionService):
                 "exit_code": return_code,
                 "execution_id": execution_id
             })
-
-
-
         except Exception as e:
             self.logging_utility.error("Error in execution stream: %s", str(e))
             proc.terminate()

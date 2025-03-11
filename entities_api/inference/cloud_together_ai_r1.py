@@ -145,7 +145,6 @@ class TogetherR1Inference(BaseInference):
     def process_conversation(self, thread_id, message_id, run_id, assistant_id,
                              model, stream_reasoning=False):
 
-        print("Hello world")
 
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)
