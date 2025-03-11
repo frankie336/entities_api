@@ -28,4 +28,5 @@ EXPOSE 8000
 USER sandboxuser
 
 # Run the sandbox server
-CMD ["uvicorn", "sandbox_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Allow minimal network access while maintaining security
+CMD ["firejail", "--noprofile", "--net=eth0", "uvicorn", "sandbox_api.main:app", "--host", "0.0.0.0", "--port", "8000"]

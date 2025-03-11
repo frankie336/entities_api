@@ -1,14 +1,13 @@
 # entities_api/services/assistant_setup_service.py
-import time
 
 from entities_api.clients.client import OllamaClient
-from entities_api.schemas import ToolFunction
 from entities_api.constants.assistant import DEFAULT_MODEL, BASE_ASSISTANT_INSTRUCTIONS, BASE_TOOLS
+from entities_api.schemas import ToolFunction
+from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.vector_store_service import VectorStoreService
 from entities_api.services.vector_waves import AssistantVectorWaves
-from entities_api.services.logging_service import LoggingUtility
 
-time.sleep(1000)
+
 class AssistantSetupService:
     def __init__(self):
         self.client = OllamaClient()
