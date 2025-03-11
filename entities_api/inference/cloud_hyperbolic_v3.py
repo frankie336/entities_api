@@ -6,7 +6,7 @@ from entities_api.services.logging_service import LoggingUtility
 load_dotenv()
 logging_utility = LoggingUtility()
 
-class HyperbolicR1Inference(BaseInference):
+class HyperbolicV3Inference(BaseInference):
 
     def setup_services(self):
         """

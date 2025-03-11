@@ -67,7 +67,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.sandbox
-    container_name: sandbox_server
+    container_name: sandbox_api
     restart: always
     cap_add:
       - SYS_ADMIN  # Required for Firejail

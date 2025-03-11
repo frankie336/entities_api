@@ -6,13 +6,7 @@ from http.client import HTTPException
 from pathlib import Path
 from typing import Any
 from entities_api.schemas import (
-    EnhancedVectorSearchResult,
-    SearchExplanation,
-    VectorStoreCreate,
-    VectorStoreRead,
-    StatusEnum,
-    ProcessOutput,
-    MessageRead
+    SearchExplanation
 )
 from qdrant_client.http import models
 from sqlalchemy import create_engine, text

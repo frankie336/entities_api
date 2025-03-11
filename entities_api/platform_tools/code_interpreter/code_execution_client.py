@@ -10,7 +10,7 @@ from entities_api.platform_tools.web.web_search_handler import logging_utility
 
 @dataclass
 class ExecutionClientConfig:
-    endpoint: str = "ws://localhost:9000/ws/execute"
+    endpoint: str = "ws://localhost:8000/ws/execute"
     timeout: float = 15.0
     retries: int = 3
     retry_delay: float = 2.0

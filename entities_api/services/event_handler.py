@@ -1,7 +1,7 @@
 import json
 import threading
 import time
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from entities_api.clients.client_actions_client import ClientActionService
 from entities_api.clients.client_run_client import ClientRunService
 from entities_api.services.logging_service import LoggingUtility
