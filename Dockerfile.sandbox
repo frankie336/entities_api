@@ -29,4 +29,4 @@ USER sandboxuser
 
 # Run the sandbox server
 # Allow minimal network access while maintaining security
-CMD ["firejail", "--noprofile", "--net=eth0", "uvicorn", "sandbox_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["firejail", "--noprofile", "--no-private", "--net=eth0", "uvicorn", "sandbox_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
