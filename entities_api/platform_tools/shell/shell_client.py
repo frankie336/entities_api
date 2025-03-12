@@ -1,84 +1,115 @@
 import asyncio
-import websockets
 import sys
-from typing import Optional, List
+import json
+import socketio
+import logging
+from datetime import datetime, timezone
+from typing import List
 
-
-class ShellClientConfig:
-    def __init__(self, endpoint: str = "ws://localhost:8000/ws/shell", timeout: float = 30.0,
-                 session_id: Optional[str] = None):
-        self.endpoint = endpoint
-        self.timeout = timeout
-        self.session_id = session_id  # Track session
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 
 class ShellClient:
-    def __init__(self, config: Optional[ShellClientConfig] = None):
-        self.config = config or ShellClientConfig()
-        self._ws = None  # WebSocket client connection
+    def __init__(self, endpoint: str, thread_id: str):
+        self.endpoint = endpoint
+        self.thread_id = thread_id
+        self.namespace = '/shell'
+
+        self.sio = socketio.AsyncClient(
+            reconnection=True,
+            reconnection_attempts=5,
+            reconnection_delay=2000,
+            logger=True,
+            engineio_logger=True
+        )
+
+        self._register_handlers()
+
+    def _register_handlers(self):
+        @self.sio.on('connect', namespace=self.namespace)
+        async def on_connect():
+            logger.debug("Connected to shell namespace")
+
+        @self.sio.on('shell_output', namespace=self.namespace)
+        async def on_output(data):
+            try:
+                payload = json.loads(data['data'])
+                if payload.get('thread_id') == self.thread_id:
+                    sys.stdout.write(payload['content'])
+                    sys.stdout.flush()
+            except Exception as e:
+                logger.error(f"Output error: {str(e)}")
+
+        @self.sio.on('disconnect', namespace=self.namespace)
+        async def on_disconnect():
+            logger.info("Disconnected from server")
 
     async def connect(self):
-        """Connect to the WebSocket server, resuming session if possible."""
-        session_url = f"{self.config.endpoint}?session_id={self.config.session_id}" if self.config.session_id else self.config.endpoint
-        self._ws = await websockets.connect(session_url, ping_interval=None)
+        await self.sio.connect(
+            self.endpoint,
+            namespaces=[self.namespace],
+            auth={
+                self.namespace: {
+                    'thread_id': self.thread_id,
+                    'timestamp': datetime.now(timezone.utc).isoformat()
+                }
+            },
+            transports=['websocket'],
+            socketio_path='socket.io',
+            wait_timeout=15
+        )
 
-        # Read session ID from the server
-        initial_message = await self._ws.recv()
-        if initial_message.startswith("SESSION_ID:"):
-            self.config.session_id = initial_message.split(":", 1)[1]
-            print(f"Connected to session! {self.config.session_id}")
+    async def send_command(self, command: str):
+        await self.sio.emit(
+            'shell_command',
+            {
+                'command': command,
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'thread_id': self.thread_id
+            },
+            namespace=self.namespace
+        )
 
-    async def send_commands(self, commands: List[str]):
-        """Send a list of commands to the WebSocket server."""
-        for cmd in commands:
-            await self._ws.send(cmd)
-            print(f"Sent: {cmd}")
-
-    async def stream_output(self):
-        """Stream output from the WebSocket server and handle reconnection."""
-        while True:
-            try:
-                output = await asyncio.wait_for(self._ws.recv(), timeout=5.0)
-                sys.stdout.write(output)
-                sys.stdout.flush()
-            except asyncio.TimeoutError:
-                continue  # Timeout but connection still alive
-            except websockets.ConnectionClosed:
-                print("\nConnection lost. Attempting to reconnect...")
-                await self.reconnect()
-
-    async def reconnect(self):
-        """Retry connecting to the last session with exponential backoff."""
-        delay = 1
+    async def run_session(self, commands: List[str]):
         while True:
             try:
                 await self.connect()
-                print(f"Reconnected to session {self.config.session_id}")
-                await self.stream_output()
-                break
+                logger.info("Session active - Type commands or 'exit' to quit")
+
+                for cmd in commands:
+                    await self.send_command(cmd)
+                    await asyncio.sleep(0.1)
+
+                while True:
+                    await asyncio.sleep(1)
+
+            except (ConnectionError, socketio.exceptions.ConnectionError) as e:
+                logger.error(f"Connection error: {str(e)}. Reconnecting...")
+                await asyncio.sleep(2)
             except Exception as e:
-                print(f"Reconnection failed ({e}), retrying in {delay} seconds...")
-                await asyncio.sleep(delay)
-                delay = min(delay * 2, 30)  # Exponential backoff, max 30s
-
-    async def run(self, commands: List[str], session_id: Optional[str] = None):
-        """Main method to run the ShellClient, passing commands and session ID."""
-        if session_id:
-            self.config.session_id = session_id
-
-        await self.connect()
-        await self.send_commands(commands)
-        await self.stream_output()
+                logger.error(f"Fatal error: {str(e)}")
+                break
+            finally:
+                await self.sio.disconnect()
 
 
-# Example of how this could be called in another script:
+async def main():
+    client = ShellClient(
+        endpoint="http://localhost:8000",
+        thread_id="thread_2ycHHuZk0v3xPei768a9c6"
+    )
 
-async def example_usage():
-    client = ShellClient()
-    commands = ["echo Hello, world!", "ls", "pwd"]  # Commands to execute on the remote shell
-    session_id = None  # Optional, can be passed if reconnecting to an existing session
-    await client.run(commands, session_id)
+    try:
+        await client.run_session([
+            "echo 'Secure session established'",
+            "uname -a",
+            "whoami",
+            "ls -l"
+        ])
+    except KeyboardInterrupt:
+        logger.info("Session terminated by user")
 
 
 if __name__ == "__main__":
-    asyncio.run(example_usage())
+    asyncio.run(main())
