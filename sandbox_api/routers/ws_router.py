@@ -1,37 +1,19 @@
+# ws_router.py
 import json
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from sandbox_api.services.logging_service import LoggingUtility
+
+from sandbox_api.main import shell_service
 from sandbox_api.services.code_execution import StreamingCodeExecutionHandler
-from sandbox_api.services.remote_shell_service import RemoteShellService
-from sandbox_api.services.socketio_shell_service import SocketIOShellService
+from sandbox_api.services.logging_service import LoggingUtility
+from sandbox_api.utils.sio import add_to_room, broadcast_to_room, remove_from_room
 
-
-from typing import List
-
-router = APIRouter()
 logging_utility = LoggingUtility()
-#shell_service = RemoteShellService()
-shell_service = SocketIOShellService(sio)
+router = APIRouter()
 
-# Dictionary to manage connections by room/user_id
-rooms = {}
 
-# Utility function to add/remove clients to/from rooms
-def add_to_room(room_name: str, websocket: WebSocket):
-    if room_name not in rooms:
-        rooms[room_name] = []
-    rooms[room_name].append(websocket)
 
-def remove_from_room(room_name: str, websocket: WebSocket):
-    if room_name in rooms and websocket in rooms[room_name]:
-        rooms[room_name].remove(websocket)
 
-async def broadcast_to_room(room_name: str, message: str, sender: WebSocket):
-    """Broadcast message to all clients in the specified room."""
-    if room_name in rooms:
-        for connection in rooms[room_name]:
-            if connection != sender:
-                await connection.send_text(message)
 
 @router.websocket("/execute")
 async def websocket_execute(websocket: WebSocket):
@@ -67,31 +49,35 @@ async def websocket_execute(websocket: WebSocket):
 
 @router.websocket("/shell")
 async def websocket_shell(websocket: WebSocket):
-    """Delegates shell session handling to RemoteShellService with room management."""
+    """Delegates shell session handling to SocketIOShellService with room management."""
     await websocket.accept()
 
     try:
+        # ------------------------------------
+        # Deals with registering clients to sio
+        # rooms.
+        # Receive initial data from the client
+        #--------------------------------------
         data = await websocket.receive_text()
         parsed_data = json.loads(data)
         user_id = parsed_data.get("user_id", "anonymous")
-        room_name = f"shell_{user_id}"  # Again, dynamic room naming
-        add_to_room(room_name, websocket)  # Add WebSocket to the room
+        room_name = f"shell_{user_id}"  # Dynamic room naming
 
-        # Delegate shell session handling to RemoteShellService
+        # Delegate shell session handling to SocketIOShellService
         try:
-            await shell_service.start_shell_session(websocket)
+            sid = websocket.headers.get("sid")  # Extract Socket.IO session ID
+            await shell_service._create_client_session(sid)
         except Exception as e:
             logging_utility.error(f"Error in shell session: {str(e)}")
             await websocket.close(code=1003)
 
         # Optionally, broadcast that the shell session started
-        await broadcast_to_room(room_name, f"User {user_id} started a shell session.", websocket)
+        await shell_service._broadcast_to_room(room_name, f"User {user_id} started a shell session.")
 
     except (json.JSONDecodeError, KeyError):
         await websocket.close(code=1003)
     except WebSocketDisconnect:
         logging_utility.info("Client disconnected")
-        remove_from_room(room_name, websocket)  # Remove from room on disconnect
     except Exception as e:
         logging_utility.error(f"Unexpected error: {str(e)}")
         await websocket.close(code=1003)
