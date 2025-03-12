@@ -3,15 +3,11 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sandbox_api.services.logging_service import LoggingUtility
 from sandbox_api.services.code_execution import StreamingCodeExecutionHandler
 from sandbox_api.services.remote_shell_service import RemoteShellService
-from sandbox_api.services.socketio_shell_service import SocketIOShellService
-
-
 from typing import List
 
 router = APIRouter()
 logging_utility = LoggingUtility()
-#shell_service = RemoteShellService()
-shell_service = SocketIOShellService(sio)
+shell_service = RemoteShellService()
 
 # Dictionary to manage connections by room/user_id
 rooms = {}
