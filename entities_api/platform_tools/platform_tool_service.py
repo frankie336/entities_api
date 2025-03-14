@@ -5,6 +5,8 @@ from typing import Union, Any, Generator, Dict
 from entities_api.platform_tools.code_interpreter.code_execution_client import StreamOutput
 from entities_api.platform_tools.vector_store.vector_search_handler import VectorSearchHandler
 from entities_api.platform_tools.web.web_search_handler import FirecrawlService
+from entities_api.platform_tools.shell.shell_commands_handler import run_shell_commands
+
 from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
@@ -15,7 +17,8 @@ class PlatformToolService:
     function_handlers = {
         "code_interpreter": None,
         "web_search": None,
-        "vector_store_search": None
+        "vector_store_search": None,
+        "computer": None
     }
 
     def __init__(self, base_url=None, api_key=None, assistant_id=None):
@@ -51,18 +54,18 @@ class PlatformToolService:
             arguments: Dict[str, Any]
     ) -> Union[Dict, Generator[str, None, None]]:
         """
-        Enhanced function executor with streaming support
+        Enhanced function executor with streaming support.
         Returns:
-            - Generator for streaming outputs
-            - Dict for static results
+            - A generator for streaming outputs, or
+            - A dict for static results.
         """
         if not isinstance(arguments, dict):
             logging_utility.error("Invalid arguments type: %s", type(arguments))
             return {"error": "Arguments must be a dictionary"}
 
-        # Cache handling
+        # Cache handling (disable caching for streams)
         cache_key = None
-        if function_name != "code_interpreter":  # Disable cache for streams
+        if function_name != "code_interpreter":
             try:
                 cache_key = (function_name, frozenset(arguments.items()))
                 with self._cache_lock:
@@ -83,8 +86,11 @@ class PlatformToolService:
                 )
             elif function_name == "vector_store_search":
                 self.function_handlers[function_name] = (
-                    self._get_vector_search_handler().execute_search
+                    self._get_vector__search_handler().execute_search
                 )
+            elif function_name == "computer":
+                # Use our helper function for streaming shell commands.
+                self.function_handlers[function_name] = run_shell_commands
             else:
                 return {"error": f"Unsupported function: {function_name}"}
 
@@ -94,11 +100,11 @@ class PlatformToolService:
         try:
             result = handler(**arguments)
 
-            # Stream handling
+            # If the result is a generator (streamed output), return it directly.
             if inspect.isgenerator(result):
-                return result  # Directly return generator
+                return result
 
-            # Cache static results
+            # Cache static results (if applicable)
             if cache_key is not None:
                 with self._cache_lock:
                     self._call_cache[cache_key] = result

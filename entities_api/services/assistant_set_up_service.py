@@ -97,7 +97,7 @@ class AssistantSetupService:
 
             assistant = self.setup_assistant_with_tools(
                 user_id=user.id,
-                assistant_name='Nexa',
+                assistant_name='Q',
                 assistant_description='Assistant',
                 model=DEFAULT_MODEL,
                 instructions=BASE_ASSISTANT_INSTRUCTIONS,

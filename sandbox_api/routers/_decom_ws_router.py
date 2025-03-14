@@ -49,52 +49,10 @@ async def websocket_execute(websocket: WebSocket):
         await websocket.close(code=1003)
 
 
-# In ws_router.py
-@router.websocket("/shell")
-async def websocket_shell(websocket: WebSocket):
-    """Handle both WebSocket and Socket.IO shell sessions"""
-    await websocket.accept()
-    try:
-        # Initial handshake with version check
-        data = await websocket.receive_text()
-        parsed_data = json.loads(data)
 
-        # Validate protocol version
-        if parsed_data.get('version') != '1.2':
-            await websocket.send_json({
-                'error': 'Unsupported client version',
-                'supported_versions': ['1.2']
-            })
-            await websocket.close(code=1008)
-            return
 
-        # Get connection parameters
-        thread_id = parsed_data.get('thread_id')
-        user_id = parsed_data.get('user_id', 'anonymous')
 
-        if not thread_id:
-            await websocket.send_json({'error': 'thread_id required'})
-            await websocket.close(code=1003)
-            return
 
-        # Create virtual Socket.IO session
-        sid = f"ws_{datetime.utcnow().timestamp()}"
 
-        # Simulate Socket.IO connection
-        await shell_service.handle_connect(
-            sid=sid,
-            environ={},
-            auth={'thread_id': thread_id, 'user_id': user_id}
-        )
 
-        # Bridge WebSocket messages to Socket.IO service
-        while True:
-            message = await websocket.receive_text()
-            await shell_service.handle_command(sid, {'command': message})
 
-    except WebSocketDisconnect:
-        logging_utility.info("Client disconnected")
-        await shell_service.handle_disconnect(sid)
-    except Exception as e:
-        logging_utility.error(f"Connection error: {str(e)}")
-        await websocket.close(code=1011)

@@ -1,6 +1,7 @@
 # entities_api/assistant.py
 # Global constants with enhanced validation
-PLATFORM_TOOLS = ["code_interpreter", "web_search", "vector_store_search"]
+PLATFORM_TOOLS = ["code_interpreter", "web_search", "vector_store_search", "computer"]
+
 API_TIMEOUT = 30
 DEFAULT_MODEL = "llama3.1"
 
@@ -62,6 +63,27 @@ BASE_TOOLS = [
             }
         }
     },
+
+
+    {
+      "type": "function",
+      "function": {
+        "name": "computer",
+        "description": "This function acts as your personal computer—specifically a Linux shell with internet access. When you send a list of shell commands, it executes them in a recoverable shell session, streaming output continuously. It simulates a Linux terminal environment, allowing you to run commands as if you were using your personal Linux workstation. The thread ID is managed internally.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "commands": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "A list of Linux shell commands to execute sequentially, as if you were typing directly into your personal computer's terminal."
+            }
+          },
+          "required": ["commands"]
+        }
+      }
+    },
+
     {
         "type": "function",
         "function": {
@@ -105,7 +127,12 @@ BASE_TOOLS = [
                         "examples": {"priority": 1.5, "relevance": 2.0}
                     }
                 },
-                "required": ["query", "search_type", "source_type"]
+                "required": ["query", "search_type", "source_type"],
+
+
+
+
+
             }
         }
     }

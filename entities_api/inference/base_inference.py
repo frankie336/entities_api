@@ -685,6 +685,30 @@ class BaseInference(ABC):
             )
             raise
 
+    def _handle_computer(self, thread_id, assistant_id, function_output, action):
+        """Special handling for web search results."""
+        try:
+
+            shell_output = str(function_output)
+
+            self._submit_tool_output(
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                content=shell_output,
+                action=action
+            )
+            logging_utility.info(
+                "Web search results submitted for action %s",
+                action.id
+            )
+
+        except IndexError as e:
+            logging_utility.error(
+                "Invalid web search output format for action %s: %s",
+                action.id, str(e)
+            )
+            raise
+
 
     def set_assistant_id(self, assistant_id):
         self.assistant_id = assistant_id
@@ -765,7 +789,8 @@ class BaseInference(ABC):
             tool_handlers = {
                 "code_interpreter": self._handle_code_interpreter,
                 "web_search": self._handle_web_search,
-                "vector_store_search": self._handle_vector_search
+                "vector_store_search": self._handle_vector_search,
+                "computer": self._handle_computer
 
             }
 
@@ -826,6 +851,8 @@ class BaseInference(ABC):
 
 
     def handle_code_interpreter_action(self, thread_id, run_id, assistant_id, arguments_dict):
+
+        #TODO: Consider handling this with via websocket?
         """Handles code interpreter execution with streaming support."""
         action = self.action_service.create_action(
             tool_name="code_interpreter",
