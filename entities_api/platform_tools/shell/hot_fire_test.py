@@ -10,5 +10,5 @@ commands = [
 shell_service = ShellCommandsService()
 
 # Pass your desired thread ID as the second argument:
-output = shell_service.run_commands(commands, thread_id="thread_A42VhvFTiDz3HNV7MzTELq")
+output = shell_service.run_commands(commands, thread_id="thread_08vDotJ48NBDPHK1qGpViC")
 print(output)
