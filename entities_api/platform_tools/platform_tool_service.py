@@ -1,12 +1,12 @@
 import inspect
 import threading
+import time
 from typing import Union, Any, Generator, Dict
 
 from entities_api.platform_tools.code_interpreter.code_execution_client import StreamOutput
 from entities_api.platform_tools.vector_store.vector_search_handler import VectorSearchHandler
 from entities_api.platform_tools.web.web_search_handler import FirecrawlService
-from entities_api.platform_tools.shell.shell_commands_handler import run_shell_commands
-
+from entities_api.platform_tools.shell.shell_commands_service import ShellCommandsService
 from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
@@ -21,12 +21,13 @@ class PlatformToolService:
         "computer": None
     }
 
-    def __init__(self, base_url=None, api_key=None, assistant_id=None):
+    def __init__(self, base_url=None, api_key=None, assistant_id=None, thread_id=None):
         # Lazy initialization of handlers
         self._stream_output_handler = None
         self._web_search_handler = None
         self._vector_search_handler = None
         self.assistant_id = assistant_id
+        self.thread_id = thread_id
         self._call_cache = {}
         self._cache_lock = threading.Lock()
 
@@ -59,6 +60,11 @@ class PlatformToolService:
             - A generator for streaming outputs, or
             - A dict for static results.
         """
+
+        print(arguments)
+        print("HELLO HERE WE ARE!")
+        #time.sleep(10000)
+
         if not isinstance(arguments, dict):
             logging_utility.error("Invalid arguments type: %s", type(arguments))
             return {"error": "Arguments must be a dictionary"}
@@ -89,8 +95,9 @@ class PlatformToolService:
                     self._get_vector__search_handler().execute_search
                 )
             elif function_name == "computer":
-                # Use our helper function for streaming shell commands.
-                self.function_handlers[function_name] = run_shell_commands
+                # Use our new ShellCommandsService for streaming shell commands.
+                shell_service = ShellCommandsService(thread_id=self.thread_id)
+                self.function_handlers[function_name] = shell_service.run_commands
             else:
                 return {"error": f"Unsupported function: {function_name}"}
 

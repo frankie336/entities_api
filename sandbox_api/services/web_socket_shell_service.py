@@ -128,6 +128,8 @@ class WebSocketShellService:
                     }
                     await self.broadcast_to_room(room, emit_data)
                     self.logging_utility.debug(f"Emitted {len(output)} bytes to room {room}")
+                else:
+                    break
         except Exception as e:
             self.logging_utility.error(f"Stream error: {str(e)}", exc_info=True)
         finally:
@@ -147,3 +149,23 @@ class WebSocketShellService:
                 self.logging_utility.info(f"Successfully cleaned up session for connection {websocket}")
             except Exception as e:
                 self.logging_utility.error(f"Cleanup error: {str(e)}", exc_info=True)
+
+    async def handle_websocket(self, websocket: WebSocket):
+        await websocket.accept()
+        try:
+            await self.create_client_session(websocket)
+            while True:
+                try:
+                    message = await websocket.receive_text()
+                    data = json.loads(message)
+                    command = data.get("command")
+                    if command:
+                        await self.process_command(websocket, command)
+                except WebSocketDisconnect:
+                    self.logging_utility.info(f"WebSocket connection {websocket} disconnected")
+                    break
+        except Exception as e:
+            self.logging_utility.error(f"WebSocket handling error: {str(e)}", exc_info=True)
+        finally:
+            await self.cleanup_session(websocket)
+            self.remove_from_room(websocket)

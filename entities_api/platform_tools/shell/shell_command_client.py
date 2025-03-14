@@ -11,12 +11,12 @@ logging_utility = LoggingUtility()
 # A simple configuration class for the client.
 class ShellClientConfig:
     def __init__(self,
-                 endpoint: str = "ws://localhost:8000/shell",
+                 endpoint: str = "ws://sandbox:8000/shell",
                  thread_id: Optional[str] = None,
                  timeout: int = 5):
         self.endpoint = endpoint
         self.thread_id = thread_id
-        self.timeout = timeout  # Timeout for inactivity
+        self.timeout = timeout  # Timeout for inactivity (no longer used)
 
 # Main client class that uses the websockets library.
 class ShellClient:
@@ -81,25 +81,21 @@ class ShellClient:
         for command in commands:
             await self.send_command(command)
 
-        # Gather broadcast messages from the server with a timeout for inactivity.
+        # Gather broadcast messages from the server without a timeout.
         broadcast_buffer = ""
         try:
             while True:
+                message = await self.ws.recv()  # Wait indefinitely for a message.
                 try:
-                    message = await asyncio.wait_for(self.ws.recv(), timeout=self.config.timeout)
-                    try:
-                        data = json.loads(message)
-                        logging_utility.info("Received JSON message: %s", data)
-                    except json.JSONDecodeError:
-                        data = message
-                        logging_utility.info("Received raw message: %s", data)
-                    if isinstance(data, dict) and "content" in data:
-                        broadcast_buffer += data["content"]
-                    else:
-                        logging_utility.info("Unexpected message format: %s", data)
-                except asyncio.TimeoutError:
-                    logging_utility.info("No new messages within timeout period, closing connection.")
-                    break
+                    data = json.loads(message)
+                    logging_utility.info("Received JSON message: %s", data)
+                except json.JSONDecodeError:
+                    data = message
+                    logging_utility.info("Received raw message: %s", data)
+                if isinstance(data, dict) and "content" in data:
+                    broadcast_buffer += data["content"]
+                else:
+                    logging_utility.info("Unexpected message format: %s", data)
         except websockets.ConnectionClosed:
             logging_utility.info("Connection closed.")
         except Exception as e:
@@ -114,9 +110,9 @@ class ShellClient:
 # Example usage of the ShellClient.
 async def example_usage():
     config = ShellClientConfig(
-        endpoint="ws://localhost:8000/shell",
-        thread_id="thread_2ycHHuZk0v3xPei768a9c6",
-        timeout=5  # Set timeout for inactivity
+        endpoint="ws://localhost:8000/shell",  # Ensure the correct endpoint is used
+        thread_id="thread_A42VhvFTiDz3HNV7MzTELq",
+        timeout=5  # This timeout is now ignored.
     )
     client = ShellClient(config)
     commands = [
