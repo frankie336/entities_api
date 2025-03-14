@@ -2,170 +2,237 @@ import asyncio
 import json
 import os
 import pty
-import subprocess
+import signal
 from datetime import datetime, timezone
+from typing import Dict, Set, List
 
+import redis
 from fastapi import WebSocket, WebSocketDisconnect
 from sandbox_api.services.logging_service import LoggingUtility
+
+# Redis setup
+redis_client = redis.StrictRedis(host='redis_server', port=6379, db=0, decode_responses=True)
 
 logging_utility = LoggingUtility()
 
 
 class WebSocketShellService:
     def __init__(self):
-        self.client_sessions = {}  # Map WebSocket -> session info
-        self.rooms = {}  # Map room names to sets of WebSocket connections
+        self.client_sessions: Dict[WebSocket, dict] = {}
+        self.rooms: Dict[str, Set[WebSocket]] = {}
+        # Track tasks spawned per session so they can be cancelled on cleanup.
+        self.tasks: Dict[WebSocket, List[asyncio.Task]] = {}
         self.logging_utility = LoggingUtility()
-        self.namespace = "/shell"  # For logging purposes
-        self.logging_utility.info(f"Initializing WebSocket Shell Service on namespace: {self.namespace}")
+        self.namespace = "/shell"
+        self.logging_utility.info(f"WebSocket Shell Service initialized on namespace: {self.namespace}")
+
+    # --- Session Persistence ---
+    def store_session_in_redis(self, websocket: WebSocket, session_data: dict):
+        session_id = str(websocket.client)
+        redis_client.set(
+            f"session:{session_id}",
+            json.dumps({
+                "created_at": session_data["created_at"],
+                "thread_id": next((k for k, v in self.rooms.items() if websocket in v), None)
+            })
+        )
+        redis_client.expire(f"session:{session_id}", 3600)
+
+    def retrieve_session_from_redis(self, websocket: WebSocket):
+        session_id = str(websocket.client)
+        session_data = redis_client.get(f"session:{session_id}")
+        return json.loads(session_data) if session_data else None
+
+    def delete_session_from_redis(self, websocket: WebSocket):
+        redis_client.delete(f"session:{str(websocket.client)}")
 
     # --- Room Management ---
     def add_to_room(self, room_name: str, websocket: WebSocket):
         if room_name not in self.rooms:
             self.rooms[room_name] = set()
-            self.logging_utility.debug(f"Creating new room: {room_name}")
         self.rooms[room_name].add(websocket)
-        self.logging_utility.info(f"Added connection {websocket} to room {room_name}. Current rooms: {self.rooms}")
+        self.logging_utility.info(f"Client joined room '{room_name}'")
 
     def remove_from_room(self, websocket: WebSocket):
         for room_name, clients in list(self.rooms.items()):
             if websocket in clients:
                 clients.remove(websocket)
-                self.logging_utility.info(f"Removed connection {websocket} from room {room_name}. Remaining clients: {clients}")
                 if not clients:
                     del self.rooms[room_name]
-                    self.logging_utility.info(f"Room {room_name} deleted")
 
-    async def broadcast_to_room(self, room_name: str, message: dict, exclude_ws: WebSocket = None):
-        self.logging_utility.debug(f"Broadcasting to room {room_name}. Excluding: {exclude_ws}")
-        if room_name in self.rooms:
-            for client in self.rooms[room_name]:
-                if client != exclude_ws:
-                    try:
-                        await client.send_text(json.dumps(message))
-                        self.logging_utility.info(f"Broadcasted message to {client}")
-                    except Exception as e:
-                        self.logging_utility.error(f"Failed to send message to {client}: {str(e)}", exc_info=True)
+    async def broadcast_to_room(self, room_name: str, message: dict):
+        if room_name not in self.rooms:
+            return
+        full_message = {
+            **message,
+            "thread_id": room_name,
+            "timestamp": datetime.now(timezone.utc).timestamp()
+        }
+        for client in set(self.rooms[room_name]):
+            try:
+                await client.send_text(json.dumps(full_message))
+            except Exception as e:
+                self.logging_utility.error(f"Failed to send to {client}: {str(e)}")
+                await self.cleanup_session(client)
 
-    # --- Session Management and Shell Interaction ---
+    # --- Shell Session Management ---
     async def create_client_session(self, websocket: WebSocket):
         try:
-            self.logging_utility.debug(f"Creating PTY session for connection {websocket}")
             master_fd, slave_fd = pty.openpty()
-            proc = subprocess.Popen(
-                ["bash", "-i"],
+            proc = await asyncio.create_subprocess_exec(
+                "bash", "-i",
                 preexec_fn=os.setsid,
                 stdin=slave_fd,
                 stdout=slave_fd,
-                stderr=slave_fd,
-                bufsize=0,
-                universal_newlines=True,
+                stderr=slave_fd
             )
-        except Exception as e:
-            self.logging_utility.error(f"Process creation failed: {str(e)}", exc_info=True)
-            await websocket.close()
-            return
+            os.close(slave_fd)
 
-        self.client_sessions[websocket] = {
-            "process": proc,
-            "master_fd": master_fd,
-            "created_at": datetime.utcnow().isoformat()
-        }
-        os.close(slave_fd)
-        self.logging_utility.info(f"Created new session for connection {websocket}")
-        asyncio.create_task(self.stream_output(websocket))
+            session_data = {
+                "process": proc,
+                "master_fd": master_fd,
+                "created_at": datetime.utcnow().isoformat(),
+            }
+            self.client_sessions[websocket] = session_data
+            self.store_session_in_redis(websocket, session_data)
+
+            # Create tasks for streaming output and heartbeat.
+            task_stream = asyncio.create_task(self.stream_output(websocket))
+            task_hb = asyncio.create_task(self.heartbeat(websocket))
+            self.tasks[websocket] = [task_stream, task_hb]
+
+        except Exception as e:
+            self.logging_utility.error(f"Process creation failed: {str(e)}")
+            await websocket.close()
 
     async def process_command(self, websocket: WebSocket, command: str):
-        if websocket not in self.client_sessions:
-            self.logging_utility.error(f"Invalid session for connection {websocket} for command execution")
-            raise Exception("Session does not exist")
         session = self.client_sessions.get(websocket)
-        if not session:
-            self.logging_utility.error(f"No active session for connection {websocket}")
-            raise Exception("Session not active")
-        if session["process"].poll() is not None:
-            self.logging_utility.error(f"Process has already terminated for connection {websocket}")
-            raise Exception("Session not active")
-        try:
-            os.write(session['master_fd'], f"{command}\n".encode())
-            self.logging_utility.debug(f"Written command to FD {session['master_fd']}")
-        except OSError as e:
-            self.logging_utility.error(f"Write error: {str(e)}")
-            raise
+        if session and session["process"].returncode is None:
+            try:
+                os.write(session['master_fd'], f"{command}\n".encode())
+            except OSError as e:
+                self.logging_utility.error(f"Write error: {str(e)}")
 
     async def stream_output(self, websocket: WebSocket):
         session = self.client_sessions.get(websocket)
         if not session:
-            self.logging_utility.warning(f"No session for connection {websocket} in stream_output")
             return
 
         reader = asyncio.StreamReader()
-        transport = None
+        transport = None  # Initialize transport to None
         try:
-            self.logging_utility.debug(f"Starting output stream for connection {websocket}")
-            transport, _ = await asyncio.get_event_loop().connect_read_pipe(
-                lambda: asyncio.StreamReaderProtocol(reader),
-                os.fdopen(session['master_fd'], 'rb')
-            )
+            # Duplicate the master_fd so the original is not closed by fdopen.
+            dup_fd = os.dup(session['master_fd'])
+            f_pipe = os.fdopen(dup_fd, 'rb')
+            try:
+                transport, _ = await asyncio.get_event_loop().connect_read_pipe(
+                    lambda: asyncio.StreamReaderProtocol(reader),
+                    f_pipe
+                )
+            except FileExistsError as fee:
+                self.logging_utility.error("FileExistsError in connect_read_pipe (first attempt): %s", fee)
+                await asyncio.sleep(0.1)
+                # Retry with a fresh duplicate.
+                dup_fd = os.dup(session['master_fd'])
+                f_pipe = os.fdopen(dup_fd, 'rb')
+                transport, _ = await asyncio.get_event_loop().connect_read_pipe(
+                    lambda: asyncio.StreamReaderProtocol(reader),
+                    f_pipe
+                )
+
             while not reader.at_eof():
                 data = await reader.read(4096)
                 if data:
-                    output = data.decode(errors='ignore')
-                    # Determine the room for this connection.
-                    room = None
-                    for room_name, clients in self.rooms.items():
-                        if websocket in clients:
-                            room = room_name
-                            break
-                    if not room:
-                        self.logging_utility.warning(f"No room found for connection {websocket}")
-                        continue
-                    self.logging_utility.debug(f"Emitting output to room {room} from connection {websocket}")
-                    emit_data = {
-                        'content': output,
-                        'thread_id': room,
-                        'timestamp': datetime.now(timezone.utc).timestamp()
-                    }
-                    await self.broadcast_to_room(room, emit_data)
-                    self.logging_utility.debug(f"Emitted {len(output)} bytes to room {room}")
-                else:
-                    break
-        except Exception as e:
-            self.logging_utility.error(f"Stream error: {str(e)}", exc_info=True)
+                    room = next((r for r, clients in self.rooms.items() if websocket in clients), None)
+                    if room:
+                        await self.broadcast_to_room(room, {
+                            "content": data.decode(errors='ignore'),
+                            "type": "shell_output"
+                        })
         finally:
-            if transport and not transport.is_closing():
+            if transport:
                 transport.close()
-            if websocket in self.client_sessions:
-                await self.cleanup_session(websocket)
+            await self.cleanup_session(websocket)
+
+    async def heartbeat(self, websocket: WebSocket):
+        try:
+            while websocket in self.client_sessions:
+                await asyncio.sleep(10)
+                try:
+                    await websocket.send_text(json.dumps({
+                        "action": "ping",
+                        "thread_id": next((k for k, v in self.rooms.items() if websocket in v), None),
+                        "timestamp": datetime.now(timezone.utc).timestamp()
+                    }))
+                except Exception as e:
+                    break
+        finally:
+            await self.cleanup_session(websocket)
 
     async def cleanup_session(self, websocket: WebSocket):
-        self.logging_utility.info(f"Cleaning up session for connection {websocket}")
-        session = self.client_sessions.pop(websocket, None)
-        if session:
+        # Cancel any pending tasks.
+        if websocket in self.tasks:
+            for task in self.tasks[websocket]:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            del self.tasks[websocket]
+        if websocket in self.client_sessions:
+            session = self.client_sessions.pop(websocket)
             try:
-                self.logging_utility.debug(f"Terminating process for connection {websocket}")
-                session["process"].terminate()
+                os.killpg(os.getpgid(session["process"].pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            try:
                 os.close(session["master_fd"])
-                self.logging_utility.info(f"Successfully cleaned up session for connection {websocket}")
-            except Exception as e:
-                self.logging_utility.error(f"Cleanup error: {str(e)}", exc_info=True)
+            except OSError as e:
+                if e.errno == 9:  # Bad file descriptor; ignore.
+                    pass
+                else:
+                    raise
+            self.delete_session_from_redis(websocket)
+        self.remove_from_room(websocket)
 
     async def handle_websocket(self, websocket: WebSocket):
         await websocket.accept()
+        current_room = None
+
         try:
-            await self.create_client_session(websocket)
+            session_data = self.retrieve_session_from_redis(websocket)
+            if session_data:
+                self.client_sessions[websocket] = session_data
+                current_room = session_data.get("thread_id")
+                if current_room:
+                    self.add_to_room(current_room, websocket)
+            else:
+                await self.create_client_session(websocket)
+
             while True:
-                try:
-                    message = await websocket.receive_text()
-                    data = json.loads(message)
-                    command = data.get("command")
-                    if command:
+                data = await websocket.receive_text()
+                payload = json.loads(data)
+
+                if (action := payload.get("action")) == "join_room":
+                    if (room := payload.get("room")) and room != current_room:
+                        current_room = room
+                        self.add_to_room(room, websocket)
+                elif action == "shell_command":
+                    if command := payload.get("command", "").strip():
                         await self.process_command(websocket, command)
-                except WebSocketDisconnect:
-                    self.logging_utility.info(f"WebSocket connection {websocket} disconnected")
-                    break
+                elif action == "terminate_session":
+                    await self.cleanup_session(websocket)
+                elif action == "message":
+                    if current_room and (message := payload.get("message")):
+                        await self.broadcast_to_room(current_room, {
+                            "content": message,
+                            "type": "chat_message",
+                            "sender": payload.get("sender")
+                        })
+
+        except WebSocketDisconnect:
+            self.logging_utility.info("Client disconnected")
         except Exception as e:
-            self.logging_utility.error(f"WebSocket handling error: {str(e)}", exc_info=True)
+            self.logging_utility.error(f"WebSocket error: {str(e)}")
         finally:
             await self.cleanup_session(websocket)
-            self.remove_from_room(websocket)

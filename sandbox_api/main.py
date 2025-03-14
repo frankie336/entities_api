@@ -1,15 +1,12 @@
-import json
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import json
 from sandbox_api.services.logging_service import LoggingUtility
 from sandbox_api.services.web_socket_shell_service import WebSocketShellService
 
 logging_utility = LoggingUtility()
 app = FastAPI()
 
-# Maintain a mapping of room IDs to sets of WebSocket connections.
-rooms = {}  # Example: {"thread_123": {websocket1, websocket2}}
-
-shell_service = WebSocketShellService()  # a global/singleton instance
+shell_service = WebSocketShellService()  # Global singleton instance
 
 @app.websocket("/shell")
 async def websocket_endpoint(websocket: WebSocket):

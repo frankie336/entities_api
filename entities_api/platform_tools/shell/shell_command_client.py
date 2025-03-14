@@ -111,7 +111,7 @@ class ShellClient:
 async def example_usage():
     config = ShellClientConfig(
         endpoint="ws://localhost:8000/shell",  # Ensure the correct endpoint is used
-        thread_id="thread_A42VhvFTiDz3HNV7MzTELq",
+        thread_id="thread_cJq1gVLSCpLYI8zzZNRbyc",
         timeout=5  # This timeout is now ignored.
     )
     client = ShellClient(config)

@@ -20,7 +20,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - my_custom_network  # Add the network here
+      - my_custom_network
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -36,7 +36,16 @@ services:
       QDRANT__SERVICE__GRPC_PORT: "6334"
       QDRANT__LOG_LEVEL: "INFO"
     networks:
-      - my_custom_network  # Add the network here
+      - my_custom_network
+
+  redis:
+    image: redis:latest
+    container_name: redis_server
+    restart: always
+    ports:
+      - "6379:6379"
+    networks:
+      - my_custom_network
 
   api:
     build:
@@ -46,22 +55,25 @@ services:
     restart: always
     environment:
       - DATABASE_URL=mysql+pymysql://ollama:3e4Qv5uo2Cg31zC1@db:3306/cosmic_catalyst
-      - SANDBOX_SERVER_URL=http://sandbox:8000  # Added environment variable for sandbox server
-      - QDRANT_URL=http://qdrant:6333  # Qdrant connection
+      - SANDBOX_SERVER_URL=http://sandbox:8000
+      - QDRANT_URL=http://qdrant:6333
+      - REDIS_URL=redis://redis:6379/0
     ports:
       - "9000:9000"
     depends_on:
       db:
         condition: service_healthy
       sandbox:
-        condition: service_started  # Ensure sandbox is started before api
+        condition: service_started
       qdrant:
-        condition: service_started  # Ensure Qdrant is started before API
+        condition: service_started
+      redis:
+        condition: service_started
     command: ["./wait-for-it.sh", "db:3306", "--", "uvicorn", "entities_api.main:app", "--host", "0.0.0.0", "--port", "9000"]
     volumes:
-      - C:/Users/franc/Models/HuggingFace:/app/models  # Mounting model directory
+      - C:/Users/franc/Models/HuggingFace:/app/models
     networks:
-      - my_custom_network  # Add the network here
+      - my_custom_network
 
   sandbox:
     build:
@@ -70,20 +82,20 @@ services:
     container_name: sandbox_api
     restart: always
     cap_add:
-      - SYS_ADMIN  # Required for Firejail
+      - SYS_ADMIN
     security_opt:
-      - seccomp:unconfined  # Required for Firejail
+      - seccomp:unconfined
     devices:
-      - /dev/fuse  # Required for Firejail
+      - /dev/fuse
     ports:
-      - "8000:8000"  # Expose the port for the sandbox server
+      - "8000:8000"
     depends_on:
       db:
-        condition: service_healthy  # If sandbox depends on db
+        condition: service_healthy
     volumes:
-      - /tmp/sandbox_logs:/app/logs  # Optional: persist logs
+      - /tmp/sandbox_logs:/app/logs
     networks:
-      - my_custom_network  # Add the network here
+      - my_custom_network
 
 volumes:
   mysql_data:
@@ -93,4 +105,4 @@ volumes:
 
 networks:
   my_custom_network:
-    driver: bridge  # Defining a custom network for inter-container communication
+    driver: bridge
