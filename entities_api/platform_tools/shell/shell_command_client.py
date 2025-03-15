@@ -1,130 +1,138 @@
 import asyncio
 import json
 from typing import Optional, List
-
 import websockets
-
 from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 
-# A simple configuration class for the client.
+
+# --- Singleton Connection Manager ---
+class ShellConnectionManager:
+    _instance = None
+    _lock = asyncio.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._clients = {}
+        return cls._instance
+
+    async def get_client(self, thread_id: str) -> "ShellClient":
+        async with self._lock:
+            if thread_id not in self._clients:
+                config = ShellClientConfig(thread_id=thread_id)
+                client = ShellClient(config)
+                await client.connect()
+                await client.join_room()
+                self._clients[thread_id] = client
+            return self._clients[thread_id]
+
+    async def cleanup(self, thread_id: str):
+        async with self._lock:
+            if thread_id in self._clients:
+                await self._clients[thread_id].close()
+                del self._clients[thread_id]
+
+
+# --- Modified Shell Client ---
 class ShellClientConfig:
     def __init__(self,
-                 endpoint: str = "ws://sandbox:8000/shell",
+                 endpoint: str = "ws://localhost:8000/shell",
                  thread_id: Optional[str] = None,
-                 timeout: int = 5):
+                 timeout: int = 30):  # Increased timeout for persistent connections
         self.endpoint = endpoint
         self.thread_id = thread_id
-        self.timeout = timeout  # Timeout for inactivity (no longer used)
+        self.timeout = timeout
 
-# Main client class that uses the websockets library.
+
 class ShellClient:
-    def __init__(self, config: Optional[ShellClientConfig] = None):
-        self.config = config or ShellClientConfig()
+    def __init__(self, config: ShellClientConfig):
+        self.config = config
         self.ws = None
+        self._keep_alive = True
 
     async def connect(self):
-        """
-        Connect to the WebSocket server.
-        Here we encode authentication info in query parameters instead of using extra_headers.
-        """
-        # Build query parameters for authentication.
+        """Connection handled by manager"""
         query = f"?thread_id={self.config.thread_id}&user_id=system"
-        endpoint_with_query = f"{self.config.endpoint}{query}"
-        logging_utility.info("Connecting to %s", endpoint_with_query)
-        self.ws = await websockets.connect(endpoint_with_query)
-        logging_utility.info("WebSocket connected.")
+        self.ws = await websockets.connect(
+            f"{self.config.endpoint}{query}",
+            ping_interval=self.config.timeout
+        )
 
     async def join_room(self):
-        """
-        Send a join_room action to the server so that it creates the PTY session and adds the client to the correct room.
-        """
-        if not self.ws:
-            raise Exception("WebSocket is not connected!")
-        join_message = json.dumps({
+        """Room joining handled by manager"""
+        await self.ws.send(json.dumps({
             "action": "join_room",
             "room": self.config.thread_id
-        })
-        logging_utility.info("Joining room: %s", self.config.thread_id)
-        await self.ws.send(join_message)
+        }))
 
-    async def send_command(self, command: str):
-        """
-        Send a shell command to the server.
-        The command is packaged as JSON with an action of 'shell_command'.
-        """
-        if not self.ws:
-            raise Exception("WebSocket is not connected!")
-        message = json.dumps({
-            "action": "shell_command",
-            "command": command,
-            "thread_id": self.config.thread_id  # Including thread_id as additional info if needed.
-        })
-        logging_utility.info("Sending command: %s", command)
-        await self.ws.send(message)
+    async def execute(self, commands: List[str]) -> str:
+        """Core execution method without connection management"""
+        for cmd in commands:
+            await self.ws.send(json.dumps({
+                "action": "shell_command",
+                "command": cmd,
+                "thread_id": self.config.thread_id
+            }))
 
-    async def run(self, commands: List[str], thread_id: Optional[str] = None) -> str:
-        """
-        Connect to the server, join the room, send the given list of commands,
-        and then gather broadcasted shell output from the server into a single string,
-        which is returned after the session is complete.
-        """
-        # Update configuration if a new thread ID is provided.
-        self.config.thread_id = thread_id or self.config.thread_id
-        logging_utility.info("Starting session with thread ID: %s", self.config.thread_id)
-
-        await self.connect()
-        await self.join_room()
-
-        # Send all commands sequentially.
-        for command in commands:
-            await self.send_command(command)
-
-        # Gather broadcast messages from the server without a timeout.
-        broadcast_buffer = ""
+        buffer = ""
         try:
-            while True:
-                message = await self.ws.recv()  # Wait indefinitely for a message.
-                try:
-                    data = json.loads(message)
-                    logging_utility.info("Received JSON message: %s", data)
-                except json.JSONDecodeError:
-                    data = message
-                    logging_utility.info("Received raw message: %s", data)
-                if isinstance(data, dict) and "content" in data:
-                    broadcast_buffer += data["content"]
-                else:
-                    logging_utility.info("Unexpected message format: %s", data)
-        except websockets.ConnectionClosed:
-            logging_utility.info("Connection closed.")
-        except Exception as e:
-            logging_utility.error("Error receiving message: %s", str(e))
-        finally:
+            while self._keep_alive:
+                message = await asyncio.wait_for(
+                    self.ws.recv(),
+                    timeout=self.config.timeout
+                )
+                data = json.loads(message)
+                if "content" in data:
+                    buffer += data["content"]
+        except (asyncio.TimeoutError, websockets.ConnectionClosed):
+            pass
+        return buffer
+
+    async def close(self):
+        """Graceful closure"""
+        self._keep_alive = False
+        if self.ws:
             await self.ws.close()
-            logging_utility.info("Disconnected from server.")
+            self.ws = None
 
-        print(broadcast_buffer)
-        return broadcast_buffer
 
-# Example usage of the ShellClient.
-async def example_usage():
-    config = ShellClientConfig(
-        endpoint="ws://localhost:8000/shell",  # Ensure the correct endpoint is used
-        thread_id="thread_cJq1gVLSCpLYI8zzZNRbyc",
-        timeout=5  # This timeout is now ignored.
-    )
-    client = ShellClient(config)
-    commands = [
-        "echo 'Thread-based shell session established'",
-        "ls -l",
-        "pwd"
-    ]
+# --- Updated Usage Pattern ---
+async def computer(commands: List[str], thread_id: str) -> str:
+    manager = ShellConnectionManager()
+    client = await manager.get_client(thread_id)
     try:
-        result = await client.run(commands)
-        logging_utility.info("Final collected shell output: %s", result)
-    except Exception as e:
-        logging_utility.error("Fatal error: %s", str(e))
+        return await client.execute(commands)
+    finally:
+        # Keep connection alive for subsequent commands
+        # Uncomment below to force close after each execution
+        # await manager.cleanup(thread_id)
+        pass
+
+
+# --- Example Usage with Persistent Connection ---
+async def example_usage():
+    thread_id = "thread_cJq1gVLSCpLYI8zzZNRbyc"
+
+    # First command sequence - establishes connection
+    result1 = await computer([
+        "echo 'Starting session'",
+        "ls -l"
+    ], thread_id)
+    print("First result:", result1)
+
+    # Second command sequence - reuses connection
+    result2 = await computer([
+        "echo 'Reusing existing connection'",
+        "pwd"
+    ], thread_id)
+    print("Second result:", result2)
+
+    # Cleanup when done
+    manager = ShellConnectionManager()
+    await manager.cleanup(thread_id)
+
 
 if __name__ == "__main__":
     asyncio.run(example_usage())

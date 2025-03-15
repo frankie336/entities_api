@@ -1,5 +1,9 @@
 from entities_api.platform_tools.shell.shell_commands_service import ShellCommandsService
 
+
+
+
+
 commands = [
     "echo 'Hello from your personal Linux computer'",
     "ls -la",
