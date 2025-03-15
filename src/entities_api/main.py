@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from sqlalchemy import create_engine, text
 from src.entities_api.models.models import Base
 from src.entities_api.routers import api_router
+from src.entities_api.routers import handler_router
 from src.entities_api.services.logging_service import LoggingUtility
 
 # Initialize the logging utility
@@ -21,7 +22,8 @@ def create_app(init_db=True):
     app = FastAPI()
 
     # Include routers
-    app.include_router(api_router, prefix="/routers")
+    app.include_router(api_router, prefix="/v1")
+    app.include_router(handler_router, prefix="/v1")
 
     @app.get("/")
     def read_root():
