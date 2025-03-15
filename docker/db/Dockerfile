@@ -1,10 +1,8 @@
-# Dockerfile
-
 # Use the latest MySQL image as the base
 FROM mysql:latest
 
-# Copy the entrypoint script to the appropriate directory inside the container
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+# Copy the correct entrypoint script
+COPY docker/db/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 # Make the script executable
 RUN chmod +x /usr/local/bin/entrypoint.sh

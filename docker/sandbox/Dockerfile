@@ -3,15 +3,6 @@
 FROM python:3.8-slim
 
 # Install necessary packages including firejail and basic Linux tools.
-# These packages include:
-# - firejail: for sandboxing.
-# - curl & wget: for network requests and downloads.
-# - vim & nano: text editors.
-# - less: for file paging.
-# - net-tools & iproute2: for network management.
-# - man-db: manual pages.
-# - locales: for language support.
-# - htop: system monitoring.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     firejail \
     curl \
@@ -33,11 +24,11 @@ RUN useradd -ms /bin/bash sandboxuser
 WORKDIR /app
 
 # Copy only essential components
-COPY sandbox_api/requirements.txt .
-COPY sandbox_api/ /app/sandbox_api/
+COPY src/sandbox_api/requirements.txt /app/
+COPY src/sandbox_api/ /app/sandbox_api/
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Expose the port for the service
 EXPOSE 8000
