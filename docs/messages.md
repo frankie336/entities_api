@@ -10,17 +10,17 @@ By leveraging the Messages endpoint, you can manage the flow of conversation and
 
 
 **Create a Message**
+
 ```python
 
 
-from entities_api import OllamaClient  
+from src.entities_api import OllamaClient
 
 # Initialize the client
 client = OllamaClient()
 
 # Create user
 user = client.user_service.create_user(name='test_user')
-
 
 # Create thread
 thread = client.thread_service.create_thread(participant_ids=[user.id])

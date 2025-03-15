@@ -1,6 +1,6 @@
 # Tool creation and association functions
-from entities_api.clients.client import OllamaClient
-from entities_api.schemas import ToolFunction  # Import ToolFunction
+from src.entities_api import OllamaClient
+from src.entities_api import ToolFunction  # Import ToolFunction
 
 
 def create_and_associate_tools(client, function_definitions, assistant_id):

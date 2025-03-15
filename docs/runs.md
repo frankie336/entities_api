@@ -21,11 +21,12 @@ Runs track the state of nine steps within the user prompt and assistant response
 
 
 **Create a Run**
+
 ```python
-from entities_api import OllamaClient  
+from src.entities_api import OllamaClient
 
 run = client.run_service.create_run(thread_id=thread.id,
-                                        assistant_id=user.id)
+                                    assistant_id=user.id)
 
 
 ```

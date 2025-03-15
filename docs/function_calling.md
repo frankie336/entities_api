@@ -8,12 +8,11 @@ Function calling allows your assistant to interact with defined tools, enabling 
 **Define the function**
 
 ```python
-from entities_api import OllamaClient  
-from entities_api.schemas import ToolFunction  # Import ToolFunction
+from src.entities_api import OllamaClient
+from src.entities_api import ToolFunction  # Import ToolFunction
 
 # Initialize the client
 client = OllamaClient()
-
 
 # Create assistant
 assistant = client.assistant_service.create_assistant(
@@ -24,7 +23,6 @@ assistant = client.assistant_service.create_assistant(
     instructions='You are a helpful flight attendant'
 )
 print(f"Assistant created: ID: {assistant.id}")
-
 
 # Define the function definition
 function_definition = {

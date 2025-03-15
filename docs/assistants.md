@@ -8,7 +8,8 @@ Create an Assistant by defining its custom instructions and picking a model. If 
 **Create an Assistant**
 
 ```python
-from entities_api import OllamaClient  
+from src.entities_api import OllamaClient
+
 # Initialize the client
 client = OllamaClient()
 
@@ -16,7 +17,8 @@ client = OllamaClient()
 user = client.user_service.create_user(name='test_user')
 print(f"User created: ID: {user.id}")
 
-User created: ID: user_rr4NrmUbzwPO4l17rHFNDV
+User
+created: ID: user_rr4NrmUbzwPO4l17rHFNDV
 
 # Create assistant
 assistant = client.assistant_service.create_assistant(
@@ -27,7 +29,8 @@ assistant = client.assistant_service.create_assistant(
 )
 print(f"Assistant created: ID: {assistant.id}")
 
-Assistant created: ID: asst_9MseFMx9MxLwazMSeal9i6
+Assistant
+created: ID: asst_9MseFMx9MxLwazMSeal9i6
 ```
 
 

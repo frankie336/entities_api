@@ -50,7 +50,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile.api
+      dockerfile: docker/api/Dockerfile
     container_name: fastapi_cosmic_catalyst
     restart: always
     environment:
@@ -78,7 +78,7 @@ services:
   sandbox:
     build:
       context: .
-      dockerfile: Dockerfile.sandbox
+      dockerfile: docker/sandbox/Dockerfile
     container_name: sandbox_api
     restart: always
     cap_add:

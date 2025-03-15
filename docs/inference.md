@@ -7,9 +7,10 @@ Inference is the final stage of the Entities API workflow, where the assistant p
 ## Local Inference
 
 **Import the Inference Client**
+
 ```python
-from entities_api import OllamaClient # the state client  
-from entities_api import InferenceFactory # the inference client
+from src.entities_api import OllamaClient  # the state client  
+from src.entities_api import InferenceFactory  # the inference client
 
 ```
 
@@ -58,10 +59,11 @@ import os  # Added for environment variables
 from flask import jsonify, request, Response, stream_with_context
 from flask_jwt_extended import jwt_required
 
-from entities_api import InferenceFactory
+from src.entities_api import InferenceFactory
 
-from entities_api import code_interpreter
-from entities_api import OllamaClient
+from src.entities_api import code_interpreter
+from src.entities_api import OllamaClient
+
 client = OllamaClient()
 
 from backend.app.services.function_call_service.handlers.temp_function_handlers import (
@@ -74,7 +76,6 @@ from . import bp_llama
 
 from dotenv import load_dotenv
 from functools import lru_cache
-
 
 # Load environment variables from .env file
 load_dotenv()
@@ -98,9 +99,11 @@ available_functions = {
     # Add other functions as needed
 }
 
+
 @lru_cache(maxsize=2)  # Adjust maxsize based on the number of inference types
 def get_inference_instance(inference_type):
     return InferenceFactory.get_inference(inference_type, available_functions=available_functions)
+
 
 @bp_llama.route('/api/messages/process', methods=['POST'])
 @jwt_required()
@@ -118,7 +121,8 @@ def process_messages():
         selected_model = data.get('model', 'llama3.1')
         inference_type = data.get('inferenceType') or data.get('inference_type', 'local')  # New
 
-        logging_utility.info(f"Incoming request: user_id={user_id}, thread_id={thread_id}, model={selected_model}, inference_type={inference_type}")
+        logging_utility.info(
+            f"Incoming request: user_id={user_id}, thread_id={thread_id}, model={selected_model}, inference_type={inference_type}")
 
         if not messages or not isinstance(messages, list):
             raise ValueError("Invalid or missing 'messages' in request")
@@ -145,7 +149,8 @@ def process_messages():
         # Pass the Inference instance and inference_type to the conversation function
         inference_factory = InferenceFactory()
         response = conversation(
-            inference = inference_factory.get_inference(inference_type='cloud', available_functions=None), #TODO: pass the inbound inference_type
+            inference=inference_factory.get_inference(inference_type='cloud', available_functions=None),
+            # TODO: pass the inbound inference_type
             thread_id=thread_id,
             user_message=user_message,
             user_id=user_id,
@@ -184,8 +189,6 @@ def check_and_update_pending_actions(thread_id, inference):
 def conversation(thread_id, user_message, user_id, selected_model, inference, inference_type='cloud'):
     assistant_id = "asst_HAaA8ScjIR0wliE2ji0jpX"  # Ensure you use the correct assistant ID
 
-
-
     # Build the inbound user message
     # Pushes the message to API DB
     the_message = client.message_service.create_message(
@@ -216,8 +219,8 @@ def conversation(thread_id, user_message, user_id, selected_model, inference, in
                     message_id=message_id,
                     run_id=run.id,
                     assistant_id=assistant_id,
-                    user_message = user_message
-                    #model=selected_model
+                    user_message=user_message
+                    # model=selected_model
                 )
             elif inference_type.lower() == 'cloud':
                 # For CloudInference, pass the user_message

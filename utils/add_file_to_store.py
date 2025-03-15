@@ -1,4 +1,4 @@
-from entities_api import OllamaClient
+from src.entities_api import OllamaClient
 
 
 """

@@ -13,8 +13,8 @@ The code interpreter is enabled by default, so no additional coding is required.
 **Turning on Code Interpreter**
 
 ```python
-from entities_api import OllamaClient  
-from entities_api import code_interpreter
+from src.entities_api import OllamaClient
+from src.entities_api import code_interpreter
 
 available_functions = {
     'code_interpreter': code_interpreter

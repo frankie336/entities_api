@@ -19,15 +19,16 @@ This provides a robust and efficient user management system that can be used to 
 # Create user
 
 ```python
-from entities_api import OllamaClient  
+from src.entities_api import OllamaClient
+
 # Initialize the client
 client = OllamaClient()
-
 
 user = client.user_service.create_user(name='test_user')
 print(f"User created: ID: {user.id}")
 
-User created: ID: user_MCyFabmTVJbIkG7zfEvp44
+User
+created: ID: user_MCyFabmTVJbIkG7zfEvp44
 ```
 
 **Retrieve a User**

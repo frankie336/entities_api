@@ -70,7 +70,7 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "entities-api=entities_api.main:main",
+            "entities-api=src.entities_api.main:main",
         ],
     },
 )
