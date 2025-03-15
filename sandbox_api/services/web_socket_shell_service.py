@@ -22,6 +22,7 @@ class WebSocketShellService:
         self.rooms: Dict[str, Set[WebSocket]] = {}
         # Track tasks spawned per session so they can be cancelled on cleanup.
         self.tasks: Dict[WebSocket, List[asyncio.Task]] = {}
+        self.cleanup_lock = asyncio.Lock()  # Lock to serialize cleanup calls.
         self.logging_utility = LoggingUtility()
         self.namespace = "/shell"
         self.logging_utility.info(f"WebSocket Shell Service initialized on namespace: {self.namespace}")
@@ -170,31 +171,40 @@ class WebSocketShellService:
         finally:
             await self.cleanup_session(websocket)
 
+    async def cancel_task(self, task: asyncio.Task):
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
     async def cleanup_session(self, websocket: WebSocket):
-        # Cancel any pending tasks.
-        if websocket in self.tasks:
-            for task in self.tasks[websocket]:
-                task.cancel()
+        async with self.cleanup_lock:
+            # If session is already cleaned up, return immediately.
+            if websocket not in self.client_sessions:
+                return
+
+            # Cancel any pending tasks.
+            if websocket in self.tasks:
+                tasks = self.tasks.pop(websocket)
+                await asyncio.gather(*[self.cancel_task(task) for task in tasks], return_exceptions=True)
+
+            # Remove the session if it exists.
+            if websocket in self.client_sessions:
+                session = self.client_sessions.pop(websocket)
                 try:
-                    await task
-                except asyncio.CancelledError:
+                    os.killpg(os.getpgid(session["process"].pid), signal.SIGKILL)
+                except ProcessLookupError:
                     pass
-            del self.tasks[websocket]
-        if websocket in self.client_sessions:
-            session = self.client_sessions.pop(websocket)
-            try:
-                os.killpg(os.getpgid(session["process"].pid), signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            try:
-                os.close(session["master_fd"])
-            except OSError as e:
-                if e.errno == 9:  # Bad file descriptor; ignore.
-                    pass
-                else:
-                    raise
-            self.delete_session_from_redis(websocket)
-        self.remove_from_room(websocket)
+                try:
+                    os.close(session["master_fd"])
+                except OSError as e:
+                    if e.errno != 9:  # Ignore "Bad file descriptor"
+                        raise
+                self.delete_session_from_redis(websocket)
+
+            self.remove_from_room(websocket)
+            self.logging_utility.info("Cleanup complete for websocket: {}".format(websocket.client))
 
     async def handle_websocket(self, websocket: WebSocket):
         await websocket.accept()
