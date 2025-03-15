@@ -63,7 +63,7 @@ class PlatformToolService:
 
         print(arguments)
         print("HELLO HERE WE ARE!")
-        #time.sleep(10000)
+
 
         if not isinstance(arguments, dict):
             logging_utility.error("Invalid arguments type: %s", type(arguments))

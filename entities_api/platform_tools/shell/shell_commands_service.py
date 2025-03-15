@@ -51,7 +51,7 @@ class ShellCommandsService:
                 str(e),
                 exc_info=True
             )
-            await self.manager.cleanup(self.endpoint, target_thread_id)
+            await self.manager.cleanup(self.endpoint)
             raise
 
     async def graceful_shutdown(self):
