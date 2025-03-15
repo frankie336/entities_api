@@ -55,7 +55,7 @@ class ClientRunService:
 
         try:
             # Send the validated data to the API
-            response = self.client.post("/v1/runs", json=run_data.dict())
+            response = self.client.post("/routers/runs", json=run_data.dict())
             response.raise_for_status()
             created_run_data = response.json()
 
@@ -85,7 +85,7 @@ class ClientRunService:
 
         try:
             # Making the HTTP GET request to the runs endpoint
-            response = self.client.get(f"/v1/runs/{run_id}")
+            response = self.client.get(f"/routers/runs/{run_id}")
             response.raise_for_status()
 
             # Parsing and validating the response JSON into a Pydantic RunReadDetailed model
@@ -120,7 +120,7 @@ class ClientRunService:
             validated_data = RunStatusUpdate(**update_data)
 
             # Send the validated data to the backend via a PUT request
-            response = self.client.put(f"/v1/runs/{run_id}/status", json=validated_data.dict())
+            response = self.client.put(f"/routers/runs/{run_id}/status", json=validated_data.dict())
             response.raise_for_status()
 
             # Parse the updated run from the response JSON
@@ -147,7 +147,7 @@ class ClientRunService:
             "order": order
         }
         try:
-            response = self.client.get("/v1/runs", params=params)
+            response = self.client.get("/routers/runs", params=params)
             response.raise_for_status()
             runs = response.json()
             validated_runs = [Run(**run) for run in runs]  # Validate data using Pydantic model
@@ -166,7 +166,7 @@ class ClientRunService:
     def delete_run(self, run_id: str) -> Dict[str, Any]:
         logging_utility.info("Deleting run with id: %s", run_id)
         try:
-            response = self.client.delete(f"/v1/runs/{run_id}")
+            response = self.client.delete(f"/routers/runs/{run_id}")
             response.raise_for_status()
             result = response.json()
             logging_utility.info("Run deleted successfully")
@@ -233,7 +233,7 @@ class ClientRunService:
     def cancel_run(self, run_id: str) -> Dict[str, Any]:
         logging_utility.info(f"Cancelling run with id: {run_id}")
         try:
-            response = self.client.post(f"/v1/runs/{run_id}/cancel")
+            response = self.client.post(f"/routers/runs/{run_id}/cancel")
             response.raise_for_status()
             result = response.json()
             logging_utility.info(f"Run {run_id} cancelled successfully")

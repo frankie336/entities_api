@@ -22,7 +22,7 @@ class SandboxClientService:
         logging_utility.info("Creating sandbox")
         try:
             sandbox = SandboxCreate(**sandbox_data)
-            response = self.client.post("/v1/sandboxes", json=sandbox.model_dump())
+            response = self.client.post("/routers/sandboxes", json=sandbox.model_dump())
             response.raise_for_status()
             created_sandbox = response.json()
             validated_sandbox = SandboxRead(**created_sandbox)
@@ -41,7 +41,7 @@ class SandboxClientService:
     def get_sandbox(self, sandbox_id: str) -> SandboxRead:
         logging_utility.info("Retrieving sandbox with id: %s", sandbox_id)
         try:
-            response = self.client.get(f"/v1/sandboxes/{sandbox_id}")
+            response = self.client.get(f"/routers/sandboxes/{sandbox_id}")
             response.raise_for_status()
             sandbox = response.json()
             validated_sandbox = SandboxRead(**sandbox)
@@ -61,7 +61,7 @@ class SandboxClientService:
         logging_utility.info("Updating sandbox with id: %s", sandbox_id)
         try:
             sandbox_update = SandboxUpdate(**updates)
-            response = self.client.put(f"/v1/sandboxes/{sandbox_id}", json=sandbox_update.model_dump(exclude_unset=True))
+            response = self.client.put(f"/routers/sandboxes/{sandbox_id}", json=sandbox_update.model_dump(exclude_unset=True))
             response.raise_for_status()
             updated_sandbox = response.json()
             validated_sandbox = SandboxRead(**updated_sandbox)
@@ -80,7 +80,7 @@ class SandboxClientService:
     def delete_sandbox(self, sandbox_id: str) -> None:
         logging_utility.info("Deleting sandbox with id: %s", sandbox_id)
         try:
-            response = self.client.delete(f"/v1/sandboxes/{sandbox_id}")
+            response = self.client.delete(f"/routers/sandboxes/{sandbox_id}")
             response.raise_for_status()
             logging_utility.info("Sandbox deleted successfully")
         except httpx.HTTPStatusError as e:
@@ -93,7 +93,7 @@ class SandboxClientService:
     def list_sandboxes_by_user(self, user_id: str) -> List[SandboxRead]:
         logging_utility.info("Listing sandboxes for user_id: %s", user_id)
         try:
-            response = self.client.get(f"/v1/users/{user_id}/sandboxes")
+            response = self.client.get(f"/routers/users/{user_id}/sandboxes")
             response.raise_for_status()
             sandboxes_data = response.json()
             sandboxes = [SandboxRead(**sandbox) for sandbox in sandboxes_data]

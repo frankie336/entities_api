@@ -1,4 +1,4 @@
-# api/v1/serializers.py
+# api/routers/serializers.py
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional, Dict, Any
 

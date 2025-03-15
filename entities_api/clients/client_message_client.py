@@ -35,7 +35,7 @@ class ClientMessageService:
         logging_utility.info("Creating message for thread_id: %s, role: %s", thread_id, role)
         try:
             validated_data = MessageCreate(**message_data)  # Validate data using Pydantic model
-            response = self.client.post("/v1/messages", json=validated_data.dict())
+            response = self.client.post("/routers/messages", json=validated_data.dict())
             response.raise_for_status()
             created_message = response.json()
             logging_utility.info("Message created successfully with id: %s", created_message.get('id'))
@@ -54,7 +54,7 @@ class ClientMessageService:
     def retrieve_message(self, message_id: str) -> MessageRead:
         logging_utility.info("Retrieving message with id: %s", message_id)
         try:
-            response = self.client.get(f"/v1/messages/{message_id}")
+            response = self.client.get(f"/routers/messages/{message_id}")
             response.raise_for_status()
             message = response.json()
             validated_message = MessageRead(**message)  # Validate data using Pydantic model
@@ -74,7 +74,7 @@ class ClientMessageService:
         logging_utility.info("Updating message with id: %s", message_id)
         try:
             validated_data = MessageUpdate(**updates)  # Validate data using Pydantic model
-            response = self.client.put(f"/v1/messages/{message_id}", json=validated_data.dict(exclude_unset=True))
+            response = self.client.put(f"/routers/messages/{message_id}", json=validated_data.dict(exclude_unset=True))
             response.raise_for_status()
             updated_message = response.json()
             validated_response = MessageRead(**updated_message)  # Validate response using Pydantic model
@@ -97,7 +97,7 @@ class ClientMessageService:
             "order": order
         }
         try:
-            response = self.client.get(f"/v1/threads/{thread_id}/messages", params=params)
+            response = self.client.get(f"/routers/threads/{thread_id}/messages", params=params)
             response.raise_for_status()
             messages = response.json()
             validated_messages = [MessageRead(**message) for message in
@@ -119,7 +119,7 @@ class ClientMessageService:
         logging_utility.info("Using system message: %s", system_message)
 
         try:
-            response = self.client.get(f"/v1/threads/{thread_id}/formatted_messages")
+            response = self.client.get(f"/routers/threads/{thread_id}/formatted_messages")
             response.raise_for_status()
             formatted_messages = response.json()
 
@@ -164,7 +164,7 @@ class ClientMessageService:
     def get_messages_without_system_message(self, thread_id: str) -> List[Dict[str, Any]]:
         logging_utility.info("Getting formatted messages for thread_id: %s", thread_id)
         try:
-            response = self.client.get(f"/v1/threads/{thread_id}/formatted_messages")
+            response = self.client.get(f"/routers/threads/{thread_id}/formatted_messages")
             response.raise_for_status()
             formatted_messages = response.json()
 
@@ -190,7 +190,7 @@ class ClientMessageService:
     def delete_message(self, message_id: str) -> Dict[str, Any]:
         logging_utility.info("Deleting message with id: %s", message_id)
         try:
-            response = self.client.delete(f"/v1/messages/{message_id}")
+            response = self.client.delete(f"/routers/messages/{message_id}")
             response.raise_for_status()
             result = response.json()
             logging_utility.info("Message deleted successfully")
@@ -248,7 +248,7 @@ class ClientMessageService:
 
         try:
             # Make the API request
-            response = self.client.post("/v1/messages/assistant", json=message_data)
+            response = self.client.post("/routers/messages/assistant", json=message_data)
             response.raise_for_status()
 
             # Parse the response for final chunks
@@ -306,7 +306,7 @@ class ClientMessageService:
 
             validated_data = MessageCreate(**message_data)  # Validate data using the Pydantic model
 
-            response = self.client.post("/v1/messages/tools", json=validated_data.dict())
+            response = self.client.post("/routers/messages/tools", json=validated_data.dict())
             response.raise_for_status()
             created_message = response.json()
             logging_utility.info("Message created successfully with id: %s", created_message.get('id'))

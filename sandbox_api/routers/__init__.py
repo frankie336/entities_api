@@ -1,6 +1,8 @@
-# entities_api/routers/__init__.py
 from fastapi import APIRouter
-from .ws_router import router as ws_router
+from .v1 import v1_router
+
 # Create a central API router
 api_router = APIRouter()
-api_router.include_router(ws_router, tags=["Web Socket"])
+
+# Include versioned routers
+api_router.include_router(v1_router, tags=["v1"])

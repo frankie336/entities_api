@@ -21,7 +21,7 @@ def create_app(init_db=True):
     app = FastAPI()
 
     # Include routers
-    app.include_router(api_router, prefix="/v1")
+    app.include_router(api_router, prefix="/routers")
 
     @app.get("/")
     def read_root():

@@ -38,7 +38,7 @@ class ClientAssistantService:
             validated_data = AssistantCreate(**assistant_data)
             logging_utility.info("Creating assistant with model: %s, name: %s", model, name)
 
-            response = self.client.post("/v1/assistants", json=validated_data.model_dump())
+            response = self.client.post("/routers/assistants", json=validated_data.model_dump())
             response.raise_for_status()
 
             created_assistant = response.json()
@@ -58,7 +58,7 @@ class ClientAssistantService:
     def retrieve_assistant(self, assistant_id: str) -> AssistantRead:
         logging_utility.info("Retrieving assistant with id: %s", assistant_id)
         try:
-            response = self.client.get(f"/v1/assistants/{assistant_id}")
+            response = self.client.get(f"/routers/assistants/{assistant_id}")
             response.raise_for_status()
             assistant = response.json()
             validated_data = AssistantRead(**assistant)
@@ -82,7 +82,7 @@ class ClientAssistantService:
 
             validated_data = AssistantUpdate(**updates)
 
-            response = self.client.put(f"/v1/assistants/{assistant_id}",
+            response = self.client.put(f"/routers/assistants/{assistant_id}",
                                        json=validated_data.model_dump(exclude_unset=True))
             response.raise_for_status()
             updated_assistant = response.json()
@@ -102,7 +102,7 @@ class ClientAssistantService:
     def delete_assistant(self, assistant_id: str) -> Dict[str, Any]:
         logging_utility.info("Deleting assistant with id: %s", assistant_id)
         try:
-            response = self.client.delete(f"/v1/assistants/{assistant_id}")
+            response = self.client.delete(f"/routers/assistants/{assistant_id}")
             response.raise_for_status()
             result = response.json()
             logging_utility.info("Assistant deleted successfully")
@@ -120,7 +120,7 @@ class ClientAssistantService:
         """
         logging_utility.info("Associating assistant with id: %s to user: %s", assistant_id, user_id)
         try:
-            response = self.client.post(f"/v1/users/{user_id}/assistants/{assistant_id}")
+            response = self.client.post(f"/routers/users/{user_id}/assistants/{assistant_id}")
             response.raise_for_status()
             logging_utility.info("Assistant %s associated with user %s successfully", assistant_id, user_id)
             return {"message": "Assistant associated with user successfully"}
@@ -137,7 +137,7 @@ class ClientAssistantService:
         """
         logging_utility.info("Disassociating assistant with id: %s from user: %s", assistant_id, user_id)
         try:
-            response = self.client.delete(f"/v1/users/{user_id}/assistants/{assistant_id}")
+            response = self.client.delete(f"/routers/users/{user_id}/assistants/{assistant_id}")
             response.raise_for_status()
             logging_utility.info("Assistant %s disassociated from user %s successfully", assistant_id, user_id)
             return {"message": "Assistant disassociated from user successfully"}
@@ -155,7 +155,7 @@ class ClientAssistantService:
         """
         logging_utility.info("Retrieving assistants for user id: %s", user_id)
         try:
-            response = self.client.get(f"/v1/users/{user_id}/assistants")
+            response = self.client.get(f"/routers/users/{user_id}/assistants")
             response.raise_for_status()
             assistants = response.json()
             validated_assistants = [AssistantRead(**assistant) for assistant in assistants]
