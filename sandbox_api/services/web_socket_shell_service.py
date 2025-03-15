@@ -60,7 +60,7 @@ class WebSocketShellService:
                 if not clients:
                     del self.rooms[room_name]
 
-    async def broadcast_to_room(self, room_name: str, message: dict):
+    async def broadcast_to_room(self, room_name: str, message: dict, sender: WebSocket = None):
         if room_name not in self.rooms:
             return
         full_message = {
@@ -69,11 +69,12 @@ class WebSocketShellService:
             "timestamp": datetime.now(timezone.utc).timestamp()
         }
         for client in set(self.rooms[room_name]):
-            try:
-                await client.send_text(json.dumps(full_message))
-            except Exception as e:
-                self.logging_utility.error(f"Failed to send to {client}: {str(e)}")
-                await self.cleanup_session(client)
+            if client != sender:  # Exclude the sending client
+                try:
+                    await client.send_text(json.dumps(full_message))
+                except Exception as e:
+                    self.logging_utility.error(f"Failed to send to {client}: {str(e)}")
+                    await self.cleanup_session(client)
 
     # --- Shell Session Management ---
     async def create_client_session(self, websocket: WebSocket):
