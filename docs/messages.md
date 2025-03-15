@@ -14,7 +14,7 @@ By leveraging the Messages endpoint, you can manage the flow of conversation and
 ```python
 
 
-from src.entities_api import OllamaClient
+from src.api.entities_api import OllamaClient
 
 # Initialize the client
 client = OllamaClient()

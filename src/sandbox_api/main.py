@@ -1,6 +1,7 @@
 from fastapi import FastAPI
-from src.sandbox_api.routers import api_router
-from src.sandbox_api.services.logging_service import LoggingUtility
+from sandbox_api.routers.v1 import v1_router
+
+from .services.logging_service import LoggingUtility
 
 # Initialize the logging utility
 logging_utility = LoggingUtility()
@@ -10,7 +11,7 @@ def create_app(init_db=True):
     app = FastAPI()
 
     # Include routers
-    app.include_router(api_router, prefix="/ws")  # Prefix applied here
+    app.include_router(v1_router, prefix="/ws")  # Prefix applied here
 
     @app.get("/")
     def read_root():

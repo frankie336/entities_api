@@ -8,7 +8,7 @@ from typing import Dict, Set, List
 
 import redis
 from fastapi import WebSocket, WebSocketDisconnect
-from src.sandbox_api.services.logging_service import LoggingUtility
+from ..services.logging_service import LoggingUtility
 
 # Redis setup
 redis_client = redis.StrictRedis(host='redis_server', port=6379, db=0, decode_responses=True)

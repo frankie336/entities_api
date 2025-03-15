@@ -30,7 +30,7 @@ tbc
 import os
 
 from dotenv import load_dotenv
-from src.entities_api import InferenceFactory, OllamaClient
+from src.api.entities_api import InferenceFactory, OllamaClient
 
 
 def initialize_services():

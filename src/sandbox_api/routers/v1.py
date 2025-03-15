@@ -2,9 +2,9 @@ from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.routing import APIRouter
 import json
 
-from src.sandbox_api.services.code_execution import StreamingCodeExecutionHandler
-from src.sandbox_api.services.logging_service import LoggingUtility
-from src.sandbox_api.services.web_socket_shell_service import WebSocketShellService
+from sandbox_api.services.code_execution import StreamingCodeExecutionHandler
+from sandbox_api.services.logging_service import LoggingUtility
+from sandbox_api.services.web_socket_shell_service import WebSocketShellService
 
 logging_utility = LoggingUtility()
 v1_router = APIRouter()  # No prefix here

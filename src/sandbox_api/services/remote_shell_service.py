@@ -4,7 +4,7 @@ import pty
 import subprocess
 import uuid
 from fastapi import WebSocket, WebSocketDisconnect
-from src.sandbox_api.services.logging_service import LoggingUtility
+from ..services.logging_service import LoggingUtility
 
 class RemoteShellService:
     def __init__(self):
