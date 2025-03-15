@@ -4,6 +4,7 @@ import websockets
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, AsyncGenerator, Generator
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type, before_sleep_log
+from websockets.legacy.protocol import WebSocketCommonProtocol
 
 from entities_api.platform_tools.web.web_search_handler import logging_utility
 
@@ -34,7 +35,7 @@ class ExecutionSecurityViolation(CodeExecutionClientError):
 class CodeExecutionClient:
     def __init__(self, config: Optional[ExecutionClientConfig] = None):
         self.config = config or ExecutionClientConfig()
-        self._connection: Optional[websockets.WebSocketClientProtocol] = None
+        self._connection: Optional[WebSocketCommonProtocol] = None
 
     async def __aenter__(self):
         await self.connect()
@@ -51,7 +52,7 @@ class CodeExecutionClient:
         reraise=True
     )
     async def connect(self):
-        """Establishes WebSocket connection with timeout"""
+        """Establishes WebSocket connection with timeout."""
         try:
             self._connection = await asyncio.wait_for(
                 websockets.connect(self.config.endpoint, ping_interval=None),
@@ -63,7 +64,7 @@ class CodeExecutionClient:
             ) from e
 
     async def close(self):
-        """Gracefully closes connection"""
+        """Gracefully closes connection."""
         if self._connection:
             await self._connection.close()
             self._connection = None
@@ -116,6 +117,9 @@ class CodeExecutionClient:
 
         except websockets.exceptions.ConnectionClosed:
             raise CodeExecutionClientError("Connection closed unexpectedly")
+
+
+
 
 async def run_client(code):
     config = ExecutionClientConfig()

@@ -11,7 +11,6 @@ from .logging_service import LoggingUtility
 
 class StreamingCodeExecutionHandler:
     def __init__(self):
-
         self.logging_utility = LoggingUtility()
         self.active_processes = {}
         self.security_profile = {
@@ -25,7 +24,6 @@ class StreamingCodeExecutionHandler:
                 "--caps.drop=all"
             ] if os.name != 'nt' else []
         }
-
         self.required_imports = (
             "import asyncio\n"
             "import math\n"
@@ -33,11 +31,8 @@ class StreamingCodeExecutionHandler:
             "from datetime import datetime\n"
         )
 
-
     def normalize_code(self, code: str) -> str:
-        """
-        Enhanced code normalization with indentation correction and line continuation handling
-        """
+        """Enhanced code normalization with indentation correction and line continuation handling."""
         # Phase 1: Basic sanitization
         replacements = {
             '“': '"', '”': '"', '‘': "'", '’': "'",
@@ -118,25 +113,7 @@ class StreamingCodeExecutionHandler:
         return self.required_imports + normalized_code
 
     async def execute_code_streaming(self, websocket: WebSocket, code: str, user_id: str = "test_user") -> None:
-        """Executes code in a secured environment with real-time output streaming.
-
-        Args:
-            websocket: Active WebSocket connection for output streaming
-            code: Untrusted user-submitted Python code
-            user_id: Identifier for audit logging and process tracking
-
-        Workflow:
-        1. Normalizes input code (unicode cleanup, security padding)
-        2. Validates against security patterns
-        3. Creates temporary execution artifact
-        4. Spawns sandboxed Python process
-        5. Streams output with typing simulation
-        6. Performs automatic cleanup
-
-        Raises:
-            WebSocketDisconnect: On client-initiated termination
-            RuntimeError: If security validation fails
-        """
+        """Executes code in a secured environment with real-time output streaming."""
         tmp_path = None
         try:
             full_code = self.normalize_code(code)
@@ -196,10 +173,6 @@ class StreamingCodeExecutionHandler:
                 try:
                     # Send the entire line over the WebSocket
                     await websocket.send_text(line.decode())
-                    # Optionally, if you still want a typing simulation, iterate over characters:
-                    # for ch in line.decode():
-                    #     await websocket.send_text(ch)
-                    #     await asyncio.sleep(0.05)
                 except WebSocketDisconnect:
                     self.logging_utility.warning("Client disconnected from execution %s", execution_id)
                     proc.terminate()
@@ -229,5 +202,4 @@ class StreamingCodeExecutionHandler:
             r"os\.(environ|chdir|chmod)"
         ]
         return not any(re.search(pattern, code) for pattern in blocked_patterns)
-
 
