@@ -13,20 +13,20 @@ from typing import Any
 from openai import OpenAI
 from together import Together
 
-from src.api.entities_api.clients.client_actions_client import ClientActionService
-from src.api.entities_api.clients.client_assistant_client import ClientAssistantService
-from src.api.entities_api.clients.client_message_client import ClientMessageService
-from src.api.entities_api.clients.client_run_client import ClientRunService
-from src.api.entities_api.clients.client_thread_client import ThreadService
-from src.api.entities_api.clients.client_tool_client import ClientToolService
-from src.api.entities_api.clients.client_user_client import UserService
-from src.api.entities_api.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS, PLATFORM_TOOLS
-from src.api.entities_api.constants.platform import MODEL_MAP
-from src.api.entities_api.platform_tools.code_interpreter.code_execution_client import StreamOutput
-from src.api.entities_api.platform_tools.platform_tool_service import PlatformToolService
-from src.api.entities_api.services.conversation_truncator import ConversationTruncator
-from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.services.vector_store_service import VectorStoreService
+from entities_api.clients.client_actions_client import ClientActionService
+from entities_api.clients.client_assistant_client import ClientAssistantService
+from entities_api.clients.client_message_client import ClientMessageService
+from entities_api.clients.client_run_client import ClientRunService
+from entities_api.clients.client_thread_client import ThreadService
+from entities_api.clients.client_tool_client import ClientToolService
+from entities_api.clients.client_user_client import UserService
+from entities_api.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS, PLATFORM_TOOLS
+from entities_api.constants.platform import MODEL_MAP
+from entities_api.platform_tools.code_interpreter.code_execution_client import StreamOutput
+from entities_api.platform_tools.platform_tool_service import PlatformToolService
+from entities_api.services.conversation_truncator import ConversationTruncator
+from entities_api.services.logging_service import LoggingUtility
+from entities_api.services.vector_store_service import VectorStoreService
 
 logging_utility = LoggingUtility()
 

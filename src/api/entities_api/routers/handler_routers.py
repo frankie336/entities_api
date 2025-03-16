@@ -1,11 +1,11 @@
 # event_handler_api.py
 from typing import Any, List
 
-from src.api.entities_api.services.event_handler import EntitiesEventHandler
+from entities_api.services.event_handler import EntitiesEventHandler
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-
-from src.api.entities_api.services.logging_service import LoggingUtility
+from fastapi import APIRouter
+from entities_api.services.logging_service import LoggingUtility
 
 # Initialize logging and the main client.
 logging_utility = LoggingUtility()
@@ -28,11 +28,11 @@ def handle_event(event_type: str, event_data: Any):
 
 
 # Initialize the event handler with the client services and callback.
-event_handler = EntitiesEventHandler(
-    run_service=client.run_service,
-    action_service=client.action_service,
-    event_callback=handle_event
-)
+#event_handler = EntitiesEventHandler(
+#    run_service=client.run_service,
+#    action_service=client.action_service,
+#    event_callback=handle_event
+#)
 
 
 # Pydantic models for request payloads.
@@ -58,7 +58,7 @@ def start_monitor(request: MonitorRequest):
         raise HTTPException(status_code=400, detail="run_id must not be empty")
 
     try:
-        event_handler.start_monitoring(run_id)
+        #event_handler.start_monitoring(run_id)
         logging_utility.info(f"Monitoring started for run: {run_id}")
         return {"message": f"Monitoring started for run: {run_id}"}
     except Exception as e:
@@ -76,7 +76,7 @@ def stop_monitor(request: StopMonitorRequest):
         raise HTTPException(status_code=400, detail="run_id must not be empty")
 
     try:
-        event_handler.stop_monitoring(run_id)
+        #event_handler.stop_monitoring(run_id)
         logging_utility.info(f"Monitoring stopped for run: {run_id}")
         return {"message": f"Monitoring stopped for run: {run_id}"}
     except Exception as e:
@@ -89,5 +89,6 @@ def get_active_monitors():
     """
     Returns a list of run IDs that are currently being monitored.
     """
-    active_monitors: List[str] = list(event_handler.active_monitors.keys())
-    return {"active_monitors": active_monitors}
+    pass
+    #active_monitors: List[str] = list(event_handler.active_monitors.keys())
+    #return {"active_monitors": active_monitors}

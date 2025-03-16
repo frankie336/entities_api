@@ -1,9 +1,9 @@
 from typing import List, Dict, Any
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
-from src.api.entities_api.models.models import Message, Thread
-from src.api.entities_api.schemas import MessageCreate, MessageRead
-from src.api.entities_api.services.identifier_service import IdentifierService
+from entities_api.models.models import Message, Thread
+from entities_api.schemas import MessageCreate, MessageRead
+from entities_api.services.identifier_service import IdentifierService
 import json
 import time
 import logging

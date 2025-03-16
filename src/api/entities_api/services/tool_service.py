@@ -4,10 +4,10 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
-from src.api.entities_api.schemas import ToolCreate, ToolUpdate, ToolRead
-from src.api.entities_api.services.identifier_service import IdentifierService
-from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.models.models import Tool, Assistant
+from entities_api.schemas import ToolCreate, ToolUpdate, ToolRead
+from entities_api.services.identifier_service import IdentifierService
+from entities_api.services.logging_service import LoggingUtility
+from entities_api.models.models import Tool, Assistant
 
 logging_utility = LoggingUtility()
 

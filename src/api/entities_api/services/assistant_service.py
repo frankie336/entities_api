@@ -1,9 +1,9 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, joinedload
-from src.api.entities_api.models.models import Assistant, User
-from src.api.entities_api.schemas import AssistantCreate, AssistantRead, AssistantUpdate
-from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.services.identifier_service import IdentifierService
+from entities_api.models.models import Assistant, User
+from entities_api.schemas import AssistantCreate, AssistantRead, AssistantUpdate
+from entities_api.services.logging_service import LoggingUtility
+from entities_api.services.identifier_service import IdentifierService
 from typing import List
 import time
 

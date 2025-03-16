@@ -1,12 +1,12 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
-from src.api.entities_api.models.models import Thread, User, Message
-from src.api.entities_api.schemas import ThreadCreate, ThreadReadDetailed, UserBase, ThreadUpdate
-from src.api.entities_api.services.identifier_service import IdentifierService
+from entities_api.models.models import Thread, User, Message
+from entities_api.schemas import ThreadCreate, ThreadReadDetailed, UserBase, ThreadUpdate
+from entities_api.services.identifier_service import IdentifierService
 import json
 import time
 from typing import List, Dict, Any
-from src.api.entities_api.services.logging_service import LoggingUtility
+from entities_api.services.logging_service import LoggingUtility
 
 logging_utility= LoggingUtility()
 class ThreadService:

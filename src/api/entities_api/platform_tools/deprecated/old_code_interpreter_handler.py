@@ -2,8 +2,8 @@ import json
 import os
 import re
 
-from src.api.entities_api.clients.client_code_executor import ClientCodeService
-from src.api.entities_api.services.logging_service import LoggingUtility
+from entities_api.clients.client_code_executor import ClientCodeService
+from entities_api.services.logging_service import LoggingUtility
 
 # Initialize the logging utility and OllamaClient
 logging_utility = LoggingUtility()

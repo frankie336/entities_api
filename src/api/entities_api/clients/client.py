@@ -6,17 +6,17 @@ from typing import Any, Dict, Optional, Generator
 from dotenv import load_dotenv
 from ollama import Client as OllamaAPIClient
 
-from src.api.entities_api.clients.client_actions_client import ClientActionService
-from src.api.entities_api.clients.client_assistant_client import ClientAssistantService
-from src.api.entities_api.clients.client_message_client import ClientMessageService
-from src.api.entities_api.clients.client_run_client import ClientRunService
-from src.api.entities_api.clients.client_sandbox_client import SandboxClientService
-from src.api.entities_api.clients.client_thread_client import ThreadService
-from src.api.entities_api.clients.client_tool_client import ClientToolService
-from src.api.entities_api.clients.client_user_client import UserService
-from src.api.entities_api.dependencies import SessionLocal
-from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.services.vector_store_service import VectorStoreService
+from entities_api.clients.client_actions_client import ClientActionService
+from entities_api.clients.client_assistant_client import ClientAssistantService
+from entities_api.clients.client_message_client import ClientMessageService
+from entities_api.clients.client_run_client import ClientRunService
+from entities_api.clients.client_sandbox_client import SandboxClientService
+from entities_api.clients.client_thread_client import ThreadService
+from entities_api.clients.client_tool_client import ClientToolService
+from entities_api.clients.client_user_client import UserService
+from entities_api.dependencies import SessionLocal
+from entities_api.services.logging_service import LoggingUtility
+from entities_api.services.vector_store_service import VectorStoreService
 
 # Load environment variables from .env file
 load_dotenv()

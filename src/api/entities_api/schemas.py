@@ -4,8 +4,26 @@ from enum import Enum
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field, ConfigDict
 from pydantic import validator
+from enum import Enum as PyEnum
 
-from entities_api.models.models import StatusEnum
+import entities_api.models.models
+
+
+
+class StatusEnum(PyEnum):
+    deleted = "deleted"
+    active = "active"               # Added this member
+    queued = "queued"
+    in_progress = "in_progress"
+    pending_action = "action_required"
+    completed = "completed"
+    failed = "failed"
+    cancelling = "cancelling"
+    cancelled = "cancelled"
+    pending = "pending"
+    processing = "processing"
+    expired = "expired"
+    retrying = "retrying"
 
 
 class UserBase(BaseModel):
@@ -457,14 +475,14 @@ class VectorStoreFileRead(BaseModel):
     file_name: str
     file_path: str
     processed_at: Optional[int] = None
-    status: StatusEnum
+    status: entities_api.models.models.StatusEnum
     error_message: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)
 
 class VectorStoreFileUpdate(BaseModel):
-    status: Optional[StatusEnum] = None
+    status: Optional[entities_api.models.models.StatusEnum] = None
     error_message: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 

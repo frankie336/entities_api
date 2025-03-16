@@ -2,8 +2,8 @@
 import httpx
 from typing import List
 from pydantic import ValidationError
-from src.api.entities_api.schemas import SandboxCreate, SandboxRead, SandboxUpdate
-from src.api.entities_api.services.logging_service import LoggingUtility
+from entities_api.schemas import SandboxCreate, SandboxRead, SandboxUpdate
+from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 

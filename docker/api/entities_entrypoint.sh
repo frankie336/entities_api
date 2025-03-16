@@ -1,16 +1,14 @@
-# entities_entrypoint.sh
-
 #!/bin/bash
 set -e  # Exit immediately if any command fails
 
-# Wait for database
+# Wait for the database to be available
 echo "Waiting for database..."
 ./wait-for-it.sh db:3306 --timeout=30
 
-# Run setup script
+# Run startup scripts
 echo "Running startup scripts..."
 python -m entities_api.services.assistant_set_up_service
 
-# Start FastAPI server
+# Start the FastAPI server using the correct module path
 echo "Starting API server..."
 exec uvicorn entities_api.main:app --host 0.0.0.0 --port 9000

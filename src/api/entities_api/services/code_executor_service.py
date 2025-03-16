@@ -3,7 +3,7 @@ import subprocess
 import shutil
 import tempfile
 from typing import Dict, Any
-from src.api.entities_api.services.logging_service import LoggingUtility
+from entities_api.services.logging_service import LoggingUtility
 
 # Initialize the logging utility
 logging_utility = LoggingUtility()

@@ -1,4 +1,3 @@
-# Dockerfile.sandbox
 # Use a minimal Python base image
 FROM python:3.8-slim
 
@@ -23,18 +22,19 @@ RUN useradd -ms /bin/bash sandboxuser
 # Set the working directory
 WORKDIR /app
 
-# Copy only essential components
-COPY src/sandbox_api/requirements.txt /app/
-COPY src/sandbox_api/ /app/sandbox_api/
+# Copy only the essential components from the sandbox_api package.
+# Updated copy paths to match your project structure.
+COPY src/api/sandbox_api/requirements.txt /app/
+COPY src/api/sandbox_api/ /app/sandbox_api/
 
-# Install Python dependencies
+# Install Python dependencies using the copied requirements file.
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Expose the port for the service
+# Expose the port for the FastAPI service
 EXPOSE 8000
 
 # Switch to the non-root user for execution
 USER sandboxuser
 
-# Run the sandbox server with firejail to limit network access
+# Set the CMD to run the sandbox server using uvicorn under firejail restrictions.
 CMD ["firejail", "--noprofile", "--no-private", "--net=eth0", "uvicorn", "sandbox_api.main:app", "--host", "0.0.0.0", "--port", "8000"]

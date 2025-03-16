@@ -6,7 +6,7 @@ from typing import Optional, Dict, Any, AsyncGenerator, Generator
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type, before_sleep_log
 from websockets.legacy.protocol import WebSocketCommonProtocol
 
-from src.api.entities_api.platform_tools.web.web_search_handler import logging_utility
+from entities_api.platform_tools.web.web_search_handler import logging_utility
 
 
 @dataclass

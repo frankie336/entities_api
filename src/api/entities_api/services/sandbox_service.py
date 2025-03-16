@@ -3,10 +3,10 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from typing import List
 
-from src.api.entities_api.models.models import Sandbox, User
-from src.api.entities_api.schemas import SandboxCreate, SandboxRead, SandboxUpdate
-from src.api.entities_api.services.identifier_service import IdentifierService
-from src.api.entities_api.services.logging_service import LoggingUtility
+from entities_api.models.models import Sandbox, User
+from entities_api.schemas import SandboxCreate, SandboxRead, SandboxUpdate
+from entities_api.services.identifier_service import IdentifierService
+from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 

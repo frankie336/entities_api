@@ -1,8 +1,8 @@
 # entities_api/dependencies.py
 from sqlalchemy.orm import Session
 from qdrant_client import QdrantClient
-from src.api.entities_api.services.vector_store_manager import VectorStoreManager as QdrantVectorStore
-from src.api.entities_api.db.database import SessionLocal  # Adjust import based on your project structure
+from entities_api.services.vector_store_manager import VectorStoreManager as QdrantVectorStore
+from entities_api.db.database import SessionLocal  # Adjust import based on your project structure
 
 
 

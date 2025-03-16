@@ -2,10 +2,10 @@ import json
 import threading
 import time
 from typing import Optional, Dict, Any
-from src.api.entities_api.clients.client_actions_client import ClientActionService
-from src.api.entities_api.clients.client_run_client import ClientRunService
-from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.constants.assistant import PLATFORM_TOOLS
+from entities_api.clients.client_actions_client import ClientActionService
+from entities_api.clients.client_run_client import ClientRunService
+from entities_api.services.logging_service import LoggingUtility
+from entities_api.constants.assistant import PLATFORM_TOOLS
 
 logging_utility = LoggingUtility()
 

@@ -6,9 +6,9 @@ from typing import List, Dict, Optional
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
-from src.api.entities_api.interfaces.base_vector_store import BaseVectorStore, StoreExistsError, VectorStoreError, \
+from entities_api.interfaces.base_vector_store import BaseVectorStore, StoreExistsError, VectorStoreError, \
     StoreNotFoundError
-from src.api.entities_api.services.logging_service import LoggingUtility
+from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 

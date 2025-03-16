@@ -2,8 +2,8 @@ import json
 import time
 from dotenv import load_dotenv
 from ollama import Client
-from src.api.entities_api.inference.base_inference import BaseInference
-from src.api.entities_api.services.logging_service import LoggingUtility
+from entities_api.inference.base_inference import BaseInference
+from entities_api.services.logging_service import LoggingUtility
 
 load_dotenv()
 logging_utility = LoggingUtility()

@@ -7,8 +7,8 @@ from pydantic import BaseModel, Field
 
 
 
-from src.api.entities_api.services.event_handler import EntitiesEventHandler
-from src.api.entities_api.services.logging_service import LoggingUtility
+from entities_api.services.event_handler import EntitiesEventHandler
+from entities_api.services.logging_service import LoggingUtility
 
 
 # Initialize logging and the main client.

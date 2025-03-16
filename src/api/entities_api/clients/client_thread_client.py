@@ -3,9 +3,9 @@ from typing import List, Dict, Any, Optional
 import httpx
 from pydantic import ValidationError
 
-from src.api.entities_api.schemas import UserCreate, UserRead, ThreadCreate, ThreadRead, ThreadUpdate, ThreadIds, \
+from entities_api.schemas import UserCreate, UserRead, ThreadCreate, ThreadRead, ThreadUpdate, ThreadIds, \
     ThreadReadDetailed
-from src.api.entities_api.services.logging_service import LoggingUtility
+from entities_api.services.logging_service import LoggingUtility
 
 # Initialize logging utility
 logging_utility = LoggingUtility()

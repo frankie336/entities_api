@@ -1,6 +1,6 @@
 #entities_api/services/vector_waves.py
 from typing import Dict
-from src.api.entities_api.services.vector_store_service import VectorStoreService
+from entities_api.services.vector_store_service import VectorStoreService
 
 
 class AssistantVectorWaves:

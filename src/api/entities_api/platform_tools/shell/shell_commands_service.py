@@ -1,10 +1,10 @@
 # entities_api/platform_tools/shell/shell_commands_service.py
 import asyncio
 from typing import List, Optional
-from src.api.entities_api.platform_tools.shell.shell_command_client import (
+from entities_api.platform_tools.shell.shell_command_client import (
     ShellConnectionManager
 )
-from src.api.entities_api.services.logging_service import LoggingUtility
+from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 

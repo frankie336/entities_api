@@ -5,9 +5,9 @@ from fastapi import Depends, HTTPException
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from src.api.entities_api.dependencies import get_db
-from src.api.entities_api.schemas import SandboxCreate, SandboxRead, SandboxUpdate
-from src.api.entities_api.schemas import (
+from entities_api.dependencies import get_db
+from entities_api.schemas import SandboxCreate, SandboxRead, SandboxUpdate
+from entities_api.schemas import (
     UserCreate, UserRead, UserUpdate,
     ThreadCreate, ThreadRead, ThreadReadDetailed, ThreadIds,
     MessageCreate, MessageRead,
@@ -16,15 +16,15 @@ from src.api.entities_api.schemas import (
     ToolCreate, ToolRead, ToolUpdate, ToolList,
     ActionCreate, ActionRead, ActionUpdate
 )
-from src.api.entities_api.services.action_service import ActionService
-from src.api.entities_api.services.assistant_service import AssistantService
-from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.services.message_service import MessageService
-from src.api.entities_api.services.run_service import RunService
-from src.api.entities_api.services.sandbox_service import SandboxService
-from src.api.entities_api.services.thread_service import ThreadService
-from src.api.entities_api.services.tool_service import ToolService
-from src.api.entities_api.services.user_service import UserService
+from entities_api.services.action_service import ActionService
+from entities_api.services.assistant_service import AssistantService
+from entities_api.services.logging_service import LoggingUtility
+from entities_api.services.message_service import MessageService
+from entities_api.services.run_service import RunService
+from entities_api.services.sandbox_service import SandboxService
+from entities_api.services.thread_service import ThreadService
+from entities_api.services.tool_service import ToolService
+from entities_api.services.user_service import UserService
 
 logging_utility = LoggingUtility()
 router = APIRouter()

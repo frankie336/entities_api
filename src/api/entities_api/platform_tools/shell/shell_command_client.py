@@ -2,7 +2,7 @@ import asyncio
 import json
 from typing import Optional, List
 import websockets
-from src.api.entities_api.services.logging_service import LoggingUtility
+from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 
