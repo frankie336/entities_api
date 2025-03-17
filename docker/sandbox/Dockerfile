@@ -14,6 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     man-db \
     locales \
     htop \
+    iputils-ping \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user
@@ -23,12 +24,12 @@ RUN useradd -ms /bin/bash sandboxuser
 WORKDIR /app
 
 # Copy only the essential components from the sandbox_api package.
-# Updated copy paths to match your project structure.
 COPY src/api/sandbox_api/requirements.txt /app/
 COPY src/api/sandbox_api/ /app/sandbox_api/
 
 # Install Python dependencies using the copied requirements file.
 RUN pip install --no-cache-dir --default-timeout=100 -r /app/requirements.txt
+
 # Expose the port for the FastAPI service
 EXPOSE 8000
 

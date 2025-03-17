@@ -1409,11 +1409,6 @@ class BaseInference(ABC):
             ):
                 yield chunk
 
-
-
-
-
-
     @abstractmethod
     def process_conversation(self, thread_id, message_id, run_id, assistant_id,
                              model,  stream_reasoning=False):
