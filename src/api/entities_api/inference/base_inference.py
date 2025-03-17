@@ -1309,14 +1309,23 @@ class BaseInference(ABC):
             combined = reasoning_content + assistant_reply
             self.finalize_conversation(combined, thread_id, assistant_id, run_id)
 
-        # Validate the accumulated content for proper tool response structure.
+
         if accumulated_content:
+            logging_utility.debug("Raw accumulated content: %s", accumulated_content)
             json_accumulated_content = self.ensure_valid_json(text=accumulated_content)
+
             function_call = self.is_valid_function_call_response(json_data=json_accumulated_content)
+            logging_utility.debug("Valid Function call: %s", function_call)
+
             complex_vector_search = self.is_complex_vector_search(data=json_accumulated_content)
+
             if function_call or complex_vector_search:
                 self.set_tool_response_state(True)
+                logging_utility.debug("Response State: %s", self.get_tool_response_state())
+
                 self.set_function_call_state(json_accumulated_content)
+                logging_utility.debug("Function call State: %s", self.get_function_call_state())
+
             tool_invocation_in_multi_line_text = self.extract_tool_invocations(text=accumulated_content)
             if tool_invocation_in_multi_line_text and not self.get_tool_response_state():
                 self.set_tool_response_state(True)
