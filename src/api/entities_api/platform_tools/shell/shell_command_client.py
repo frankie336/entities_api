@@ -38,7 +38,7 @@ class ShellConnectionManager:
 # --- Modified Shell Client ---
 class ShellClientConfig:
     def __init__(self,
-                 endpoint: str = "ws://localhost:8000/shell",
+                 endpoint: str = "ws://localhost:8000/ws/shell",
                  thread_id: Optional[str] = None,
                  timeout: int = 30):  # Increased timeout for persistent connections
         self.endpoint = endpoint
