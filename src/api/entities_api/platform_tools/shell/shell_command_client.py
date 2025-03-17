@@ -1,8 +1,13 @@
+import os
 import asyncio
 import json
 from typing import Optional, List
 import websockets
 from entities_api.services.logging_service import LoggingUtility
+
+from dotenv import load_dotenv
+load_dotenv()
+
 
 logging_utility = LoggingUtility()
 
@@ -38,7 +43,7 @@ class ShellConnectionManager:
 # --- Modified Shell Client ---
 class ShellClientConfig:
     def __init__(self,
-                 endpoint: str = "ws://localhost:8000/ws/shell",
+                 endpoint: str = os.getenv('SHELL_SERVER_URL'),
                  thread_id: Optional[str] = None,
                  timeout: int = 30):  # Increased timeout for persistent connections
         self.endpoint = endpoint
