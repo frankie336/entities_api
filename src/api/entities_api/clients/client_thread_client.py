@@ -22,7 +22,7 @@ class ThreadService:
         logging_utility.info("Creating user with name: %s", name)
         user_data = UserCreate(name=name).model_dump()
         try:
-            response = self.client.post("/routers/users", json=user_data)
+            response = self.client.post("/v1/users", json=user_data)
             response.raise_for_status()
             created_user = response.json()
             validated_user = UserRead(**created_user)  # Validate data using Pydantic model
@@ -45,7 +45,7 @@ class ThreadService:
         thread_data = ThreadCreate(participant_ids=participant_ids, meta_data=meta_data).model_dump()
         logging_utility.info("Creating thread with %d participants", len(participant_ids))
         try:
-            response = self.client.post("/routers/threads", json=thread_data)
+            response = self.client.post("/v1/threads", json=thread_data)
             response.raise_for_status()
             created_thread = response.json()
             validated_thread = ThreadRead(**created_thread)  # Validate data using Pydantic model
@@ -65,7 +65,7 @@ class ThreadService:
     def retrieve_thread(self, thread_id: str) -> ThreadRead:
         logging_utility.info("Retrieving thread with id: %s", thread_id)
         try:
-            response = self.client.get(f"/routers/threads/{thread_id}")
+            response = self.client.get(f"/v1/threads/{thread_id}")
             response.raise_for_status()
             thread = response.json()
             validated_thread = ThreadRead(**thread)  # Validate data using Pydantic model
@@ -87,7 +87,7 @@ class ThreadService:
 
         try:
             validated_updates = ThreadUpdate(**updates)
-            response = self.client.post(f"/routers/threads/{thread_id}", json=validated_updates.model_dump())
+            response = self.client.post(f"/v1/threads/{thread_id}", json=validated_updates.model_dump())
             response.raise_for_status()
             updated_thread = response.json()
             return ThreadReadDetailed(**updated_thread)
@@ -127,7 +127,7 @@ class ThreadService:
     def list_threads(self, user_id: str) -> List[str]:
         logging_utility.info("Listing threads for user with id: %s", user_id)
         try:
-            response = self.client.get(f"/routers/users/{user_id}/threads")
+            response = self.client.get(f"/v1/users/{user_id}/threads")
             response.raise_for_status()
             thread_ids = response.json()
             validated_thread_ids = ThreadIds(**thread_ids)  # Validate data using Pydantic model
@@ -146,7 +146,7 @@ class ThreadService:
     def delete_thread(self, thread_id: str) -> None:
         logging_utility.info("Deleting thread with id: %s", thread_id)
         try:
-            response = self.client.delete(f"/routers/threads/{thread_id}")
+            response = self.client.delete(f"/v1/threads/{thread_id}")
             response.raise_for_status()
             logging_utility.info("Thread deleted successfully")
         except httpx.HTTPStatusError as e:

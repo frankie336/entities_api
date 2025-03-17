@@ -36,7 +36,7 @@ class ClientActionService:
             logging_utility.debug("Payload for action creation: %s", payload)
 
             # Sending the request
-            response = self.client.post("/routers/actions", json=payload)
+            response = self.client.post("/v1/actions", json=payload)
 
             # Log the response for debugging
             logging_utility.debug("Response Status Code: %s", response.status_code)
@@ -120,7 +120,7 @@ class ClientActionService:
             logging_utility.debug("Payload for action update: %s", payload)
 
             # Ensure the URL includes the /routers prefix
-            response = self.client.put(f"/routers/actions/{action_id}", json=payload)
+            response = self.client.put(f"/v1/actions/{action_id}", json=payload)
             response.raise_for_status()
 
             # Parse the response
@@ -139,7 +139,7 @@ class ClientActionService:
             logging_utility.debug(f"Retrieving actions for run_id: {run_id} with status: {status or 'not specified'}")
 
             # Make a GET request with run_id and optional status query parameter
-            response = self.client.get(f"/routers/runs/{run_id}/actions/status", params={"status": status})
+            response = self.client.get(f"/v1/runs/{run_id}/actions/status", params={"status": status})
             response.raise_for_status()  # Raises an HTTPStatusError for bad responses
 
             # Optional safety check to ensure response is JSON
@@ -170,7 +170,7 @@ class ClientActionService:
             logging_utility.debug("Retrieving pending actions with run_id: %s", run_id)
 
             # Make a GET request to the server to retrieve pending actions
-            url = f"/routers/actions/pending/{run_id}"  # Embed run_id in the URL path
+            url = f"/v1/actions/pending/{run_id}"  # Embed run_id in the URL path
 
             response = self.client.get(url)  # No need to include params here
             response.raise_for_status()

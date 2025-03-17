@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Copy and install Python dependencies from the project root
 COPY requirements.txt /app/
-RUN pip install --no-cache-dir -r /app/requirements.txt
+RUN pip install --no-cache-dir --default-timeout=100 -r /app/requirements.txt
 
 # Install firejail and other minimal Linux tools (if needed)
 RUN apt-get update && apt-get install -y --no-install-recommends \

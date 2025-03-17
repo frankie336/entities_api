@@ -26,7 +26,7 @@ class ClientToolService:
         logging_utility.info("Creating new tool")
         try:
             tool = ToolCreate(**tool_data)
-            response = self.client.post("/routers/tools", json=tool.model_dump())
+            response = self.client.post("/v1/tools", json=tool.model_dump())
             response.raise_for_status()
             created_tool = response.json()
             validated_tool = ToolRead.model_validate(created_tool)
@@ -45,7 +45,7 @@ class ClientToolService:
     def associate_tool_with_assistant(self, tool_id: str, assistant_id: str) -> None:
         logging_utility.info("Associating tool %s with assistant %s", tool_id, assistant_id)
         try:
-            response = self.client.post(f"/routers/assistants/{assistant_id}/tools/{tool_id}")
+            response = self.client.post(f"/v1/assistants/{assistant_id}/tools/{tool_id}")
             response.raise_for_status()
             logging_utility.info("Tool %s associated with assistant %s successfully", tool_id, assistant_id)
         except httpx.HTTPStatusError as e:
@@ -58,7 +58,7 @@ class ClientToolService:
     def disassociate_tool_from_assistant(self, tool_id: str, assistant_id: str) -> None:
         logging_utility.info("Disassociating tool %s from assistant %s", tool_id, assistant_id)
         try:
-            response = self.client.delete(f"/routers/assistants/{assistant_id}/tools/{tool_id}")
+            response = self.client.delete(f"/v1/assistants/{assistant_id}/tools/{tool_id}")
             response.raise_for_status()
             logging_utility.info("Tool %s disassociated from assistant %s successfully", tool_id, assistant_id)
         except httpx.HTTPStatusError as e:
@@ -73,7 +73,7 @@ class ClientToolService:
         """Retrieve a tool by its ID."""
         logging_utility.info("Retrieving tool with id: %s", tool_id)
         try:
-            response = self.client.get(f"/routers/tools/{tool_id}")
+            response = self.client.get(f"/v1/tools/{tool_id}")
             response.raise_for_status()
             tool = response.json()
             validated_tool = ToolRead.model_validate(tool)
@@ -93,7 +93,7 @@ class ClientToolService:
         """Retrieve a tool by its name."""
         logging_utility.info("Retrieving tool with name: %s", name)
         try:
-            response = self.client.get(f"/routers/tools/name/{name}")
+            response = self.client.get(f"/v1/tools/name/{name}")
             response.raise_for_status()
             tool = response.json()
             validated_tool = ToolRead.model_validate(tool)
@@ -112,7 +112,7 @@ class ClientToolService:
     def update_tool(self, tool_id: str, tool_update: ToolUpdate) -> ToolRead:
         logging_utility.info("Updating tool with ID: %s", tool_id)
         try:
-            response = self.client.put(f"/routers/tools/{tool_id}", json=tool_update.model_dump(exclude_unset=True))
+            response = self.client.put(f"/v1/tools/{tool_id}", json=tool_update.model_dump(exclude_unset=True))
             response.raise_for_status()
             updated_tool = response.json()
             validated_tool = ToolRead.model_validate(updated_tool)
@@ -131,7 +131,7 @@ class ClientToolService:
     def delete_tool(self, tool_id: str) -> None:
         logging_utility.info("Deleting tool with id: %s", tool_id)
         try:
-            response = self.client.delete(f"/routers/tools/{tool_id}")
+            response = self.client.delete(f"/v1/tools/{tool_id}")
             response.raise_for_status()
             logging_utility.info("Tool deleted successfully with ID: %s", tool_id)
         except httpx.HTTPStatusError as e:
@@ -176,7 +176,7 @@ class ClientToolService:
 
     def list_tools(self, assistant_id: Optional[str] = None, restructure: bool = False) -> List[dict]:
         """List tools for a given assistant and optionally restructure them."""
-        url = f"/routers/assistants/{assistant_id}/tools" if assistant_id else "/routers/tools"
+        url = f"/v1/assistants/{assistant_id}/tools" if assistant_id else "/routers/tools"
         logging_utility.info("Listing tools for assistant ID: %s", assistant_id)
 
         try:

@@ -28,8 +28,7 @@ COPY src/api/sandbox_api/requirements.txt /app/
 COPY src/api/sandbox_api/ /app/sandbox_api/
 
 # Install Python dependencies using the copied requirements file.
-RUN pip install --no-cache-dir -r /app/requirements.txt
-
+RUN pip install --no-cache-dir --default-timeout=100 -r /app/requirements.txt
 # Expose the port for the FastAPI service
 EXPOSE 8000
 

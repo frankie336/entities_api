@@ -53,6 +53,8 @@ services:
       dockerfile: docker/api/Dockerfile
     container_name: fastapi_cosmic_catalyst
     restart: always
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=mysql+pymysql://ollama:3e4Qv5uo2Cg31zC1@db:3306/cosmic_catalyst
       - SANDBOX_SERVER_URL=http://sandbox:8000

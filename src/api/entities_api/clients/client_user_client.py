@@ -19,7 +19,7 @@ class UserService:
         logging_utility.info("Creating user with name: %s", name)
         user_data = UserCreate(name=name)
         try:
-            response = self.client.post("/routers/users", json=user_data.model_dump())
+            response = self.client.post("/v1/users", json=user_data.model_dump())
             response.raise_for_status()
             created_user = response.json()
             validated_user = UserRead(**created_user)
@@ -35,7 +35,7 @@ class UserService:
     def retrieve_user(self, user_id: str) -> UserRead:
         logging_utility.info("Retrieving user with id: %s", user_id)
         try:
-            response = self.client.get(f"/routers/users/{user_id}")
+            response = self.client.get(f"/v1/users/{user_id}")
             response.raise_for_status()
             user = response.json()
             validated_user = UserRead(**user)
@@ -56,7 +56,7 @@ class UserService:
             user_data.update(updates)
 
             validated_data = UserUpdate(**user_data)  # Validate data using Pydantic model
-            response = self.client.put(f"/routers/users/{user_id}", json=validated_data.model_dump(exclude_unset=True))
+            response = self.client.put(f"/v1/users/{user_id}", json=validated_data.model_dump(exclude_unset=True))
             response.raise_for_status()
             updated_user = response.json()
             validated_response = UserRead(**updated_user)  # Validate response using Pydantic model
@@ -75,7 +75,7 @@ class UserService:
     def delete_user(self, user_id: str) -> UserDeleteResponse:
         logging_utility.info("Deleting user with id: %s", user_id)
         try:
-            response = self.client.delete(f"/routers/users/{user_id}")
+            response = self.client.delete(f"/v1/users/{user_id}")
             response.raise_for_status()
             result = response.json()
             validated_result = UserDeleteResponse(**result)
@@ -91,7 +91,7 @@ class UserService:
     def list_assistants_by_user(self, user_id: str) -> List[AssistantRead]:
         logging_utility.info("Retrieving assistants for user with id: %s", user_id)
         try:
-            response = self.client.get(f"/routers/users/{user_id}/assistants")
+            response = self.client.get(f"/v1/users/{user_id}/assistants")
             response.raise_for_status()
             assistants = response.json()
             validated_assistants = [AssistantRead(**assistant) for assistant in assistants]
