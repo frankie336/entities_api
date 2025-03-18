@@ -20,13 +20,16 @@ from entities_api.clients.client_run_client import ClientRunService
 from entities_api.clients.client_thread_client import ThreadService
 from entities_api.clients.client_tool_client import ClientToolService
 from entities_api.clients.client_user_client import UserService
-from entities_api.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS, PLATFORM_TOOLS
-from entities_api.constants.platform import MODEL_MAP
 from entities_api.platform_tools.code_interpreter.code_execution_client import StreamOutput
 from entities_api.platform_tools.platform_tool_service import PlatformToolService
 from entities_api.services.conversation_truncator import ConversationTruncator
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.vector_store_service import VectorStoreService
+
+
+from entities_api.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS, PLATFORM_TOOLS
+from entities_api.constants.platform import MODEL_MAP, ERROR_NO_CONTENT
+
 
 logging_utility = LoggingUtility()
 
@@ -656,7 +659,7 @@ class BaseInference(ABC):
 
             search_output = str(function_output[0]) + WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS
 
-            self._submit_tool_output(
+            self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 content=search_output,
@@ -680,7 +683,7 @@ class BaseInference(ABC):
             parsed_output = json.loads(function_output)
             output_value = parsed_output['result']['output']
 
-            self._submit_tool_output(
+            self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 content=output_value,
@@ -704,7 +707,7 @@ class BaseInference(ABC):
 
             search_output = str(function_output)
 
-            self._submit_tool_output(
+            self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 content=search_output,
@@ -726,7 +729,7 @@ class BaseInference(ABC):
         """Special handling for web search results."""
         try:
 
-            self._submit_tool_output(
+            self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 content=function_output,
@@ -852,36 +855,53 @@ class BaseInference(ABC):
             raise  # Re-raise for upstream handling
 
 
-    def _submit_tool_output(self, thread_id, assistant_id, content, action):
-        """Generic tool output submission with consistent logging."""
-
-
-        #print(content)
-        print("Hello we are here!")
-        #time.sleep(1000000)
+    def submit_tool_output(self, thread_id, content, assistant_id, action):
+        """
+        Submits tool output and updates the action status.
+        Raises exceptions if any occur and sends the error output to the user.
+        """
+        if not content:
+            content = ERROR_NO_CONTENT
+            logging_utility.error("No content returned for action %s", action.id)
 
         try:
+            # Submit tool output
             self.message_service.submit_tool_output(
                 thread_id=thread_id,
                 content=content,
                 role="tool",
                 assistant_id=assistant_id,
-                tool_id="dummy"
+                tool_id="dummy"  # Replace with actual tool_id if available
             )
+
+            # Update action status
             self.action_service.update_action(action_id=action.id, status='completed')
             logging_utility.debug(
                 "Tool output submitted successfully for action %s",
                 action.id
             )
-
         except Exception as e:
+            # Log the error
             logging_utility.error(
                 "Failed to submit tool output for action %s: %s",
-                action.id, str(e)
+                action.id,
+                str(e)
             )
-            self.action_service.update_action(action_id=action.id, status='failed')
-            raise
 
+            # Send the error message to the user
+            self.message_service.submit_tool_output(
+                thread_id=thread_id,
+                content=f"ERROR: {str(e)}",
+                role="tool",
+                assistant_id=assistant_id,
+                tool_id="dummy"  # Replace with actual tool_id if available
+            )
+
+            # Update action status to 'failed'
+            self.action_service.update_action(action_id=action.id, status='failed')
+
+            # Re-raise the exception for further handling
+            raise
 
 
     def handle_code_interpreter_action(self, thread_id, run_id, assistant_id, arguments_dict):
@@ -908,7 +928,7 @@ class BaseInference(ABC):
 
         # Submit final output after execution completes
         content = '\n'.join(hot_code_buffer)
-        self._submit_tool_output(
+        self.submit_tool_output(
             thread_id=thread_id,
             assistant_id=assistant_id,
             content=content,

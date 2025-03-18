@@ -1,7 +1,7 @@
 # Use a minimal Python base image
 FROM python:3.8-slim
 
-# Install necessary packages including firejail and basic Linux tools.
+# Install necessary packages including firejail, basic Linux tools, and penetration testing tools.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     firejail \
     curl \
@@ -15,7 +15,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     locales \
     htop \
     iputils-ping \
-    && rm -rf /var/lib/apt/lists/*
+    nmap \
+    netcat-openbsd \
+    dnsutils \
+    tcpdump \
+    whois \
+    git \
+    && rm -rf /var/lib/apt/lists/* \
+    && git clone https://github.com/sullo/nikto.git /opt/nikto \
+    && ln -s /opt/nikto/program/nikto.pl /usr/local/bin/nikto \
+    && chmod +x /usr/local/bin/nikto
 
 # Create a non-root user
 RUN useradd -ms /bin/bash sandboxuser
