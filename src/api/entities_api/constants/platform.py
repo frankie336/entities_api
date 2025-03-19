@@ -1,4 +1,4 @@
-
+SPECIAL_CASE_TOOL_HANDLING = ["computer", "code_interpreter"]
 
 ERROR_NO_CONTENT = (
     "ERROR: The Tool has failed to return any content. The current stage of the workflow is tool submission. "

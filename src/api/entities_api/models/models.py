@@ -246,7 +246,9 @@ class VectorStore(Base):
     distance_metric = Column(String(32), nullable=False)
     created_at = Column(BigInteger, default=lambda: int(datetime.now().timestamp()))
     updated_at = Column(BigInteger, onupdate=lambda: int(datetime.now().timestamp()))
-    status = Column(Enum(StatusEnum), default=StatusEnum.active)
+
+    status = Column(Enum(StatusEnum), nullable=False)
+
     config = Column(JSON, nullable=True)
     file_count = Column(Integer, default=0, nullable=False)  # Added field
 

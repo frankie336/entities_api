@@ -10,6 +10,7 @@ from datetime import datetime
 from functools import lru_cache
 from typing import Any
 
+import httpx
 from openai import OpenAI
 from together import Together
 
@@ -28,7 +29,7 @@ from entities_api.services.vector_store_service import VectorStoreService
 
 
 from entities_api.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS, PLATFORM_TOOLS
-from entities_api.constants.platform import MODEL_MAP, ERROR_NO_CONTENT
+from entities_api.constants.platform import MODEL_MAP, ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING
 
 
 logging_utility = LoggingUtility()
@@ -74,7 +75,9 @@ class BaseInference(ABC):
         #--------------------------------
         self.hyperbolic_client = OpenAI(
             api_key=os.getenv("HYPERBOLIC_API_KEY"),
-            base_url="https://api.hyperbolic.xyz/v1"
+            base_url="https://api.hyperbolic.xyz/v1",
+            timeout=httpx.Timeout(30.0, read=30.0)
+
         )
         logging_utility.info("DeepSeekV3Cloud specific setup completed.")
 
@@ -935,34 +938,57 @@ class BaseInference(ABC):
         )
 
     def handle_shell_action(self, thread_id, run_id, assistant_id, arguments_dict):
-
         from entities_api.platform_tools.shell.shell_commands_service import run_shell_commands
+        import json
 
+        # Create an action for the shell command execution
         action = self.action_service.create_action(
             tool_name="computer",
             run_id=run_id,
             function_args=arguments_dict
         )
 
-        commands =  arguments_dict.get("commands")
-
+        # Extract commands from the arguments dictionary
+        commands = arguments_dict.get("commands", [])
         bash_buffer = []
 
-        # Stream code execution output
+        accumulated_content = ""
+
+        # Stream the execution output and accumulate chunks
         for chunk in run_shell_commands(commands, thread_id=thread_id):
-            parsed = json.loads(chunk)
+            try:
 
-            if parsed.get('type') == 'shell_output':
-                bash_buffer.append(parsed['content'])
+                accumulated_content += chunk
 
-            yield chunk  # Preserve streaming
+                yield chunk  # Preserve streaming for real-time output
 
-        # Submit final output after execution completes
-        content = '\n'.join(bash_buffer)
+            except json.JSONDecodeError:
+                # Handle invalid JSON chunks
+                error_message = "Error: Invalid JSON chunk received from shell command execution."
+                self.submit_tool_output(
+                    thread_id=thread_id,
+                    assistant_id=assistant_id,
+                    content=error_message,
+                    action=action
+                )
+                raise RuntimeError(error_message)
+
+        # Check if bash_buffer is empty (no output was generated)
+        if not accumulated_content:
+            error_message = "Error: No shell output was generated. The command may have failed or produced no output."
+            self.submit_tool_output(
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                content=error_message,
+                action=action
+            )
+            raise RuntimeError(error_message)
+
+        # Submit the final output after execution completes
         self.submit_tool_output(
             thread_id=thread_id,
             assistant_id=assistant_id,
-            content=content,
+            content=accumulated_content,
             action=action
         )
 
@@ -1031,6 +1057,9 @@ class BaseInference(ABC):
         - Enforces tool response protocol through system message injection
         - Accumulates raw content for final validation (JSON/format checks)
         """
+
+
+        model  = "deepseek-ai/DeepSeek-V3"
 
         logging_utility.info(
             "Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
@@ -1222,6 +1251,8 @@ class BaseInference(ABC):
         else:
             pass
             # model = "deepseek-ai/DeepSeek-R1"
+
+        model = "deepseek-ai/DeepSeek-V3"
 
         request_payload = {
             "model": model,
@@ -1421,6 +1452,7 @@ class BaseInference(ABC):
 
         if not fc_state:
             return
+
         if fc_state.get("name") in PLATFORM_TOOLS:
             if fc_state.get("name") == "code_interpreter":
                 for chunk in self.handle_code_interpreter_action(
@@ -1431,6 +1463,14 @@ class BaseInference(ABC):
                 ):
                     yield chunk
 
+
+                for chunk in self.stream_function_call_output(
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        model=model,
+                        assistant_id=assistant_id
+                ):
+                    yield chunk
 
             if fc_state.get("name") == "computer":
                 for chunk in self.handle_shell_action(
@@ -1443,33 +1483,56 @@ class BaseInference(ABC):
 
 
 
+                for chunk in self.stream_function_call_output(
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        model=model,
+                        assistant_id=assistant_id
+                ):
+                    yield chunk
+
             else:
-                self._process_platform_tool_calls(
-                    thread_id=thread_id,
-                    assistant_id=assistant_id,
-                    content=fc_state,
-                    run_id=run_id
-                )
-            for chunk in self.stream_function_call_output(
-                    thread_id=thread_id,
-                    run_id=run_id,
-                    model=model,
-                    assistant_id=assistant_id
-            ):
-                yield chunk
-        else:
-            self._process_tool_calls(
-                thread_id=thread_id,
-                assistant_id=assistant_id,
-                content=fc_state,
-                run_id=run_id
-            )
-            for chunk in self.stream_function_call_output(
-                    thread_id=thread_id,
-                    run_id=run_id,
-                    assistant_id=assistant_id
-            ):
-                yield chunk
+
+                #--------------------------------------
+                # Exclude special case tools from further
+                # Handling here.
+                #---------------------------------------
+                if not fc_state.get("name") in SPECIAL_CASE_TOOL_HANDLING:
+
+                    self._process_platform_tool_calls(
+                        thread_id=thread_id,
+                        assistant_id=assistant_id,
+                        content=fc_state,
+                        run_id=run_id
+                    )
+
+
+                    for chunk in self.stream_function_call_output(
+                            thread_id=thread_id,
+                            run_id=run_id,
+                            model=model,
+                            assistant_id=assistant_id
+                    ):
+                        yield chunk
+
+
+                else:
+
+                     #-----------------------
+                     # Handles consumer side tool calls.
+                     #------------------------
+                     self._process_tool_calls(
+                         thread_id=thread_id,
+                         assistant_id=assistant_id,
+                         content=fc_state,
+                         run_id=run_id
+                     )
+                     for chunk in self.stream_function_call_output(
+                             thread_id=thread_id,
+                             run_id=run_id,
+                             assistant_id=assistant_id
+                     ):
+                         yield chunk
 
     @abstractmethod
     def process_conversation(self, thread_id, message_id, run_id, assistant_id,

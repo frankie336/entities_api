@@ -25,10 +25,12 @@ class PersistentShellSession:
         # Start explicitly persistent shell subprocess
         self.process = await create_subprocess_exec(
             '/bin/bash',
-            stdin=PIPE, stdout=PIPE, stderr=PIPE
+            stdin=PIPE,
+            stdout=PIPE,
+            stderr=PIPE
         )
 
-        # Explicitly directly stream shell outputs immediately
+        # Directly and explicitly stream shell outputs immediately
         self.output_task = asyncio.create_task(self.stream_output())
 
         try:
@@ -40,10 +42,13 @@ class PersistentShellSession:
                 if action == "shell_command":
                     command = message.get("command", "")
                     await self.send_command(command)
+
                 elif action == "ping":
                     await self.websocket.send_json({"type": "pong"})
+
                 elif action == "disconnect":
-                    break
+                    break   # explicit disconnect requested
+
                 else:
                     await self.websocket.send_json({
                         "type": "error",
@@ -59,42 +64,54 @@ class PersistentShellSession:
         finally:
             await self.cleanup()
 
+    # Explicitly updated send_command method that clearly broadcasts the command itself first
     async def send_command(self, cmd: str):
+        # First, explicitly broadcast the issued command to all participants
+        await self.room_manager.broadcast(self.room, {
+            "type": "shell_command",
+            "thread_id": self.room,
+            "content": cmd
+        })
+
+        # Now send the command explicitly to the shell subprocess
         if self.process and self.process.stdin:
             self.process.stdin.write((cmd + '\n').encode())
             await self.process.stdin.drain()
 
-    # *** THIS IS THE CRUCIAL CLEARLY UPDATED METHOD: ***
+    # Clearly-defined streaming output method
     async def stream_output(self):
         try:
             while self.alive:
-                chunk = await self.process.stdout.read(1024)  # explicitly read small bytes immediately
+                chunk = await self.process.stdout.read(1024)
                 if chunk:
+                    # Stream explicit shell output clearly back to clients
                     await self.room_manager.broadcast(self.room, {
                         "type": "shell_output",
-                        "thread_id": self.room,  # explicitly include room/thread_id clearly
-                        "content": chunk.decode(errors='replace')  # immediately decode safely
+                        "thread_id": self.room,
+                        "content": chunk.decode(errors='replace')
                     })
                 else:
-                    await asyncio.sleep(0.01)  # explicitly pause momentarily if no outputs
+                    await asyncio.sleep(0.01)
+
         except asyncio.CancelledError:
-            logger.info(f"Streaming cancelled explicitly for room {self.room}")
+            logger.info(f"Streaming explicitly cancelled for room {self.room}")
 
         except Exception as e:
             logger.error(f"Error explicitly streaming output: {str(e)}")
 
+    # Explicit, clear cleanup/shutdown
     async def cleanup(self):
         self.alive = False
-
-        # clean shutdown explicitly
         if self.process:
             try:
+                # Attempt explicit graceful exit of shell
                 self.process.stdin.write(b'exit\n')
                 await self.process.stdin.drain()
                 await asyncio.wait_for(self.process.wait(), timeout=5)
             except Exception as e:
                 logger.error(f"Cleanup explicitly failed to terminate process: {str(e)}")
 
+        # Properly stopping the output streamer
         if self.output_task:
             self.output_task.cancel()
             try:
@@ -103,9 +120,10 @@ class PersistentShellSession:
                 pass
 
         try:
+            # Explicit disconnect & close websocket
             await self.room_manager.disconnect(self.room, self.websocket)
             await self.websocket.close()
         except Exception as e:
-            logger.error(f"Explicitly error closing websocket during cleanup: {str(e)}")
+            logger.error(f"Explicit error closing websocket during cleanup: {str(e)}")
 
-        logger.info(f"Explicit Session cleaned up clearly for room {self.room}.")
+        logger.info(f"Explicit session cleaned up clearly for room {self.room}.")

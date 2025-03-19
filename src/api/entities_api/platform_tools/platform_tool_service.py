@@ -60,10 +60,6 @@ class PlatformToolService:
             - A dict for static results.
         """
 
-        print(arguments)
-        print("HELLO HERE WE ARE!")
-
-
         if not isinstance(arguments, dict):
             logging_utility.error("Invalid arguments type: %s", type(arguments))
             return {"error": "Arguments must be a dictionary"}
@@ -95,7 +91,7 @@ class PlatformToolService:
                 )
             elif function_name == "computer":
                 # Use our new ShellCommandsService for streaming shell commands.
-                shell_service = ShellCommandsService(thread_id=self.thread_id)
+                shell_service = ShellCommandsService(thread_id=self.thread_id, idle_timeout=5)
                 self.function_handlers[function_name] = shell_service.run_commands
             else:
                 return {"error": f"Unsupported function: {function_name}"}

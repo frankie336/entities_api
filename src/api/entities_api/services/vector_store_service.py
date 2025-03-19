@@ -73,7 +73,7 @@ class VectorStoreService:
                         vector_size=payload.vector_size,
                         distance_metric=payload.distance_metric,
                         created_at=int(time.time()),
-                        status=StatusEnum.active,
+                        status=StatusEnum.active.value,
                         config=payload.config
                     )
                     session.add(new_vector_store)

@@ -20,6 +20,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     dnsutils \
     tcpdump \
     whois \
+    traceroute \
+    procps \
     git \
     && rm -rf /var/lib/apt/lists/* \
     && git clone https://github.com/sullo/nikto.git /opt/nikto \
