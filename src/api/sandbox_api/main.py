@@ -1,17 +1,14 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from sandbox_api.routers.v1 import v1_router
+from sandbox_api.services.logging_service import LoggingUtility
 
-from .services.logging_service import LoggingUtility
 
-# Initialize the logging utility
+
 logging_utility = LoggingUtility()
 
-def create_app(init_db=True):
-    logging_utility.info("Creating FastAPI app")
+def create_app():
     app = FastAPI()
-
-    # Include routers
-    app.include_router(v1_router, prefix="/ws")  # Prefix applied here
+    app.include_router(v1_router, prefix="/ws")
 
     @app.get("/")
     def read_root():
@@ -21,3 +18,11 @@ def create_app(init_db=True):
     return app
 
 app = create_app()
+
+@app.on_event("startup")
+async def startup_event():
+    logging_utility.info("Starting FastAPI App")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    logging_utility.info("Shutting down FastAPI App")
