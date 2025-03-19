@@ -22,46 +22,62 @@ class ShellClient:
 
     async def __aenter__(self):
         conn_str = f"{self.endpoint}?room={self.room}"
-        logging_utility.info(f"Connecting to WebSocket {conn_str}")
+        logging_utility.info(f"Connecting to WebSocket explicitly {conn_str}")
         self.ws = await websockets.connect(conn_str, ping_interval=self.timeout)
-        logging_utility.info(f"Connected successfully to room '{self.room}'")
+        logging_utility.info(f"Connected clearly to room '{self.room}' explicitly")
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.ws:
             await self.ws.close()
-            logging_utility.info(f"WebSocket for room '{self.room}' closed.")
+            logging_utility.info(f"WebSocket explicitly closed for room '{self.room}'.")
 
     async def execute(self, commands: List[str]) -> str:
         if not self.ws:
-            raise RuntimeError("WebSocket connection not established.")
+            raise RuntimeError("WebSocket connection explicitly not established.")
+
         buffer = ""
 
         async def send_commands():
             for cmd in commands:
                 payload = {"action": "shell_command", "command": cmd}
                 await self.ws.send(json.dumps(payload))
-                logging_utility.info(f"Sent command: {cmd}")
+                logging_utility.info(f"Explicitly sent command: {cmd}")
 
         async def receive_output():
             nonlocal buffer
             try:
+                idle_timeout = 2.0  # idle period explicitly before concluding output done
+                last_output_time = asyncio.get_event_loop().time()
                 while True:
-                    message = await asyncio.wait_for(self.ws.recv(), timeout=self.timeout)
-                    data = json.loads(message)
-                    if data.get("type") == "shell_output":
-                        content = data["content"]
-                        buffer += content
-                        logging_utility.info(f"Received shell output: {content.strip()}")
-            except (asyncio.TimeoutError, websockets.exceptions.ConnectionClosed):
-                logging_utility.info("Stopped receiving (timeout/closed).")
+                    try:
+                        timeout_remaining = idle_timeout - (asyncio.get_event_loop().time() - last_output_time)
+                        if timeout_remaining <= 0:
+                            logging_utility.info("Command explicitly appears complete (idle timeout reached).")
+                            break
+                        message = await asyncio.wait_for(self.ws.recv(), timeout=timeout_remaining)
+                        data = json.loads(message)
+                        if data.get("type") == "shell_output":
+                            content = data["content"]
+                            buffer += content
+                            last_output_time = asyncio.get_event_loop().time()
+                            logging_utility.info(f"Explicitly Received shell output chunk: {content.strip()}")
+                    except asyncio.TimeoutError:
+                        logging_utility.info("Idle explicit timeout reached, command output completed explicitly.")
+                        break
 
-        # Send and then collect all output
+            except (websockets.exceptions.ConnectionClosed, Exception) as e:
+                logging_utility.error(f"Exception explicitly while receiving shell output: {str(e)}")
+
+        # Run explicitly send_commands and receive_output concurrently
         async with self.lock:
-            await send_commands()
-            await receive_output()
+            sender_coro = asyncio.create_task(send_commands())
+            receiver_coro = asyncio.create_task(receive_output())
 
-        logging_utility.info("Command execution completed.")
+            await sender_coro
+            await receiver_coro
+
+        logging_utility.info("Explicit command execution completed explicitly.")
         return buffer
 
 async def run_commands(commands: List[str], room: str) -> str:

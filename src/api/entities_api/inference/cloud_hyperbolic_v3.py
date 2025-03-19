@@ -38,8 +38,11 @@ class HyperbolicV3Inference(BaseInference):
         return super().process_function_calls(thread_id, run_id, assistant_id, model=None)
 
     def process_conversation(self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=False):
+
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)
+
+
         # Stream the response and yield each chunk.
         for chunk in self.stream_response(thread_id, message_id, run_id, assistant_id, model, stream_reasoning):
             yield chunk

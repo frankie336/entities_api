@@ -906,8 +906,7 @@ class BaseInference(ABC):
 
     def handle_code_interpreter_action(self, thread_id, run_id, assistant_id, arguments_dict):
 
-        #TODO: Consider handling this with via websocket?
-        """Handles code interpreter execution with streaming support."""
+
         action = self.action_service.create_action(
             tool_name="code_interpreter",
             run_id=run_id,
@@ -935,7 +934,37 @@ class BaseInference(ABC):
             action=action
         )
 
+    def handle_shell_action(self, thread_id, run_id, assistant_id, arguments_dict):
 
+        from entities_api.platform_tools.shell.shell_commands_service import run_shell_commands
+
+        action = self.action_service.create_action(
+            tool_name="computer",
+            run_id=run_id,
+            function_args=arguments_dict
+        )
+
+        commands =  arguments_dict.get("commands")
+
+        bash_buffer = []
+
+        # Stream code execution output
+        for chunk in run_shell_commands(commands, thread_id=thread_id):
+            parsed = json.loads(chunk)
+
+            if parsed.get('type') == 'shell_output':
+                bash_buffer.append(parsed['content'])
+
+            yield chunk  # Preserve streaming
+
+        # Submit final output after execution completes
+        content = '\n'.join(bash_buffer)
+        self.submit_tool_output(
+            thread_id=thread_id,
+            assistant_id=assistant_id,
+            content=content,
+            action=action
+        )
 
     def validate_and_set(self, content):
         """Core validation pipeline"""
@@ -1401,6 +1430,19 @@ class BaseInference(ABC):
                         arguments_dict=fc_state.get("arguments")
                 ):
                     yield chunk
+
+
+            if fc_state.get("name") == "computer":
+                for chunk in self.handle_shell_action(
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        assistant_id=assistant_id,
+                        arguments_dict=fc_state.get("arguments")
+                ):
+                    yield chunk
+
+
+
             else:
                 self._process_platform_tool_calls(
                     thread_id=thread_id,

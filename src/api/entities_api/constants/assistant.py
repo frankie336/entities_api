@@ -139,6 +139,8 @@ BASE_TOOLS = [
 ]
 
 BASE_ASSISTANT_INSTRUCTIONS = (
+
+
     "🔹 **STRICT TOOL USAGE PROTOCOL**\n"
     "ALL tool calls MUST follow EXACT structure:\n"
     "{\n"
@@ -147,7 +149,12 @@ BASE_ASSISTANT_INSTRUCTIONS = (
     '    "<param>": "<value>"\n'
     '  }\n'
     "}\n\n"
-
+    
+    "🔹 **FORMATTING FUNCTION CALLS**\n"
+    "1. Do not format function calls\n"
+    "2. Never wrap them in markdown backs ticks\n"
+    "3. Call them in plain text or they will fail\n"
+    
     "🔹 **CODE INTERPRETER**\n"
     "1. Always print output or script feedback\n"
     "2. For example:\n"
