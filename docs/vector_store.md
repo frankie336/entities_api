@@ -18,7 +18,8 @@ Associated methods can be used to extend the memory and contextual recall of AI 
 **Create a Vector Store**
 
 ```python
-from entities_api import OllamaClient  
+from src.api.entities_api import OllamaClient
+
 # Initialize the client
 client = OllamaClient()
 
@@ -27,9 +28,9 @@ user = user_service.create_user(name="test_user")
 
 # Create vector store
 vector_service = client.vector_service
-vector_store = vector_service.create_vector_store( name="pilot_wave",
-                                    user_id=user.id
-    )
+vector_store = vector_service.create_vector_store(name="pilot_wave",
+                                                  user_id=user.id
+                                                  )
 
 
 ```
