@@ -39,12 +39,15 @@ class ThreadService:
         db_thread = self._get_thread_or_404(thread_id)
         return self._create_thread_read_detailed(db_thread)
 
-    def delete_thread(self, thread_id: str) -> None:
+
+    def delete_thread(self, thread_id: str) -> bool:
         db_thread = self._get_thread_or_404(thread_id)
         self.db.query(Message).filter(Message.thread_id == thread_id).delete()
         db_thread.participants = []
         self.db.delete(db_thread)
         self.db.commit()
+
+        return True
 
     def list_threads_by_user(self, user_id: str) -> List[str]:
         threads = self.db.query(Thread).join(Thread.participants).filter(User.id == user_id).all()
