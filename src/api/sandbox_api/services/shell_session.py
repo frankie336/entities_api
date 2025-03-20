@@ -86,27 +86,48 @@ class PersistentShellSession:
 
     async def send_command(self, cmd: str):
         """Sends a command to the computer session and broadcasts it."""
+        marker = "__COMMAND_COMPLETE__"
+        # Append a marker to know when the command has completed
+        full_cmd = f"{cmd}\necho {marker}"
+
         await self.room_manager.broadcast(self.room, {
             "type": "shell_command",
             "thread_id": self.room,
-            "content": cmd
+            "content": full_cmd
         })
 
         if self.process and self.process.stdin:
-            self.process.stdin.write((cmd + '\n').encode())
+            self.process.stdin.write((full_cmd + '\n').encode())
             await self.process.stdin.drain()
 
     async def stream_output(self):
         """Streams computer output to the WebSocket in real-time."""
+        marker = "__COMMAND_COMPLETE__"
         try:
             while self.alive:
                 chunk = await self.process.stdout.read(1024)
                 if chunk:
-                    await self.room_manager.broadcast(self.room, {
-                        "type": "shell_output",
-                        "thread_id": self.room,
-                        "content": chunk.decode(errors='replace')
-                    })
+                    text_chunk = chunk.decode(errors='replace')
+                    if marker in text_chunk:
+                        # Remove the marker from the output before broadcasting
+                        text_chunk = text_chunk.replace(marker, "")
+                        await self.room_manager.broadcast(self.room, {
+                            "type": "shell_output",
+                            "thread_id": self.room,
+                            "content": text_chunk
+                        })
+                        # Send explicit command complete signal
+                        await self.room_manager.broadcast(self.room, {
+                            "type": "command_complete",
+                            "thread_id": self.room,
+                            "content": ""
+                        })
+                    else:
+                        await self.room_manager.broadcast(self.room, {
+                            "type": "shell_output",
+                            "thread_id": self.room,
+                            "content": text_chunk
+                        })
                 else:
                     await asyncio.sleep(0.01)
 
