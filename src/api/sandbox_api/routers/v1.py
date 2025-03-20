@@ -4,13 +4,12 @@ import json
 from sandbox_api.services.code_execution import StreamingCodeExecutionHandler
 from sandbox_api.services.logging_service import LoggingUtility
 from sandbox_api.services.shell_session import PersistentShellSession
-from sandbox_api.services.web_socket_shell_service import WebSocketShellService
 from sandbox_api.services.room_manager import RoomManager
+
+
 
 logging_utility = LoggingUtility()
 v1_router = APIRouter()  # No prefix here
-
-shell_service = WebSocketShellService()  # Global singleton instance
 room_manager = RoomManager()
 
 
@@ -50,7 +49,18 @@ async def websocket_execute(websocket: WebSocket):
         await websocket.close(code=1011)
 
 
-@v1_router.websocket("/shell")
-async def websocket_endpoint(websocket: WebSocket, room: str = Query("default")):
-    session = PersistentShellSession(websocket, room, room_manager)
+@v1_router.websocket("/computer")
+async def websocket_endpoint(
+    websocket: WebSocket,
+    room: str = Query("default"),
+    elevated: bool = Query(False)
+):
+    """
+    WebSocket endpoint for interactive computer sessions.
+
+    :param websocket: The WebSocket connection.
+    :param room: The session room ID.
+    :param elevated: Whether to start the computer with sudo privileges.
+    """
+    session = PersistentShellSession(websocket, room, room_manager, elevated=elevated)
     await session.start()

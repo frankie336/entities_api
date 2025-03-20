@@ -938,10 +938,10 @@ class BaseInference(ABC):
         )
 
     def handle_shell_action(self, thread_id, run_id, assistant_id, arguments_dict):
-        from entities_api.platform_tools.shell.shell_commands_service import run_shell_commands
+        from entities_api.platform_tools.computer.shell_command_interface import run_shell_commands
         import json
 
-        # Create an action for the shell command execution
+        # Create an action for the computer command execution
         action = self.action_service.create_action(
             tool_name="computer",
             run_id=run_id,
@@ -964,7 +964,7 @@ class BaseInference(ABC):
 
             except json.JSONDecodeError:
                 # Handle invalid JSON chunks
-                error_message = "Error: Invalid JSON chunk received from shell command execution."
+                error_message = "Error: Invalid JSON chunk received from computer command execution."
                 self.submit_tool_output(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
@@ -975,7 +975,7 @@ class BaseInference(ABC):
 
         # Check if bash_buffer is empty (no output was generated)
         if not accumulated_content:
-            error_message = "Error: No shell output was generated. The command may have failed or produced no output."
+            error_message = "Error: No computer output was generated. The command may have failed or produced no output."
             self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,

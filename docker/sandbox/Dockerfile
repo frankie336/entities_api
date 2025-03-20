@@ -32,8 +32,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create a non-root user
 RUN useradd -ms /bin/bash sandboxuser
 
-# Configure passwordless sudo for sandboxuser
-RUN echo "sandboxuser ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/sandboxuser && chmod 0440 /etc/sudoers.d/sandboxuser
+
+# Configure passwordless sudo for sandboxuser with restrictions
+RUN echo "sandboxuser ALL=(ALL) NOPASSWD: /usr/bin/firejail /bin/bash, /usr/bin/firejail /usr/bin/apt-get *, /usr/bin/firejail /usr/bin/pip" > /etc/sudoers.d/sandboxuser \
+    && chmod 440 /etc/sudoers.d/sandboxuser
 
 # Set the working directory
 WORKDIR /app
@@ -44,6 +46,7 @@ COPY src/api/sandbox_api/ /app/sandbox_api/
 
 # Install Python dependencies using the copied requirements file.
 RUN pip install --no-cache-dir --default-timeout=100 -r /app/requirements.txt
+RUN echo "sandboxuser:yourpassword" | chpasswd
 
 # Expose the port for the FastAPI service
 EXPOSE 8000

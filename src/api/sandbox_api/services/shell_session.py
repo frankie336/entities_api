@@ -10,27 +10,40 @@ logger = logging.getLogger("shell_session")
 
 
 class PersistentShellSession:
-    def __init__(self, websocket: WebSocket, room: str, room_manager: RoomManager):
+    def __init__(self, websocket: WebSocket, room: str, room_manager: RoomManager, elevated: bool = False):
+        """
+        Initializes a persistent computer session with optional elevation.
+
+        :param websocket: WebSocket connection
+        :param room: Unique identifier for the session room
+        :param room_manager: Manages multiple session rooms
+        :param elevated: If True, starts the computer with sudo (default: False)
+        """
         self.websocket = websocket
         self.room = room
         self.room_manager = room_manager
+        self.elevated = elevated
         self.process = None
         self.alive = True
         self.output_task = None
 
     async def start(self):
+        """Starts the persistent computer session, handling incoming WebSocket messages."""
         await self.websocket.accept()
         await self.room_manager.connect(self.room, self.websocket)
 
-        # Start explicitly persistent shell subprocess
+        # Choose computer startup command based on elevation flag
+        shell_command = ['sudo', '/bin/bash'] if self.elevated else ['/bin/bash']
+
+        # Start the subprocess
         self.process = await create_subprocess_exec(
-            '/bin/bash',
+            *shell_command,
             stdin=PIPE,
             stdout=PIPE,
             stderr=PIPE
         )
 
-        # Directly and explicitly stream shell outputs immediately
+        # Start streaming computer output
         self.output_task = asyncio.create_task(self.stream_output())
 
         try:
@@ -47,7 +60,14 @@ class PersistentShellSession:
                     await self.websocket.send_json({"type": "pong"})
 
                 elif action == "disconnect":
-                    break   # explicit disconnect requested
+                    break  # Explicit disconnect requested
+
+                elif action == "toggle_elevation":
+                    self.elevated = not self.elevated  # Toggle elevation setting
+                    await self.websocket.send_json({
+                        "type": "status",
+                        "content": f"Elevation toggled: {'Enabled' if self.elevated else 'Disabled'}"
+                    })
 
                 else:
                     await self.websocket.send_json({
@@ -56,35 +76,32 @@ class PersistentShellSession:
                     })
 
         except WebSocketDisconnect:
-            logger.info(f"Client explicitly disconnected from room {self.room}")
+            logger.info(f"Client disconnected from room {self.room}")
 
         except Exception as e:
-            logger.error(f"Unexpected explicit error: {str(e)}")
+            logger.error(f"Unexpected error: {str(e)}")
 
         finally:
             await self.cleanup()
 
-    # Explicitly updated send_command method that clearly broadcasts the command itself first
     async def send_command(self, cmd: str):
-        # First, explicitly broadcast the issued command to all participants
+        """Sends a command to the computer session and broadcasts it."""
         await self.room_manager.broadcast(self.room, {
             "type": "shell_command",
             "thread_id": self.room,
             "content": cmd
         })
 
-        # Now send the command explicitly to the shell subprocess
         if self.process and self.process.stdin:
             self.process.stdin.write((cmd + '\n').encode())
             await self.process.stdin.drain()
 
-    # Clearly-defined streaming output method
     async def stream_output(self):
+        """Streams computer output to the WebSocket in real-time."""
         try:
             while self.alive:
                 chunk = await self.process.stdout.read(1024)
                 if chunk:
-                    # Stream explicit shell output clearly back to clients
                     await self.room_manager.broadcast(self.room, {
                         "type": "shell_output",
                         "thread_id": self.room,
@@ -94,24 +111,22 @@ class PersistentShellSession:
                     await asyncio.sleep(0.01)
 
         except asyncio.CancelledError:
-            logger.info(f"Streaming explicitly cancelled for room {self.room}")
+            logger.info(f"Streaming cancelled for room {self.room}")
 
         except Exception as e:
-            logger.error(f"Error explicitly streaming output: {str(e)}")
+            logger.error(f"Error streaming output: {str(e)}")
 
-    # Explicit, clear cleanup/shutdown
     async def cleanup(self):
+        """Terminates the computer session and cleans up resources."""
         self.alive = False
         if self.process:
             try:
-                # Attempt explicit graceful exit of shell
                 self.process.stdin.write(b'exit\n')
                 await self.process.stdin.drain()
                 await asyncio.wait_for(self.process.wait(), timeout=5)
             except Exception as e:
-                logger.error(f"Cleanup explicitly failed to terminate process: {str(e)}")
+                logger.error(f"Failed to terminate process: {str(e)}")
 
-        # Properly stopping the output streamer
         if self.output_task:
             self.output_task.cancel()
             try:
@@ -120,10 +135,9 @@ class PersistentShellSession:
                 pass
 
         try:
-            # Explicit disconnect & close websocket
             await self.room_manager.disconnect(self.room, self.websocket)
             await self.websocket.close()
         except Exception as e:
-            logger.error(f"Explicit error closing websocket during cleanup: {str(e)}")
+            logger.error(f"Error closing websocket: {str(e)}")
 
-        logger.info(f"Explicit session cleaned up clearly for room {self.room}.")
+        logger.info(f"Session cleaned up for room {self.room}.")
