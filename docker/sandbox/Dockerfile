@@ -1,8 +1,9 @@
 # Use a minimal Python base image
 FROM python:3.8-slim
 
-# Install necessary packages including firejail, basic Linux tools, and penetration testing tools.
+# Install necessary packages including sudo, firejail, basic Linux tools, and penetration testing tools.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    sudo \
     firejail \
     curl \
     wget \
@@ -30,6 +31,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Create a non-root user
 RUN useradd -ms /bin/bash sandboxuser
+
+# Configure passwordless sudo for sandboxuser
+RUN echo "sandboxuser ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/sandboxuser && chmod 0440 /etc/sudoers.d/sandboxuser
 
 # Set the working directory
 WORKDIR /app
