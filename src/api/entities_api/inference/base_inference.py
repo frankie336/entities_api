@@ -1250,9 +1250,6 @@ class BaseInference(ABC):
             model = self._get_model_map(value=model)
         else:
             pass
-            # model = "deepseek-ai/DeepSeek-R1"
-
-        model = "deepseek-ai/DeepSeek-V3"
 
         request_payload = {
             "model": model,
@@ -1506,7 +1503,10 @@ class BaseInference(ABC):
                         run_id=run_id
                     )
 
-
+                    #-----------------------------
+                    # Remind the assistant to synthesise
+                    # a contextual response on tool submission
+                    #-----------------------------
                     for chunk in self.stream_function_call_output(
                             thread_id=thread_id,
                             run_id=run_id,
