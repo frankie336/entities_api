@@ -22,6 +22,7 @@ ENV PYTHONPATH=/app/api
 
 # Copy the wait-for-it.sh script from docker/common to /app and ensure it is executable.
 COPY docker/common/wait-for-it.sh /app/wait-for-it.sh
+
 RUN chmod +x /app/wait-for-it.sh
 
 # Copy the unified startup script and ensure it is executable.
