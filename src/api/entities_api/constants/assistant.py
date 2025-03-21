@@ -69,14 +69,14 @@ BASE_TOOLS = [
       "type": "function",
       "function": {
         "name": "computer",
-        "description": "This function acts as your personal computer—specifically a Linux shell with internet access. When you send a list of shell commands, it executes them in a recoverable shell session, streaming output continuously. It simulates a Linux terminal environment, allowing you to run commands as if you were using your personal Linux workstation. The thread ID is managed internally.",
+        "description": "This function acts as your personal computer—specifically a Linux computer with internet access. When you send a list of computer commands, it executes them in a recoverable computer session, streaming output continuously. It simulates a Linux terminal environment, allowing you to run commands as if you were using your personal Linux workstation. The thread ID is managed internally.",
         "parameters": {
           "type": "object",
           "properties": {
             "commands": {
               "type": "array",
               "items": { "type": "string" },
-              "description": "A list of Linux shell commands to execute sequentially, as if you were typing directly into your personal computer's terminal."
+              "description": "A list of Linux computer commands to execute sequentially, as if you were typing directly into your personal computer's terminal."
             }
           },
           "required": ["commands"]

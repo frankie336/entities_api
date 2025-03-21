@@ -456,7 +456,7 @@ class BaseInference(ABC):
 
         return candidates
 
-    def extract_tool_invocations(self, text: str):
+    def extract_function_calls_within_body_of_text(self, text: str):
         """
         Extracts and validates all tool invocation patterns from unstructured text.
         Handles multi-line JSON and schema validation without recursive patterns.
@@ -498,19 +498,17 @@ class BaseInference(ABC):
 
         return tool_matches
 
-
     def ensure_valid_json(self, text: str):
-
-
         """
         Ensures the accumulated tool response is in valid JSON format.
         - Fixes incorrect single quotes (`'`) → double quotes (`"`)
         - Ensures proper key formatting
         - Removes trailing commas if present
+        Returns a parsed JSON object if it's a valid dictionary, otherwise returns False.
         """
         if not isinstance(text, str) or not text.strip():
             logging_utility.error("Received empty or non-string JSON content.")
-            return None
+            return False
 
         try:
             # Step 1: Standardize Quotes
@@ -518,27 +516,37 @@ class BaseInference(ABC):
                 logging_utility.warning(f"Malformed JSON detected, attempting fix: {text}")
                 text = text.replace("'", '"')
 
-            # Step 2: Remove trailing commas (e.g., {"name": "web_search", "arguments": {"query": "test",},})
+            # Step 2: Remove trailing commas
             text = re.sub(r",\s*}", "}", text)
             text = re.sub(r",\s*\]", "]", text)
 
             # Step 3: Validate JSON
-            parsed_json = json.loads(text)  # Will raise JSONDecodeError if invalid
-            return parsed_json  # Return corrected JSON object
+            parsed_json = json.loads(text)  # Raises JSONDecodeError if invalid
+
+            # Ensure the parsed JSON is a dictionary; if not, return False
+            if not isinstance(parsed_json, dict):
+                logging_utility.warning("Parsed JSON is not a dictionary.")
+                return False
+
+            return parsed_json  # Return the valid JSON dictionary
 
         except json.JSONDecodeError as e:
             logging_utility.error(f"JSON decoding failed: {e} | Raw: {text}")
-            return None  # Skip processing invalid JSON
-
+            return False  # Return False for any JSON decoding error
 
     def normalize_content(self, content):
-        """Smart format normalization with fallback"""
+        """Smart format normalization with fallback."""
         try:
-            return content if isinstance(content, dict) else \
-                json.loads(self.ensure_valid_json(str(content)))
+            # If already a dictionary, use it as-is; otherwise, try to parse the JSON
+            if isinstance(content, dict):
+                return content
+            else:
+                validated = self.ensure_valid_json(str(content))
+                # If validation fails (i.e. returns False), then we simply return False
+                return validated if validated is not False else False
         except Exception as e:
             logging_utility.warning(f"Normalization failed: {str(e)}")
-            return content  # Preserve for legacy handling
+            return content  # Preserve for legacy handling if needed
 
     def handle_error(self, assistant_reply, thread_id, assistant_id, run_id):
         """Handle errors and store partial assistant responses."""
@@ -938,10 +946,10 @@ class BaseInference(ABC):
         )
 
     def handle_shell_action(self, thread_id, run_id, assistant_id, arguments_dict):
-        from entities_api.platform_tools.shell.shell_commands_service import run_shell_commands
+        from entities_api.platform_tools.computer.shell_command_interface import run_shell_commands
         import json
 
-        # Create an action for the shell command execution
+        # Create an action for the computer command execution
         action = self.action_service.create_action(
             tool_name="computer",
             run_id=run_id,
@@ -964,7 +972,7 @@ class BaseInference(ABC):
 
             except json.JSONDecodeError:
                 # Handle invalid JSON chunks
-                error_message = "Error: Invalid JSON chunk received from shell command execution."
+                error_message = "Error: Invalid JSON chunk received from computer command execution."
                 self.submit_tool_output(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
@@ -975,7 +983,7 @@ class BaseInference(ABC):
 
         # Check if bash_buffer is empty (no output was generated)
         if not accumulated_content:
-            error_message = "Error: No shell output was generated. The command may have failed or produced no output."
+            error_message = "Error: No computer output was generated. The command may have failed or produced no output."
             self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
@@ -1227,6 +1235,62 @@ class BaseInference(ABC):
         else:
             return messages
 
+    def parse_and_set_function_calls(self, accumulated_content: str, assistant_reply: str) -> None:
+        """
+        Parses the accumulated content for function calls.
+
+        This method performs the following:
+          - Logs the raw accumulated content.
+          - Normalizes the JSON output using `ensure_valid_json`. It expects the entire input to be JSON;
+            otherwise, it returns False.
+          - Validates the function call structure via `is_valid_function_call_response`.
+          - Handles complex vector search calls using `is_complex_vector_search`.
+          - Sets the tool response and function call state accordingly.
+          - If tool invocations are detected in multi-line text and no prior valid state exists, it updates
+            the state with the first invocation.
+
+        Parameters:
+            accumulated_content (str): The raw content accumulated from streaming responses.
+            assistant_reply (str): The final form of the assistants reply.
+        """
+
+        if accumulated_content:
+            logging_utility.debug("Raw accumulated content: %s", accumulated_content)
+
+            # Normalize JSON output from the accumulated content.
+            json_accumulated_content = self.ensure_valid_json(text=accumulated_content)
+
+            if json_accumulated_content:
+                # Validate function call structure.
+                function_call = self.is_valid_function_call_response(json_data=json_accumulated_content)
+                logging_utility.debug("Valid Function call: %s", function_call)
+
+                # Check for complex vector search requirements.
+                complex_vector_search = self.is_complex_vector_search(data=json_accumulated_content)
+
+                # If either valid function call or complex vector search is detected, update the state.
+                if function_call or complex_vector_search:
+                    self.set_tool_response_state(True)
+                    logging_utility.debug("Response State: %s", self.get_tool_response_state())
+                    self.set_function_call_state(json_accumulated_content)
+                    logging_utility.debug("Function call State: %s", self.get_function_call_state())
+
+        # Check for tool invocations embedded in multi-line text.
+        tool_invocation_in_multi_line_text = self.extract_function_calls_within_body_of_text(text=assistant_reply)
+
+        #-------------------------------------------
+        #  The assistant may wrap a function call in
+        #  response text. This block  will catch that
+        #--------------------------------------------
+
+        if tool_invocation_in_multi_line_text and not self.get_tool_response_state():
+
+            logging_utility.debug("Embedded Function Call detected : %s", tool_invocation_in_multi_line_text)
+
+            self.set_tool_response_state(True)
+            self.set_function_call_state(tool_invocation_in_multi_line_text)
+
+            self.set_function_call_state(tool_invocation_in_multi_line_text[0])
 
     def stream_response_hyperbolic(self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=True):
         """
@@ -1386,27 +1450,13 @@ class BaseInference(ABC):
             combined = reasoning_content + assistant_reply
             self.finalize_conversation(combined, thread_id, assistant_id, run_id)
 
-
+        #-----------------------------------------
+        #  Parsing the complete accumulated content
+        #  for function calls.
+        #-----------------------------------------
         if accumulated_content:
-            logging_utility.debug("Raw accumulated content: %s", accumulated_content)
-            json_accumulated_content = self.ensure_valid_json(text=accumulated_content)
+            self.parse_and_set_function_calls(accumulated_content, assistant_reply)
 
-            function_call = self.is_valid_function_call_response(json_data=json_accumulated_content)
-            logging_utility.debug("Valid Function call: %s", function_call)
-
-            complex_vector_search = self.is_complex_vector_search(data=json_accumulated_content)
-
-            if function_call or complex_vector_search:
-                self.set_tool_response_state(True)
-                logging_utility.debug("Response State: %s", self.get_tool_response_state())
-
-                self.set_function_call_state(json_accumulated_content)
-                logging_utility.debug("Function call State: %s", self.get_function_call_state())
-
-            tool_invocation_in_multi_line_text = self.extract_tool_invocations(text=accumulated_content)
-            if tool_invocation_in_multi_line_text and not self.get_tool_response_state():
-                self.set_tool_response_state(True)
-                self.set_function_call_state(tool_invocation_in_multi_line_text[0])
 
         self.run_service.update_run_status(run_id, "completed")
         if reasoning_content:
