@@ -86,7 +86,7 @@ class PersistentShellSession:
 
     async def send_command(self, cmd: str):
         """Sends a command to the computer session and broadcasts it."""
-        marker = "__COMMAND_COMPLETE__"
+        marker = "!__COMMAND_COMPLETE__"
         # Append a marker to know when the command has completed
         full_cmd = f"{cmd}\necho {marker}"
 
@@ -102,7 +102,7 @@ class PersistentShellSession:
 
     async def stream_output(self):
         """Streams computer output to the WebSocket in real-time."""
-        marker = "__COMMAND_COMPLETE__"
+        marker = "!__COMMAND_COMPLETE__"
         try:
             while self.alive:
                 chunk = await self.process.stdout.read(1024)

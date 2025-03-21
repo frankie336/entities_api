@@ -2,10 +2,11 @@ from entities_api.platform_tools.computer.shell_command_interface import run_she
 
 # List of commands to execute on the remote shell.
 commands_list = [
-    "whoami",              # Identify current user
-    "pwd",                 # Print working directory
-    "ls -la",              # List files in detail
-    "nmap -v localhost"    # Perform an nmap scan on localhost with verbose output
+                  # Identify current user
+                     # Print working directory
+                  # List files in detail
+
+    "telnet host.docker.internal 9001"
 ]
 
 # Execute commands with proper elevation flag.
