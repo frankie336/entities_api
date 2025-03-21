@@ -91,7 +91,7 @@ class PlatformToolService:
                 )
             elif function_name == "computer":
                 # Use our new ShellCommandInterface for streaming computer commands.
-                shell_service = ShellCommandInterface(thread_id=self.thread_id, idle_timeout=3000)
+                shell_service = ShellCommandInterface(thread_id=self.thread_id, idle_timeout=5)
                 self.function_handlers[function_name] = shell_service.run_commands
             else:
                 return {"error": f"Unsupported function: {function_name}"}
