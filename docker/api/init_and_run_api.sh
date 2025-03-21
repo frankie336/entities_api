@@ -1,9 +1,11 @@
 #!/bin/bash
+# docker/api/init_and_run_api.sh
+
 set -e  # Exit immediately if any command fails
 
-# Wait for the database to be available
+# Wait for the database to be available using the absolute path
 echo "Waiting for database..."
-./wait-for-it.sh db:3306 --timeout=30
+/app/wait-for-it.sh db:3306 --timeout=30
 
 # Run startup scripts (e.g., necessary initialization tasks)
 echo "Running startup scripts..."

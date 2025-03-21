@@ -20,9 +20,11 @@ COPY src/api /app/api
 # Set PYTHONPATH so that modules under /app/api are importable (e.g. entities_api)
 ENV PYTHONPATH=/app/api
 
+# Copy the wait-for-it.sh script from docker/common to /app and ensure it is executable.
+COPY docker/common/wait-for-it.sh /app/wait-for-it.sh
+RUN chmod +x /app/wait-for-it.sh
+
 # Copy the unified startup script and ensure it is executable.
-# This script (init_and_run_api.sh) typically waits for dependencies, runs initialization tasks,
-# and finally starts the FastAPI server.
 COPY docker/api/init_and_run_api.sh /app/init_and_run_api.sh
 RUN chmod +x /app/init_and_run_api.sh
 

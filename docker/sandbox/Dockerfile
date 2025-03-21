@@ -49,12 +49,16 @@ COPY src/api/sandbox_api/ /app/sandbox_api/
 # Install Python dependencies
 RUN pip install --no-cache-dir --default-timeout=100 -r /app/requirements.txt
 
+# Copy the wait-for-it.sh script from docker/common to /app and make it executable.
+COPY docker/common/wait-for-it.sh /app/wait-for-it.sh
+RUN chmod +x /app/wait-for-it.sh
+
 # Copy Supervisor configuration
 # Adjust the source path if your supervisord.conf is located elsewhere (e.g., config/)
 COPY docker/sandbox/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# Expose the FastAPI port for server access (22 and 23 are not needed here)
+# Expose the FastAPI port for server access
 EXPOSE 8000
 
-# Start Supervisor in the foreground.
+# Start Supervisor in the foreground
 CMD ["/usr/bin/supervisord", "-n"]
