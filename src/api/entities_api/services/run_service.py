@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from pydantic import parse_obj_as
 from sqlalchemy.orm import Session
 
-from entities_api.schemas import Tool
+from entities_api.schemas.schemas import Tool
 from entities_api.services.identifier_service import IdentifierService
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.models.models import Run, StatusEnum  # Ensure Run is imported

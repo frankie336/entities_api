@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any, List
 import httpx
 from pydantic import ValidationError
 
-from entities_api.schemas import ActionRead, ActionUpdate, ActionCreate, ActionStatus
+from entities_api.schemas.schemas import ActionRead, ActionUpdate, ActionCreate, ActionStatus
 from entities_api.services.identifier_service import IdentifierService
 from entities_api.services.logging_service import LoggingUtility
 

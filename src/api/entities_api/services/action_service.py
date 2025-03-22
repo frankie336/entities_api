@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from entities_api.models.models import Action, Tool
 from typing import List, Optional, Dict, Any
 from entities_api.services.logging_service import LoggingUtility
-from entities_api.schemas import ActionCreate, ActionRead, ActionUpdate, ActionStatus
+from entities_api.schemas.schemas import ActionCreate, ActionRead, ActionUpdate, ActionStatus
 from datetime import datetime
 from entities_api.utils.conversion_utils import  datetime_to_iso
 from entities_api.services.identifier_service import IdentifierService

@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from entities_api.models.models import User
-from entities_api.schemas import UserCreate, UserRead, UserUpdate, AssistantRead
+from entities_api.schemas.schemas import UserCreate, UserRead, UserUpdate, AssistantRead
 from entities_api.services.identifier_service import IdentifierService
 from typing import List
 from fastapi import HTTPException

@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from typing import List
 
 from entities_api.models.models import Sandbox, User
-from entities_api.schemas import SandboxCreate, SandboxRead, SandboxUpdate
+from entities_api.schemas.schemas import SandboxCreate, SandboxRead, SandboxUpdate
 from entities_api.services.identifier_service import IdentifierService
 from entities_api.services.logging_service import LoggingUtility
 

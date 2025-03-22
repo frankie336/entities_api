@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from entities_api.inference.inference_arbiter import InferenceArbiter
 from entities_api.inference.inference_provider_selector import InferenceProviderSelector
-from entities_api.schemas import StreamRequest
+from entities_api.schemas.schemas import StreamRequest
 from entities_api.services.logging_service import LoggingUtility
 
 router = APIRouter()

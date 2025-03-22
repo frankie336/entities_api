@@ -6,8 +6,8 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from entities_api.dependencies import get_db
-from entities_api.schemas import SandboxCreate, SandboxRead, SandboxUpdate
-from entities_api.schemas import (
+from entities_api.schemas.schemas import SandboxCreate, SandboxRead, SandboxUpdate
+from entities_api.schemas.schemas import (
     UserCreate, UserRead, UserUpdate,
     ThreadCreate, ThreadRead, ThreadReadDetailed, ThreadIds,
     MessageCreate, MessageRead,

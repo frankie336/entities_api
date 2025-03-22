@@ -1,51 +1,98 @@
 import os
+import mimetypes
 from datetime import datetime
-
+from fastapi import HTTPException
+from sqlalchemy.orm import Session
 from entities_api.models.models import File, User
 from entities_api.utils.samba_client import SambaClient
+from entities_api.constants.platform import SUPPORTED_MIME_TYPES
 
-
-samba_client = SambaClient(os.getenv("SMBCLIENT_SERVER"), os.getenv("SMBCLIENT_SHARE"),
-                           os.getenv("SMBCLIENT_USERNAME"), os.getenv("SMBCLIENT_PASSWORD"))
 
 class FileService:
-    @staticmethod
-    def upload_file(file, request, db):
+    def __init__(self, db: Session):
         """
-        Handles file upload logic, including saving metadata in the database.
+        Initialize FileService with a database session.
+        """
+        self.db = db
+        self.samba_client = SambaClient(
+            os.getenv("SMBCLIENT_SERVER"),
+            os.getenv("SMBCLIENT_SHARE"),
+            os.getenv("SMBCLIENT_USERNAME"),
+            os.getenv("SMBCLIENT_PASSWORD"),
+        )
+
+    def validate_file_type(self, filename: str, content_type: str = None) -> str:
+        """
+        Validates if the file type is supported based on extension and optional content_type.
+        Returns the validated MIME type or raises an HTTPException if not supported.
+        """
+        _, ext = os.path.splitext(filename.lower())
+
+        # Check if extension is supported
+        if ext not in SUPPORTED_MIME_TYPES:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}. Supported types: {SUPPORTED_MIME_TYPES.keys()}")
+
+        # Determine MIME type from extension
+        expected_mime = SUPPORTED_MIME_TYPES[ext]
+
+        # If content_type is provided, verify it matches the expected MIME type
+        if content_type and content_type != expected_mime:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Content type mismatch: expected {expected_mime}, got {content_type}",
+            )
+
+        return expected_mime
+
+    def validate_user(self, user_id: str) -> User:
+        """
+        Validates that a user exists in the database.
+        """
+        user = self.db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        return user
+
+    def upload_file(self, file, request) -> File:
+        """
+        Handles file upload logic, including validation, uploading to Samba, and saving metadata in the database.
         """
         # Validate user
-        user = db.query(User).filter(User.id == request.user_id).first()
-        if not user:
-            raise ValueError("User not found")
+        user = self.validate_user(request.user_id)
 
-        # Generate a unique file ID
+        # Validate file type
+        mime_type = self.validate_file_type(file.filename, getattr(file, "content_type", None))
+
+        # Generate unique file ID
         file_id = f"file-{datetime.now().timestamp()}"
 
-        # Upload file to Samba server
         try:
-            samba_client.upload_file(file.file, file.filename)
+            # Upload file to Samba
+            self.samba_client.upload_file(file.file, file.filename)
 
             # Create file metadata
             file_metadata = File(
                 id=file_id,
                 object="file",
-                bytes=os.path.getsize(file.file.name),
+                bytes=file.file.seek(0, os.SEEK_END),  # Get file size
                 created_at=int(datetime.now().timestamp()),
                 expires_at=None,
                 filename=file.filename,
                 purpose=request.purpose,
-                user_id=request.user_id
+                user_id=request.user_id,
+                mime_type=mime_type,  # Store validated MIME type
             )
 
-            # Save metadata to the database
-            db.add(file_metadata)
-            db.commit()
-            db.refresh(file_metadata)
+            # Save file metadata to database
+            self.db.add(file_metadata)
+            self.db.commit()
+            self.db.refresh(file_metadata)
 
             return file_metadata
+
         except Exception as e:
-            db.rollback()
-            raise RuntimeError(f"Failed to upload file: {str(e)}")
+            self.db.rollback()
+            raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
+
         finally:
             file.file.close()

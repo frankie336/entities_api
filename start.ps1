@@ -26,4 +26,4 @@ if ($env:OS -eq "Windows_NT") {
 Write-Host "Using shared path: $env:SHARED_PATH"
 
 # Run Docker Compose
-docker-compose up
+docker-compose up --build
