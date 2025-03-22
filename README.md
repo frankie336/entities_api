@@ -128,6 +128,8 @@ Whilst it involves a little more effort, adding state management to distinct par
   
   [Code Interpretation](/docs/code_interpretation.md)
   
+  [Files](/docs/files.md)
+  
   [Function Calling](/docs/function_calling.md)
   
   [Inference](/docs/inference.md)
