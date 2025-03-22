@@ -43,3 +43,38 @@ def upload_file(
         # Catch any other exceptions, log, and return a 500 error
         logging_utility.error(f"Unexpected error during file upload: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred while uploading the file.")
+
+
+@router.get("/uploads/{file_id}", response_model=FileResponse, status_code=200)
+def get_file_by_id(
+        file_id: str,
+        db: Session = Depends(get_db)
+):
+    """
+    Retrieve file metadata by ID.
+    """
+    logging_utility.info(f"Received request to retrieve file with ID: {file_id}")
+
+    file_service = FileService(db)  # Initialize the service with the database session
+    try:
+        # Retrieve file metadata via the FileService
+        file_metadata = file_service.get_file_by_id(file_id)
+
+        if not file_metadata:
+            logging_utility.warning(f"File with ID {file_id} not found")
+            raise HTTPException(status_code=404, detail=f"File with ID {file_id} not found")
+
+        # Validate and return as Pydantic object (FileResponse)
+        file_response = FileResponse.model_validate(file_metadata)
+        logging_utility.info(f"File metadata retrieved successfully for ID: {file_id}")
+        return file_response
+
+    except HTTPException as e:
+        # Log the HTTP error and re-raise
+        logging_utility.error(f"HTTP error occurred during file retrieval: {str(e)}")
+        raise e
+
+    except Exception as e:
+        # Catch any other exceptions, log, and return a 500 error
+        logging_utility.error(f"Unexpected error during file retrieval: {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred while retrieving the file metadata.")

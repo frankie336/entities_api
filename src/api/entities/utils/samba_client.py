@@ -194,17 +194,3 @@ class SambaClient:
             raise Exception(f"Failed to rename file/directory: {str(e)}")
 
 
-if __name__ == "__main__":
-    # Example test usage:
-    server = "samba_server"  # Use the Docker service name
-    share = "cosmic_share"
-    username = "samba_user"
-    password = "default"
-    port = 445  # Use the default port within Docker
-
-    try:
-        smb = SambaClient(server, share, username, password, port=port, max_retries=3)
-        files = smb.listdir("")
-        print("Files in share:", files)
-    except Exception as e:
-        print("Error:", e)

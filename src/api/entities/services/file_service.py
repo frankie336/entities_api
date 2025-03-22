@@ -7,7 +7,10 @@ from entities.models.models import File, User
 from entities.utils.samba_client import SambaClient
 from entities.constants.platform import SUPPORTED_MIME_TYPES
 from entities.services.identifier_service import IdentifierService
+from entities.services.logging_service import LoggingUtility
 
+
+logging_utility = LoggingUtility()
 
 class FileService:
     def __init__(self, db: Session):
@@ -109,3 +112,38 @@ class FileService:
 
         finally:
             file.file.close()
+
+    def get_file_by_id(self, file_id: str) -> dict:
+        """
+        Retrieve file metadata by ID.
+
+        Args:
+            file_id: The ID of the file to retrieve
+
+        Returns:
+            dict: File metadata dictionary
+
+        Raises:
+            HTTPException: If file not found or other errors occur
+        """
+        try:
+            # Query the database for the file record
+            file_record = self.db.query(File).filter(File.id == file_id).first()
+
+            if not file_record:
+                return None
+
+            # Convert database model to dictionary
+            return {
+                "id": file_record.id,
+                "object": "file",
+                "bytes": file_record.bytes,
+                "created_at": int(file_record.created_at.timestamp()),
+                "filename": file_record.filename,
+                "purpose": file_record.purpose,
+            }
+
+        except Exception as e:
+            # Log the error and re-raise
+            logging_utility.error(f"Error retrieving file with ID {file_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")
