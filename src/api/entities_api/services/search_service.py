@@ -3,7 +3,7 @@ import requests
 import re
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.utils import count_tokens
-from entities_api.constants.assistant import WEB_SEARCH_BASE_URL
+from entities_api.constants.platform import WEB_SEARCH_BASE_URL
 
 # Initialize the logging utility
 logging_utility = LoggingUtility()

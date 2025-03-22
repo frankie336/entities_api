@@ -1172,8 +1172,6 @@ class BaseInference(ABC):
 
         return results, code_buffer
 
-
-
     def _set_up_context_window(self, assistant_id, thread_id, trunk=True):
         """Prepares and optimizes conversation context for model processing.
 

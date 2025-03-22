@@ -5,9 +5,7 @@ from sqlalchemy import create_engine, text
 from entities_api.models.models import Base
 
 # Import routers
-from entities_api.routers import api_router
-from entities_api.routers import handler_router
-from entities_api.routers import inference_router
+from entities_api.routers import api_router, handler_router, inference_router, samba_router
 
 from entities_api.services.logging_service import LoggingUtility
 # Initialize the logging utility
@@ -28,6 +26,7 @@ def create_app(init_db=True):
     app.include_router(api_router, prefix="/v1")
     app.include_router(handler_router, prefix="/v1")
     app.include_router(inference_router, prefix="/v1")
+    app.include_router(samba_router, prefix="/v1")
 
     @app.get("/")
     def read_root():

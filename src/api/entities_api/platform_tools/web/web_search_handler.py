@@ -3,11 +3,11 @@ import requests
 import re
 from urllib.parse import quote
 from entities_api.services.logging_service import LoggingUtility
-from entities_api.constants.assistant import WEB_SEARCH_BASE_URL
-
+from entities_api.constants.platform import WEB_SEARCH_BASE_URL
 
 # Initialize the logging utility
 logging_utility = LoggingUtility()
+
 
 def extract_skip_to_content_url(markdown):
     """
@@ -18,6 +18,7 @@ def extract_skip_to_content_url(markdown):
     if match:
         return match.group(1)  # Return the captured URL
     return None  # Return None if no match is found
+
 
 class FirecrawlService:
     def __init__(self, firecrawl_url="http://localhost:3002/v1/crawl",
@@ -32,10 +33,9 @@ class FirecrawlService:
         self.firecrawl_url = firecrawl_url
 
         self.max_retries = 20  # Maximum number of retries
-        self.retry_delay = 0.5# Delay between retries in seconds
+        self.retry_delay = 0.5  # Delay between retries in seconds
 
-        self.token_count  = []
-
+        self.token_count = []
 
     def crawl_url(self, url: str) -> str:
         """
@@ -43,13 +43,27 @@ class FirecrawlService:
         Sends a POST request to the Firecrawl API.
         """
         logging_utility.info(f"Submitting crawl request for URL: {url}")
-        response = requests.post(self.firecrawl_url, json={"url": url})
-        if response.status_code == 200:
-            job_id = response.json().get("id")
-            logging_utility.info(f"Crawl job submitted successfully. Job ID: {job_id}")
-            return job_id
-        logging_utility.error(f"Failed to submit crawl request. Status code: {response.status_code}")
-        return None
+
+        # Print the full request details for debugging
+        request_data = {"url": url}
+        logging_utility.debug(f"Request data: {request_data}")
+
+        response = requests.post(self.firecrawl_url, json=request_data)
+
+        # Add detailed error logging
+        if response.status_code != 200:
+            try:
+                error_detail = response.json()
+                logging_utility.error(
+                    f"Failed to submit crawl request. Status code: {response.status_code}, Details: {error_detail}")
+            except Exception as e:
+                logging_utility.error(
+                    f"Failed to submit crawl request. Status code: {response.status_code}, Response: {response.text}")
+            return None
+
+        job_id = response.json().get("id")
+        logging_utility.info(f"Crawl job submitted successfully. Job ID: {job_id}")
+        return job_id
 
     def get_results(self, job_id: str) -> dict:
         """
@@ -109,7 +123,14 @@ class FirecrawlService:
         for i in range(max_pages):
             try:
                 encoded_query = quote(query)
-                url_to_crawl = f"{WEB_SEARCH_BASE_URL}?q={encoded_query}&first={i * 10 + 1}"
+                # Use the correct path for SearxNG
+                if "localhost" in WEB_SEARCH_BASE_URL or "127.0.0.1" in WEB_SEARCH_BASE_URL:
+                    # Format URL for SearxNG with appropriate parameters
+                    url_to_crawl = f"{WEB_SEARCH_BASE_URL}/search?q={encoded_query}&page={i + 1}&language=auto&safesearch=0&categories=general"
+                else:
+                    # Default format for other search engines
+                    url_to_crawl = f"{WEB_SEARCH_BASE_URL}?q={encoded_query}&first={i * 10 + 1}"
+
                 logging_utility.debug("Generated URL to crawl: %s", url_to_crawl)
 
                 job_id = self.crawl_url(url_to_crawl)
@@ -142,10 +163,10 @@ class FirecrawlService:
 
         return results_data_list if results_data_list else None
 
+
 # Example usage
 if __name__ == "__main__":
     service = FirecrawlService()
     query = "Donald Trump"
-    search = service.search_orchestrator(query=query, max_pages=10)
+    search = service.search_orchestrator(query=query, max_pages=1)
     print(search)
-

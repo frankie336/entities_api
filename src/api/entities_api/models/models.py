@@ -4,6 +4,8 @@ from sqlalchemy import Column, String, Integer, Boolean, JSON, DateTime, Foreign
 from sqlalchemy.orm import relationship, declarative_base, joinedload
 from sqlalchemy import Enum
 from enum import Enum as PyEnum
+from sqlalchemy import Text
+
 
 Base = declarative_base()
 
@@ -66,10 +68,12 @@ class User(Base):
 
     id = Column(String(64), primary_key=True, index=True)
     name = Column(String(128), index=True)
-    threads = relationship('Thread', secondary=thread_participants, back_populates='participants')
+    # Removed the threads relationship since users are deliberately severed from threads
+    # threads = relationship('Thread', secondary=thread_participants, back_populates='participants')
     assistants = relationship('Assistant', secondary=user_assistants, back_populates='users')
     sandboxes = relationship('Sandbox', back_populates='user', cascade="all, delete-orphan")
     vector_stores = relationship("VectorStore", back_populates="user", lazy="select")
+    files = relationship("File", back_populates="user", cascade="all, delete-orphan")
 
 
 class Thread(Base):
@@ -80,7 +84,6 @@ class Thread(Base):
     meta_data = Column(JSON, nullable=False, default={})
     object = Column(String(64), nullable=False)
     tool_resources = Column(JSON, nullable=False, default={})
-    participants = relationship('User', secondary=thread_participants, back_populates='threads')
     vector_stores = relationship(
         "VectorStore",
         secondary=thread_vector_stores,
@@ -89,7 +92,10 @@ class Thread(Base):
     )
 
 
-from sqlalchemy import Text
+
+
+
+
 
 class Message(Base):
     __tablename__ = "messages"
@@ -156,7 +162,7 @@ class Assistant(Base):
     created_at = Column(Integer, nullable=False)
     name = Column(String(128), nullable=False)
     description = Column(String(256), nullable=True)
-    model = Column(String(64), nullable=False)
+    model = Column(String(64), nullable=True)
     instructions = Column(Text, nullable=True)
     meta_data = Column(JSON, nullable=True)
     top_p = Column(Integer, nullable=True)
@@ -233,6 +239,24 @@ class Sandbox(Base):
     status = Column(String(32), nullable=False, default="active")
     config = Column(JSON, nullable=True)
     user = relationship("User", back_populates="sandboxes")
+
+
+class File(Base):
+    __tablename__ = "files"
+
+    id = Column(String(64), primary_key=True, index=True)
+    object = Column(String(64), nullable=False, default="file")
+    bytes = Column(Integer, nullable=False)
+    created_at = Column(Integer, nullable=False)
+    expires_at = Column(Integer, nullable=True)
+    filename = Column(String(256), nullable=False)
+    purpose = Column(String(64), nullable=False)
+
+    # Foreign key to associate with a user
+    user_id = Column(String(64), ForeignKey('users.id'), nullable=False)
+
+    # Relationship with User
+    user = relationship("User", back_populates="files")
 
 
 class VectorStore(Base):

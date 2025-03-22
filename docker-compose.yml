@@ -58,8 +58,6 @@ services:
       qdrant:
         condition: service_started
     command: ["./wait-for-it.sh", "db:3306", "--", "uvicorn", "entities_api.main:app", "--host", "0.0.0.0", "--port", "9000"]
-    volumes:
-      - C:/Users/franc/Models/HuggingFace:/app/models
     networks:
       - my_custom_network
 
@@ -84,6 +82,33 @@ services:
       - /tmp/sandbox_logs:/app/logs
     networks:
       - my_custom_network
+
+  samba:
+    image: dperson/samba
+    container_name: samba_server
+    restart: unless-stopped
+    environment:
+      USERID: 1000
+      GROUPID: 1000
+      TZ: UTC
+    ports:
+      - "139:139"
+      - "1445:445"  # Custom host port mapping
+    volumes:
+      - ${SHARED_PATH}:/samba/share
+    networks:
+      - my_custom_network
+    command: >
+      sh -c "mkdir -p /samba/share &&
+             chown -R 1000:1000 /samba/share &&
+             chmod -R 0770 /samba/share &&
+             smbd -FS --no-process-group \
+               -s '\[cosmic_share\] \
+                   path = /samba/share \
+                   writable = yes \
+                   browsable = yes \
+                   guest ok = no \
+                   valid users = samba_user'"
 
 volumes:
   mysql_data:

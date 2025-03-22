@@ -1,50 +1,39 @@
 from transformers import AutoTokenizer
-import os
 
-#from entities_api.constants import ASSISTANT_INSTRUCTIONS
-
-tokenizer_path = r"\USERS\FRANC\MODELS\HUGGINGFACE\DEEPSEEK-R1-DISTILL-QWEN-1.5B"  # Path to your local tokenizer
-
-def count_tokens(input_string: str, tokenizer_path: str =tokenizer_path) -> int:
+def count_tokens(input_string: str, tokenizer_name: str = "gpt2") -> int:
     """
-    Count the number of token_count in the input string using the local tokenizer.
+    Count the number of tokens in the input string using a Hugging Face tokenizer.
 
     Args:
         input_string (str): The input string to tokenize.
-        tokenizer_path (str): The path to the local tokenizer directory.
+        tokenizer_name (str): The name or identifier of the tokenizer to load from Hugging Face's model hub.
 
     Returns:
-        int: The number of token_count in the input string.
+        int: The number of tokens in the input string.
 
     Raises:
-        FileNotFoundError: If the tokenizer path does not exist.
-        Exception: If the tokenizer fails to load.
+        Exception: If the tokenizer fails to load or tokenize the input.
     """
-    tokenizer_path = r"\USERS\FRANC\MODELS\HUGGINGFACE\DEEPSEEK-R1-DISTILL-QWEN-1.5B"
-
-    # Check if the tokenizer path exists
-    if not os.path.exists(tokenizer_path):
-        raise FileNotFoundError(f"Tokenizer path '{tokenizer_path}' does not exist.")
-
     try:
-        # Load the tokenizer from the local path
-        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+        # Dynamically load the tokenizer from Hugging Face's model hub
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
         # Tokenize the input string
         tokens = tokenizer.encode(input_string, add_special_tokens=False)
 
-        # Return the number of token_count
+        # Return the number of tokens
         return len(tokens)
     except Exception as e:
-        raise Exception(f"Failed to load tokenizer: {str(e)}")
+        raise Exception(f"Failed to load or use the tokenizer '{tokenizer_name}': {str(e)}")
 
 
 # Example usage
 if __name__ == "__main__":
-    #input_text = BASE_ASSISTANT_INSTRUCTIONS
-    input_text = markdown_dict["markdown"]
+    input_text = "This is an example string to test tokenization."
+    tokenizer_name = "bert-base-uncased"  # Replace with the desired tokenizer name
+
     try:
-        token_count = count_tokens(input_text, tokenizer_path)
-        print(f"Number of token_count: {token_count}")
+        token_count = count_tokens(input_text, tokenizer_name)
+        print(f"Number of tokens: {token_count}")
     except Exception as e:
         print(f"Error: {str(e)}")

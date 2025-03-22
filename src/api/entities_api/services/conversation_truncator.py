@@ -10,13 +10,12 @@ class ConversationTruncator:
     consecutive messages from the same role are merged to maintain an alternating dialogue.
 
     Attributes:
-        max_context_window (int): Maximum token_count the model supports (e.g., 4096).
+        max_context_window (int): Maximum token count the model supports (e.g., 4096).
         threshold_percentage (float): Fraction (0-1) of max_context_window to trigger truncation.
         tokenizer (AutoTokenizer): Hugging Face tokenizer instance.
     """
 
     def __init__(self, model_name, max_context_window, threshold_percentage):
-
         self.max_context_window = max_context_window
         self.threshold_percentage = threshold_percentage  # e.g., 0.8 for 80%
 
@@ -24,7 +23,7 @@ class ConversationTruncator:
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
 
     def count_tokens(self, text):
-        """Uses the Hugging Face tokenizer to count token_count in a given text."""
+        """Uses the Hugging Face tokenizer to count tokens in a given text."""
         if not text:
             return 0
         return len(self.tokenizer.encode(text, add_special_tokens=False))
@@ -44,7 +43,7 @@ class ConversationTruncator:
         system_messages = [msg for msg in conversation if msg.get('role') == 'system']
         other_messages = [msg for msg in conversation if msg.get('role') != 'system']
 
-        # Count token_count for system and non-system messages.
+        # Count tokens for system and non-system messages.
         system_token_count = sum(self.count_tokens(msg.get('content', '')) for msg in system_messages)
         other_token_count = sum(self.count_tokens(msg.get('content', '')) for msg in other_messages)
         total_tokens = system_token_count + other_token_count

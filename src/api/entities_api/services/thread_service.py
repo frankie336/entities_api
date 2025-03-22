@@ -14,9 +14,6 @@ class ThreadService:
         self.db = db
 
     def create_thread(self, thread: ThreadCreate) -> ThreadReadDetailed:
-        existing_users = self.db.query(User).filter(User.id.in_(thread.participant_ids)).all()
-        if len(existing_users) != len(thread.participant_ids):
-            raise HTTPException(status_code=400, detail="Invalid user IDs")
 
         db_thread = Thread(
             id=IdentifierService.generate_thread_id(),
@@ -26,14 +23,11 @@ class ThreadService:
             tool_resources=json.dumps({})
         )
         self.db.add(db_thread)
-
-        for user in existing_users:
-            db_thread.participants.append(user)
-
         self.db.commit()
         self.db.refresh(db_thread)
-
         return self._create_thread_read_detailed(db_thread)
+
+
 
     def get_thread(self, thread_id: str) -> ThreadReadDetailed:
         db_thread = self._get_thread_or_404(thread_id)
@@ -87,12 +81,11 @@ class ThreadService:
         return db_thread
 
     def _create_thread_read_detailed(self, db_thread: Thread) -> ThreadReadDetailed:
-        participants = [UserBase.from_orm(user) for user in db_thread.participants]
+
         return ThreadReadDetailed(
             id=db_thread.id,
             created_at=db_thread.created_at,
             meta_data=json.loads(db_thread.meta_data),
             object=db_thread.object,
             tool_resources=json.loads(db_thread.tool_resources),
-            participants=participants
         )

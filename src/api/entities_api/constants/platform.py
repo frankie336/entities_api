@@ -7,10 +7,10 @@ ERROR_NO_CONTENT = (
 
 
 DIRECT_DATABASE_URL = "mysql+pymysql://ollama:3e4Qv5uo2Cg31zC1@localhost:3307/cosmic_catalyst"
-#---------------------------------------------------------------
+#------------------------------------------------
 # Vendors sometimes have clashing model names.
 # This can interfere with routing logic
-#________________________________________________________________
+#_________________________________________________
 MODEL_MAP = {"deepseek-ai/deepseek-reasoner": "deepseek-reasoner",
              "deepseek-ai/deepseek-chat": "deepseek-chat",
 
@@ -22,3 +22,7 @@ MODEL_MAP = {"deepseek-ai/deepseek-reasoner": "deepseek-reasoner",
 
              }
 
+
+WEB_SEARCH_BASE_URL = "http://localhost:8080/"
+
+SUPPORTED_FILES  = []

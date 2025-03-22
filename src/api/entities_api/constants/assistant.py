@@ -337,7 +337,6 @@ WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS = (
     "---\n"
 )
 
-WEB_SEARCH_BASE_URL = "https://www.bing.co.uk/search"
 JSON_VALIDATION_PATTERN = r'\{\s*"name"\s*:\s*".+?"\s*,\s*"arguments"\s*:\s*\{.*?\}\s*\}'
 
 
