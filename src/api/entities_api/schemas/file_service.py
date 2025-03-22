@@ -1,14 +1,15 @@
 # src/api/entities_api/schemas/file_service.py
+from fastapi import Form
 from pydantic import BaseModel
 from typing import Optional
 
 class FileUploadRequest(BaseModel):
-    """Schema for file upload request data"""
-    purpose: str
-    user_id: str
+    """Schema for file upload request data."""
+    purpose: str = Form(...)
+    user_id: str = Form(...)
 
 class FileResponse(BaseModel):
-    """Schema for file response data"""
+    """Schema for file response data."""
     id: str
     object: str = "file"
     bytes: int
@@ -17,3 +18,6 @@ class FileResponse(BaseModel):
     purpose: str
     status: str = "uploaded"
     expires_at: Optional[int] = None
+
+    class Config:
+        from_attributes = True

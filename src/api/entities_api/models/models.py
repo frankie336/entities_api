@@ -251,6 +251,7 @@ class File(Base):
     expires_at = Column(Integer, nullable=True)
     filename = Column(String(256), nullable=False)
     purpose = Column(String(64), nullable=False)
+    mime_type = Column(String(255))
 
     # Foreign key to associate with a user
     user_id = Column(String(64), ForeignKey('users.id'), nullable=False)

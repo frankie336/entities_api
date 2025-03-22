@@ -91,6 +91,12 @@ services:
       USERID: 1000
       GROUPID: 1000
       TZ: UTC
+      # Add user with password
+      USER: "samba_user;default"
+      # Create share
+      SHARE: "cosmic_share;/samba/share;yes;no;no;samba_user"
+      # Fixed protocol configuration
+      GLOBAL: "server min protocol = NT1\nserver max protocol = SMB3"
     ports:
       - "139:139"
       - "1445:445"  # Custom host port mapping
@@ -98,17 +104,6 @@ services:
       - ${SHARED_PATH}:/samba/share
     networks:
       - my_custom_network
-    command: >
-      sh -c "mkdir -p /samba/share &&
-             chown -R 1000:1000 /samba/share &&
-             chmod -R 0770 /samba/share &&
-             smbd -FS --no-process-group \
-               -s '\[cosmic_share\] \
-                   path = /samba/share \
-                   writable = yes \
-                   browsable = yes \
-                   guest ok = no \
-                   valid users = samba_user'"
 
 volumes:
   mysql_data:

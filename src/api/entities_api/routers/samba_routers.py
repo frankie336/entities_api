@@ -1,6 +1,6 @@
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Form
 from sqlalchemy.orm import Session
-from entities_api.dependencies import get_db  # Corrected to match your provided example
+from entities_api.dependencies import get_db
 from entities_api.schemas.file_service import FileResponse, FileUploadRequest
 from entities_api.services.file_service import FileService
 from entities_api.services.logging_service import LoggingUtility
@@ -8,15 +8,20 @@ from entities_api.services.logging_service import LoggingUtility
 router = APIRouter()
 logging_utility = LoggingUtility()
 
+
 @router.post("/uploads", response_model=FileResponse, status_code=201)
 def upload_file(
-    file: UploadFile = File(...),
-    request: FileUploadRequest = Depends(),
-    db: Session = Depends(get_db)
+        file: UploadFile = File(...),
+        purpose: str = Form(...),  # This extracts the string value from form data
+        user_id: str = Form(...),  # This extracts the string value from form data
+        db: Session = Depends(get_db)
 ):
     """
     Upload a file and store its metadata.
     """
+    # Create a request object manually
+    request = FileUploadRequest(purpose=purpose, user_id=user_id)
+
     logging_utility.info(f"Received file upload request: {file.filename} from user {request.user_id}")
 
     file_service = FileService(db)  # Initialize the service with the database session

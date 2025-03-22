@@ -66,14 +66,25 @@ class FileService:
         mime_type = self.validate_file_type(file.filename, getattr(file, "content_type", None))
 
         try:
-            # Upload file to Samba
-            self.samba_client.upload_file(file.file, file.filename)
+            # Save the uploaded file to a temporary location
+            temp_file_path = f"/tmp/{file.filename}"
+            with open(temp_file_path, "wb") as f:
+                # Reset the file pointer to the beginning
+                file.file.seek(0)
+                # Copy content to the temporary file
+                f.write(file.file.read())
+
+            # Upload file to Samba using the path
+            self.samba_client.upload_file(temp_file_path, file.filename)
+
+            # Get file size
+            file_size = os.path.getsize(temp_file_path)
 
             # Create file metadata
             file_metadata = File(
                 id=self.identifier_service.generate_file_id(),
                 object="file",
-                bytes=file.file.seek(0, os.SEEK_END),  # Get file size
+                bytes=file_size,  # Use the actual file size
                 created_at=int(datetime.now().timestamp()),
                 expires_at=None,
                 filename=file.filename,
@@ -86,6 +97,9 @@ class FileService:
             self.db.add(file_metadata)
             self.db.commit()
             self.db.refresh(file_metadata)
+
+            # Clean up the temporary file
+            os.remove(temp_file_path)
 
             return file_metadata
 

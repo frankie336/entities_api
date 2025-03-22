@@ -51,6 +51,7 @@ uvicorn[standard]
 asyncio
 azure-core
 torch
-redis
 websockets
 pysmb
+python-multipart
+alembic

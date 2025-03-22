@@ -1,34 +1,34 @@
 import os
 import socket
-from typing import Optional
+import time
+from typing import Optional, List, Dict, Any
 from smb.SMBConnection import SMBConnection
+
 
 class SambaClient:
     def __init__(self, server: str, share: str, username: str, password: str,
-                 domain: Optional[str] = None, port: int = 445):
+                 domain: Optional[str] = None, port: int = 445,
+                 max_retries: int = 5, retry_delay: int = 2):
         """
         Initialize the Samba client using pysmb's SMBConnection.
 
-        Note: To align with your container configuration, ensure that:
-          - share is set to "cosmic_share"
-          - username is set to "samba_user"
-          - password matches the Samba user's password
-
         :param server: Samba server hostname or IP address.
-                       (Within your Docker network, use the service name, e.g., "samba_server".)
-                       If connecting externally via port mapping, use the host IP.
-        :param share: Samba share name (should be "cosmic_share" per container configuration).
-        :param username: Samba username (typically "samba_user").
+        :param share: Samba share name.
+        :param username: Samba username.
         :param password: Samba password.
-        :param domain: Optional domain name (use "WORKGROUP" or leave as None if not in an AD environment).
-        :param port: Port to connect to (default is 445; if using custom host port mapping, adjust accordingly).
+        :param domain: Optional domain name (default is "WORKGROUP").
+        :param port: Port to connect to (default is 445).
+        :param max_retries: Maximum number of connection attempts (default is 5).
+        :param retry_delay: Delay between retries in seconds (default is 2).
         """
         self.server = server
         self.share = share
         self.username = username
         self.password = password
-        self.domain = domain
+        self.domain = domain or "WORKGROUP"
         self.port = port
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
 
         # Set the client name to the local hostname.
         self.client_name = socket.gethostname()
@@ -36,10 +36,77 @@ class SambaClient:
         self.server_name = server
 
         # Create an SMB connection
-        self.conn = SMBConnection(username, password, self.client_name,
-                                  self.server_name, domain=domain, use_ntlm_v2=True)
-        if not self.conn.connect(server, port):
-            raise Exception("Failed to connect to SMB server")
+        self.conn = None
+
+        # Try to establish connection with retries
+        for retry in range(self.max_retries):
+            try:
+                print(f"Attempting to connect to SMB server (attempt {retry + 1}/{self.max_retries})...")
+                self._connect()
+                print(f"Successfully connected to SMB server on attempt {retry + 1}")
+                break
+            except Exception as e:
+                print(f"Connection attempt {retry + 1} failed: {str(e)}")
+                if retry < self.max_retries - 1:
+                    print(f"Retrying in {self.retry_delay} seconds...")
+                    time.sleep(self.retry_delay)
+                else:
+                    raise Exception(
+                        f"Failed to connect to SMB server after {self.max_retries} attempts. Last error: {str(e)}")
+
+    def _connect(self):
+        """Establish connection to the SMB server with fallback options"""
+        # Try connecting with different parameter combinations
+        connection_params: List[Dict[str, Any]] = [
+            # Try direct TCP with NTLMv2
+            {"use_ntlm_v2": True, "is_direct_tcp": True},
+            # Try without direct TCP
+            {"use_ntlm_v2": True, "is_direct_tcp": False},
+            # Try with NTLM v1
+            {"use_ntlm_v2": False, "is_direct_tcp": True},
+            # Try with NTLM v1 without direct TCP
+            {"use_ntlm_v2": False, "is_direct_tcp": False}
+        ]
+
+        errors = []
+        for params in connection_params:
+            try:
+                print(f"Trying connection with parameters: {params}")
+                self.conn = SMBConnection(
+                    self.username,
+                    self.password,
+                    self.client_name,
+                    self.server_name,
+                    domain=self.domain,
+                    **params
+                )
+
+                # Add additional debug info
+                print(f"Attempting to connect to {self.server}:{self.port}")
+
+                # Try name resolution before connection
+                try:
+                    ip_address = socket.gethostbyname(self.server)
+                    print(f"Resolved {self.server} to IP: {ip_address}")
+                except socket.gaierror:
+                    print(f"Warning: Could not resolve hostname {self.server}")
+                    # If we're in Docker, this might be a container name
+                    # We'll try to connect anyway
+
+                if self.conn.connect(self.server, self.port):
+                    print(f"Connected successfully with params: {params}")
+                    return
+                else:
+                    error_msg = "Connection returned false"
+                    print(f"{error_msg} with params: {params}")
+                    errors.append(error_msg)
+            except Exception as e:
+                error_msg = str(e)
+                print(f"Connection attempt failed with params {params}: {error_msg}")
+                errors.append(error_msg)
+
+        # If we get here, all connection attempts failed
+        raise Exception(f"Failed to connect to SMB server. Errors: {', '.join(errors)}")
 
     def list_files(self, remote_dir: str = ""):
         """
@@ -129,19 +196,14 @@ class SambaClient:
 
 if __name__ == "__main__":
     # Example test usage:
-    # Update these parameters to match your local testing environment.
-    # Within Docker, you might use server="samba_server" and share="cosmic_share".
-    # For external testing using host port mapping, use server="localhost" and adjust port accordingly.
-
-    server = "localhost"  # or "localhost" if testing externally
+    server = "samba_server"  # Use the Docker service name
     share = "cosmic_share"
     username = "samba_user"
     password = "default"
-
-    port = 1445  # Change this to 1445 if you're using the custom host port mapping externally
+    port = 445  # Use the default port within Docker
 
     try:
-        smb = SambaClient(server, share, username, password, port=port)
+        smb = SambaClient(server, share, username, password, port=port, max_retries=3)
         files = smb.listdir("")
         print("Files in share:", files)
     except Exception as e:
