@@ -19,7 +19,7 @@ This provides a robust and efficient user management system that can be used to 
 # Create user
 
 ```python
-from entities_api import OllamaClient
+from entities import OllamaClient
 
 # Initialize the client
 client = OllamaClient()
