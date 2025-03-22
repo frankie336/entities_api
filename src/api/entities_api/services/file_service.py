@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from entities_api.models.models import File, User
 from entities_api.utils.samba_client import SambaClient
 from entities_api.constants.platform import SUPPORTED_MIME_TYPES
+from entities_api.services.identifier_service import IdentifierService
 
 
 class FileService:
@@ -13,6 +14,7 @@ class FileService:
         """
         Initialize FileService with a database session.
         """
+        self.identifier_service = IdentifierService()
         self.db = db
         self.samba_client = SambaClient(
             os.getenv("SMBCLIENT_SERVER"),
@@ -63,16 +65,13 @@ class FileService:
         # Validate file type
         mime_type = self.validate_file_type(file.filename, getattr(file, "content_type", None))
 
-        # Generate unique file ID
-        file_id = f"file-{datetime.now().timestamp()}"
-
         try:
             # Upload file to Samba
             self.samba_client.upload_file(file.file, file.filename)
 
             # Create file metadata
             file_metadata = File(
-                id=file_id,
+                id=self.identifier_service.generate_file_id(),
                 object="file",
                 bytes=file.file.seek(0, os.SEEK_END),  # Get file size
                 created_at=int(datetime.now().timestamp()),
