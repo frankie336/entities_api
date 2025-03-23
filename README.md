@@ -148,15 +148,37 @@ Whilst it involves a little more effort, adding state management to distinct par
 
 ```bash
 
-# To just bring the containers up:
+# Bring up the containers:
 python start.py --mode up
 
-# To only build the Docker images:
+# Build the Docker images:
 python start.py --mode build
 
-# To first build the images and then start the containers:
+# Build images then bring up the containers:
 python start.py --mode both
 
-python start.py
+# Bring up containers after clearing volumes:
+python start.py --mode up --clear-volumes
+
+# Build images after clearing volumes:
+python start.py --mode build --clear-volumes
+
+# Build images, clear volumes, then bring up containers:
+python start.py --mode both --clear-volumes
+
+# Bring up containers and run assistant orchestration:
+python start.py --mode up --orchestrate
+
+# Build images and run assistant orchestration:
+python start.py --mode build --orchestrate
+
+# Build images, bring up containers, then orchestrate:
+python start.py --mode both --orchestrate
+
+# Clear volumes, bring up containers, and orchestrate:
+python start.py --mode up --clear-volumes --orchestrate
+
+# Clear volumes, build images, bring up containers, then orchestrate:
+python start.py --mode both --clear-volumes --orchestrate
 
 ```

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # docker/api/init_and_run_api.sh
 
 set -e  # Exit immediately if any command fails
@@ -14,4 +14,3 @@ python -m entities.services.assistant_set_up_service
 # Start the FastAPI server using uvicorn
 echo "Starting API server..."
 exec uvicorn entities.main:app --host 0.0.0.0 --port 9000 --workers 1
-

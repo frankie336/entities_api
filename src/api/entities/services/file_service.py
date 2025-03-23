@@ -3,7 +3,7 @@ import mimetypes
 from datetime import datetime
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
-from entities.models.models import File, User
+from entities.models.models import File, User, FileStorage
 from entities.utils.samba_client import SambaClient
 from entities.constants.platform import SUPPORTED_MIME_TYPES
 from entities.services.identifier_service import IdentifierService
@@ -98,6 +98,19 @@ class FileService:
 
             # Save file metadata to database
             self.db.add(file_metadata)
+            self.db.flush()  # Flush to generate the ID without committing transaction
+
+            # Create storage location record
+            file_storage = FileStorage(
+                file_id=file_metadata.id,
+                storage_system="samba",
+                storage_path=file.filename,  # Store the path relative to share root
+                is_primary=True,
+                created_at=int(datetime.now().timestamp())
+            )
+
+            # Add storage location to database
+            self.db.add(file_storage)
             self.db.commit()
             self.db.refresh(file_metadata)
 
@@ -108,10 +121,58 @@ class FileService:
 
         except Exception as e:
             self.db.rollback()
+            logging_utility.error(f"Error uploading file: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
 
         finally:
             file.file.close()
+
+    def delete_file_by_id(self, file_id: str) -> bool:
+        """
+        Delete a file by ID and all its storage locations.
+
+        Args:
+            file_id: The ID of the file to delete
+
+        Returns:
+            bool: True if the file was deleted, False if not found
+        """
+        try:
+            # Query the database for the file record
+            file_record = self.db.query(File).filter(File.id == file_id).first()
+
+            if not file_record:
+                logging_utility.warning(f"File with ID {file_id} not found in database")
+                return False
+
+            # Query for storage locations
+            storage_locations = self.db.query(FileStorage).filter(FileStorage.file_id == file_id).all()
+
+            # Process each storage location
+            for storage_location in storage_locations:
+                if storage_location.storage_system == "samba":
+                    try:
+                        # Delete from Samba
+                        self.samba_client.delete_file(storage_location.storage_path)
+                        logging_utility.info(f"File deleted from Samba: {storage_location.storage_path}")
+                    except Exception as e:
+                        # Log but continue with deletion
+                        logging_utility.error(f"Failed to delete file from Samba: {str(e)}")
+                else:
+                    logging_utility.warning(f"Unsupported storage system: {storage_location.storage_system}")
+
+            # Delete the file record (will cascade and delete storage locations)
+            self.db.delete(file_record)
+            self.db.commit()
+
+            logging_utility.info(f"File with ID {file_id} and its storage locations deleted from database")
+            return True
+
+        except Exception as e:
+            self.db.rollback()
+            logging_utility.error(f"Error deleting file with ID {file_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
+
 
     def get_file_by_id(self, file_id: str) -> dict:
         """

@@ -1,12 +1,12 @@
 # entities/routers.py
 from typing import Dict, Any, List, Optional
+
 from fastapi import APIRouter
 from fastapi import Depends, HTTPException
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
-
+from sqlalchemy import text
 from entities.dependencies import get_db
-from entities.schemas.schemas import SandboxCreate, SandboxRead, SandboxUpdate
 from entities.schemas.schemas import (
     UserCreate, UserRead, UserUpdate,
     ThreadCreate, ThreadRead, ThreadReadDetailed, ThreadIds,
@@ -21,7 +21,6 @@ from entities.services.assistant_service import AssistantService
 from entities.services.logging_service import LoggingUtility
 from entities.services.message_service import MessageService
 from entities.services.run_service import RunService
-from entities.services.sandbox_service import SandboxService
 from entities.services.thread_service import ThreadService
 from entities.services.tool_service import ToolService
 from entities.services.user_service import UserService
@@ -29,6 +28,27 @@ from entities.services.user_service import UserService
 logging_utility = LoggingUtility()
 router = APIRouter()
 
+
+
+
+@router.get("/health", tags=["Health"])
+def health_check(db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """
+    A simple health check endpoint that pings the database.
+    Extend with any other dependency checks as needed.
+    """
+    health_status = {"database": False, "status": "error"}
+    try:
+        # Wrap the SQL query in text() so it's an executable object.
+        db.execute(text("SELECT 1"))
+        health_status["database"] = True
+        health_status["status"] = "healthy"
+        logging_utility.info("Health check passed.")
+    except Exception as e:
+        logging_utility.error(f"Health check failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Database connection failed.")
+
+    return health_status
 
 @router.post("/users", response_model=UserRead)
 def create_user(user: UserCreate = None, db: Session = Depends(get_db)):
@@ -722,89 +742,11 @@ def delete_action(action_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-# Create Sandbox
-@router.post("/sandboxes", response_model=SandboxRead)
-def create_sandbox(sandbox_data: SandboxCreate, db: Session = Depends(get_db)):
-    logging_utility.info(f"Received request to create sandbox for user_id: {sandbox_data.user_id}")
-    sandbox_service = SandboxService(db)
-    try:
-        new_sandbox = sandbox_service.create_sandbox(sandbox_data)
-        logging_utility.info(f"Sandbox created with ID: {new_sandbox.id}")
-        return new_sandbox
-    except HTTPException as e:
-        logging_utility.error(f"HTTP error during sandbox creation: {str(e)}")
-        raise e
-    except Exception as e:
-        logging_utility.error(f"Unexpected error during sandbox creation: {str(e)}")
-        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
-
-# Get Sandbox
 
 
-@router.get("/sandboxes/{sandbox_id}", response_model=SandboxRead)
-def get_sandbox(sandbox_id: str, db: Session = Depends(get_db)):
-    logging_utility.info(f"Received request to get sandbox with ID: {sandbox_id}")
-    sandbox_service = SandboxService(db)
-    try:
-        sandbox = sandbox_service.get_sandbox(sandbox_id)
-        logging_utility.info(f"Sandbox retrieved with ID: {sandbox_id}")
-        return sandbox
-    except HTTPException as e:
-        logging_utility.error(f"HTTP error during sandbox retrieval: {str(e)}")
-        raise e
-    except Exception as e:
-        logging_utility.error(f"Unexpected error during sandbox retrieval: {str(e)}")
-        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
-
-# Update Sandbox
 
 
-@router.put("/sandboxes/{sandbox_id}", response_model=SandboxRead)
-def update_sandbox(sandbox_id: str, sandbox_update: SandboxUpdate, db: Session = Depends(get_db)):
-    logging_utility.info(f"Received request to update sandbox with ID: {sandbox_id}")
-    sandbox_service = SandboxService(db)
-    try:
-        updated_sandbox = sandbox_service.update_sandbox(sandbox_id, sandbox_update)
-        logging_utility.info(f"Sandbox updated with ID: {sandbox_id}")
-        return updated_sandbox
-    except HTTPException as e:
-        logging_utility.error(f"HTTP error during sandbox update: {str(e)}")
-        raise e
-    except Exception as e:
-        logging_utility.error(f"Unexpected error during sandbox update: {str(e)}")
-        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
-
-@router.delete("/sandboxes/{sandbox_id}", status_code=204)
-def delete_sandbox(sandbox_id: str, db: Session = Depends(get_db)):
-    logging_utility.info(f"Received request to delete sandbox with ID: {sandbox_id}")
-    sandbox_service = SandboxService(db)
-    try:
-        sandbox_service.delete_sandbox(sandbox_id)
-        logging_utility.info(f"Sandbox deleted with ID: {sandbox_id}")
-        return {"detail": "Sandbox deleted successfully"}
-    except HTTPException as e:
-        logging_utility.error(f"HTTP error during sandbox deletion: {str(e)}")
-        raise e
-    except Exception as e:
-        logging_utility.error(f"Unexpected error during sandbox deletion: {str(e)}")
-        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
-
-# List Sandboxes for a User
-@router.get("/users/{user_id}/sandboxes", response_model=List[SandboxRead])
-def list_sandboxes_by_user(user_id: str, db: Session = Depends(get_db)):
-    logging_utility.info(f"Received request to list sandboxes for user ID: {user_id}")
-    sandbox_service = SandboxService(db)
-    try:
-        sandboxes = sandbox_service.list_sandboxes_by_user(user_id)
-        logging_utility.info(f"Sandboxes retrieved for user ID: {user_id}")
-        return sandboxes
-    except HTTPException as e:
-        logging_utility.error(f"HTTP error during listing sandboxes: {str(e)}")
-        raise e
-    except Exception as e:
-        logging_utility.error(f"Unexpected error during listing sandboxes: {str(e)}")
-        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
 

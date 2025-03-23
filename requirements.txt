@@ -55,3 +55,4 @@ websockets
 pysmb
 python-multipart
 alembic
+requests

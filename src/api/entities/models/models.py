@@ -1,6 +1,6 @@
 import time
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, Text, BigInteger
+from sqlalchemy import Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, Text, BigInteger, Index
 from sqlalchemy.orm import relationship, declarative_base, joinedload
 from sqlalchemy import Enum
 from enum import Enum as PyEnum
@@ -258,6 +258,32 @@ class File(Base):
 
     # Relationship with User
     user = relationship("User", back_populates="files")
+
+    # Relationship with FileStorage
+    storage_locations = relationship("FileStorage", back_populates="file", cascade="all, delete-orphan")
+
+
+class FileStorage(Base):
+    __tablename__ = "file_storage"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    file_id = Column(String(64), ForeignKey('files.id', ondelete="CASCADE"), nullable=False)
+    storage_system = Column(String(64), nullable=False, default="samba",
+                            comment="Storage system type (samba, s3, etc.)")
+    storage_path = Column(String(512), nullable=False,
+                          comment="Path to file in storage system (relative to share root)")
+    is_primary = Column(Boolean, default=True,
+                        comment="Indicates if this is the primary storage location")
+    created_at = Column(Integer, nullable=False, comment="When this storage entry was created")
+
+    # Relationship with File
+    file = relationship("File", back_populates="storage_locations")
+
+    # Add index for faster lookups
+    __table_args__ = (
+        Index('idx_file_storage_file_id', 'file_id'),
+    )
+
 
 
 class VectorStore(Base):
