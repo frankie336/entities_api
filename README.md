@@ -148,37 +148,49 @@ Whilst it involves a little more effort, adding state management to distinct par
 
 ```bash
 
-# Bring up the containers:
+# Bring up the containers (using existing images):
 python start.py --mode up
 
-# Build the Docker images:
+# Build the Docker images (using cache):
 python start.py --mode build
 
-# Build images then bring up the containers:
+# Build images then bring up the containers (using cache):
 python start.py --mode both
+
+# Build Docker images without cache:
+python start.py --mode build --no-cache
+
+# Build images without cache then bring up the containers:
+python start.py --mode both --no-cache
 
 # Bring up containers after clearing volumes:
 python start.py --mode up --clear-volumes
 
-# Build images after clearing volumes:
+# Build images after clearing volumes (using cache):
 python start.py --mode build --clear-volumes
 
-# Build images, clear volumes, then bring up containers:
+# Build images, clear volumes, then bring up containers (using cache):
 python start.py --mode both --clear-volumes
+
+# Build images without cache after clearing volumes, then bring up containers:
+python start.py --mode both --no-cache --clear-volumes
 
 # Bring up containers and run assistant orchestration:
 python start.py --mode up --orchestrate
 
-# Build images and run assistant orchestration:
+# Build images and run assistant orchestration (using cache):
 python start.py --mode build --orchestrate
 
-# Build images, bring up containers, then orchestrate:
+# Build images, bring up containers, then run orchestration (using cache):
 python start.py --mode both --orchestrate
 
-# Clear volumes, bring up containers, and orchestrate:
+# Clear volumes, bring up containers, and run orchestration:
 python start.py --mode up --clear-volumes --orchestrate
 
-# Clear volumes, build images, bring up containers, then orchestrate:
+# Build images, clear volumes, bring up containers, then run orchestration (using cache):
 python start.py --mode both --clear-volumes --orchestrate
+
+# Build images without cache, clear volumes, bring up containers, then run orchestration:
+python start.py --mode both --no-cache --clear-volumes --orchestrate
 
 ```

@@ -39,7 +39,7 @@ def wait_for_health(health_url, timeout=300, interval=5):
 def main():
     # Set up command-line argument parsing
     parser = argparse.ArgumentParser(
-        description="Run Docker Compose with optional build toggle, clear volumes, and assistant orchestration"
+        description="Run Docker Compose with optional build toggle, clear volumes, no-cache, and assistant orchestration"
     )
     parser.add_argument(
         "--mode",
@@ -56,6 +56,11 @@ def main():
         "--orchestrate",
         action="store_true",
         help="Run assistant orchestration after services are healthy"
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Build Docker images without using the cache"
     )
     args = parser.parse_args()
 
@@ -90,6 +95,9 @@ def main():
         print("Error clearing Docker volumes:", e)
         sys.exit(e.returncode)
 
+    # Build command with no-cache option if specified
+    build_command = ["docker-compose", "build", "--no-cache"] if args.no_cache else ["docker-compose", "build"]
+
     # Execute Docker Compose commands based on the mode.
     # Run containers in detached mode (using "-d") so that we can poll health endpoint.
     try:
@@ -98,17 +106,17 @@ def main():
             subprocess.run(["docker-compose", "up", "-d"], check=True)
         elif args.mode == "build":
             print("Running docker-compose build")
-            subprocess.run(["docker-compose", "build"], check=True)
+            subprocess.run(build_command, check=True)
         elif args.mode == "both":
             print("Running docker-compose build then up in detached mode")
-            subprocess.run(["docker-compose", "build"], check=True)
+            subprocess.run(build_command, check=True)
             subprocess.run(["docker-compose", "up", "-d"], check=True)
     except subprocess.CalledProcessError as e:
         print("Error running docker-compose:", e)
         sys.exit(e.returncode)
 
     # Monitor the health endpoint until the service is ready.
-    # Adjust the URL as needed (assuming your API is hosted at localhost:8000)
+    # Adjust the URL as needed (assuming your API is hosted at localhost:9000)
     health_endpoint = os.getenv("BASE_URL_HEALTH")
     try:
         wait_for_health(health_endpoint, timeout=300, interval=5)
