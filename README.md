@@ -143,3 +143,20 @@ Whilst it involves a little more effort, adding state management to distinct par
   [Users](/docs/users.md)
   
   [Vector Store](/docs/vector_store.md)
+
+## Starting Docker Containers 
+
+```bash
+
+# To just bring the containers up:
+python start.py --mode up
+
+# To only build the Docker images:
+python start.py --mode build
+
+# To first build the images and then start the containers:
+python start.py --mode both
+
+python start.py
+
+```
