@@ -1,5 +1,4 @@
 # entities/services/assistant_setup_service.py
-from typing import List, Dict, Any, Optional, Union
 from entities.clients.client import OllamaClient
 from entities.constants.assistant import DEFAULT_MODEL, BASE_ASSISTANT_INSTRUCTIONS, BASE_TOOLS
 from entities.schemas.schemas import ToolFunction
@@ -7,10 +6,6 @@ from entities.services.logging_service import LoggingUtility
 from entities.services.vector_store_service import VectorStoreService
 from entities.services.vector_waves import AssistantVectorWaves
 
-# Define or import ToolDefinition type to satisfy type checker
-class ToolDefinition(dict):
-    """Tool definition that can be passed directly to the API."""
-    pass
 
 class AssistantSetupService:
     def __init__(self):
@@ -28,9 +23,8 @@ class AssistantSetupService:
             )
         return self._vector_waves
 
-    def create_tools(self, function_definitions):
-        """Create tools without manual association"""
-        created_tools = []
+    def create_and_associate_tools(self, function_definitions, assistant_id):
+        """Batch-friendly tool creation with error handling"""
         for func_def in function_definitions:
             try:
                 tool_name = func_def['function']['name']
@@ -39,7 +33,13 @@ class AssistantSetupService:
                 new_tool = self.client.tool_service.create_tool(
                     name=tool_name,
                     type='function',
-                    function=tool_function
+                    function=tool_function,
+                    assistant_id=assistant_id
+                )
+
+                self.client.tool_service.associate_tool_with_assistant(
+                    tool_id=new_tool.id,
+                    assistant_id=assistant_id
                 )
 
                 self.logging_utility.info(
@@ -47,8 +47,6 @@ class AssistantSetupService:
                     tool_name,
                     new_tool.id
                 )
-
-                created_tools.append(new_tool)
 
             except Exception as e:
                 self.logging_utility.error(
@@ -58,38 +56,24 @@ class AssistantSetupService:
                 )
                 raise
 
-        return created_tools
-
     def setup_assistant_with_tools(self, user_id, assistant_name, assistant_description,
                                    model, instructions, function_definitions):
-        """Streamlined setup with auto-association of tools"""
+        """Streamlined setup with pre-validated user ID"""
         try:
-            # First, create all the tools
-            self.create_tools(function_definitions)
-
-            # Create assistant with tool types that will trigger the auto-association
-            # Convert dictionaries to ToolDefinition objects
-            tool_definitions: List[ToolDefinition] = [
-                ToolDefinition(type="function") for _ in function_definitions
-            ]
-
-            tool_definitions.append(ToolDefinition(type="code_interpreter"))
-            tool_definitions.append(ToolDefinition(type="code_interpreter"))
-
             assistant = self.client.assistant_service.create_assistant(
                 name=assistant_name,
                 description=assistant_description,
                 model=model,
                 instructions=instructions,
-                assistant_id="default",
-                tools=tool_definitions  # This will trigger auto-association
+                assistant_id="default"
             )
-
             self.logging_utility.info(
                 "Created assistant: %s (ID: %s)",
                 assistant_name,
                 assistant.id
             )
+
+            self.create_and_associate_tools(function_definitions, assistant.id)
 
             return assistant
 

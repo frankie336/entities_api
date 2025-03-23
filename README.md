@@ -127,7 +127,7 @@ Whilst it involves a little more effort, adding state management to distinct par
   [Assistants](/docs/assistants.md)
   
   [Code Interpretation](/docs/code_interpretation.md)
-  
+
   [Files](/docs/files.md)
   
   [Function Calling](/docs/function_calling.md)
@@ -139,6 +139,8 @@ Whilst it involves a little more effort, adding state management to distinct par
   [Runs](/docs/runs.md)
 
   [Threads](/docs/threads.md)
+
+  [Tools](/docs/code_interpretation.md)
   
   [Users](/docs/users.md)
   

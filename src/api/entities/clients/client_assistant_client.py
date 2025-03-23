@@ -2,7 +2,7 @@ import httpx
 from typing import List, Dict, Any, Optional
 from pydantic import ValidationError
 from entities.services.logging_service import LoggingUtility
-from entities.schemas.schemas import AssistantCreate, AssistantRead, AssistantUpdate, ToolDefinition
+from entities.schemas.schemas import AssistantCreate, AssistantRead, AssistantUpdate
 
 # Initialize logging utility
 logging_utility = LoggingUtility()
@@ -15,34 +15,41 @@ class ClientAssistantService:
         self.client = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"})
         logging_utility.info("ClientAssistantService initialized with base_url: %s", self.base_url)
 
-    def create_assistant(self, model: str, name: str = "", description: str = "", instructions: str = "",
-                         tools: Optional[List[ToolDefinition]] = None,
-                         meta_data: Dict[str, Any] = None,
-                         top_p: float = 1.0, temperature: float = 1.0, response_format: str = "auto",
-                         assistant_id: Optional[str] = None) -> AssistantRead:
+    def create_assistant(
+            self,
+            model: str,
+            name: str = "",
+            description: str = "",
+            instructions: str = "",
+            tools: Optional[List] = None,  # Accept tools as raw list
+            meta_data: Dict[str, Any] = None,
+            top_p: float = 1.0,
+            temperature: float = 1.0,
+            response_format: str = "auto",
+            assistant_id: Optional[str] = None
+    ) -> AssistantRead:
         """
-        Create an assistant with optional tools as JSON objects.
+        Create an assistant without requiring user_id, as the association is handled separately.
         """
-        # Convert the tools to a list if provided, otherwise use an empty list
-        tool_list = list(tools) if tools is not None else []
-
         assistant_data = {
             "id": assistant_id,
             "name": name,
             "description": description,
             "model": model,
             "instructions": instructions,
-            "tools": tool_list,  # Use the properly converted list
             "meta_data": meta_data,
             "top_p": top_p,
             "temperature": temperature,
-            "response_format": response_format
+            "response_format": response_format,
         }
 
+        # Only include tools if provided
+        if tools is not None:
+            assistant_data["tools"] = tools
+
         try:
-            validated_data = AssistantCreate(**assistant_data)
-            logging_utility.info("Creating assistant with model: %s, name: %s, tools: %s",
-                                 model, name, "Yes" if tool_list else "No")
+            validated_data = AssistantCreate.construct(**assistant_data)  # Bypass validation
+            logging_utility.info("Creating assistant with model: %s, name: %s", model, name)
 
             response = self.client.post("/v1/assistants", json=validated_data.model_dump())
             response.raise_for_status()
@@ -60,7 +67,6 @@ class ClientAssistantService:
         except Exception as e:
             logging_utility.error("An error occurred while creating assistant: %s", str(e))
             raise
-
 
     def retrieve_assistant(self, assistant_id: str) -> AssistantRead:
         logging_utility.info("Retrieving assistant with id: %s", assistant_id)
@@ -121,58 +127,6 @@ class ClientAssistantService:
             logging_utility.error("An error occurred while deleting assistant: %s", str(e))
             raise
 
-    def associate_tool_with_assistant(self, assistant_id: str, tool_id: str) -> Dict[str, Any]:
-        """
-        Associate a tool with an assistant by making a POST request to the appropriate endpoint.
-        """
-        logging_utility.info("Associating tool with id: %s to assistant: %s", tool_id, assistant_id)
-        try:
-            response = self.client.post(f"/v1/assistants/{assistant_id}/tools/{tool_id}")
-            response.raise_for_status()
-            logging_utility.info("Tool %s associated with assistant %s successfully", tool_id, assistant_id)
-            return {"message": "Tool associated with assistant successfully"}
-        except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error occurred while associating tool: %s", str(e))
-            raise
-        except Exception as e:
-            logging_utility.error("An error occurred while associating tool: %s", str(e))
-            raise
-
-    def disassociate_tool_from_assistant(self, assistant_id: str, tool_id: str) -> Dict[str, Any]:
-        """
-        Disassociate a tool from an assistant by making a DELETE request to the appropriate endpoint.
-        """
-        logging_utility.info("Disassociating tool with id: %s from assistant: %s", tool_id, assistant_id)
-        try:
-            response = self.client.delete(f"/v1/assistants/{assistant_id}/tools/{tool_id}")
-            response.raise_for_status()
-            logging_utility.info("Tool %s disassociated from assistant %s successfully", tool_id, assistant_id)
-            return {"message": "Tool disassociated from assistant successfully"}
-        except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error occurred while disassociating tool: %s", str(e))
-            raise
-        except Exception as e:
-            logging_utility.error("An error occurred while disassociating tool: %s", str(e))
-            raise
-
-    def list_tools_by_assistant(self, assistant_id: str) -> List[Dict[str, Any]]:
-        """
-        Retrieve the list of tools associated with a specific assistant.
-        """
-        logging_utility.info("Retrieving tools for assistant id: %s", assistant_id)
-        try:
-            response = self.client.get(f"/v1/assistants/{assistant_id}/tools")
-            response.raise_for_status()
-            tools = response.json()
-            logging_utility.info("Tools retrieved successfully for assistant id: %s", assistant_id)
-            return tools
-        except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error occurred while retrieving tools for assistant: %s", str(e))
-            raise
-        except Exception as e:
-            logging_utility.error("An error occurred while retrieving tools for assistant: %s", str(e))
-            raise
-
     def associate_assistant_with_user(self, user_id: str, assistant_id: str) -> Dict[str, Any]:
         """
         Associate an assistant with a user by making a POST request to the appropriate endpoint.
@@ -206,6 +160,7 @@ class ClientAssistantService:
         except Exception as e:
             logging_utility.error("An error occurred while disassociating assistant: %s", str(e))
             raise
+
 
     def list_assistants_by_user(self, user_id: str) -> List[AssistantRead]:
         """

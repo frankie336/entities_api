@@ -1,12 +1,14 @@
 import time
 from datetime import datetime
 from enum import Enum
+from enum import Enum as PyEnum
 from typing import List, Dict, Any, Optional
+
 from pydantic import BaseModel, Field, ConfigDict
 from pydantic import validator
-from enum import Enum as PyEnum
 
 import entities.models.models
+from entities.constants.platform import PLATFORM_TOOLS
 
 
 class ProviderEnum(str, Enum):
@@ -523,34 +525,35 @@ class VectorStoreSearchResult(BaseModel):
     retrieved_at: int = int(time.time())
 
 
-
 class ProcessOutput(BaseModel):
     store_name: str
     status: str
     chunks_processed: int
 
 
-class ToolDefinition(BaseModel):
-    """Schema representing a tool definition in the tools JSON array."""
-    type: str
+
+
+
+# Dynamically create an Enum from the list.
+ToolType = Enum("ToolType", {value.upper(): value for value in PLATFORM_TOOLS})
+
+# Define the Tool class using the dynamically generated ToolType.
+class Tool(BaseModel):
+    type: ToolType
     function: Optional[Dict[str, Any]] = None
 
-    model_config = ConfigDict(extra="allow")  # Allow extra fields for future extensibility
-
-
+# Example usage in the AssistantCreate model.
 class AssistantCreate(BaseModel):
     id: Optional[str] = None
     name: Optional[str] = None
     description: Optional[str] = None
     model: str
     instructions: Optional[str] = None
-    # Changed from List[Tool] to List[ToolDefinition] to match the JSON structure
-    tools: Optional[List[ToolDefinition]] = None
+    tools: Optional[List[Tool]] = None
     meta_data: Optional[Dict[str, Any]] = {}
     top_p: Optional[float] = 1.0
     temperature: Optional[float] = 1.0
     response_format: Optional[str] = "auto"
-
 
 class AssistantRead(BaseModel):
     id: str
@@ -561,16 +564,11 @@ class AssistantRead(BaseModel):
     description: Optional[str]
     model: str
     instructions: Optional[str]
-    # Changed from List[Tool] to List[ToolDefinition] to match the JSON structure
-    tools: Optional[List[ToolDefinition]] = None
     meta_data: Optional[Dict[str, Any]] = None
     top_p: float
     temperature: float
     response_format: str
-    vector_stores: Optional[List["VectorStoreRead"]] = []
-    # If you need to include the registered_tools in responses:
-    registered_tools: Optional[List["ToolRead"]] = []
-
+    vector_stores: Optional[List[VectorStoreRead]] = []
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -579,8 +577,7 @@ class AssistantUpdate(BaseModel):
     description: Optional[str] = None
     model: Optional[str] = None
     instructions: Optional[str] = None
-    # Changed from List[Tool] to List[ToolDefinition] to match the JSON structure
-    tools: Optional[List[ToolDefinition]] = None
+    tools: Optional[List[Tool]] = None
     meta_data: Optional[Dict[str, Any]] = None
     top_p: Optional[float] = None
     temperature: Optional[float] = None

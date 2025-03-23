@@ -20,7 +20,16 @@ special_engine = create_engine(SPECIAL_DB_URL, echo=True) if SPECIAL_DB_URL else
 
 def create_app(init_db=True):
     logging_utility.info("Creating FastAPI app")
-    app = FastAPI()
+
+    app = FastAPI(
+        title="Entities",
+        description="API for AI inference",
+        version="1.0.0",
+        docs_url="/mydocs",  # Change Swagger UI URL
+        redoc_url="/altredoc",  # Change ReDoc URL
+        openapi_url="/openapi.json"  # Change OpenAPI JSON URL
+    )
+
 
     # Include routers
     app.include_router(api_router, prefix="/v1")

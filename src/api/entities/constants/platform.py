@@ -1,3 +1,5 @@
+PLATFORM_TOOLS = ["code_interpreter", "web_search", "vector_store_search", "computer"]
+
 SPECIAL_CASE_TOOL_HANDLING = ["computer", "code_interpreter"]
 
 ERROR_NO_CONTENT = (
