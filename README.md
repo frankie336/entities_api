@@ -193,4 +193,10 @@ python start.py --mode both --clear-volumes --orchestrate
 # Build images without cache, clear volumes, bring up containers, then run orchestration:
 python start.py --mode both --no-cache --clear-volumes --orchestrate
 
+# Stop and remove all containers:
+python start.py --down
+
+# Stop and remove all containers, including volumes:
+python start.py --down --clear-volumes
+
 ```

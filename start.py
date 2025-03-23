@@ -15,7 +15,6 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "src", "api"))
 
 from src.api.entities.services.assistant_set_up_service import AssistantSetupService
 
-
 def wait_for_health(health_url, timeout=300, interval=5):
     """
     Polls the health endpoint until the service is healthy or the timeout is exceeded.
@@ -35,17 +34,21 @@ def wait_for_health(health_url, timeout=300, interval=5):
         time.sleep(interval)
     raise Exception("Health check timed out; service did not become healthy in time.")
 
-
 def main():
     # Set up command-line argument parsing
     parser = argparse.ArgumentParser(
-        description="Run Docker Compose with optional build toggle, clear volumes, no-cache, and assistant orchestration"
+        description="Manage Docker Compose with optional build toggle, clear volumes, no-cache, and assistant orchestration"
     )
     parser.add_argument(
         "--mode",
         choices=["up", "build", "both"],
         default="up",
         help="Select mode: 'up' for docker-compose up, 'build' for docker-compose build, 'both' for build then up"
+    )
+    parser.add_argument(
+        "--down",
+        action="store_true",
+        help="Stop and remove Docker containers"
     )
     parser.add_argument(
         "--clear-volumes",
@@ -65,9 +68,9 @@ def main():
     args = parser.parse_args()
 
     # Determine OS and set shared_path accordingly
-    system = platform.system().lower()  # e.g., 'windows', 'linux', 'darwin'
+    system = platform.system().lower()
     if system == 'windows':
-        shared_path = r"C:\ProgramData\entities\samba_share"
+        shared_path = r"C:\\ProgramData\\entities\\samba_share"
     elif system == 'linux':
         shared_path = "/srv/entities/samba_share"
     elif system == 'darwin':
@@ -76,7 +79,6 @@ def main():
         print("Unsupported OS detected. Exiting...")
         sys.exit(1)
 
-    # Set environment variable (if needed by Docker Compose)
     os.environ['SHARED_PATH'] = shared_path
 
     # Create the directory if it doesn't exist
@@ -86,7 +88,15 @@ def main():
     else:
         print(f"Directory already exists: {shared_path}")
 
-    # Clear volumes if flag is set
+    if args.down:
+        print("Stopping and removing Docker containers...")
+        try:
+            subprocess.run(["docker-compose", "down"], check=True)
+        except subprocess.CalledProcessError as e:
+            print("Error stopping Docker containers:", e)
+            sys.exit(e.returncode)
+        return
+
     try:
         if args.clear_volumes:
             print("Clearing Docker volumes...")
@@ -95,11 +105,8 @@ def main():
         print("Error clearing Docker volumes:", e)
         sys.exit(e.returncode)
 
-    # Build command with no-cache option if specified
     build_command = ["docker-compose", "build", "--no-cache"] if args.no_cache else ["docker-compose", "build"]
 
-    # Execute Docker Compose commands based on the mode.
-    # Run containers in detached mode (using "-d") so that we can poll health endpoint.
     try:
         if args.mode == "up":
             print("Running docker-compose up in detached mode")
@@ -115,8 +122,6 @@ def main():
         print("Error running docker-compose:", e)
         sys.exit(e.returncode)
 
-    # Monitor the health endpoint until the service is ready.
-    # Adjust the URL as needed (assuming your API is hosted at localhost:9000)
     health_endpoint = os.getenv("BASE_URL_HEALTH")
     try:
         wait_for_health(health_endpoint, timeout=300, interval=5)
@@ -124,14 +129,12 @@ def main():
         print("Service did not become healthy:", e)
         sys.exit(1)
 
-    # Run assistant orchestration if flag is provided.
     if args.orchestrate:
         print("Initiating Assistant orchestration.")
         service = AssistantSetupService()
         service.orchestrate_default_assistant()
     else:
         print("Skipping assistant orchestration.")
-
 
 if __name__ == "__main__":
     main()

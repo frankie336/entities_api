@@ -21,27 +21,7 @@ BASE_TOOLS = [
             }
         }
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "getAnnouncedPrefixes",
-            "description": "Retrieves announced prefixes for an ASN",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "resource": {"type": "string", "description": "ASN to query"},
-                    "starttime": {"type": "string", "description": "Start time (ISO 8601)"},
-                    "endtime": {"type": "string", "description": "End time (ISO 8601)"},
-                    "min_peers_seeing": {
-                        "type": "integer",
-                        "description": "Minimum RIS peers seeing prefix",
-                        "minimum": 1
-                    }
-                },
-                "required": ["resource"]
-            }
-        }
-    },
+
     {
         "type": "web_search",
         "function": {
@@ -66,7 +46,7 @@ BASE_TOOLS = [
 
 
     {
-      "type": "function",
+      "type": "computer",
       "function": {
         "name": "computer",
         "description": "This function acts as your personal computer—specifically a Linux computer with internet access. When you send a list of computer commands, it executes them in a recoverable computer session, streaming output continuously. It simulates a Linux terminal environment, allowing you to run commands as if you were using your personal Linux workstation. The thread ID is managed internally.",
@@ -85,7 +65,7 @@ BASE_TOOLS = [
     },
 
     {
-        "type": "function",
+        "type": "vector_store_search",
         "function": {
             "name": "vector_store_search",
             "description": "Qdrant-compatible semantic search with advanced filters",

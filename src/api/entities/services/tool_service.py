@@ -18,15 +18,18 @@ class ToolService:
         logging_utility.info("ToolService initialized with database session.")
 
     def create_tool(self, tool: ToolCreate) -> ToolRead:
+        """
+        Create a new tool in the database.
+        No need to manually associate with assistants anymore as this happens via the event listener.
+        """
         logging_utility.info("Starting create_tool with ToolCreate: %s", tool)
         try:
-
             tool_id = IdentifierService.generate_tool_id()
             logging_utility.debug("Generated tool ID: %s", tool_id)
 
             db_tool = Tool(
                 id=tool_id,
-                name=tool.name,  # Use the new unique name field
+                name=tool.name,
                 type=tool.type,
                 function=tool.function.dict() if tool.function else None
             )
@@ -45,29 +48,11 @@ class ToolService:
             logging_utility.error("Unexpected error during tool creation: %s", str(e))
             raise HTTPException(status_code=500, detail="An error occurred while creating the tool")
 
-    def associate_tool_with_assistant(self, tool_id: str, assistant_id: str) -> None:
-        logging_utility.info("Associating tool with ID %s to assistant with ID %s", tool_id, assistant_id)
-        try:
-            tool = self._get_tool_or_404(tool_id)
-            assistant = self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
-
-            if not assistant:
-                logging_utility.warning("Assistant with ID %s not found.", assistant_id)
-                raise HTTPException(status_code=404, detail=f"Assistant with id {assistant_id} not found")
-
-            assistant.tools.append(tool)
-            self.db.commit()
-
-            logging_utility.info("Successfully associated tool ID %s with assistant ID %s", tool_id, assistant_id)
-        except HTTPException as e:
-            logging_utility.error("HTTPException: %s", str(e))
-            raise
-        except Exception as e:
-            self.db.rollback()
-            logging_utility.error("Error associating tool with assistant: %s", str(e))
-            raise HTTPException(status_code=500, detail="An error occurred while associating the tool with the assistant")
-
     def disassociate_tool_from_assistant(self, tool_id: str, assistant_id: str) -> None:
+        """
+        Manually disassociate a tool from an assistant.
+        This is still useful for explicitly removing tools.
+        """
         logging_utility.info("Disassociating tool with ID %s from assistant with ID %s", tool_id, assistant_id)
         try:
             tool = self._get_tool_or_404(tool_id)
@@ -77,8 +62,12 @@ class ToolService:
                 logging_utility.warning("Assistant with ID %s not found.", assistant_id)
                 raise HTTPException(status_code=404, detail=f"Assistant with id {assistant_id} not found")
 
-            if tool in assistant.tools:
-                assistant.tools.remove(tool)
+            if tool in assistant.registered_tools:  # Updated from assistant.tools to assistant.registered_tools
+                assistant.registered_tools.remove(tool)  # Updated from assistant.tools to assistant.registered_tools
+
+                # Also update the tools JSON field to remove the tool type
+                assistant.tools = [t for t in assistant.tools if t.get('type') != tool.type]
+
                 self.db.commit()
                 logging_utility.info("Successfully disassociated tool ID %s from assistant ID %s", tool_id,
                                      assistant_id)
@@ -114,6 +103,21 @@ class ToolService:
             if not db_tool:
                 logging_utility.warning("Tool with name %s not found", name)
                 raise HTTPException(status_code=404, detail=f"Tool with name {name} not found")
+
+            logging_utility.info("Tool retrieved successfully: %s", db_tool)
+            return ToolRead.model_validate(db_tool)
+        except Exception as e:
+            logging_utility.error("Unexpected error retrieving tool: %s", str(e))
+            raise HTTPException(status_code=500, detail="An error occurred while retrieving the tool")
+
+    def get_tool_by_type(self, type: str) -> ToolRead:
+        """Retrieve a tool by its type, useful for the new auto-association mechanism."""
+        logging_utility.info("Retrieving tool by type: %s", type)
+        try:
+            db_tool = self.db.query(Tool).filter(Tool.type == type).first()
+            if not db_tool:
+                logging_utility.warning("Tool with type %s not found", type)
+                raise HTTPException(status_code=404, detail=f"Tool with type {type} not found")
 
             logging_utility.info("Tool retrieved successfully: %s", db_tool)
             return ToolRead.model_validate(db_tool)
@@ -164,14 +168,15 @@ class ToolService:
         logging_utility.info("Listing tools for assistant ID: %s", assistant_id)
         try:
             if assistant_id:
-                assistant = self.db.query(Assistant).options(joinedload(Assistant.tools)).filter(Assistant.id == assistant_id).first()
+                assistant = self.db.query(Assistant).options(joinedload(Assistant.registered_tools)).filter(
+                    Assistant.id == assistant_id).first()  # Updated from Assistant.tools to Assistant.registered_tools
                 logging_utility.debug("Assistant found: %s", assistant)
 
                 if not assistant:
                     logging_utility.warning("Assistant with ID %s not found", assistant_id)
                     raise HTTPException(status_code=404, detail=f"Assistant with id {assistant_id} not found")
 
-                tools = assistant.tools
+                tools = assistant.registered_tools  # Updated from assistant.tools to assistant.registered_tools
             else:
                 tools = self.db.query(Tool).all()
 
@@ -231,9 +236,9 @@ class ToolService:
         # Manually convert the ORM Tool object to a dictionary
         return {
             "id": tool.id,
-            "name": tool.name,  # Include the new name field
+            "name": tool.name,
             "type": tool.type,
-            "function": tool.function  # Assuming function is stored as a dictionary or JSON-like structure
+            "function": tool.function
         }
 
     def _get_tool_or_404(self, tool_id: str) -> Tool:

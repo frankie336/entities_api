@@ -1,11 +1,9 @@
 import time
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, Text, BigInteger, Index
-from sqlalchemy.orm import relationship, declarative_base, joinedload
-from sqlalchemy import Enum
+from sqlalchemy import Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, Text, BigInteger, Index, Enum, event
+from sqlalchemy.orm import relationship, declarative_base, joinedload, object_session
+from sqlalchemy.ext.mutable import MutableList
 from enum import Enum as PyEnum
-from sqlalchemy import Text
-
 
 Base = declarative_base()
 
@@ -22,14 +20,11 @@ assistant_tools = Table(
     Column('tool_id', String(64), ForeignKey('tools.id'))
 )
 
-
-
 user_assistants = Table(
     'user_assistants', Base.metadata,
     Column('user_id', String(64), ForeignKey('users.id'), primary_key=True),
     Column('assistant_id', String(64), ForeignKey('assistants.id'), primary_key=True)
 )
-
 
 vector_store_assistants = Table(
     'vector_store_assistants', Base.metadata,
@@ -37,13 +32,11 @@ vector_store_assistants = Table(
     Column('assistant_id', String(64), ForeignKey('assistants.id'), primary_key=True)
 )
 
-
 thread_vector_stores = Table(
     'thread_vector_stores', Base.metadata,
     Column('thread_id', String(64), ForeignKey('threads.id'), primary_key=True),
     Column('vector_store_id', String(64), ForeignKey('vector_stores.id'), primary_key=True)
 )
-
 
 class StatusEnum(PyEnum):
     deleted = "deleted"
@@ -59,8 +52,6 @@ class StatusEnum(PyEnum):
     processing = "processing"
     expired = "expired"
     retrying = "retrying"
-
-
 
 # Models
 class User(Base):
@@ -92,11 +83,6 @@ class Thread(Base):
     )
 
 
-
-
-
-
-
 class Message(Base):
     __tablename__ = "messages"
 
@@ -116,7 +102,6 @@ class Message(Base):
     status = Column(String(32), nullable=True)
     thread_id = Column(String(64), nullable=False)
     sender_id = Column(String(64), nullable=True)
-
 
 
 class Run(Base):
@@ -169,8 +154,11 @@ class Assistant(Base):
     temperature = Column(Integer, nullable=True)
     response_format = Column(String(64), nullable=True)
 
-    # Existing relationships
-    tools = relationship(
+    # New tools field (formerly capabilities) designed to hold an array of JSON objects.
+    tools = Column(MutableList.as_mutable(JSON), default=lambda: [], nullable=False)
+
+    # Renamed many-to-many relationship from "tools" to "registered_tools".
+    registered_tools = relationship(
         "Tool",
         secondary=assistant_tools,
         back_populates="assistants",
@@ -182,15 +170,43 @@ class Assistant(Base):
         back_populates="assistants",
         lazy="select"
     )
-
-    # New vector store relationship
     vector_stores = relationship(
         "VectorStore",
-        secondary="vector_store_assistants",
+        secondary=vector_store_assistants,
         back_populates="assistants",
         lazy="select",  # Different strategy from tools for performance
         passive_deletes=True
     )
+
+    def sync_registered_tools(self):
+        """
+        Synchronize the registered_tools relationship based on the current tools JSON field.
+        For each tool definition in the tools list, if it has a 'type' field,
+        find a matching Tool (by Tool.type) and add it to registered_tools.
+        """
+        session = object_session(self)
+        if session is None:
+            return
+
+        current_tool_types = {tool.type for tool in self.registered_tools if tool.type}
+
+        for tool_def in self.tools:
+            tool_type = tool_def.get("type")
+            if tool_type and tool_type not in current_tool_types:
+                tool = session.query(Tool).filter_by(type=tool_type).first()
+                if tool:
+                    self.registered_tools.append(tool)
+                    current_tool_types.add(tool_type)
+
+
+# With this implementation:
+from sqlalchemy.orm import Session
+
+@event.listens_for(Session, "after_flush")
+def sync_assistant_registered_tools(session, flush_context):
+    for instance in session.new.union(session.dirty):
+        if isinstance(instance, Assistant):
+            instance.sync_registered_tools()
 
 class Tool(Base):
     __tablename__ = "tools"
@@ -200,7 +216,8 @@ class Tool(Base):
     type = Column(String(64), nullable=False)
     function = Column(JSON, nullable=True)
 
-    assistants = relationship("Assistant", secondary=assistant_tools, back_populates="tools")
+    # Back-populates with the renamed relationship in Assistant.
+    assistants = relationship("Assistant", secondary=assistant_tools, back_populates="registered_tools")
     actions = relationship("Action", back_populates="tool")
 
 
@@ -285,7 +302,6 @@ class FileStorage(Base):
     )
 
 
-
 class VectorStore(Base):
     __tablename__ = "vector_stores"
 
@@ -297,27 +313,21 @@ class VectorStore(Base):
     distance_metric = Column(String(32), nullable=False)
     created_at = Column(BigInteger, default=lambda: int(datetime.now().timestamp()))
     updated_at = Column(BigInteger, onupdate=lambda: int(datetime.now().timestamp()))
-
     status = Column(Enum(StatusEnum), nullable=False)
-
     config = Column(JSON, nullable=True)
     file_count = Column(Integer, default=0, nullable=False)  # Added field
 
     # Relationships
-    user = relationship(
-        "User",
-        back_populates="vector_stores",
-        lazy="select"
-    )
+    user = relationship("User", back_populates="vector_stores", lazy="select")
     threads = relationship(
         "Thread",
-        secondary="thread_vector_stores",
+        secondary=thread_vector_stores,
         back_populates="vector_stores",
         lazy="select"
     )
     assistants = relationship(
         "Assistant",
-        secondary="vector_store_assistants",
+        secondary=vector_store_assistants,
         back_populates="vector_stores",
         lazy="select",
         passive_deletes=True
@@ -328,6 +338,7 @@ class VectorStore(Base):
         cascade="all, delete-orphan",
         lazy="dynamic"
     )
+
 
 class VectorStoreFile(Base):
     __tablename__ = "vector_store_files"
@@ -342,6 +353,3 @@ class VectorStoreFile(Base):
     meta_data = Column(JSON, nullable=True)  # Renamed field
 
     vector_store = relationship("VectorStore", back_populates="files")
-
-
-
