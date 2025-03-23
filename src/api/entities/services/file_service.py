@@ -1,14 +1,19 @@
+import base64
+import hashlib
+import hmac
+import io
 import os
-import mimetypes
-from datetime import datetime
+from datetime import datetime, timedelta
+from urllib.parse import urlencode
+
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
-from entities.models.models import File, User, FileStorage
-from entities.utils.samba_client import SambaClient
+
 from entities.constants.platform import SUPPORTED_MIME_TYPES
+from entities.models.models import File, User, FileStorage
 from entities.services.identifier_service import IdentifierService
 from entities.services.logging_service import LoggingUtility
-
+from entities.utils.samba_client import SambaClient
 
 logging_utility = LoggingUtility()
 
@@ -208,3 +213,105 @@ class FileService:
             # Log the error and re-raise
             logging_utility.error(f"Error retrieving file with ID {file_id}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")
+
+
+
+    def get_file_as_object(self, file_id: str) -> io.BytesIO:
+        """
+        Retrieve file content as a file-like object.
+
+        Args:
+            file_id (str): The ID of the file to retrieve.
+
+        Returns:
+            io.BytesIO: An in-memory stream of the file's bytes.
+
+        Raises:
+            HTTPException: If the file is not found or an error occurs during retrieval.
+        """
+        # Retrieve file metadata from the database
+        file_record = self.db.query(File).filter(File.id == file_id).first()
+        if not file_record:
+            raise HTTPException(status_code=404, detail=f"File with ID {file_id} not found")
+
+        # Assume file_record.filename stores the path (or relative path) used in Samba
+        try:
+            # Use the SambaClient to download file content as bytes
+            # (Assumes your SambaClient has a download_file method that returns bytes)
+            file_bytes = self.samba_client.download_file(file_record.filename)
+            return io.BytesIO(file_bytes)
+        except Exception as e:
+            logging_utility.error(f"Error retrieving file object for ID {file_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")
+
+
+
+    def get_file_as_signed_url(self, file_id: str, expires_in: int = 3600) -> str:
+        """
+        Generate a signed URL for downloading the file.
+
+        Args:
+            file_id (str): The ID of the file.
+            expires_in (int): Time in seconds for the URL to remain valid.
+
+        Returns:
+            str: The signed URL.
+
+        Raises:
+            HTTPException: If the file is not found or signing fails.
+        """
+        file_record = self.db.query(File).filter(File.id == file_id).first()
+        if not file_record:
+            raise HTTPException(status_code=404, detail=f"File with ID {file_id} not found")
+
+        # For demonstration, we generate a simple signed token
+        secret_key = os.getenv("SIGNED_URL_SECRET", "default_secret_key")
+        expiration_time = datetime.utcnow() + timedelta(seconds=expires_in)
+        expiration_timestamp = int(expiration_time.timestamp())
+
+        # Data to sign: file_id and expiration
+        data = f"{file_id}:{expiration_timestamp}"
+        signature = hmac.new(
+            key=secret_key.encode(),
+            msg=data.encode(),
+            digestmod=hashlib.sha256
+        ).hexdigest()
+
+        # Construct the URL; assume you have an endpoint /v1/files/download that validates the signature.
+        query_params = {
+            "file_id": file_id,
+            "expires": expiration_timestamp,
+            "signature": signature,
+        }
+        base_url = os.getenv("BASE_URL", "http://localhost:9000")
+        signed_url = f"{base_url}/v1/files/download?{urlencode(query_params)}"
+        return signed_url
+
+
+
+    def get_file_as_base64(self, file_id: str) -> str:
+        """
+        Retrieve the file content and return it as a BASE64-encoded string.
+
+        Args:
+            file_id (str): The ID of the file to retrieve.
+
+        Returns:
+            str: BASE64-encoded file content.
+
+        Raises:
+            HTTPException: If the file is not found or retrieval fails.
+        """
+        file_record = self.db.query(File).filter(File.id == file_id).first()
+        if not file_record:
+            raise HTTPException(status_code=404, detail=f"File with ID {file_id} not found")
+
+        try:
+            file_bytes = self.samba_client.download_file(file_record.filename)
+            base64_encoded = base64.b64encode(file_bytes).decode('utf-8')
+            return base64_encoded
+        except Exception as e:
+            logging_utility.error(f"Error retrieving BASE64 for file ID {file_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")
+
+

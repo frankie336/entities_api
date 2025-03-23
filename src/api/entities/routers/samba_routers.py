@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Form
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Form, Response
 from sqlalchemy.orm import Session
 from entities.dependencies import get_db
 from entities.schemas.file_service import FileResponse, FileUploadRequest
@@ -78,3 +78,76 @@ def get_file_by_id(
         # Catch any other exceptions, log, and return a 500 error
         logging_utility.error(f"Unexpected error during file retrieval: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred while retrieving the file metadata.")
+
+
+
+@router.get("/uploads/{file_id}/object", response_class=Response)
+def download_file_as_object(file_id: str, db: Session = Depends(get_db)):
+    """
+    Retrieve file content as a streamed file-like object.
+    """
+    file_service = FileService(db)
+    try:
+        # Get the file as a BytesIO stream
+        file_obj = file_service.get_file_as_object(file_id)
+        # You may set an appropriate media type if available; defaulting to octet-stream.
+        return Response(content=file_obj.read(), media_type="application/octet-stream")
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error in download_file_as_object: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"Unexpected error in download_file_as_object: {str(e)}")
+        raise HTTPException(status_code=500, detail="Unexpected error retrieving file object.")
+
+
+@router.get("/uploads/{file_id}/signed-url", response_model=dict)
+def get_signed_url(file_id: str, db: Session = Depends(get_db)):
+    """
+    Generate a signed URL for downloading the file.
+    """
+    file_service = FileService(db)
+    try:
+        signed_url = file_service.get_file_as_signed_url(file_id)
+        return {"signed_url": signed_url}
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error in get_signed_url: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"Unexpected error in get_signed_url: {str(e)}")
+        raise HTTPException(status_code=500, detail="Unexpected error generating signed URL.")
+
+
+@router.get("/uploads/{file_id}/base64", response_model=dict)
+def get_file_as_base64(file_id: str, db: Session = Depends(get_db)):
+    """
+    Retrieve the file content as a BASE64-encoded string.
+    """
+    file_service = FileService(db)
+    try:
+        b64_str = file_service.get_file_as_base64(file_id)
+        return {"base64": b64_str}
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error in get_file_as_base64: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"Unexpected error in get_file_as_base64: {str(e)}")
+        raise HTTPException(status_code=500, detail="Unexpected error retrieving file as BASE64.")
+
+
+@router.delete("/uploads/{file_id}", response_model=dict)
+def delete_file(file_id: str, db: Session = Depends(get_db)):
+    """
+    Delete a file by its ID along with all its storage locations.
+    """
+    file_service = FileService(db)
+    try:
+        success = file_service.delete_file_by_id(file_id)
+        if not success:
+            raise HTTPException(status_code=404, detail=f"File with ID {file_id} not found")
+        return {"deleted": True}
+    except HTTPException as e:
+        logging_utility.error(f"HTTP error in delete_file: {str(e)}")
+        raise e
+    except Exception as e:
+        logging_utility.error(f"Unexpected error in delete_file: {str(e)}")
+        raise HTTPException(status_code=500, detail="Unexpected error deleting file.")
