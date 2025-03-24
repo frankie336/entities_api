@@ -84,6 +84,8 @@ class Thread(Base):
     meta_data = Column(JSON, nullable=False, default={})
     object = Column(String(64), nullable=False)
     tool_resources = Column(JSON, nullable=False, default={})
+    # Reintroduce the participants relationship
+    participants = relationship('User', secondary=thread_participants, back_populates='threads')
     vector_stores = relationship(
         "VectorStore",
         secondary=thread_vector_stores,
