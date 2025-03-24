@@ -1,4 +1,17 @@
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 PLATFORM_TOOLS = ["code_interpreter", "web_search", "vector_store_search", "computer"]
+
+
+TOOLS_ID_MAP = {"code_interpreter": os.getenv("TOOL_CODE_INTERPRETER"),
+             "web_search": os.getenv("TOOL_WEB_SEARCH"),
+             "vector_store_search": os.getenv("TOOL_VECTOR_STORE_SEARCH"),
+             "computer": os.getenv("TOOL_COMPUTER")
+             }
+
 
 SPECIAL_CASE_TOOL_HANDLING = ["computer", "code_interpreter"]
 
@@ -9,6 +22,8 @@ ERROR_NO_CONTENT = (
 
 
 DIRECT_DATABASE_URL = "mysql+pymysql://ollama:3e4Qv5uo2Cg31zC1@localhost:3307/cosmic_catalyst"
+
+
 #------------------------------------------------
 # Vendors sometimes have clashing model names.
 # This can interfere with routing logic

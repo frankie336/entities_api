@@ -1,13 +1,15 @@
 # app.py
 import os
+
 from fastapi import FastAPI
 from sqlalchemy import create_engine, text
-from entities.models.models import Base
 
+from entities.models.models import Base
 # Import routers
 from entities.routers import api_router, handler_router, inference_router, samba_router
-
 from entities.services.logging_service import LoggingUtility
+
+
 # Initialize the logging utility
 logging_utility = LoggingUtility()
 
@@ -17,6 +19,8 @@ engine = create_engine(DATABASE_URL, echo=True)
 
 SPECIAL_DB_URL = os.getenv("SPECIAL_DB_URL")
 special_engine = create_engine(SPECIAL_DB_URL, echo=True) if SPECIAL_DB_URL else None
+
+#load_appropriate_env()
 
 def create_app(init_db=True):
     logging_utility.info("Creating FastAPI app")

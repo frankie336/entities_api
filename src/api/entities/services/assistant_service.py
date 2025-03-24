@@ -4,14 +4,18 @@ from entities.models.models import Assistant, User
 from entities.schemas.schemas import AssistantCreate, AssistantRead, AssistantUpdate
 from entities.services.logging_service import LoggingUtility
 from entities.services.identifier_service import IdentifierService
+from entities.clients.client import OllamaClient
 from typing import List
 import time
 
+
 logging_utility = LoggingUtility()
+
 
 class AssistantService:
     def __init__(self, db: Session):
         self.db = db
+        self.client = OllamaClient()
 
     def create_assistant(self, assistant: AssistantCreate) -> AssistantRead:
         # Use provided ID or generate new
@@ -26,6 +30,7 @@ class AssistantService:
                     detail=f"Assistant with ID '{assistant_id}' already exists"
                 )
 
+        # Map tools to tool_configs during creation
         db_assistant = Assistant(
             id=assistant_id,
             object="assistant",
@@ -34,6 +39,7 @@ class AssistantService:
             description=assistant.description,
             model=assistant.model,
             instructions=assistant.instructions,
+            tool_configs=assistant.tools,  # Map directly
             meta_data=assistant.meta_data,
             top_p=assistant.top_p,
             temperature=assistant.temperature,
@@ -46,17 +52,33 @@ class AssistantService:
 
         return AssistantRead.model_validate(db_assistant)
 
-
     def retrieve_assistant(self, assistant_id: str) -> AssistantRead:
         db_assistant = self.db.query(Assistant).options(
-            joinedload(Assistant.tools),
+            joinedload(Assistant.tools),  # Assumes tools relationship
             joinedload(Assistant.vector_stores)
         ).filter(Assistant.id == assistant_id).first()
 
         logging_utility.debug(f"Retrieved assistant: {db_assistant} with vector_stores: {db_assistant.vector_stores}")
         if not db_assistant:
             raise HTTPException(status_code=404, detail="Assistant not found")
-        return AssistantRead.model_validate(db_assistant)
+
+        # Map tool_configs to tools for API response
+        return AssistantRead(
+            id=db_assistant.id,
+            user_id=None,
+            object=db_assistant.object,
+            created_at=db_assistant.created_at,
+            name=db_assistant.name,
+            description=db_assistant.description,
+            model=db_assistant.model,
+            instructions=db_assistant.instructions,
+            tools=db_assistant.tool_configs,  # Map back
+            meta_data=db_assistant.meta_data,
+            top_p=db_assistant.top_p,
+            temperature=db_assistant.temperature,
+            response_format=db_assistant.response_format,
+            vector_stores=db_assistant.vector_stores
+        )
 
     def update_assistant(self, assistant_id: str, assistant_update: AssistantUpdate) -> AssistantRead:
         db_assistant = self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
@@ -65,6 +87,7 @@ class AssistantService:
 
         update_data = assistant_update.model_dump(exclude_unset=True)
 
+        # Update attributes in db_assistant
         for key, value in update_data.items():
             setattr(db_assistant, key, value)
 
@@ -86,8 +109,6 @@ class AssistantService:
         user.assistants.append(assistant)
         self.db.commit()
 
-    # entities/services/assistant_service.py
-
     def disassociate_assistant_from_user(self, user_id: str, assistant_id: str):
         """Disassociate an assistant from a user (many-to-many relationship)."""
         user = self.db.query(User).filter(User.id == user_id).first()
@@ -105,10 +126,13 @@ class AssistantService:
         else:
             raise HTTPException(status_code=400, detail="Assistant not associated with the user")
 
-    def list_assistants_by_user(self, user_id: str) -> List[AssistantRead]:  # Use List instead of list for compatibility
+    def list_assistants_by_user(self, user_id: str) -> List[AssistantRead]:
         """List all assistants associated with a given user."""
         user = self.db.query(User).filter(User.id == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        return [AssistantRead.model_validate(assistant) for assistant in user.assistants]
+        return [
+            AssistantRead.model_validate(assistant)
+            for assistant in user.assistants
+        ]

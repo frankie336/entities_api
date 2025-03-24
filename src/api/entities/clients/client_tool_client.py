@@ -1,3 +1,5 @@
+import os
+
 import httpx
 from typing import List, Optional
 from pydantic import ValidationError
@@ -8,7 +10,7 @@ logging_utility = LoggingUtility()
 
 
 class ClientToolService:
-    def __init__(self, base_url="http://localhost:9000/",  api_key=None):
+    def __init__(self, base_url=os.getenv("ASSISTANTS_BASE_URL"),  api_key=None):
         self.base_url = base_url
         self.api_key = api_key
         self.client = httpx.Client(

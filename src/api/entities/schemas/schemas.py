@@ -531,30 +531,29 @@ class ProcessOutput(BaseModel):
     chunks_processed: int
 
 
-
-
-
-# Dynamically create an Enum from the list.
-ToolType = Enum("ToolType", {value.upper(): value for value in PLATFORM_TOOLS})
-
-# Define the Tool class using the dynamically generated ToolType.
 class Tool(BaseModel):
-    type: ToolType
+    type: str  # No predefined Enum constraint
     function: Optional[Dict[str, Any]] = None
 
-# Example usage in the AssistantCreate model.
+    class Config:
+        extra = "allow"  # Allows additional fields without validation issues
+
+
+
+# AssistantCreate model
 class AssistantCreate(BaseModel):
     id: Optional[str] = None
-    name: Optional[str] = None
-    description: Optional[str] = None
+    name: str
+    description: str = ""
     model: str
-    instructions: Optional[str] = None
-    tools: Optional[List[Tool]] = None
-    meta_data: Optional[Dict[str, Any]] = {}
-    top_p: Optional[float] = 1.0
-    temperature: Optional[float] = 1.0
-    response_format: Optional[str] = "auto"
+    instructions: str = ""
+    tools: Optional[List[dict]] = None  # Use 'tools' for consistency
+    meta_data: Optional[dict] = None
+    top_p: float = 1.0
+    temperature: float = 1.0
+    response_format: str = "auto"
 
+# AssistantRead model
 class AssistantRead(BaseModel):
     id: str
     user_id: Optional[str] = None
@@ -564,27 +563,24 @@ class AssistantRead(BaseModel):
     description: Optional[str]
     model: str
     instructions: Optional[str]
+    tools: Optional[List[dict]] = None  # Match with 'tools'
     meta_data: Optional[Dict[str, Any]] = None
     top_p: float
     temperature: float
     response_format: str
-    vector_stores: Optional[List[VectorStoreRead]] = []
-    model_config = ConfigDict(from_attributes=True)
+    vector_stores: Optional[List["VectorStoreRead"]] = []
 
-
+# AssistantUpdate model
 class AssistantUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     model: Optional[str] = None
     instructions: Optional[str] = None
-    tools: Optional[List[Tool]] = None
+    tools: Optional[List[Any]] = None  # Accepts dicts, auto-converted to Tool
     meta_data: Optional[Dict[str, Any]] = None
     top_p: Optional[float] = None
     temperature: Optional[float] = None
     response_format: Optional[str] = None
-
-    model_config = ConfigDict(from_attributes=True)
-
 
 class ActionBase(BaseModel):
     id: str

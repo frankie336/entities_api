@@ -1,3 +1,5 @@
+import os
+
 import httpx
 from entities.services.logging_service import LoggingUtility
 from pydantic import ValidationError
@@ -9,7 +11,7 @@ logging_utility = LoggingUtility()
 
 
 class UserService:
-    def __init__(self, base_url: str, api_key: str):
+    def __init__(self, base_url=os.getenv("ASSISTANTS_BASE_URL"), api_key=None):
         self.base_url = base_url
         self.api_key = api_key
         self.client = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"})

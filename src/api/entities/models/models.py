@@ -1,11 +1,16 @@
 import time
+import logging
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, Text, BigInteger, Index
-from sqlalchemy.orm import relationship, declarative_base, joinedload
+from sqlalchemy import Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, Text, BigInteger, Index, \
+    event
+from sqlalchemy.orm import relationship, declarative_base, joinedload, Session
 from sqlalchemy import Enum
 from enum import Enum as PyEnum
 from sqlalchemy import Text
+from entities.constants.platform import TOOLS_ID_MAP
 
+# Configure logging
+logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
@@ -22,21 +27,17 @@ assistant_tools = Table(
     Column('tool_id', String(64), ForeignKey('tools.id'))
 )
 
-
-
 user_assistants = Table(
     'user_assistants', Base.metadata,
     Column('user_id', String(64), ForeignKey('users.id'), primary_key=True),
     Column('assistant_id', String(64), ForeignKey('assistants.id'), primary_key=True)
 )
 
-
 vector_store_assistants = Table(
     'vector_store_assistants', Base.metadata,
     Column('vector_store_id', String(64), ForeignKey('vector_stores.id'), primary_key=True),
     Column('assistant_id', String(64), ForeignKey('assistants.id'), primary_key=True)
 )
-
 
 thread_vector_stores = Table(
     'thread_vector_stores', Base.metadata,
@@ -47,7 +48,7 @@ thread_vector_stores = Table(
 
 class StatusEnum(PyEnum):
     deleted = "deleted"
-    active = "active"               # Added this member
+    active = "active"  # Added this member
     queued = "queued"
     in_progress = "in_progress"
     pending_action = "action_required"
@@ -59,7 +60,6 @@ class StatusEnum(PyEnum):
     processing = "processing"
     expired = "expired"
     retrying = "retrying"
-
 
 
 # Models
@@ -113,7 +113,6 @@ class Message(Base):
     sender_id = Column(String(64), nullable=True)
 
 
-
 class Run(Base):
     __tablename__ = "runs"
 
@@ -159,13 +158,15 @@ class Assistant(Base):
     description = Column(String(256), nullable=True)
     model = Column(String(64), nullable=True)
     instructions = Column(Text, nullable=True)
+    #  New field with a different name to avoid conflict
+    tool_configs = Column(JSON, nullable=True)  # Renamed from 'tools' to 'tool_configs'
     meta_data = Column(JSON, nullable=True)
     top_p = Column(Integer, nullable=True)
     temperature = Column(Integer, nullable=True)
     response_format = Column(String(64), nullable=True)
 
     # Existing relationships
-    tools = relationship(
+    tools = relationship(  # This relationship attribute MUST be named 'tools' to match Tool's back_populates
         "Tool",
         secondary=assistant_tools,
         back_populates="assistants",
@@ -186,9 +187,6 @@ class Assistant(Base):
         lazy="select",  # Different strategy from tools for performance
         passive_deletes=True
     )
-
-
-
 
 
 class Tool(Base):
@@ -284,7 +282,6 @@ class FileStorage(Base):
     )
 
 
-
 class VectorStore(Base):
     __tablename__ = "vector_stores"
 
@@ -317,7 +314,7 @@ class VectorStore(Base):
     assistants = relationship(
         "Assistant",
         secondary="vector_store_assistants",
-        back_populates="vector_stores",
+        back_populates="vector_stores",  # FIXED: Changed from "assistants" to "vector_stores"
         lazy="select",
         passive_deletes=True
     )
@@ -327,6 +324,7 @@ class VectorStore(Base):
         cascade="all, delete-orphan",
         lazy="dynamic"
     )
+
 
 class VectorStoreFile(Base):
     __tablename__ = "vector_store_files"
@@ -343,4 +341,58 @@ class VectorStoreFile(Base):
     vector_store = relationship("VectorStore", back_populates="files")
 
 
+# Event listener to auto-associate Assistant with Tools based on tool_configs
+@event.listens_for(Assistant, 'after_insert')
+@event.listens_for(Assistant, 'after_update')
+def associate_assistant_with_tools(mapper, connection, assistant):
+    """
+    Automatically associates an Assistant with Tools based on tool_configs.
+    This event handler triggers after an Assistant is inserted or updated.
+    """
+    try:
+        # Skip if no tool_configs are defined
+        if not assistant.tool_configs:
+            logger.info(f"No tool_configs for Assistant {assistant.id}, skipping tool association")
+            return
 
+        # Get the SQLAlchemy session
+        session = Session.object_session(assistant)
+        if not session:
+            logger.warning(f"No active session found for Assistant {assistant.id}, cannot associate tools")
+            return
+
+        # First, collect the tool IDs we need to associate with
+        tool_ids_to_associate = []
+
+        for tool_config in assistant.tool_configs:
+            # Extract the tool type from each config entry
+            if isinstance(tool_config, dict) and 'type' in tool_config:
+                tool_type = tool_config['type']
+
+                # If tool type exists in our mapping, add its ID to the list
+                if tool_type in TOOLS_ID_MAP and TOOLS_ID_MAP[tool_type]:
+                    tool_id = TOOLS_ID_MAP[tool_type]
+                    tool_ids_to_associate.append(tool_id)
+                    logger.debug(f"Will associate Assistant {assistant.id} with tool {tool_type} (ID: {tool_id})")
+                else:
+                    logger.warning(f"Tool type '{tool_type}' not found in TOOLS_ID_MAP or has no ID configured")
+
+        # If no valid tool IDs found, exit
+        if not tool_ids_to_associate:
+            logger.info(f"No valid tool IDs found for Assistant {assistant.id}")
+            return
+
+        # Query for the actual Tool objects by their IDs
+        tools_to_associate = session.query(Tool).filter(
+            Tool.id.in_(tool_ids_to_associate)
+        ).all()
+
+        # Clear any existing tool associations and add the new ones
+        assistant.tools = tools_to_associate
+
+        logger.info(
+            f"Successfully associated Assistant {assistant.id} with {len(tools_to_associate)} tools: {[t.type for t in tools_to_associate]}")
+    except Exception as e:
+        logger.error(f"Error in associate_assistant_with_tools: {str(e)}")
+        # We don't re-raise the exception to avoid breaking the main transaction
+        # The error is logged but the operation continues

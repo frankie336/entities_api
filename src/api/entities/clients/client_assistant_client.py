@@ -1,3 +1,5 @@
+import time
+import os
 import httpx
 from typing import List, Dict, Any, Optional
 from pydantic import ValidationError
@@ -9,7 +11,8 @@ logging_utility = LoggingUtility()
 
 
 class ClientAssistantService:
-    def __init__(self, base_url="http://localhost:9000/", api_key=None):
+
+    def __init__(self, base_url=os.getenv("ASSISTANTS_BASE_URL"), api_key=None):
         self.base_url = base_url
         self.api_key = api_key
         self.client = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"})
@@ -37,36 +40,54 @@ class ClientAssistantService:
             "description": description,
             "model": model,
             "instructions": instructions,
+            "tools": tools,
             "meta_data": meta_data,
             "top_p": top_p,
             "temperature": temperature,
             "response_format": response_format,
         }
 
-        # Only include tools if provided
-        if tools is not None:
-            assistant_data["tools"] = tools
 
         try:
-            validated_data = AssistantCreate.construct(**assistant_data)  # Bypass validation
+            # Validation before constructing
+            try:
+                validated_data = AssistantCreate(**assistant_data)  # Use validation instead of .construct() to ensure data integrity
+            except ValidationError as e:
+                logging_utility.error("Validation error: %s", e.json())
+                raise ValueError(f"Validation error: {e}")
+
+            # Log request data for debugging
+            logging_utility.debug("Request data: %s", assistant_data)
+
             logging_utility.info("Creating assistant with model: %s, name: %s", model, name)
 
+            # Make the POST request to create the assistant
             response = self.client.post("/v1/assistants", json=validated_data.model_dump())
+
+            # Log response for debugging
+            logging_utility.debug("Response: %s", response.text)
+
+            # Check if the request was successful
             response.raise_for_status()
 
-            created_assistant = response.json()
-            validated_response = AssistantRead(**created_assistant)
-            logging_utility.info("Assistant created successfully with id: %s", validated_response.id)
-            return validated_response
-        except ValidationError as e:
-            logging_utility.error("Validation error: %s", e.json())
-            raise ValueError(f"Validation error: {e}")
+            # Parse the response JSON
+            if response.status_code == 200:
+                created_assistant = response.json()  # Only attempt to parse if successful
+                validated_response = AssistantRead(**created_assistant)
+                logging_utility.info("Assistant created successfully with id: %s", validated_response.id)
+                return validated_response
+            else:
+                logging_utility.error("Failed to create assistant, response: %s", response.text)
+                raise ValueError(f"Failed to create assistant, status: {response.status_code}")
+
         except httpx.HTTPStatusError as e:
             logging_utility.error("HTTP error occurred while creating assistant: %s", str(e))
+            logging_utility.error("Response content: %s", e.response.text)  # Log the response content for better debugging
             raise
         except Exception as e:
             logging_utility.error("An error occurred while creating assistant: %s", str(e))
             raise
+
 
     def retrieve_assistant(self, assistant_id: str) -> AssistantRead:
         logging_utility.info("Retrieving assistant with id: %s", assistant_id)
