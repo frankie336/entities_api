@@ -2,8 +2,6 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from sandbox.routers.v1 import v1_router
 from sandbox.services.logging_service import LoggingUtility
 
-
-
 logging_utility = LoggingUtility()
 
 def create_app():

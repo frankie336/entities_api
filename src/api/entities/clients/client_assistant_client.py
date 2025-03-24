@@ -3,9 +3,7 @@ from typing import Optional, List, Dict, Any
 
 import httpx
 from pydantic import ValidationError
-
-from entities.schemas.schemas import AssistantCreate, AssistantRead
-from entities.schemas.schemas import AssistantUpdate
+from entities.schemas.assistants import AssistantCreate, AssistantRead, AssistantUpdate
 from entities.services.logging_service import LoggingUtility
 
 # Initialize logging utility
