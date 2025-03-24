@@ -66,6 +66,8 @@ class AssistantSetupService:
                 model=model,
                 instructions=instructions,
                 assistant_id="default"
+
+
             )
             self.logging_utility.info(
                 "Created assistant: %s (ID: %s)",
