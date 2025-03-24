@@ -3,8 +3,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from entities.dependencies import get_db
-from entities.models.models import Run
-from entities.schemas.runs import RunStatusUpdate
+from entities.schemas.runs import Run as RunSchema, RunCreate, RunStatusUpdate
 from entities.services.logging_service import LoggingUtility
 from entities.services.run_service import RunService
 
@@ -12,8 +11,8 @@ router = APIRouter()
 logging_utility = LoggingUtility()
 
 
-@router.post("/runs", response_model=Run)
-def create_run(run: Run, db: Session = Depends(get_db)):
+@router.post("/runs", response_model=RunSchema)
+def create_run(run: RunCreate, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to create a new run for thread ID: {run.thread_id}")
     run_service = RunService(db)
     try:
@@ -28,7 +27,7 @@ def create_run(run: Run, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-@router.get("/runs/{run_id}", response_model=Run)
+@router.get("/runs/{run_id}", response_model=RunSchema)
 def get_run(run_id: str, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to get run with ID: {run_id}")
     run_service = RunService(db)
@@ -44,7 +43,7 @@ def get_run(run_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-@router.put("/runs/{run_id}/status", response_model=Run)
+@router.put("/runs/{run_id}/status", response_model=RunSchema)
 def update_run_status(run_id: str, status_update: RunStatusUpdate, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to update status of run ID: {run_id} to {status_update.status}")
 
@@ -69,7 +68,7 @@ def update_run_status(run_id: str, status_update: RunStatusUpdate, db: Session =
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-@router.post("/runs/{run_id}/cancel", response_model=Run)
+@router.post("/runs/{run_id}/cancel", response_model=RunSchema)
 def cancel_run(run_id: str, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to cancel run with ID: {run_id}")
     run_service = RunService(db)
