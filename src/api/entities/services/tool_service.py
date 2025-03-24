@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from entities.models.models import Tool, Assistant
-from entities.schemas.common import ToolRead
+from entities.schemas.tools import ToolRead
 from entities.schemas.tools import ToolCreate, ToolUpdate
 from entities.services.identifier_service import IdentifierService
 from entities.services.logging_service import LoggingUtility
