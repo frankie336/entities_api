@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 # Adjust sys.path so that the 'entities' package is found
+import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "src", "api"))
 
 from src.api.entities.services.assistant_set_up_service import AssistantSetupService
@@ -37,7 +38,7 @@ def wait_for_health(health_url, timeout=300, interval=5):
 def main():
     # Set up command-line argument parsing
     parser = argparse.ArgumentParser(
-        description="Manage Docker Compose with optional build toggle, clear volumes, no-cache, and assistant orchestration"
+        description="Manage Docker Compose with optional build toggle, clear volumes, no-cache, attached mode, and assistant orchestration"
     )
     parser.add_argument(
         "--mode",
@@ -65,12 +66,17 @@ def main():
         action="store_true",
         help="Build Docker images without using the cache"
     )
+    parser.add_argument(
+        "--attached",
+        action="store_true",
+        help="Run docker-compose up in attached mode (without -d)"
+    )
     args = parser.parse_args()
 
     # Determine OS and set shared_path accordingly
     system = platform.system().lower()
     if system == 'windows':
-        shared_path = r"C:\\ProgramData\\entities\\samba_share"
+        shared_path = r"C:\ProgramData\entities\samba_share"
     elif system == 'linux':
         shared_path = "/srv/entities/samba_share"
     elif system == 'darwin':
@@ -80,6 +86,7 @@ def main():
         sys.exit(1)
 
     os.environ['SHARED_PATH'] = shared_path
+    print(f"SHARED_PATH set to: {os.environ.get('SHARED_PATH')}")
 
     # Create the directory if it doesn't exist
     if not os.path.exists(shared_path):
@@ -88,10 +95,12 @@ def main():
     else:
         print(f"Directory already exists: {shared_path}")
 
+    env = os.environ.copy()  # Ensure subprocesses inherit our environment
+
     if args.down:
         print("Stopping and removing Docker containers...")
         try:
-            subprocess.run(["docker-compose", "down"], check=True)
+            subprocess.run(["docker-compose", "down"], check=True, env=env)
         except subprocess.CalledProcessError as e:
             print("Error stopping Docker containers:", e)
             sys.exit(e.returncode)
@@ -100,7 +109,7 @@ def main():
     try:
         if args.clear_volumes:
             print("Clearing Docker volumes...")
-            subprocess.run(["docker-compose", "down", "-v"], check=True)
+            subprocess.run(["docker-compose", "down", "-v"], check=True, env=env)
     except subprocess.CalledProcessError as e:
         print("Error clearing Docker volumes:", e)
         sys.exit(e.returncode)
@@ -109,15 +118,24 @@ def main():
 
     try:
         if args.mode == "up":
-            print("Running docker-compose up in detached mode")
-            subprocess.run(["docker-compose", "up", "-d"], check=True)
+            if args.attached:
+                print("Running docker-compose up in attached mode")
+                subprocess.run(["docker-compose", "up"], check=True, env=env)
+            else:
+                print("Running docker-compose up in detached mode")
+                subprocess.run(["docker-compose", "up", "-d"], check=True, env=env)
         elif args.mode == "build":
             print("Running docker-compose build")
-            subprocess.run(build_command, check=True)
+            subprocess.run(build_command, check=True, env=env)
         elif args.mode == "both":
-            print("Running docker-compose build then up in detached mode")
-            subprocess.run(build_command, check=True)
-            subprocess.run(["docker-compose", "up", "-d"], check=True)
+            print("Running docker-compose build then up")
+            subprocess.run(build_command, check=True, env=env)
+            if args.attached:
+                print("Running docker-compose up in attached mode")
+                subprocess.run(["docker-compose", "up"], check=True, env=env)
+            else:
+                print("Running docker-compose up in detached mode")
+                subprocess.run(["docker-compose", "up", "-d"], check=True, env=env)
     except subprocess.CalledProcessError as e:
         print("Error running docker-compose:", e)
         sys.exit(e.returncode)
