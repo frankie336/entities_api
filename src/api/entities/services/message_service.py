@@ -2,7 +2,7 @@ from typing import List, Dict, Any
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from entities.models.models import Message, Thread
-from entities.schemas.schemas import MessageCreate, MessageRead
+from entities.schemas.messages import MessageCreate, MessageRead
 from entities.services.identifier_service import IdentifierService
 import json
 import time

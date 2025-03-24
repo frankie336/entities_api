@@ -6,7 +6,7 @@ from dotenv import set_key
 from entities.clients.client import OllamaClient
 from entities.constants.assistant import DEFAULT_MODEL, BASE_ASSISTANT_INSTRUCTIONS, BASE_TOOLS
 from entities.constants.platform import TOOLS_ID_MAP
-from entities.schemas.schemas import ToolFunction
+from entities.schemas.tools import ToolFunction
 from entities.services.logging_service import LoggingUtility
 from entities.services.vector_store_service import VectorStoreService
 from entities.services.vector_waves import AssistantVectorWaves

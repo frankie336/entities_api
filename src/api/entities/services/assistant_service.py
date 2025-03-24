@@ -1,12 +1,14 @@
-from fastapi import HTTPException
-from sqlalchemy.orm import Session, joinedload
-from entities.models.models import Assistant, User
-from entities.schemas.schemas import AssistantCreate, AssistantRead, AssistantUpdate
-from entities.services.logging_service import LoggingUtility
-from entities.services.identifier_service import IdentifierService
-from entities.clients.client import OllamaClient
-from typing import List
 import time
+from typing import List
+
+from fastapi import HTTPException
+from sqlalchemy.orm import Session
+
+from entities.clients.client import OllamaClient
+from entities.models.models import Assistant, User
+from entities.schemas.assistants import AssistantCreate, AssistantRead, AssistantUpdate
+from entities.services.identifier_service import IdentifierService
+from entities.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 

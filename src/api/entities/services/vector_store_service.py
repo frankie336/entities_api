@@ -5,24 +5,28 @@ from concurrent.futures import ThreadPoolExecutor
 from http.client import HTTPException
 from pathlib import Path
 from typing import Any
-from entities.schemas.schemas import (
-    SearchExplanation
-)
+from typing import List, Dict, Optional, Union
+
 from qdrant_client.http import models
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, joinedload
 from tenacity import retry, stop_after_attempt, wait_random_exponential, retry_if_exception_type
-from typing import List, Dict, Optional, Union
-from entities.schemas.schemas import EnhancedVectorSearchResult
+
 from entities.constants.platform import DIRECT_DATABASE_URL
 from entities.interfaces.base_vector_store import StoreNotFoundError, VectorStoreError
 from entities.models.models import VectorStore, Base, Assistant
-from entities.schemas.schemas import StatusEnum, VectorStoreRead, VectorStoreSearchResult, ProcessOutput, MessageRead
+from entities.schemas.common import StatusEnum
+from entities.schemas.inference import ProcessOutput
+from entities.schemas.messages import MessageRead
+from entities.schemas.vectors import EnhancedVectorSearchResult
+from entities.schemas.vectors import SearchExplanation
+from entities.schemas.vectors import VectorStoreCreate
+from entities.schemas.vectors import VectorStoreRead, VectorStoreSearchResult
 from entities.services.file_processor import FileProcessor
 from entities.services.identifier_service import IdentifierService
 from entities.services.logging_service import LoggingUtility
 from entities.services.vector_store_manager import VectorStoreManager
-from entities.schemas.schemas import VectorStoreCreate
+
 logging_utility = LoggingUtility()
 
 

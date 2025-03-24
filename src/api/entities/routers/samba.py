@@ -1,7 +1,7 @@
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Form, Response
 from sqlalchemy.orm import Session
 from entities.dependencies import get_db
-from entities.schemas.file_service import FileResponse, FileUploadRequest
+from entities.schemas.files import FileResponse, FileUploadRequest
 from entities.services.file_service import FileService
 from entities.services.logging_service import LoggingUtility
 
