@@ -84,3 +84,4 @@ if __name__ == "__main__":
     print(IdentifierService.generate_task_id())
     print(IdentifierService.generate_custom_id("custom"))
     print(IdentifierService.generate_assistant_id())
+    print(IdentifierService.generate_tool_id())

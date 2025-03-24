@@ -8,9 +8,7 @@ from entities.clients.client import OllamaClient
 from typing import List
 import time
 
-
 logging_utility = LoggingUtility()
-
 
 class AssistantService:
     def __init__(self, db: Session):
@@ -30,7 +28,7 @@ class AssistantService:
                     detail=f"Assistant with ID '{assistant_id}' already exists"
                 )
 
-        # Map tools to tool_configs during creation
+        # Map tools (from the Pydantic model) to tool_configs (for the DB)
         db_assistant = Assistant(
             id=assistant_id,
             object="assistant",
@@ -39,7 +37,7 @@ class AssistantService:
             description=assistant.description,
             model=assistant.model,
             instructions=assistant.instructions,
-            tool_configs=assistant.tools,  # Map directly
+            tool_configs=assistant.tools,  # Store under tool_configs in the DB
             meta_data=assistant.meta_data,
             top_p=assistant.top_p,
             temperature=assistant.temperature,
@@ -50,35 +48,21 @@ class AssistantService:
         self.db.commit()
         self.db.refresh(db_assistant)
 
-        return AssistantRead.model_validate(db_assistant)
+        return self.map_to_read_model(db_assistant)
 
     def retrieve_assistant(self, assistant_id: str) -> AssistantRead:
-        db_assistant = self.db.query(Assistant).options(
-            joinedload(Assistant.tools),  # Assumes tools relationship
-            joinedload(Assistant.vector_stores)
-        ).filter(Assistant.id == assistant_id).first()
+        db_assistant = self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
 
-        logging_utility.debug(f"Retrieved assistant: {db_assistant} with vector_stores: {db_assistant.vector_stores}")
         if not db_assistant:
             raise HTTPException(status_code=404, detail="Assistant not found")
 
-        # Map tool_configs to tools for API response
-        return AssistantRead(
-            id=db_assistant.id,
-            user_id=None,
-            object=db_assistant.object,
-            created_at=db_assistant.created_at,
-            name=db_assistant.name,
-            description=db_assistant.description,
-            model=db_assistant.model,
-            instructions=db_assistant.instructions,
-            tools=db_assistant.tool_configs,  # Map back
-            meta_data=db_assistant.meta_data,
-            top_p=db_assistant.top_p,
-            temperature=db_assistant.temperature,
-            response_format=db_assistant.response_format,
-            vector_stores=db_assistant.vector_stores
+        logging_utility.debug(
+            f"Retrieved assistant: {db_assistant} with tool_configs: {db_assistant.tool_configs}"
         )
+
+        # Use the updated mapping helper that correctly renames tool_configs to tools.
+        return self.map_to_read_model(db_assistant)
+
 
     def update_assistant(self, assistant_id: str, assistant_update: AssistantUpdate) -> AssistantRead:
         db_assistant = self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
@@ -87,14 +71,14 @@ class AssistantService:
 
         update_data = assistant_update.model_dump(exclude_unset=True)
 
-        # Update attributes in db_assistant
+        # Update the database assistant instance with new data
         for key, value in update_data.items():
             setattr(db_assistant, key, value)
 
         self.db.commit()
         self.db.refresh(db_assistant)
 
-        return AssistantRead.model_validate(db_assistant)
+        return self.map_to_read_model(db_assistant)
 
     def associate_assistant_with_user(self, user_id: str, assistant_id: str):
         """Associate an assistant with a user (many-to-many relationship)."""
@@ -133,6 +117,20 @@ class AssistantService:
             raise HTTPException(status_code=404, detail="User not found")
 
         return [
-            AssistantRead.model_validate(assistant)
+            self.map_to_read_model(assistant)
             for assistant in user.assistants
         ]
+
+    def map_to_read_model(self, db_assistant: Assistant) -> AssistantRead:
+        """
+        Helper method to map the database Assistant model to an AssistantRead model.
+        This function ensures that the 'tool_configs' field from the DB is moved to the
+        'tools' field as expected by the AssistantRead schema.
+        """
+        # Get a dict copy of the SQLAlchemy model.
+        assistant_data = db_assistant.__dict__.copy()
+        # Remove any SQLAlchemy internal attribute.
+        assistant_data.pop('_sa_instance_state', None)
+        # Rename the key from 'tool_configs' to 'tools'.
+        assistant_data['tools'] = assistant_data.pop('tool_configs', None)
+        return AssistantRead.model_validate(assistant_data)

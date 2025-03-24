@@ -6,10 +6,10 @@ load_dotenv()
 PLATFORM_TOOLS = ["code_interpreter", "web_search", "vector_store_search", "computer"]
 
 
-TOOLS_ID_MAP = {"code_interpreter": os.getenv("TOOL_CODE_INTERPRETER"),
-             "web_search": os.getenv("TOOL_WEB_SEARCH"),
-             "vector_store_search": os.getenv("TOOL_VECTOR_STORE_SEARCH"),
-             "computer": os.getenv("TOOL_COMPUTER")
+TOOLS_ID_MAP = {"code_interpreter": "tool_79YkQEz5cDwpJjnR7oJ80D",
+             "web_search": "tool_BiIwycpLo1n5Dh6BHN01v8",
+             "vector_store_search": "tool_MCaJpXJU3eW6vaMUybEf6i",
+             "computer": "tool_PJQ6VcnkmRCMankObjtRcn"
              }
 
 

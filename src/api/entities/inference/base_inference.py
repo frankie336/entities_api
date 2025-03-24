@@ -29,8 +29,7 @@ from entities.services.vector_store_service import VectorStoreService
 
 
 from entities.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS, PLATFORM_TOOLS
-from entities.constants.platform import MODEL_MAP, ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING
-
+from entities.constants.platform import MODEL_MAP, ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING, TOOLS_ID_MAP
 
 logging_utility = LoggingUtility()
 
@@ -1208,6 +1207,8 @@ class BaseInference(ABC):
             repeated requests with identical parameters.
         """
         assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
+        associated_tools = self.tool_service.list_tools(assistant_id=assistant_id)
+
         tools = self.tool_service.list_tools(assistant_id=assistant_id, restructure=True)
 
         # Get the current date and time
@@ -1275,12 +1276,10 @@ class BaseInference(ABC):
 
         # Check for tool invocations embedded in multi-line text.
         tool_invocation_in_multi_line_text = self.extract_function_calls_within_body_of_text(text=assistant_reply)
-
-        #-------------------------------------------
+        #-----------------------------------------------
         #  The assistant may wrap a function call in
         #  response text. This block  will catch that
-        #--------------------------------------------
-
+        #------------------------------------------------
         if tool_invocation_in_multi_line_text and not self.get_tool_response_state():
 
             logging_utility.debug("Embedded Function Call detected : %s", tool_invocation_in_multi_line_text)

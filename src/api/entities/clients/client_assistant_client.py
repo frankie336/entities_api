@@ -1,10 +1,12 @@
-import time
 import os
+from typing import Optional, List, Dict, Any
+
 import httpx
-from typing import List, Dict, Any, Optional
 from pydantic import ValidationError
+
+from entities.schemas.schemas import AssistantCreate, AssistantRead
+from entities.schemas.schemas import AssistantUpdate
 from entities.services.logging_service import LoggingUtility
-from entities.schemas.schemas import AssistantCreate, AssistantRead, AssistantUpdate
 
 # Initialize logging utility
 logging_utility = LoggingUtility()
@@ -18,13 +20,16 @@ class ClientAssistantService:
         self.client = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"})
         logging_utility.info("ClientAssistantService initialized with base_url: %s", self.base_url)
 
+
+    logging_utility = LoggingUtility()
+
     def create_assistant(
             self,
             model: str,
             name: str = "",
             description: str = "",
             instructions: str = "",
-            tools: Optional[List] = None,  # Accept tools as raw list
+            tools: Optional[List] = None,  # Accept tools as a raw list
             meta_data: Dict[str, Any] = None,
             top_p: float = 1.0,
             temperature: float = 1.0,
@@ -32,7 +37,8 @@ class ClientAssistantService:
             assistant_id: Optional[str] = None
     ) -> AssistantRead:
         """
-        Create an assistant without requiring user_id, as the association is handled separately.
+        Create an assistant without requiring a user_id, as the association
+        is handled separately.
         """
         assistant_data = {
             "id": assistant_id,
@@ -47,32 +53,28 @@ class ClientAssistantService:
             "response_format": response_format,
         }
 
-
         try:
-            # Validation before constructing
+            # Validate using AssistantCreate to ensure data integrity.
             try:
-                validated_data = AssistantCreate(**assistant_data)  # Use validation instead of .construct() to ensure data integrity
+                validated_data = AssistantCreate(**assistant_data)
             except ValidationError as e:
                 logging_utility.error("Validation error: %s", e.json())
                 raise ValueError(f"Validation error: {e}")
 
-            # Log request data for debugging
+            # Log the request data for debugging purposes.
             logging_utility.debug("Request data: %s", assistant_data)
-
             logging_utility.info("Creating assistant with model: %s, name: %s", model, name)
 
-            # Make the POST request to create the assistant
+            # Make the POST request to create the assistant.
             response = self.client.post("/v1/assistants", json=validated_data.model_dump())
 
-            # Log response for debugging
+            # Log the raw response for debugging.
             logging_utility.debug("Response: %s", response.text)
-
-            # Check if the request was successful
             response.raise_for_status()
 
-            # Parse the response JSON
+            # Parse the response JSON and validate it against AssistantRead.
             if response.status_code == 200:
-                created_assistant = response.json()  # Only attempt to parse if successful
+                created_assistant = response.json()  # Only parse if the response is successful
                 validated_response = AssistantRead(**created_assistant)
                 logging_utility.info("Assistant created successfully with id: %s", validated_response.id)
                 return validated_response
@@ -82,12 +84,11 @@ class ClientAssistantService:
 
         except httpx.HTTPStatusError as e:
             logging_utility.error("HTTP error occurred while creating assistant: %s", str(e))
-            logging_utility.error("Response content: %s", e.response.text)  # Log the response content for better debugging
+            logging_utility.error("Response content: %s", e.response.text)  # Log the response content for debugging
             raise
         except Exception as e:
             logging_utility.error("An error occurred while creating assistant: %s", str(e))
             raise
-
 
     def retrieve_assistant(self, assistant_id: str) -> AssistantRead:
         logging_utility.info("Retrieving assistant with id: %s", assistant_id)

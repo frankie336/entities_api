@@ -17,12 +17,18 @@ class ToolService:
         self.db = db
         logging_utility.info("ToolService initialized with database session.")
 
-    def create_tool(self, tool: ToolCreate) -> ToolRead:
+
+
+    def create_tool(self, tool: ToolCreate, set_id: Optional[str] = None) -> ToolRead:
         logging_utility.info("Starting create_tool with ToolCreate: %s", tool)
         try:
-
-            tool_id = IdentifierService.generate_tool_id()
-            logging_utility.debug("Generated tool ID: %s", tool_id)
+            # Use provided set_id if available; otherwise, generate a new tool ID.
+            if set_id:
+                tool_id = set_id
+                logging_utility.debug("Using provided set_id for tool id: %s", tool_id)
+            else:
+                tool_id = IdentifierService.generate_tool_id()
+                logging_utility.debug("Generated tool ID: %s", tool_id)
 
             db_tool = Tool(
                 id=tool_id,
@@ -44,6 +50,8 @@ class ToolService:
             self.db.rollback()
             logging_utility.error("Unexpected error during tool creation: %s", str(e))
             raise HTTPException(status_code=500, detail="An error occurred while creating the tool")
+
+
 
     def associate_tool_with_assistant(self, tool_id: str, assistant_id: str) -> None:
         logging_utility.info("Associating tool with ID %s to assistant with ID %s", tool_id, assistant_id)
