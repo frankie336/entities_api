@@ -1,11 +1,16 @@
+import logging
 import time
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, Text, BigInteger, Index
-from sqlalchemy.orm import relationship, declarative_base, joinedload
-from sqlalchemy import Enum
 from enum import Enum as PyEnum
-from sqlalchemy import Text
 
+from sqlalchemy import (
+    Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, BigInteger, Index, Enum as SAEnum
+)
+from sqlalchemy import Text
+from sqlalchemy.orm import relationship, declarative_base, joinedload
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
@@ -22,21 +27,17 @@ assistant_tools = Table(
     Column('tool_id', String(64), ForeignKey('tools.id'))
 )
 
-
-
 user_assistants = Table(
     'user_assistants', Base.metadata,
     Column('user_id', String(64), ForeignKey('users.id'), primary_key=True),
     Column('assistant_id', String(64), ForeignKey('assistants.id'), primary_key=True)
 )
 
-
 vector_store_assistants = Table(
     'vector_store_assistants', Base.metadata,
     Column('vector_store_id', String(64), ForeignKey('vector_stores.id'), primary_key=True),
     Column('assistant_id', String(64), ForeignKey('assistants.id'), primary_key=True)
 )
-
 
 thread_vector_stores = Table(
     'thread_vector_stores', Base.metadata,
@@ -61,19 +62,40 @@ class StatusEnum(PyEnum):
     retrying = "retrying"
 
 
-
+# -----------------------------------------------------------------------------
 # Models
+# -----------------------------------------------------------------------------
 class User(Base):
     __tablename__ = "users"
 
     id = Column(String(64), primary_key=True, index=True)
     name = Column(String(128), index=True)
-    # Removed the threads relationship since users are deliberately severed from threads
-    # threads = relationship('Thread', secondary=thread_participants, back_populates='participants')
-    assistants = relationship('Assistant', secondary=user_assistants, back_populates='users')
-    sandboxes = relationship('Sandbox', back_populates='user', cascade="all, delete-orphan")
-    vector_stores = relationship("VectorStore", back_populates="user", lazy="select")
-    files = relationship("File", back_populates="user", cascade="all, delete-orphan")
+    # Reintroduce the threads relationship
+    threads = relationship(
+        'Thread',
+        secondary=thread_participants,
+        back_populates='participants'
+    )
+    assistants = relationship(
+        'Assistant',
+        secondary=user_assistants,
+        back_populates='users'
+    )
+    sandboxes = relationship(
+        'Sandbox',
+        back_populates='user',
+        cascade="all, delete-orphan"
+    )
+    vector_stores = relationship(
+        "VectorStore",
+        back_populates="user",
+        lazy="select"
+    )
+    files = relationship(
+        "File",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
 
 
 class Thread(Base):
@@ -85,7 +107,11 @@ class Thread(Base):
     object = Column(String(64), nullable=False)
     tool_resources = Column(JSON, nullable=False, default={})
     # Reintroduce the participants relationship
-    participants = relationship('User', secondary=thread_participants, back_populates='threads')
+    participants = relationship(
+        'User',
+        secondary=thread_participants,
+        back_populates='threads'
+    )
     vector_stores = relationship(
         "VectorStore",
         secondary=thread_vector_stores,
@@ -115,7 +141,6 @@ class Message(Base):
     sender_id = Column(String(64), nullable=True)
 
 
-
 class Run(Base):
     __tablename__ = "runs"
 
@@ -138,7 +163,7 @@ class Run(Base):
     required_action = Column(String(256), nullable=True)
     response_format = Column(String(64), nullable=True)
     started_at = Column(DateTime, nullable=True)
-    status = Column(Enum(StatusEnum), nullable=False)  # Use StatusEnum here
+    status = Column(SAEnum(StatusEnum), nullable=False)
     thread_id = Column(String(64), nullable=False)
     tool_choice = Column(String(64), nullable=True)
     tools = Column(JSON, nullable=True)
@@ -167,7 +192,6 @@ class Assistant(Base):
     temperature = Column(Integer, nullable=True)
     response_format = Column(String(64), nullable=True)
 
-    # Existing relationships
     tools = relationship(
         "Tool",
         secondary=assistant_tools,
@@ -180,15 +204,14 @@ class Assistant(Base):
         back_populates="assistants",
         lazy="select"
     )
-
-    # New vector store relationship
     vector_stores = relationship(
         "VectorStore",
         secondary="vector_store_assistants",
         back_populates="assistants",
-        lazy="select",  # Different strategy from tools for performance
+        lazy="select",
         passive_deletes=True
     )
+
 
 class Tool(Base):
     __tablename__ = "tools"
@@ -198,7 +221,11 @@ class Tool(Base):
     type = Column(String(64), nullable=False)
     function = Column(JSON, nullable=True)
 
-    assistants = relationship("Assistant", secondary=assistant_tools, back_populates="tools")
+    assistants = relationship(
+        "Assistant",
+        secondary=assistant_tools,
+        back_populates="tools"
+    )
     actions = relationship("Action", back_populates="tool")
 
 
@@ -250,11 +277,7 @@ class File(Base):
     filename = Column(String(256), nullable=False)
     purpose = Column(String(64), nullable=False)
     mime_type = Column(String(255))
-
-    # Foreign key to associate with a user
     user_id = Column(String(64), ForeignKey('users.id'), nullable=False)
-
-    # Relationship with User
     user = relationship("User", back_populates="files")
     storage_locations = relationship("FileStorage", back_populates="file", cascade="all, delete-orphan")
 
@@ -271,7 +294,6 @@ class FileStorage(Base):
     is_primary = Column(Boolean, default=True,
                         comment="Indicates if this is the primary storage location")
     created_at = Column(Integer, nullable=False, comment="When this storage entry was created")
-
     file = relationship("File", back_populates="storage_locations")
     __table_args__ = (
         Index('idx_file_storage_file_id', 'file_id'),
@@ -289,18 +311,10 @@ class VectorStore(Base):
     distance_metric = Column(String(32), nullable=False)
     created_at = Column(BigInteger, default=lambda: int(datetime.now().timestamp()))
     updated_at = Column(BigInteger, onupdate=lambda: int(datetime.now().timestamp()))
-
-    status = Column(Enum(StatusEnum), nullable=False)
-
+    status = Column(SAEnum(StatusEnum), nullable=False)
     config = Column(JSON, nullable=True)
     file_count = Column(Integer, default=0, nullable=False)  # Added field
-
-    # Relationships
-    user = relationship(
-        "User",
-        back_populates="vector_stores",
-        lazy="select"
-    )
+    user = relationship("User", back_populates="vector_stores", lazy="select")
     threads = relationship(
         "Thread",
         secondary="thread_vector_stores",
@@ -321,6 +335,7 @@ class VectorStore(Base):
         lazy="dynamic"
     )
 
+
 class VectorStoreFile(Base):
     __tablename__ = "vector_store_files"
 
@@ -329,11 +344,7 @@ class VectorStoreFile(Base):
     file_name = Column(String(256), nullable=False)
     file_path = Column(String(1024), nullable=False)
     processed_at = Column(Integer, nullable=True)
-    status = Column(Enum(StatusEnum), default=StatusEnum.queued)
+    status = Column(SAEnum(StatusEnum), default=StatusEnum.queued)
     error_message = Column(Text, nullable=True)
-    meta_data = Column(JSON, nullable=True)  # Renamed field
-
+    meta_data = Column(JSON, nullable=True)
     vector_store = relationship("VectorStore", back_populates="files")
-
-
-

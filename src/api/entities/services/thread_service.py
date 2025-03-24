@@ -23,7 +23,7 @@ class ThreadService:
         db_thread = Thread(
             id=IdentifierService.generate_thread_id(),
             created_at=int(time.time()),
-            meta_data=json.dumps(thread.meta_data),
+            meta_data=json.dumps({}),
             object="thread",
             tool_resources=json.dumps({})
         )

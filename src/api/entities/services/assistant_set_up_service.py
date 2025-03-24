@@ -93,6 +93,10 @@ class AssistantSetupService:
                 ]
             )
 
+
+            print(assistant)
+
+
             assistant = self.client.assistant_service.retrieve_assistant(assistant_id=assistant.id)
 
             self.logging_utility.info(

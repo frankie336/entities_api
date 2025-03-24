@@ -8,7 +8,6 @@ services:
       MYSQL_DATABASE: cosmic_catalyst
       MYSQL_USER: ollama
       MYSQL_PASSWORD: 3e4Qv5uo2Cg31zC1
-      RUNNING_IN_CONTAINER: "True"  # Added custom variable
     volumes:
       - mysql_data:/var/lib/mysql
     ports:
@@ -34,7 +33,6 @@ services:
       QDRANT__STORAGE__STORAGE_PATH: "/qdrant/storage"
       QDRANT__SERVICE__GRPC_PORT: "6334"
       QDRANT__LOG_LEVEL: "INFO"
-      RUNNING_IN_CONTAINER: "True"  # Added custom variable
     networks:
       - my_custom_network
 
@@ -50,7 +48,6 @@ services:
       - DATABASE_URL=mysql+pymysql://ollama:3e4Qv5uo2Cg31zC1@db:3306/cosmic_catalyst
       - SANDBOX_SERVER_URL=http://sandbox:8000
       - QDRANT_URL=http://qdrant:6333
-      - RUNNING_IN_CONTAINER=True  # Added custom variable
     ports:
       - "9000:9000"
     depends_on:
@@ -68,7 +65,7 @@ services:
     build:
       context: .
       dockerfile: docker/sandbox/Dockerfile
-    container_name: sandbox
+    container_name: sandbox_api
     restart: always
     cap_add:
       - SYS_ADMIN
@@ -83,8 +80,6 @@ services:
         condition: service_healthy
     volumes:
       - /tmp/sandbox_logs:/app/logs
-    environment:
-      RUNNING_IN_CONTAINER: "True"  # Added custom variable
     networks:
       - my_custom_network
 
@@ -102,7 +97,6 @@ services:
       SHARE: "cosmic_share;/samba/share;yes;no;no;samba_user"
       # Fixed protocol configuration
       GLOBAL: "server min protocol = NT1\nserver max protocol = SMB3"
-      RUNNING_IN_CONTAINER: "True"  # Added custom variable
     ports:
       - "139:139"
       - "1445:445"  # Custom host port mapping
