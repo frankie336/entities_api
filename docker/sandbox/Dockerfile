@@ -43,8 +43,8 @@ RUN mkdir -p /app /var/log/supervisor && chown -R sandboxuser:sandboxuser /app /
 WORKDIR /app
 
 # Copy application components
-COPY src/api/sandbox_api/requirements.txt /app/
-COPY src/api/sandbox_api/ /app/sandbox_api/
+COPY src/api/sandbox/requirements.txt /app/
+COPY src/api/sandbox/ /app/sandbox/
 
 # Install Python dependencies
 RUN pip install --no-cache-dir --default-timeout=100 -r /app/requirements.txt

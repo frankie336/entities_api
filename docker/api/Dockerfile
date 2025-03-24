@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir --default-timeout=100 -r requirements.txt
 # Copy the API source into /app/api
 COPY src/api /app/api
 
-# Set PYTHONPATH so that modules under /app/api are importable (e.g. entities_api)
+# Set PYTHONPATH so that modules under /app/api are importable (e.g. entities)
 ENV PYTHONPATH=/app/api
 
 # Copy the wait-for-it.sh script from docker/common to /app and ensure it is executable.

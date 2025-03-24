@@ -7,12 +7,11 @@ This documentation assumes a working knowledge of the [Ollama](https://github.co
 
 ## Supported Models
 
-| Model       | Parameters | Size  | Download                  |
-|-------------|------------|-------|---------------------------|
-| Llama 3.1   | 8B         | 4.7GB | `ollama run llama3.1`      |
-| Llama 3.1   | 70B        | 40GB  | `ollama run llama3.1:70b`  |
-| Llama 3.1   | 405B       | 231GB | `ollama run llama3.1:405b` |
-| DeepSeek R1 | 8B         |  4.7GB| `ollama run deepseek-r1:8b` |
+| Model     | Parameters | Size  | Download                  |
+|-----------|------------|-------|---------------------------|
+| Llama 3.1 | 8B         | 4.7GB | `ollama run llama3.1`      |
+| Llama 3.1 | 70B        | 40GB  | `ollama run llama3.1:70b`  |
+| Llama 3.1 | 405B       | 231GB | `ollama run llama3.1:405b` |
 
 This library has been thoroughly tested with the models listed in the table above. Since the Ollama framework supports many more models, it should also work with additional ones. For an exhaustive list, refer to the [Ollama library documentation](https://github.com/ollama/ollama/blob/main/README.md) and the [definitive list of supported models](https://ollama.com/library).
 
