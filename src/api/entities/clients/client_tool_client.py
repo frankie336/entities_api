@@ -3,7 +3,8 @@ import os
 import httpx
 from typing import List, Optional
 from pydantic import ValidationError
-from entities.schemas.schemas import ToolCreate, ToolRead, ToolUpdate
+from entities.schemas.tools import ToolCreate, ToolUpdate
+from entities.schemas.tools import ToolRead
 from entities.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()

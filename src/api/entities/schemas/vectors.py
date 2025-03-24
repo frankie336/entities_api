@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field, ConfigDict
 from pydantic import validator
 
 import entities.models.models
-from entities.schemas.common import VectorStoreRead
 
 
 class VectorStoreStatus(str, Enum):
@@ -28,6 +27,23 @@ class VectorStoreCreate(BaseModel):
         if v.upper() not in allowed_metrics:
             raise ValueError(f"Invalid distance metric: {v}. Must be one of {allowed_metrics}")
         return v
+
+
+
+class VectorStoreRead(BaseModel):
+    id: str = Field(..., description="Unique identifier for the vector store", example="vectorstore_123")
+    name: str = Field(..., description="Name of the vector store", example="My Vector Store")
+    user_id: str = Field(..., description="ID of the user that owns this vector store", example="user_123")
+    collection_name: str = Field(..., description="Name of the collection in the vector store", example="my_collection")
+    vector_size: int = Field(..., description="Size of the vectors stored", example=768)
+    distance_metric: str = Field(..., description="Distance metric used (e.g., cosine, euclidean)", example="cosine")
+    created_at: int = Field(..., description="Unix timestamp when the vector store was created", example=1640995200)
+    updated_at: Optional[int] = Field(None, description="Unix timestamp when the vector store was last updated", example=1641081600)
+    status: VectorStoreStatus = Field(..., description="Current status of the vector store")
+    config: Optional[Dict[str, Any]] = Field(None, description="Additional configuration for the vector store")
+    file_count: int = Field(0, description="Number of files in the vector store", example=10)
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 

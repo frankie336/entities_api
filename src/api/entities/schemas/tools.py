@@ -3,8 +3,6 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, ConfigDict
 from pydantic import validator
 
-from entities.schemas.common import ToolRead
-
 
 class Tool(BaseModel):
     type: str  # No predefined Enum constraint
@@ -12,6 +10,19 @@ class Tool(BaseModel):
 
     class Config:
         extra = "allow"  # Allows additional fields without validation issues
+
+
+class ToolRead(Tool):
+    @validator('function', pre=True, always=True)
+    def parse_function(cls, v):
+        if isinstance(v, dict):
+            return ToolFunction(**v)
+        elif v is None:
+            return None
+        else:
+            raise ValueError("Invalid function format")
+
+    model_config = ConfigDict(from_attributes=True)
 
 class ToolFunction(BaseModel):
     function: Optional[dict]  # Handle the nested 'function' structure
