@@ -1,17 +1,11 @@
 import time
-import logging
 from datetime import datetime
-from sqlalchemy import (
-    Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, Text, BigInteger, Index, event
-)
-from sqlalchemy.orm import relationship, declarative_base, joinedload, Session
-from sqlalchemy import Enum as SAEnum
+from sqlalchemy import Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, Text, BigInteger, Index
+from sqlalchemy.orm import relationship, declarative_base, joinedload
+from sqlalchemy import Enum
 from enum import Enum as PyEnum
 from sqlalchemy import Text
-from entities.constants.platform import TOOLS_ID_MAP
 
-# Configure logging
-logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
@@ -28,17 +22,21 @@ assistant_tools = Table(
     Column('tool_id', String(64), ForeignKey('tools.id'))
 )
 
+
+
 user_assistants = Table(
     'user_assistants', Base.metadata,
     Column('user_id', String(64), ForeignKey('users.id'), primary_key=True),
     Column('assistant_id', String(64), ForeignKey('assistants.id'), primary_key=True)
 )
 
+
 vector_store_assistants = Table(
     'vector_store_assistants', Base.metadata,
     Column('vector_store_id', String(64), ForeignKey('vector_stores.id'), primary_key=True),
     Column('assistant_id', String(64), ForeignKey('assistants.id'), primary_key=True)
 )
+
 
 thread_vector_stores = Table(
     'thread_vector_stores', Base.metadata,
@@ -49,7 +47,7 @@ thread_vector_stores = Table(
 
 class StatusEnum(PyEnum):
     deleted = "deleted"
-    active = "active"  # Added this member
+    active = "active"               # Added this member
     queued = "queued"
     in_progress = "in_progress"
     pending_action = "action_required"
@@ -63,14 +61,15 @@ class StatusEnum(PyEnum):
     retrying = "retrying"
 
 
+
 # Models
 class User(Base):
     __tablename__ = "users"
 
     id = Column(String(64), primary_key=True, index=True)
     name = Column(String(128), index=True)
-    # Reintroduce the threads relationship
-    threads = relationship('Thread', secondary=thread_participants, back_populates='participants')
+    # Removed the threads relationship since users are deliberately severed from threads
+    # threads = relationship('Thread', secondary=thread_participants, back_populates='participants')
     assistants = relationship('Assistant', secondary=user_assistants, back_populates='users')
     sandboxes = relationship('Sandbox', back_populates='user', cascade="all, delete-orphan")
     vector_stores = relationship("VectorStore", back_populates="user", lazy="select")
@@ -85,8 +84,6 @@ class Thread(Base):
     meta_data = Column(JSON, nullable=False, default={})
     object = Column(String(64), nullable=False)
     tool_resources = Column(JSON, nullable=False, default={})
-    # Reintroduce the participants relationship
-    participants = relationship('User', secondary=thread_participants, back_populates='threads')
     vector_stores = relationship(
         "VectorStore",
         secondary=thread_vector_stores,
@@ -116,6 +113,7 @@ class Message(Base):
     sender_id = Column(String(64), nullable=True)
 
 
+
 class Run(Base):
     __tablename__ = "runs"
 
@@ -138,7 +136,7 @@ class Run(Base):
     required_action = Column(String(256), nullable=True)
     response_format = Column(String(64), nullable=True)
     started_at = Column(DateTime, nullable=True)
-    status = Column(SAEnum(StatusEnum), nullable=False)  # Use StatusEnum here
+    status = Column(Enum(StatusEnum), nullable=False)  # Use StatusEnum here
     thread_id = Column(String(64), nullable=False)
     tool_choice = Column(String(64), nullable=True)
     tools = Column(JSON, nullable=True)
@@ -161,14 +159,13 @@ class Assistant(Base):
     description = Column(String(256), nullable=True)
     model = Column(String(64), nullable=True)
     instructions = Column(Text, nullable=True)
-    # New field for extra tool configuration details
     tool_configs = Column(JSON, nullable=True)
     meta_data = Column(JSON, nullable=True)
     top_p = Column(Integer, nullable=True)
     temperature = Column(Integer, nullable=True)
     response_format = Column(String(64), nullable=True)
 
-    # Relationships
+    # Existing relationships
     tools = relationship(
         "Tool",
         secondary=assistant_tools,
@@ -181,14 +178,15 @@ class Assistant(Base):
         back_populates="assistants",
         lazy="select"
     )
+
+    # New vector store relationship
     vector_stores = relationship(
         "VectorStore",
         secondary="vector_store_assistants",
         back_populates="assistants",
-        lazy="select",
+        lazy="select",  # Different strategy from tools for performance
         passive_deletes=True
     )
-
 
 class Tool(Base):
     __tablename__ = "tools"
@@ -251,8 +249,10 @@ class File(Base):
     purpose = Column(String(64), nullable=False)
     mime_type = Column(String(255))
 
+    # Foreign key to associate with a user
     user_id = Column(String(64), ForeignKey('users.id'), nullable=False)
 
+    # Relationship with User
     user = relationship("User", back_populates="files")
     storage_locations = relationship("FileStorage", back_populates="file", cascade="all, delete-orphan")
 
@@ -287,10 +287,13 @@ class VectorStore(Base):
     distance_metric = Column(String(32), nullable=False)
     created_at = Column(BigInteger, default=lambda: int(datetime.now().timestamp()))
     updated_at = Column(BigInteger, onupdate=lambda: int(datetime.now().timestamp()))
-    status = Column(SAEnum(StatusEnum), nullable=False)
+
+    status = Column(Enum(StatusEnum), nullable=False)
+
     config = Column(JSON, nullable=True)
     file_count = Column(Integer, default=0, nullable=False)  # Added field
 
+    # Relationships
     user = relationship(
         "User",
         back_populates="vector_stores",
@@ -298,7 +301,7 @@ class VectorStore(Base):
     )
     threads = relationship(
         "Thread",
-        secondary=thread_vector_stores,
+        secondary="thread_vector_stores",
         back_populates="vector_stores",
         lazy="select"
     )
@@ -316,7 +319,6 @@ class VectorStore(Base):
         lazy="dynamic"
     )
 
-
 class VectorStoreFile(Base):
     __tablename__ = "vector_store_files"
 
@@ -325,51 +327,11 @@ class VectorStoreFile(Base):
     file_name = Column(String(256), nullable=False)
     file_path = Column(String(1024), nullable=False)
     processed_at = Column(Integer, nullable=True)
-    status = Column(SAEnum(StatusEnum), default=StatusEnum.queued)
+    status = Column(Enum(StatusEnum), default=StatusEnum.queued)
     error_message = Column(Text, nullable=True)
-    meta_data = Column(JSON, nullable=True)
+    meta_data = Column(JSON, nullable=True)  # Renamed field
 
     vector_store = relationship("VectorStore", back_populates="files")
 
 
-# Event listener to auto-associate Assistant with Tools based on tool_configs
-@event.listens_for(Assistant, 'after_insert')
-@event.listens_for(Assistant, 'after_update')
-def associate_assistant_with_tools(mapper, connection, assistant):
-    """
-    Automatically associates an Assistant with Tools based on tool_configs.
-    This event handler triggers after an Assistant is inserted or updated.
-    """
-    try:
-        if not assistant.tool_configs:
-            logger.info(f"No tool_configs for Assistant {assistant.id}, skipping tool association")
-            return
 
-        session = Session.object_session(assistant)
-        if not session:
-            logger.warning(f"No active session found for Assistant {assistant.id}, cannot associate tools")
-            return
-
-        tool_ids_to_associate = []
-        for tool_config in assistant.tool_configs:
-            if isinstance(tool_config, dict) and 'type' in tool_config:
-                tool_type = tool_config['type']
-                if tool_type in TOOLS_ID_MAP and TOOLS_ID_MAP[tool_type]:
-                    tool_id = TOOLS_ID_MAP[tool_type]
-                    tool_ids_to_associate.append(tool_id)
-                    logger.debug(f"Will associate Assistant {assistant.id} with tool {tool_type} (ID: {tool_id})")
-                else:
-                    logger.warning(f"Tool type '{tool_type}' not found in TOOLS_ID_MAP or has no ID configured")
-
-        if not tool_ids_to_associate:
-            logger.info(f"No valid tool IDs found for Assistant {assistant.id}")
-            return
-
-        tools_to_associate = session.query(Tool).filter(Tool.id.in_(tool_ids_to_associate)).all()
-        assistant.tools = tools_to_associate
-
-        logger.info(
-            f"Successfully associated Assistant {assistant.id} with {len(tools_to_associate)} tools: {[t.type for t in tools_to_associate]}"
-        )
-    except Exception as e:
-        logger.error(f"Error in associate_assistant_with_tools: {str(e)}")

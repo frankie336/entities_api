@@ -1,6 +1,4 @@
-# entities/services/assistant_setup_service.py
 from pathlib import Path
-
 from dotenv import set_key
 
 from entities.clients.client import OllamaClient
@@ -63,9 +61,8 @@ class AssistantSetupService:
 
                 # Update (or append) the .env file in the project root with the formatted environment-friendly name.
                 set_key(str(env_file_path), tool_name_env, new_tool.id)
-                logging_utility.info("Updated .env (%s): %s=%s", env_file_path, tool_name_env, new_tool.id)
-
-                logging_utility.info(
+                self.logging_utility.info("Updated .env (%s): %s=%s", env_file_path, tool_name_env, new_tool.id)
+                self.logging_utility.info(
                     "Created tool: %s (ID: %s) and stored as %s in .env",
                     raw_tool_name,
                     new_tool.id,
@@ -73,14 +70,13 @@ class AssistantSetupService:
                 )
 
             except Exception as e:
-                logging_utility.error("Tool creation failed for %s: %s", raw_tool_name, str(e))
+                self.logging_utility.error("Tool creation failed for %s: %s", raw_tool_name, str(e))
                 raise
 
     def setup_assistant_with_tools(self, user_id, assistant_name, assistant_description,
                                    model, instructions, function_definitions):
         """Streamlined setup with pre-validated user ID"""
         try:
-
             self.create_base_tools(function_definitions)
 
             assistant = self.client.assistant_service.create_assistant(
@@ -89,24 +85,15 @@ class AssistantSetupService:
                 description=assistant_description,
                 model=model,
                 instructions=instructions,
-
-                tools=[{"type": "code_interpreter"}, {"type": "web_search"}, {"type": "vector_store_search"},
-                       {"type": "computer"}]
-
-
+                tools=[
+                    {"type": "code_interpreter"},
+                    {"type": "web_search"},
+                    {"type": "vector_store_search"},
+                    {"type": "computer"}
+                ]
             )
 
             assistant = self.client.assistant_service.retrieve_assistant(assistant_id=assistant.id)
-
-            if assistant.tools:
-                for item in assistant.tools:
-                    print(item['type'])
-                    self.client.tool_service.associate_tool_with_assistant(tool_id=TOOLS_ID_MAP[item['type']],
-                                                                           assistant_id=assistant.id)
-
-            #----------------------------------
-            #Handle tool association her
-            #-----------------------------------
 
             self.logging_utility.info(
                 "Created assistant: %s (ID: %s)",
@@ -114,14 +101,10 @@ class AssistantSetupService:
                 assistant.id
             )
 
-
             return assistant
 
         except Exception as e:
-            self.logging_utility.error(
-                "Assistant setup failed: %s",
-                str(e)
-            )
+            self.logging_utility.error("Assistant setup failed: %s", str(e))
             raise
 
     def orchestrate_default_assistant(self):
@@ -129,11 +112,7 @@ class AssistantSetupService:
         try:
             # Get or create pattern prevents duplicate users
             user = self.client.user_service.create_user(name="default")
-            self.logging_utility.debug(
-                "Using existing user: ID %s",
-                user.id
-            )
-
+            self.logging_utility.debug("Using existing user: ID %s", user.id)
 
             assistant = self.setup_assistant_with_tools(
                 user_id=user.id,
@@ -150,17 +129,11 @@ class AssistantSetupService:
                 assistant_id=assistant.id
             )
 
-            self.logging_utility.info(
-                "Setup completed. Assistant ID: %s",
-                assistant.id
-            )
+            self.logging_utility.info("Setup completed. Assistant ID: %s", assistant.id)
             return assistant
 
         except Exception as e:
-            self.logging_utility.critical(
-                "Critical failure in orchestration: %s",
-                str(e)
-            )
+            self.logging_utility.critical("Critical failure in orchestration: %s", str(e))
             raise
 
 if __name__ == "__main__":

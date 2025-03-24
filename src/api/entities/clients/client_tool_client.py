@@ -1,12 +1,15 @@
 import os
+from typing import List, Optional
 
 import httpx
-from typing import List, Optional
+from dotenv import load_dotenv
 from pydantic import ValidationError
+
 from entities.schemas.tools import ToolCreate, ToolUpdate
 from entities.schemas.tools import ToolRead
 from entities.services.logging_service import LoggingUtility
 
+load_dotenv()
 logging_utility = LoggingUtility()
 
 
