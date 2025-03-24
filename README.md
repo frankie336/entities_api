@@ -64,15 +64,6 @@ The Entities API [Threads](/docs/threads.md)  endpoint simplifies dialogue manag
 
 
 
-
-
-
-## Install
-
-```sh
-tbc
-```
-
 ## Quick Start
 
 ```python
