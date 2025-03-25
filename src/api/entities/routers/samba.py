@@ -1,3 +1,8 @@
+import hashlib
+import hmac
+import os
+from datetime import datetime
+
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Form, Response
 from sqlalchemy.orm import Session
 from entities.dependencies import get_db
@@ -151,3 +156,47 @@ def delete_file(file_id: str, db: Session = Depends(get_db)):
     except Exception as e:
         logging_utility.error(f"Unexpected error in delete_file: {str(e)}")
         raise HTTPException(status_code=500, detail="Unexpected error deleting file.")
+
+
+@router.get("/files/download", response_class=Response)
+def download_file_via_signed_url(
+        file_id: str,
+        expires: int,
+        signature: str,
+        db: Session = Depends(get_db)
+):
+    """
+    Download a file using a signed URL (validates signature and expiration).
+    """
+    file_service = FileService(db)
+
+    try:
+        # Validate signature
+        secret_key = os.getenv("SIGNED_URL_SECRET", "default_secret_key")
+        data = f"{file_id}:{expires}"
+        expected_signature = hmac.new(
+            key=secret_key.encode(),
+            msg=data.encode(),
+            digestmod=hashlib.sha256
+        ).hexdigest()
+
+        if not hmac.compare_digest(signature, expected_signature):
+            raise HTTPException(status_code=403, detail="Invalid signature")
+
+        # Check expiration
+        current_timestamp = int(datetime.utcnow().timestamp())
+        if current_timestamp > expires:
+            raise HTTPException(status_code=410, detail="URL has expired")
+
+        # Retrieve and return the file
+        file_obj = file_service.get_file_as_object(file_id)
+        return Response(
+            content=file_obj.read(),
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f"attachment; filename={file_id}"}
+        )
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logging_utility.error(f"Download error: {str(e)}")
+        raise HTTPException(status_code=500, detail="File download failed")
