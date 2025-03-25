@@ -38,14 +38,11 @@ class FileService:
         """
         _, ext = os.path.splitext(filename.lower())
 
-        # Check if extension is supported
         if ext not in SUPPORTED_MIME_TYPES:
             raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}. Supported types: {SUPPORTED_MIME_TYPES.keys()}")
 
-        # Determine MIME type from extension
         expected_mime = SUPPORTED_MIME_TYPES[ext]
 
-        # If content_type is provided, verify it matches the expected MIME type
         if content_type and content_type != expected_mime:
             raise HTTPException(
                 status_code=400,
@@ -65,35 +62,23 @@ class FileService:
 
     def upload_file(self, file, request) -> File:
         """
-        Handles file upload logic, including validation, uploading to Samba, and saving metadata in the database.
+        Handles file upload logic with unique filenames for Samba storage.
         """
-        # Validate user
         user = self.validate_user(request.user_id)
-
-        # Validate file type
         mime_type = self.validate_file_type(file.filename, getattr(file, "content_type", None))
 
         try:
-            # Save the uploaded file to a temporary location
             temp_file_path = f"/tmp/{file.filename}"
             with open(temp_file_path, "wb") as f:
-                # Reset the file pointer to the beginning
                 file.file.seek(0)
-                # Copy content to the temporary file
                 f.write(file.file.read())
 
-            # Upload file to Samba using the path
-            self.samba_client.upload_file(temp_file_path, file.filename)
-
-            # Get file size
-            file_size = os.path.getsize(temp_file_path)
-
-            # Create file metadata with datetime objects
+            # Generate unique filename using file ID
             file_metadata = File(
                 id=self.identifier_service.generate_file_id(),
                 object="file",
-                bytes=file_size,
-                created_at=datetime.now(),  # Use datetime directly
+                bytes=os.path.getsize(temp_file_path),
+                created_at=datetime.now(),
                 expires_at=None,
                 filename=file.filename,
                 purpose=request.purpose,
@@ -101,76 +86,56 @@ class FileService:
                 mime_type=mime_type,
             )
 
-            # Save file metadata to database
             self.db.add(file_metadata)
-            self.db.flush()  # Flush to generate the ID without committing transaction
+            self.db.flush()
 
-            # Create storage location record with datetime
+            # Use unique filename for Samba storage
+            unique_filename = f"{file_metadata.id}_{file.filename}"
+            self.samba_client.upload_file(temp_file_path, unique_filename)
+
             file_storage = FileStorage(
                 file_id=file_metadata.id,
                 storage_system="samba",
-                storage_path=file.filename,
+                storage_path=unique_filename,
                 is_primary=True,
-                created_at=datetime.now()  # Use datetime directly
+                created_at=datetime.now()
             )
 
-            # Add storage location to database
             self.db.add(file_storage)
             self.db.commit()
             self.db.refresh(file_metadata)
 
-            # Clean up the temporary file
             os.remove(temp_file_path)
-
             return file_metadata
 
         except Exception as e:
             self.db.rollback()
             logging_utility.error(f"Error uploading file: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
-
         finally:
             file.file.close()
 
     def delete_file_by_id(self, file_id: str) -> bool:
         """
         Delete a file by ID and all its storage locations.
-
-        Args:
-            file_id: The ID of the file to delete
-
-        Returns:
-            bool: True if the file was deleted, False if not found
         """
         try:
-            # Query the database for the file record
             file_record = self.db.query(File).filter(File.id == file_id).first()
-
             if not file_record:
                 logging_utility.warning(f"File with ID {file_id} not found in database")
                 return False
 
-            # Query for storage locations
             storage_locations = self.db.query(FileStorage).filter(FileStorage.file_id == file_id).all()
 
-            # Process each storage location
             for storage_location in storage_locations:
                 if storage_location.storage_system == "samba":
                     try:
-                        # Delete from Samba
                         self.samba_client.delete_file(storage_location.storage_path)
-                        logging_utility.info(f"File deleted from Samba: {storage_location.storage_path}")
                     except Exception as e:
-                        # Log but continue with deletion
                         logging_utility.error(f"Failed to delete file from Samba: {str(e)}")
-                else:
-                    logging_utility.warning(f"Unsupported storage system: {storage_location.storage_system}")
 
-            # Delete the file record (will cascade and delete storage locations)
             self.db.delete(file_record)
             self.db.commit()
-
-            logging_utility.info(f"File with ID {file_id} and its storage locations deleted from database")
             return True
 
         except Exception as e:
@@ -181,24 +146,12 @@ class FileService:
     def get_file_by_id(self, file_id: str) -> dict:
         """
         Retrieve file metadata by ID.
-
-        Args:
-            file_id: The ID of the file to retrieve
-
-        Returns:
-            dict: File metadata dictionary
-
-        Raises:
-            HTTPException: If file not found or other errors occur
         """
         try:
-            # Query the database for the file record
             file_record = self.db.query(File).filter(File.id == file_id).first()
-
             if not file_record:
                 return None
 
-            # Convert database model to dictionary with timestamp as integer
             return {
                 "id": file_record.id,
                 "object": "file",
@@ -207,33 +160,20 @@ class FileService:
                 "filename": file_record.filename,
                 "purpose": file_record.purpose,
             }
-
         except Exception as e:
-            # Log the error and re-raise
             logging_utility.error(f"Error retrieving file with ID {file_id}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")
 
     def get_file_as_object(self, file_id: str) -> io.BytesIO:
         """
-        Retrieve file content as a file-like object.
-
-        Args:
-            file_id (str): The ID of the file to retrieve.
-
-        Returns:
-            io.BytesIO: An in-memory stream of the file's bytes.
-
-        Raises:
-            HTTPException: If the file is not found or an error occurs during retrieval.
+        Retrieve file content as a file-like object using storage_path from FileStorage.
         """
-        # Retrieve file metadata from the database
-        file_record = self.db.query(File).filter(File.id == file_id).first()
-        if not file_record:
-            raise HTTPException(status_code=404, detail=f"File with ID {file_id} not found")
+        file_storage = self.db.query(FileStorage).filter(FileStorage.file_id == file_id).first()
+        if not file_storage:
+            raise HTTPException(status_code=404, detail="File storage record not found")
 
         try:
-            # Use the SambaClient to download file content as bytes
-            file_bytes = self.samba_client.download_file(file_record.filename)
+            file_bytes = self.samba_client.download_file_to_bytes(file_storage.storage_path)
             return io.BytesIO(file_bytes)
         except Exception as e:
             logging_utility.error(f"Error retrieving file object for ID {file_id}: {str(e)}")
@@ -242,27 +182,15 @@ class FileService:
     def get_file_as_signed_url(self, file_id: str, expires_in: int = 3600) -> str:
         """
         Generate a signed URL for downloading the file.
-
-        Args:
-            file_id (str): The ID of the file.
-            expires_in (int): Time in seconds for the URL to remain valid.
-
-        Returns:
-            str: The signed URL.
-
-        Raises:
-            HTTPException: If the file is not found or signing fails.
         """
         file_record = self.db.query(File).filter(File.id == file_id).first()
         if not file_record:
             raise HTTPException(status_code=404, detail=f"File with ID {file_id} not found")
 
-        # For demonstration, we generate a simple signed token
         secret_key = os.getenv("SIGNED_URL_SECRET", "default_secret_key")
         expiration_time = datetime.utcnow() + timedelta(seconds=expires_in)
         expiration_timestamp = int(expiration_time.timestamp())
 
-        # Data to sign: file_id and expiration
         data = f"{file_id}:{expiration_timestamp}"
         signature = hmac.new(
             key=secret_key.encode(),
@@ -270,7 +198,6 @@ class FileService:
             digestmod=hashlib.sha256
         ).hexdigest()
 
-        # Construct the URL
         query_params = {
             "file_id": file_id,
             "expires": expiration_timestamp,
@@ -283,24 +210,14 @@ class FileService:
     def get_file_as_base64(self, file_id: str) -> str:
         """
         Retrieve the file content and return it as a BASE64-encoded string.
-
-        Args:
-            file_id (str): The ID of the file to retrieve.
-
-        Returns:
-            str: BASE64-encoded file content.
-
-        Raises:
-            HTTPException: If the file is not found or retrieval fails.
         """
-        file_record = self.db.query(File).filter(File.id == file_id).first()
-        if not file_record:
-            raise HTTPException(status_code=404, detail=f"File with ID {file_id} not found")
+        file_storage = self.db.query(FileStorage).filter(FileStorage.file_id == file_id).first()
+        if not file_storage:
+            raise HTTPException(status_code=404, detail="File storage record not found")
 
         try:
-            file_bytes = self.samba_client.download_file(file_record.filename)
-            base64_encoded = base64.b64encode(file_bytes).decode('utf-8')
-            return base64_encoded
+            file_bytes = self.samba_client.download_file_to_bytes(file_storage.storage_path)
+            return base64.b64encode(file_bytes).decode('utf-8')
         except Exception as e:
             logging_utility.error(f"Error retrieving BASE64 for file ID {file_id}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")
