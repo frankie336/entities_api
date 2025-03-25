@@ -88,30 +88,30 @@ class FileService:
             # Get file size
             file_size = os.path.getsize(temp_file_path)
 
-            # Create file metadata
+            # Create file metadata with datetime objects
             file_metadata = File(
                 id=self.identifier_service.generate_file_id(),
                 object="file",
-                bytes=file_size,  # Use the actual file size
-                created_at=int(datetime.now().timestamp()),
+                bytes=file_size,
+                created_at=datetime.now(),  # Use datetime directly
                 expires_at=None,
                 filename=file.filename,
                 purpose=request.purpose,
                 user_id=request.user_id,
-                mime_type=mime_type,  # Store validated MIME type
+                mime_type=mime_type,
             )
 
             # Save file metadata to database
             self.db.add(file_metadata)
             self.db.flush()  # Flush to generate the ID without committing transaction
 
-            # Create storage location record
+            # Create storage location record with datetime
             file_storage = FileStorage(
                 file_id=file_metadata.id,
                 storage_system="samba",
-                storage_path=file.filename,  # Store the path relative to share root
+                storage_path=file.filename,
                 is_primary=True,
-                created_at=int(datetime.now().timestamp())
+                created_at=datetime.now()  # Use datetime directly
             )
 
             # Add storage location to database
@@ -178,7 +178,6 @@ class FileService:
             logging_utility.error(f"Error deleting file with ID {file_id}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
 
-
     def get_file_by_id(self, file_id: str) -> dict:
         """
         Retrieve file metadata by ID.
@@ -199,7 +198,7 @@ class FileService:
             if not file_record:
                 return None
 
-            # Convert database model to dictionary
+            # Convert database model to dictionary with timestamp as integer
             return {
                 "id": file_record.id,
                 "object": "file",
@@ -213,8 +212,6 @@ class FileService:
             # Log the error and re-raise
             logging_utility.error(f"Error retrieving file with ID {file_id}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")
-
-
 
     def get_file_as_object(self, file_id: str) -> io.BytesIO:
         """
@@ -234,17 +231,13 @@ class FileService:
         if not file_record:
             raise HTTPException(status_code=404, detail=f"File with ID {file_id} not found")
 
-        # Assume file_record.filename stores the path (or relative path) used in Samba
         try:
             # Use the SambaClient to download file content as bytes
-            # (Assumes your SambaClient has a download_file method that returns bytes)
             file_bytes = self.samba_client.download_file(file_record.filename)
             return io.BytesIO(file_bytes)
         except Exception as e:
             logging_utility.error(f"Error retrieving file object for ID {file_id}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")
-
-
 
     def get_file_as_signed_url(self, file_id: str, expires_in: int = 3600) -> str:
         """
@@ -277,7 +270,7 @@ class FileService:
             digestmod=hashlib.sha256
         ).hexdigest()
 
-        # Construct the URL; assume you have an endpoint /v1/files/download that validates the signature.
+        # Construct the URL
         query_params = {
             "file_id": file_id,
             "expires": expiration_timestamp,
@@ -286,8 +279,6 @@ class FileService:
         base_url = os.getenv("BASE_URL", "http://localhost:9000")
         signed_url = f"{base_url}/v1/files/download?{urlencode(query_params)}"
         return signed_url
-
-
 
     def get_file_as_base64(self, file_id: str) -> str:
         """
@@ -313,5 +304,3 @@ class FileService:
         except Exception as e:
             logging_utility.error(f"Error retrieving BASE64 for file ID {file_id}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")
-
-

@@ -272,8 +272,8 @@ class File(Base):
     id = Column(String(64), primary_key=True, index=True)
     object = Column(String(64), nullable=False, default="file")
     bytes = Column(Integer, nullable=False)
-    created_at = Column(Integer, nullable=False)
-    expires_at = Column(Integer, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
     filename = Column(String(256), nullable=False)
     purpose = Column(String(64), nullable=False)
     mime_type = Column(String(255))
@@ -293,11 +293,13 @@ class FileStorage(Base):
                           comment="Path to file in storage system (relative to share root)")
     is_primary = Column(Boolean, default=True,
                         comment="Indicates if this is the primary storage location")
-    created_at = Column(Integer, nullable=False, comment="When this storage entry was created")
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow,
+                        comment="When this storage entry was created")
     file = relationship("File", back_populates="storage_locations")
     __table_args__ = (
         Index('idx_file_storage_file_id', 'file_id'),
     )
+
 
 
 class VectorStore(Base):
