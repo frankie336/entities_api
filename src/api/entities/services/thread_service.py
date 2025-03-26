@@ -1,9 +1,16 @@
+from entities_common import ValidationInterface
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+
 from entities.models.models import Thread, User, Message
-from entities.schemas.threads import ThreadCreate, ThreadReadDetailed,  ThreadUpdate
 from entities.schemas.users import UserBase
+
+validator = ValidationInterface()
+
+
 from entities.services.identifier_service import IdentifierService
+
+
 import json
 import time
 from typing import List, Dict, Any
@@ -15,7 +22,7 @@ class ThreadService:
     def __init__(self, db: Session):
         self.db = db
 
-    def create_thread(self, thread: ThreadCreate) -> ThreadReadDetailed:
+    def create_thread(self, thread: validator.ThreadCreate) -> validator.ThreadReadDetailed:
         existing_users = self.db.query(User).filter(User.id.in_(thread.participant_ids)).all()
         if len(existing_users) != len(thread.participant_ids):
             raise HTTPException(status_code=400, detail="Invalid user IDs")
@@ -37,7 +44,7 @@ class ThreadService:
 
         return self._create_thread_read_detailed(db_thread)
 
-    def get_thread(self, thread_id: str) -> ThreadReadDetailed:
+    def get_thread(self, thread_id: str) -> validator.ThreadReadDetailed:
         db_thread = self._get_thread_or_404(thread_id)
         return self._create_thread_read_detailed(db_thread)
 
@@ -55,14 +62,14 @@ class ThreadService:
         threads = self.db.query(Thread).join(Thread.participants).filter(User.id == user_id).all()
         return [thread.id for thread in threads]
 
-    def update_thread_metadata(self, thread_id: str, new_metadata: Dict[str, Any]) -> ThreadReadDetailed:
+    def update_thread_metadata(self, thread_id: str, new_metadata: Dict[str, Any]) -> validator.ThreadReadDetailed:
         db_thread = self._get_thread_or_404(thread_id)
         db_thread.meta_data = json.dumps(new_metadata)
         self.db.commit()
         self.db.refresh(db_thread)
         return self._create_thread_read_detailed(db_thread)
 
-    def update_thread(self, thread_id: str, thread_update: ThreadUpdate) -> ThreadReadDetailed:
+    def update_thread(self, thread_id: str, thread_update: validator.ThreadUpdate) -> validator.ThreadReadDetailed:
         logging_utility.info(f"Attempting to update thread with id: {thread_id}")
         logging_utility.info(f"Update data: {thread_update.dict()}")
         db_thread = self._get_thread_or_404(thread_id)
@@ -88,9 +95,9 @@ class ThreadService:
             raise HTTPException(status_code=404, detail="Thread not found")
         return db_thread
 
-    def _create_thread_read_detailed(self, db_thread: Thread) -> ThreadReadDetailed:
+    def _create_thread_read_detailed(self, db_thread: Thread) -> validator.ThreadReadDetailed:
         participants = [UserBase.from_orm(user) for user in db_thread.participants]
-        return ThreadReadDetailed(
+        return validator.ThreadReadDetailed(
             id=db_thread.id,
             created_at=db_thread.created_at,
             meta_data=json.loads(db_thread.meta_data),

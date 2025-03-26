@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 from typing import List, Dict, Optional, Union
 
+from entities_common import ValidationInterface
 from qdrant_client.http import models
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, joinedload
@@ -15,17 +16,12 @@ from tenacity import retry, stop_after_attempt, wait_random_exponential, retry_i
 from entities.constants.platform import DIRECT_DATABASE_URL
 from entities.interfaces.base_vector_store import StoreNotFoundError, VectorStoreError
 from entities.models.models import VectorStore, Base, Assistant
-from entities.schemas.common import StatusEnum
-from entities.schemas.inference import ProcessOutput
-from entities.schemas.messages import MessageRead
-from entities.schemas.vectors import EnhancedVectorSearchResult
-from entities.schemas.vectors import SearchExplanation
-from entities.schemas.vectors import VectorStoreCreate
-from entities.schemas.vectors import VectorStoreRead, VectorStoreSearchResult
 from entities.services.file_processor import FileProcessor
 from entities.services.identifier_service import IdentifierService
 from entities.services.logging_service import LoggingUtility
 from entities.services.vector_store_manager import VectorStoreManager
+
+validator = ValidationInterface()
 
 logging_utility = LoggingUtility()
 
@@ -48,9 +44,9 @@ class VectorStoreService:
         self.file_processor = FileProcessor()
 
     @retry(stop=stop_after_attempt(3), wait=wait_random_exponential())
-    def create_vector_store(self, name: str, user_id: str) -> VectorStoreRead:
+    def create_vector_store(self, name: str, user_id: str) ->validator.VectorStoreRead:
         """Create store with improved error handling."""
-        payload = VectorStoreCreate(
+        payload = validator.VectorStoreCreate(
             name=name,
             user_id=user_id,
             vector_size=384,
@@ -77,14 +73,14 @@ class VectorStoreService:
                         vector_size=payload.vector_size,
                         distance_metric=payload.distance_metric,
                         created_at=int(time.time()),
-                        status=StatusEnum.active.value,
+                        status=validator.StatusEnum.active.value,
                         config=payload.config
                     )
                     session.add(new_vector_store)
                 session.refresh(new_vector_store)
 
             # Pydantic V2: use model_validate instead of from_orm
-            return VectorStoreRead.model_validate(new_vector_store)
+            return validator.VectorStoreRead.model_validate(new_vector_store)
         except Exception as e:
             logging_utility.error(f"Create store failed: {str(e)}")
             self.vector_manager.delete_store(unique_id)
@@ -153,7 +149,7 @@ class VectorStoreService:
             cache_key: Optional[str] = None,
             search_type = None
 
-    ) -> List[EnhancedVectorSearchResult]:
+    ) -> List[validator.EnhancedVectorSearchResult]:
         """
         Enhanced semantic search with:
         - Advanced filtering
@@ -172,7 +168,7 @@ class VectorStoreService:
             with self.SessionLocal() as session:
                 store = session.query(VectorStore).filter(
                     VectorStore.collection_name == store_name,
-                    VectorStore.status == StatusEnum.active
+                    VectorStore.status == validator.StatusEnum.active
                 ).first()
             if not store:
                 raise StoreNotFoundError(f"Vector store {store_name} not found")
@@ -285,14 +281,14 @@ class VectorStoreService:
         # Build explanation if requested
         explanation = None
         if explain:
-            explanation = SearchExplanation(
+            explanation = validator.SearchExplanation(
                 base_score=result['score'],
                 filters_passed=self._get_passed_filters(result),
                 boosts_applied={k: v['boost'] for k, v in boosts.items()},
                 final_score=base_score
             )
 
-        return EnhancedVectorSearchResult(
+        return validator.EnhancedVectorSearchResult(
             text=result['text'],
             metadata=result.get('metadata', {}),
             score=base_score,
@@ -319,7 +315,7 @@ class VectorStoreService:
             store_name: str,
             top_k: int = 5,
             filters: Optional[Dict] = None
-    ) -> Dict[str, List[VectorStoreSearchResult]]:
+    ) -> Dict[str, List[validator.VectorStoreSearchResult]]:
         """
         Process multiple searches in parallel.
         - queries: List of search queries
@@ -332,7 +328,7 @@ class VectorStoreService:
             with self.SessionLocal() as session:
                 store = session.query(VectorStore).filter(
                     VectorStore.collection_name == store_name,
-                    VectorStore.status == StatusEnum.active
+                    VectorStore.status == validator.StatusEnum.active
                 ).first()
             if not store:
                 raise StoreNotFoundError(f"Vector store {store_name} not found")
@@ -372,7 +368,7 @@ class VectorStoreService:
                 if permanent:
                     session.delete(store)
                 else:
-                    store.status = StatusEnum.deleted
+                    store.status = validator.StatusEnum.deleted
                     store.updated_at = int(time.time())
                     session.commit()
                 logging_utility.info(f"Deleted store '{store_name}', permanent={permanent}")
@@ -392,7 +388,7 @@ class VectorStoreService:
             with self.SessionLocal() as session:
                 store = session.query(VectorStore).filter(
                     VectorStore.collection_name == store_name,
-                    VectorStore.status == StatusEnum.active
+                    VectorStore.status == validator.StatusEnum.active
                 ).first()
             if not store:
                 raise StoreNotFoundError(f"Vector store {store_name} not found")
@@ -408,7 +404,7 @@ class VectorStoreService:
             with self.SessionLocal() as session:
                 store = session.query(VectorStore).filter(
                     VectorStore.collection_name == store_name,
-                    VectorStore.status == StatusEnum.active
+                    VectorStore.status == validator.StatusEnum.active
                 ).first()
             if not store:
                 raise StoreNotFoundError(f"Vector store {store_name} not found")
@@ -444,7 +440,7 @@ class VectorStoreService:
 
 
         # Convert the dictionary to a Pydantic object before returning.
-        return ProcessOutput(**result)
+        return validator.ProcessOutput(**result)
 
     @retry(stop=stop_after_attempt(3), wait=wait_random_exponential(min=1, max=5))
     def attach_vector_store_to_assistant(self, vector_store_id: str, assistant_id: str) -> bool:
@@ -495,7 +491,7 @@ class VectorStoreService:
             return True
 
 
-    def get_vector_stores_for_assistant(self, assistant_id: str) -> List[VectorStoreRead]:
+    def get_vector_stores_for_assistant(self, assistant_id: str) -> List[validator.VectorStoreRead]:
         """
         Retrieve all vector stores associated with a given assistant.
         """
@@ -509,9 +505,9 @@ class VectorStoreService:
                 raise HTTPException(status_code=404, detail="Assistant not found")
 
             # Convert each VectorStore ORM object into a Pydantic model.
-            return [VectorStoreRead.model_validate(vs) for vs in assistant.vector_stores]
+            return [validator.VectorStoreRead.model_validate(vs) for vs in assistant.vector_stores]
 
-    def get_stores_by_user(self, user_id: str) -> List[VectorStoreRead]:
+    def get_stores_by_user(self, user_id: str) -> List[validator.VectorStoreRead]:
         """
         Retrieve all vector stores belonging to a specific user.
 
@@ -527,7 +523,7 @@ class VectorStoreService:
                 stores = session.query(VectorStore).filter(VectorStore.user_id == user_id).all()
 
                 # Convert the ORM objects to Pydantic models
-                return [VectorStoreRead.model_validate(store) for store in stores]
+                return [validator.VectorStoreRead.model_validate(store) for store in stores]
         except Exception as e:
             logging_utility.error(f"Error retrieving stores for user {user_id}: {str(e)}")
             raise
@@ -585,7 +581,7 @@ class VectorStoreService:
 
         return status
 
-    def format_message_for_storage(self, message: MessageRead, role) -> dict:
+    def format_message_for_storage(self, message: validator.MessageRead, role) -> dict:
         """Properly structure messages with role at metadata level"""
 
         return {

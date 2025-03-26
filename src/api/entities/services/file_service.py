@@ -8,14 +8,18 @@ from urllib.parse import urlencode
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
-
 from entities.constants.platform import SUPPORTED_MIME_TYPES
+from entities_common import ValidationInterface
 from entities.models.models import File, User, FileStorage
 from entities.services.identifier_service import IdentifierService
+
 from entities.services.logging_service import LoggingUtility
 from entities.utils.samba_client import SambaClient
 
 logging_utility = LoggingUtility()
+
+
+validator = ValidationInterface()
 
 class FileService:
     def __init__(self, db: Session):

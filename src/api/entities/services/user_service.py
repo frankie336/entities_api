@@ -1,7 +1,11 @@
+from entities_common import ValidationInterface
 from sqlalchemy.orm import Session
+
 from entities.models.models import User
-from entities.schemas.users import UserCreate, UserRead, UserUpdate
 from entities.schemas.assistants import AssistantRead
+
+validator = ValidationInterface()
+
 from entities.services.identifier_service import IdentifierService
 from typing import List
 from fastapi import HTTPException
@@ -11,9 +15,9 @@ class UserService:
     def __init__(self, db: Session):
         self.db = db
 
-    def create_user(self, user: UserCreate = None) -> UserRead:
+    def create_user(self, user: validator.UserCreate = None) -> validator.UserRead:
         if user is None:
-            user = UserCreate()
+            user = validator.UserCreate()
 
         new_user = User(
             id=IdentifierService.generate_user_id(),
@@ -22,19 +26,19 @@ class UserService:
         self.db.add(new_user)
         self.db.commit()
         self.db.refresh(new_user)
-        return UserRead.from_orm(new_user)
+        return validator.UserRead.from_orm(new_user)
 
-    def get_user(self, user_id: str) -> UserRead:
+    def get_user(self, user_id: str) -> validator.UserRead:
         user = self.db.query(User).filter(User.id == user_id).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-        return UserRead.from_orm(user)
+        return validator.UserRead.from_orm(user)
 
-    def get_users(self) -> List[UserRead]:
+    def get_users(self) -> List[validator.UserRead]:
         users = self.db.query(User).all()
-        return [UserRead.from_orm(user) for user in users]
+        return [validator.UserRead.from_orm(user) for user in users]
 
-    def update_user(self, user_id: str, user_update: UserUpdate) -> UserRead:
+    def update_user(self, user_id: str, user_update: validator.UserUpdate) -> validator.UserRead:
         db_user = self.db.query(User).filter(User.id == user_id).first()
         if not db_user:
             raise HTTPException(status_code=404, detail="User not found")
@@ -45,7 +49,7 @@ class UserService:
 
         self.db.commit()
         self.db.refresh(db_user)
-        return UserRead.from_orm(db_user)
+        return validator.UserRead.from_orm(db_user)
 
     def delete_user(self, user_id: str) -> None:
         db_user = self.db.query(User).filter(User.id == user_id).first()
@@ -55,7 +59,7 @@ class UserService:
         self.db.delete(db_user)
         self.db.commit()
 
-    def get_or_create_user(self, user_id: str = None) -> UserRead:
+    def get_or_create_user(self, user_id: str = None) -> validator.UserRead:
         if user_id:
             try:
                 return self.get_user(user_id)
@@ -64,7 +68,7 @@ class UserService:
 
         return self.create_user()
 
-    def list_assistants_by_user(self, user_id: str) -> List[AssistantRead]:
+    def list_assistants_by_user(self, user_id: str) -> List[validator.AssistantRead]:
         """
         Retrieve the list of assistants associated with a specific user.
         """

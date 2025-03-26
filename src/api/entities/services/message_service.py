@@ -6,7 +6,13 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from entities.models.models import Message, Thread
-from entities.schemas.messages import MessageCreate, MessageRead
+
+from entities.schemas.messages import MessageRead
+from entities_common import ValidationInterface
+
+validator = ValidationInterface()
+
+
 from entities.services.identifier_service import IdentifierService
 from entities.services.logging_service import LoggingUtility
 
@@ -22,7 +28,7 @@ class MessageService:
         self.message_chunks: Dict[str, List[str]] = {}  # Temporary storage for message chunks
         logging_utility.info(f"Initialized MessageService with database session. Source: {__file__}")
 
-    def create_message(self, message: MessageCreate) -> MessageRead:
+    def create_message(self, message: validator.MessageCreate) -> validator.MessageRead:
         """
         Create a new message in the database.
         """
@@ -130,7 +136,7 @@ class MessageService:
             query = query.order_by(Message.created_at.desc())
 
         db_messages = query.limit(limit).all()
-        logger.info(f"Retrieved {len(db_messages)} messages for thread_id={thread_id}. Source: {__file__}")
+        logging_utility.info(f"Retrieved {len(db_messages)} messages for thread_id={thread_id}. Source: {__file__}")
 
         return [
             MessageRead(
@@ -178,7 +184,7 @@ class MessageService:
 
         # Return early if this is not the last chunk
         if not is_last_chunk:
-            logger.debug(f"Chunk saved for thread_id={thread_id}. Waiting for more chunks.")
+            logging_utility.debug(f"Chunk saved for thread_id={thread_id}. Waiting for more chunks.")
             return None  # Return None or a placeholder if not the last chunk
 
         # Combine chunks into a complete message
@@ -244,7 +250,7 @@ class MessageService:
 
         db_thread = self.db.query(Thread).filter(Thread.id == thread_id).first()
         if not db_thread:
-            logger.error(f"Thread not found: {thread_id}. Source: {__file__}")
+            logging_utility.error(f"Thread not found: {thread_id}. Source: {__file__}")
             raise HTTPException(status_code=404, detail="Thread not found")
 
         db_messages = self.db.query(Message).filter(Message.thread_id == thread_id).order_by(
@@ -274,7 +280,7 @@ class MessageService:
             f"Retrieved {len(formatted_messages)} formatted messages for thread_id={thread_id}. Source: {__file__}")
         return formatted_messages
 
-    def submit_tool_output(self, message: MessageCreate) -> MessageRead:
+    def submit_tool_output(self, message: validator.MessageCreate) -> MessageRead:
         """
         Create a new message in the database.
         """

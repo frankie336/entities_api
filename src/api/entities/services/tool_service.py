@@ -1,12 +1,14 @@
 from typing import List, Optional
 
+from entities_common import ValidationInterface
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from entities.models.models import Tool, Assistant
-from entities.schemas.tools import ToolRead
-from entities.schemas.tools import ToolCreate, ToolUpdate
+
+validator = ValidationInterface()
+
 from entities.services.identifier_service import IdentifierService
 from entities.services.logging_service import LoggingUtility
 
@@ -20,7 +22,7 @@ class ToolService:
 
 
 
-    def create_tool(self, tool: ToolCreate, set_id: Optional[str] = None) -> ToolRead:
+    def create_tool(self, tool: validator.ToolCreate, set_id: Optional[str] = None) -> validator.ToolRead:
         logging_utility.info("Starting create_tool with ToolCreate: %s", tool)
         try:
             # Use provided set_id if available; otherwise, generate a new tool ID.
@@ -42,7 +44,7 @@ class ToolService:
             self.db.refresh(db_tool)
 
             logging_utility.info("Tool created successfully with ID: %s", tool_id)
-            return ToolRead.model_validate(db_tool)
+            return validator.ToolRead.model_validate(db_tool)
         except IntegrityError as e:
             self.db.rollback()
             logging_utility.error("IntegrityError during tool creation: %s", str(e))
@@ -102,12 +104,12 @@ class ToolService:
             raise HTTPException(status_code=500,
                                 detail="An error occurred while disassociating the tool from the assistant")
 
-    def get_tool(self, tool_id: str) -> ToolRead:
+    def get_tool(self, tool_id: str) -> validator.ToolRead:
         logging_utility.info("Retrieving tool with ID: %s", tool_id)
         try:
             db_tool = self._get_tool_or_404(tool_id)
             logging_utility.info("Tool retrieved successfully: %s", db_tool)
-            return ToolRead.model_validate(db_tool)
+            return validator.ToolRead.model_validate(db_tool)
         except HTTPException as e:
             logging_utility.error("HTTPException: %s", str(e))
             raise
@@ -115,7 +117,7 @@ class ToolService:
             logging_utility.error("Unexpected error retrieving tool: %s", str(e))
             raise HTTPException(status_code=500, detail="An error occurred while retrieving the tool")
 
-    def get_tool_by_name(self, name: str) -> ToolRead:
+    def get_tool_by_name(self, name: str) -> validator.ToolRead:
         """Retrieve a tool by its name."""
         logging_utility.info("Retrieving tool by name: %s", name)
         try:
@@ -125,12 +127,12 @@ class ToolService:
                 raise HTTPException(status_code=404, detail=f"Tool with name {name} not found")
 
             logging_utility.info("Tool retrieved successfully: %s", db_tool)
-            return ToolRead.model_validate(db_tool)
+            return validator.ToolRead.model_validate(db_tool)
         except Exception as e:
             logging_utility.error("Unexpected error retrieving tool: %s", str(e))
             raise HTTPException(status_code=500, detail="An error occurred while retrieving the tool")
 
-    def update_tool(self, tool_id: str, tool_update: ToolUpdate) -> ToolRead:
+    def update_tool(self, tool_id: str, tool_update: validator.ToolUpdate) -> validator.ToolRead:
         logging_utility.info("Updating tool with ID: %s, ToolUpdate: %s", tool_id, tool_update)
         try:
             db_tool = self._get_tool_or_404(tool_id)
@@ -144,7 +146,7 @@ class ToolService:
             self.db.refresh(db_tool)
 
             logging_utility.info("Tool with ID %s updated successfully", tool_id)
-            return ToolRead.model_validate(db_tool)
+            return validator.ToolRead.model_validate(db_tool)
         except HTTPException as e:
             logging_utility.error("HTTPException: %s", str(e))
             raise
