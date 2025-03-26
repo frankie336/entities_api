@@ -206,7 +206,7 @@ class StreamingCodeExecutionHandler:
                     client = EntitiesInternalInterface()
                     upload = client.files.upload_file(
                         file_path=file_path,
-                        user_id="default",
+                        user_id="user_33FQ33imxpw7gUIRgi593k",
                         purpose="assistants"
                     )
                     expires = int(time.time()) + 600  # Valid for 10 minutes.
