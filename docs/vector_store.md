@@ -18,10 +18,10 @@ Associated methods can be used to extend the memory and contextual recall of AI 
 **Create a Vector Store**
 
 ```python
-from src.api.entities import EntitiesInternalInterface
+from src.api.entities import CommonEntitiesInternalInterface
 
 # Initialize the client
-client = EntitiesInternalInterface()
+client = CommonEntitiesInternalInterface()
 
 # Create user
 user = user_service.create_user(name="test_user")

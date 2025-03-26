@@ -9,7 +9,7 @@ Inference is the final stage of the Entities API workflow, where the assistant p
 **Import the Inference Client**
 
 ```python
-from src.api.entities import EntitiesInternalInterface  # the state client  
+from src.api.entities import CommonEntitiesInternalInterface  # the state client  
 from src.api.entities import InferenceFactory  # the inference client
 
 ```
@@ -62,9 +62,9 @@ from flask_jwt_extended import jwt_required
 from src.api.entities import InferenceFactory
 
 from src.api.entities import code_interpreter
-from src.api.entities import EntitiesInternalInterface
+from src.api.entities import CommonEntitiesInternalInterface
 
-client = EntitiesInternalInterface()
+client = CommonEntitiesInternalInterface()
 
 from backend.app.services.function_call_service.handlers.temp_function_handlers import (
     get_flight_times,

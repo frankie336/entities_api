@@ -4,8 +4,8 @@ from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 
-from ..clients.files import FileClient
-from ..services.logging_service import LoggingUtility
+from common.clients.files import FileClient
+from common.services.logging_service import LoggingUtility
 
 load_dotenv()
 
@@ -13,7 +13,7 @@ load_dotenv()
 logging_utility = LoggingUtility()
 
 
-class EntitiesInternalInterface:
+class CommonEntitiesInternalInterface:
     def __init__(
             self,
             base_url: Optional[str] = None,
@@ -27,7 +27,7 @@ class EntitiesInternalInterface:
         """
         self.base_url = base_url or os.getenv('ASSISTANTS_BASE_URL', 'http://localhost:9000/')
         self.api_key = api_key or os.getenv('API_KEY', 'your_api_key')
-        logging_utility.info("EntitiesInternalInterface initialized with base_url: %s", self.base_url)
+        logging_utility.info("CommonEntitiesInternalInterface initialized with base_url: %s", self.base_url)
 
         self._file_client: Optional[FileClient] = None
 

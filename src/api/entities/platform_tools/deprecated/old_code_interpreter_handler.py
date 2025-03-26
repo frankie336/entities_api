@@ -5,7 +5,7 @@ import re
 from entities.clients import ClientCodeService
 from common.services.logging_service import LoggingUtility
 
-# Initialize the logging utility and EntitiesInternalInterface
+# Initialize the logging utility and CommonEntitiesInternalInterface
 logging_utility = LoggingUtility()
 
 
@@ -70,7 +70,7 @@ def code_interpreter(code: str, language: str = "python", user_id: str = "test_u
 
     try:
 
-        # Execute the code using the EntitiesInternalInterface's code_executor_service
+        # Execute the code using the CommonEntitiesInternalInterface's code_executor_service
 
         client = ClientCodeService(
             sandbox_server_url=os.getenv('CODE_SERVER_URL', 'http://localhost:9000/v1/execute_code')

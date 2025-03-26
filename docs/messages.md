@@ -14,10 +14,10 @@ By leveraging the Messages endpoint, you can manage the flow of conversation and
 ```python
 
 
-from src.api.entities import EntitiesInternalInterface
+from src.api.entities import CommonEntitiesInternalInterface
 
 # Initialize the client
-client = EntitiesInternalInterface()
+client = CommonEntitiesInternalInterface()
 
 # Create user
 user = client.user_service.create_user(name='test_user')

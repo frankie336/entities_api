@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, Any, Union, List, Tuple
 import numpy as np
 from sentence_transformers import SentenceTransformer
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 

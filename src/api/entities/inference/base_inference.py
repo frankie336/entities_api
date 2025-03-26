@@ -937,6 +937,7 @@ class BaseInference(ABC):
 
         # Submit final output after execution completes
         content = '\n'.join(hot_code_buffer)
+
         self.submit_tool_output(
             thread_id=thread_id,
             assistant_id=assistant_id,

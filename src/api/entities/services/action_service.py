@@ -1,14 +1,21 @@
-from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
-from fastapi import HTTPException
-from entities.models.models import Action, Tool
-from typing import List, Optional, Dict, Any
-from common.services.logging_service import LoggingUtility
-from entities.schemas.actions import ActionCreate, ActionRead, ActionUpdate, ActionStatus
 from datetime import datetime
-from entities.utils.conversion_utils import  datetime_to_iso
+from typing import List, Optional, Dict, Any
+
+from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from entities import EntitiesInternalInterface
+from entities.models.models import Action, Tool
+from entities.schemas.actions import ActionCreate, ActionRead, ActionUpdate, ActionStatus
 from entities.services.identifier_service import IdentifierService
-from entities.clients.client import ToolSClient
+from entities.services.logging_service import LoggingUtility
+from entities.utils.conversion_utils import datetime_to_iso
+
+client = EntitiesInternalInterface()
+
+
+
 from entities.models.models import Run  # Ensure Run is imported
 
 logging_utility = LoggingUtility()
@@ -132,8 +139,7 @@ class ActionService:
 
 
             # we indirectly fetch the tool name by id which is already available on another end point
-            tool_service = ToolSClient()
-            tool = tool_service.get_tool_by_id(tool_id=action.tool_id)
+            tool = client.tool_service.get_tool_by_id(tool_id=action.tool_id)
 
             return ActionRead(
                 id=action.id,

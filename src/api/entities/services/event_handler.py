@@ -2,10 +2,10 @@ import json
 import threading
 import time
 from typing import Optional, Dict, Any
-from entities.clients.client import ActionsClient
-from entities.clients.client import RunsClient
-from common.services.logging_service import LoggingUtility
+
+from entities import EntitiesInternalInterface
 from entities.constants.assistant import PLATFORM_TOOLS
+from entities.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 
@@ -23,7 +23,7 @@ class EntitiesEventHandler:
         self._current_run: Optional[Any] = None
         self._current_tool_call: Optional[Any] = None
 
-        self._action_service = ActionsClient()
+        self._client = EntitiesInternalInterface()
 
     def start_monitoring(self, run_id: str):
         """
@@ -174,10 +174,13 @@ class EntitiesEventHandler:
 
             # After processing the tool event, update the run status to "in_progress"
             if self._current_run:
+
                 run_id = self._current_run.id
-                run_client = RunsClient()
                 # Update the run status to "in_progress" after handling the tool call.
-                run_client.update_run_status(run_id=run_id, new_status='in_progress')
+
+                self._client.run_service.update_run_status(run_id=run_id, new_status='in_progress')
+
+
                 logging_utility.info(f"Run {run_id} status updated to in_progress after tool invocation.")
 
         except Exception as e:

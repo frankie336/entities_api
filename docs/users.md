@@ -19,10 +19,10 @@ This provides a robust and efficient user management system that can be used to 
 # Create user
 
 ```python
-from entities import EntitiesInternalInterface
+from entities import CommonEntitiesInternalInterface
 
 # Initialize the client
-client = EntitiesInternalInterface()
+client = CommonEntitiesInternalInterface()
 
 user = client.user_service.create_user(name='test_user')
 print(f"User created: ID: {user.id}")

@@ -1,4 +1,3 @@
-fastapi
 uvicorn[standard]
 websockets
 python-multipart
@@ -7,4 +6,6 @@ aiofiles
 python-socketio[asyncio]
 redis
 httpx
-entities
+pydantic
+git+https://github.com/frankie336/entities_common.git#egg=entities_common
+

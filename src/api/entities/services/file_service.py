@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from entities.constants.platform import SUPPORTED_MIME_TYPES
 from entities.models.models import File, User, FileStorage
 from entities.services.identifier_service import IdentifierService
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 from entities.utils.samba_client import SambaClient
 
 logging_utility = LoggingUtility()

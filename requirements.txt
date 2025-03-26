@@ -56,3 +56,4 @@ pysmb
 python-multipart
 alembic
 requests
+git+https://github.com/frankie336/entities_common.git#egg=entities_common

@@ -1,8 +1,9 @@
 # entities/services/assistant_setup_service.py
-from entities.clients.client import EntitiesInternalInterface
+
+from entities.services.logging_service import LoggingUtility
+from entities import EntitiesInternalInterface
 from entities.constants.assistant import DEFAULT_MODEL, BASE_ASSISTANT_INSTRUCTIONS, BASE_TOOLS
 from entities.schemas.tools import ToolFunction
-from common.services.logging_service import LoggingUtility
 from entities.services.vector_store_service import VectorStoreService
 from entities.services.vector_waves import AssistantVectorWaves
 

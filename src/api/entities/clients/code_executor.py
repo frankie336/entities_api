@@ -1,6 +1,6 @@
 import requests
 from typing import Dict, Any
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 

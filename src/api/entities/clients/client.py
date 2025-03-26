@@ -42,7 +42,7 @@ class EntitiesInternalInterface:
 
         self._session_factory = SessionLocal
 
-        logging_utility.info("EntitiesInternalInterface initialized with base_url: %s", self.base_url)
+        logging_utility.info("CommonEntitiesInternalInterface initialized with base_url: %s", self.base_url)
 
         # Lazy initialization caches for service instances
         self._user_service: Optional[UserClient] = None

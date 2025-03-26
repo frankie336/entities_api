@@ -1,4 +1,4 @@
-# src/api/entities/schemas/file_service.py
+# src/api/entities/schemas/files.py
 from typing import Optional
 
 from pydantic import BaseModel
