@@ -6,7 +6,7 @@ from entities.platform_tools.code_interpreter.code_execution_client import Strea
 from entities.platform_tools.vector_store.vector_search_handler import VectorSearchHandler
 from entities.platform_tools.web.web_search_handler import FirecrawlService
 from entities.platform_tools.computer.shell_command_interface import ShellCommandInterface
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 

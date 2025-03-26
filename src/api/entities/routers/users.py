@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from entities.dependencies import get_db
 from entities.schemas.users import UserRead, UserCreate
 from entities.serializers import UserUpdate
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 from entities.services.user_service import UserService
 
 router = APIRouter()

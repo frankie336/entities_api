@@ -7,7 +7,7 @@ import tempfile
 import time
 from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
-from entities_common import EntitiesCommon
+from entities_common import EntitiesInternalInterface
 from sandbox.services.logging_service import LoggingUtility
 
 
@@ -192,7 +192,7 @@ class StreamingCodeExecutionHandler:
                 continue
 
             try:
-                client = EntitiesCommon()
+                client = EntitiesInternalInterface()
                 upload = client.files.upload_file(
                     file_path=file_path,
                     user_id="user_fD3oruiyNMu4ycAvcZgzRI",

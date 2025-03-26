@@ -1,7 +1,7 @@
 from typing import List, Optional
 
 from entities.platform_tools.computer.shell_command_client import run_commands, run_commands_sync
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 

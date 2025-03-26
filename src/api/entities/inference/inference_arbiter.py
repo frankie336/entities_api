@@ -10,7 +10,7 @@ from entities.inference.cloud_hyperbolic_v3 import HyperbolicV3Inference
 from entities.inference.cloud_together_ai_r1 import TogetherR1Inference
 from entities.inference.cloud_together_ai_v3 import TogetherV3Inference
 from entities.inference.local_inference import LocalInference  # New local inference provider
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 

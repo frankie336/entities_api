@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from entities.dependencies import get_db
 from entities.schemas.threads import ThreadReadDetailed, ThreadRead, ThreadIds
 from entities.serializers import ThreadCreate
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 from entities.services.thread_service import ThreadService
 
 router = APIRouter()

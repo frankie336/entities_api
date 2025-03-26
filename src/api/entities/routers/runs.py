@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from entities.dependencies import get_db
 from entities.schemas.runs import Run as RunSchema, RunCreate, RunStatusUpdate
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 from entities.services.run_service import RunService
 
 router = APIRouter()

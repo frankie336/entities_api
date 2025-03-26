@@ -4,7 +4,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from fastapi import APIRouter
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 
 # Initialize logging and the main client.
 logging_utility = LoggingUtility()

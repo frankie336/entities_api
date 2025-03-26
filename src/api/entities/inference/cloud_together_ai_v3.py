@@ -11,7 +11,7 @@ from together import Together  # Using the official Together SDK
 
 from entities.constants.assistant import PLATFORM_TOOLS
 from entities.inference.base_inference import BaseInference
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 
 load_dotenv()
 logging_utility = LoggingUtility()

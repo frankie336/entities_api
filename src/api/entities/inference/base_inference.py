@@ -24,7 +24,7 @@ from entities.clients.client import UserClient
 from entities.platform_tools.code_interpreter.code_execution_client import StreamOutput
 from entities.platform_tools.platform_tool_service import PlatformToolService
 from entities.services.conversation_truncator import ConversationTruncator
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 from entities.services.vector_store_service import VectorStoreService
 
 

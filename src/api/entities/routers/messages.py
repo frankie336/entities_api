@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from entities.dependencies import get_db
 from entities.schemas.messages import MessageRead, MessageCreate
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 from entities.services.message_service import MessageService
 
 router = APIRouter()

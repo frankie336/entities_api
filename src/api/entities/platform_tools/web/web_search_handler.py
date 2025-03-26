@@ -2,7 +2,7 @@ import time
 import requests
 import re
 from urllib.parse import quote
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 from entities.constants.platform import WEB_SEARCH_BASE_URL
 
 # Initialize the logging utility

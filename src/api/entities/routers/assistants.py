@@ -7,7 +7,7 @@ from entities.clients.client import UserClient
 from entities.dependencies import get_db
 from entities.schemas.assistants import AssistantRead, AssistantCreate, AssistantUpdate
 from entities.services.assistant_service import AssistantService
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 
 router = APIRouter()
 logging_utility = LoggingUtility()

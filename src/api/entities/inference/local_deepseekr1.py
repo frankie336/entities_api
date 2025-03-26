@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from ollama import Client
 
 from entities.inference.base_inference import BaseInference
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 
 # Load environment variables from .env file
 load_dotenv()

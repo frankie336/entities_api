@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from entities.dependencies import get_db
 from entities.schemas.files import FileResponse, FileUploadRequest
 from entities.services.file_service import FileService
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 
 router = APIRouter()
 logging_utility = LoggingUtility()
