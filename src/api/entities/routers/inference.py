@@ -5,7 +5,7 @@ from fastapi.responses import StreamingResponse
 from entities.inference.inference_arbiter import InferenceArbiter
 from entities.inference.inference_provider_selector import InferenceProviderSelector
 from entities.schemas.inference import StreamRequest
-from entities.services.logging_service import LoggingUtility
+from common.services.logging_service import LoggingUtility
 
 router = APIRouter()
 logging_utility = LoggingUtility()

@@ -1,7 +1,7 @@
 import time
 import requests
 import re
-from entities.services.logging_service import LoggingUtility
+from common.services.logging_service import LoggingUtility
 from entities.utils import count_tokens
 from entities.constants.platform import WEB_SEARCH_BASE_URL
 

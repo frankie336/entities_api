@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from entities.dependencies import get_db
-from entities.services.logging_service import LoggingUtility
+from common.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 router = APIRouter()

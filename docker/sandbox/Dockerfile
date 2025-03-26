@@ -45,6 +45,7 @@ WORKDIR /app
 # Copy application components
 COPY src/api/sandbox/requirements.txt /app/
 COPY src/api/sandbox/ /app/sandbox/
+COPY src/api/common/ /app/common/
 
 # Install Python dependencies
 RUN pip install --no-cache-dir --default-timeout=100 -r /app/requirements.txt

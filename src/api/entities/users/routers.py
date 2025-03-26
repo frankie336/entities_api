@@ -17,10 +17,9 @@ from entities.schemas.schemas import (
 )
 from entities.services.action_service import ActionService
 from entities.services.assistant_service import AssistantService
-from entities.services.logging_service import LoggingUtility
+from common.services.logging_service import LoggingUtility
 from entities.services.message_service import MessageService
 from entities.services.run_service import RunService
-from entities.services.thread_service import ThreadService
 from entities.services.tool_service import ToolService
 from entities.services.user_service import UserService
 

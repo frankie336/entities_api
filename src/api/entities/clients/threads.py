@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from entities.schemas.threads import ThreadCreate, ThreadRead, ThreadUpdate, ThreadIds, \
     ThreadReadDetailed
 from entities.schemas.users import UserCreate, UserRead
-from entities.services.logging_service import LoggingUtility
+from common.services.logging_service import LoggingUtility
 
 # Initialize logging utility
 logging_utility = LoggingUtility()

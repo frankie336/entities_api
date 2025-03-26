@@ -14,17 +14,17 @@ import httpx
 from openai import OpenAI
 from together import Together
 
-from common.clients.client import ActionsClient
-from common.clients.client import AssistantsClient
-from common.clients.client import MessagesClient
-from common.clients.client import RunsClient
-from common.clients.client import ThreadsClient
-from common.clients.client import ToolSClient
-from common.clients.client import UserClient
+from entities.clients.client import ActionsClient
+from entities.clients.client import AssistantsClient
+from entities.clients.client import MessagesClient
+from entities.clients.client import RunsClient
+from entities.clients.client import ThreadsClient
+from entities.clients.client import ToolSClient
+from entities.clients.client import UserClient
 from entities.platform_tools.code_interpreter.code_execution_client import StreamOutput
 from entities.platform_tools.platform_tool_service import PlatformToolService
 from entities.services.conversation_truncator import ConversationTruncator
-from entities.services.logging_service import LoggingUtility
+from common.services.logging_service import LoggingUtility
 from entities.services.vector_store_service import VectorStoreService
 
 

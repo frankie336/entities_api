@@ -78,7 +78,6 @@ thread = client.threads.create_thread(participant_ids=[user.id])
 
 assistant = client.assistant.create_assistant()
 
-
 message = client.messages.create_message(
     thread_id=thread.id,
     role='user',
@@ -88,7 +87,6 @@ run = client.runs.create_run(assistant_id=assistant.id,
                              thread_id=thread.id,
 
                              )
-
 
 try:
     completion = client.inference.create_completion(

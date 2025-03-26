@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from entities.schemas.tools import Tool
 from entities.services.identifier_service import IdentifierService
-from entities.services.logging_service import LoggingUtility
+from common.services.logging_service import LoggingUtility
 from entities.models.models import Run, StatusEnum  # Ensure Run is imported
 
 

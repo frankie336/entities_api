@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
 from websockets.legacy.protocol import WebSocketCommonProtocol
 
-from entities.services.logging_service import LoggingUtility
+from common.services.logging_service import LoggingUtility
 
 load_dotenv()
 

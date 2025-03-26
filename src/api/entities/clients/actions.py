@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from entities.schemas.actions import ActionRead, ActionUpdate, ActionCreate, ActionStatus
 from entities.services.identifier_service import IdentifierService
-from entities.services.logging_service import LoggingUtility
+from common.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 

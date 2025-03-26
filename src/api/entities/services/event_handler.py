@@ -2,9 +2,9 @@ import json
 import threading
 import time
 from typing import Optional, Dict, Any
-from common.clients.client import ActionsClient
-from common.clients.client import RunsClient
-from entities.services.logging_service import LoggingUtility
+from entities.clients.client import ActionsClient
+from entities.clients.client import RunsClient
+from common.services.logging_service import LoggingUtility
 from entities.constants.assistant import PLATFORM_TOOLS
 
 logging_utility = LoggingUtility()

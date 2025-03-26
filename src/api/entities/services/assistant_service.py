@@ -4,11 +4,11 @@ from typing import List
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from common.clients.client import EntitiesInternalInterface
+from entities.clients.client import EntitiesInternalInterface
 from entities.models.models import Assistant, User
 from entities.schemas.assistants import AssistantCreate, AssistantRead, AssistantUpdate
 from entities.services.identifier_service import IdentifierService
-from entities.services.logging_service import LoggingUtility
+from common.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 

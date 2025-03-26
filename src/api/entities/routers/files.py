@@ -1,7 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import StreamingResponse
 import os
-import io
 import hmac
 import hashlib
 from datetime import datetime
@@ -9,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from entities.dependencies import get_db
 from entities.services.file_service import FileService
-from entities.services.logging_service import LoggingUtility
+from common.services.logging_service import LoggingUtility
 
 router = APIRouter()
 logging_utility = LoggingUtility()

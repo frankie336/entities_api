@@ -2,8 +2,8 @@ import json
 import os
 import re
 
-from common.clients import ClientCodeService
-from entities.services.logging_service import LoggingUtility
+from entities.clients import ClientCodeService
+from common.services.logging_service import LoggingUtility
 
 # Initialize the logging utility and EntitiesInternalInterface
 logging_utility = LoggingUtility()

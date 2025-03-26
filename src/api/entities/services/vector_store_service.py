@@ -24,7 +24,7 @@ from entities.schemas.vectors import VectorStoreCreate
 from entities.schemas.vectors import VectorStoreRead, VectorStoreSearchResult
 from entities.services.file_processor import FileProcessor
 from entities.services.identifier_service import IdentifierService
-from entities.services.logging_service import LoggingUtility
+from common.services.logging_service import LoggingUtility
 from entities.services.vector_store_manager import VectorStoreManager
 
 logging_utility = LoggingUtility()

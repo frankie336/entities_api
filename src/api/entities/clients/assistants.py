@@ -4,7 +4,7 @@ from typing import Optional, List, Dict, Any
 import httpx
 from pydantic import ValidationError
 from entities.schemas.assistants import AssistantCreate, AssistantRead, AssistantUpdate
-from entities.services.logging_service import LoggingUtility
+from common.services.logging_service import LoggingUtility
 
 # Initialize logging utility
 logging_utility = LoggingUtility()

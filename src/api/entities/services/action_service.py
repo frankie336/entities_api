@@ -3,12 +3,12 @@ from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from entities.models.models import Action, Tool
 from typing import List, Optional, Dict, Any
-from entities.services.logging_service import LoggingUtility
+from common.services.logging_service import LoggingUtility
 from entities.schemas.actions import ActionCreate, ActionRead, ActionUpdate, ActionStatus
 from datetime import datetime
 from entities.utils.conversion_utils import  datetime_to_iso
 from entities.services.identifier_service import IdentifierService
-from common.clients.client import ToolSClient
+from entities.clients.client import ToolSClient
 from entities.models.models import Run  # Ensure Run is imported
 
 logging_utility = LoggingUtility()

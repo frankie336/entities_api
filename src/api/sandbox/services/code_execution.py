@@ -1,17 +1,14 @@
 import asyncio
+import hashlib
+import hmac
 import os
 import re
 import tempfile
 import time
-import json
-import hmac
-import hashlib
-import shutil
-
 from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
-from .logging_service import LoggingUtility
 from common.clients.client import EntitiesInternalInterface
+from sandbox.services.logging_service import LoggingUtility
 
 
 class StreamingCodeExecutionHandler:
@@ -206,7 +203,7 @@ class StreamingCodeExecutionHandler:
                     client = EntitiesInternalInterface()
                     upload = client.files.upload_file(
                         file_path=file_path,
-                        user_id="user_33FQ33imxpw7gUIRgi593k",
+                        user_id="user_fD3oruiyNMu4ycAvcZgzRI",
                         purpose="assistants"
                     )
                     expires = int(time.time()) + 600  # Valid for 10 minutes.

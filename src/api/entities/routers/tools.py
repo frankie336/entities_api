@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from entities.dependencies import get_db
 from entities.schemas.tools import ToolRead
 from entities.schemas.tools import ToolCreate, ToolUpdate, ToolList
-from entities.services.logging_service import LoggingUtility
+from common.services.logging_service import LoggingUtility
 from entities.services.tool_service import ToolService
 
 router = APIRouter()

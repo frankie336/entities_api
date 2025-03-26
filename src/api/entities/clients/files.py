@@ -1,4 +1,3 @@
-# entities/clients/files.py
 import io
 import mimetypes
 import os
@@ -9,23 +8,19 @@ from dotenv import load_dotenv
 from pydantic import ValidationError
 
 from entities.schemas.file_service import FileResponse
-from entities.services.logging_service import LoggingUtility
+from common.services.logging_service import LoggingUtility
 
 load_dotenv()
 logging_utility = LoggingUtility()
 
 
 class FileClient:
-    def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None):
-        """
-        Initialize the FileClient with base_url and api_key.
-        These values can be passed in or will be loaded from the environment.
-        """
-        self.base_url = base_url or os.getenv("BASE_URL", "http://localhost:9000")
-        self.api_key = api_key or os.getenv("API_KEY", "your_api_key")
+    def __init__(self, base_url=os.getenv("BASE_URL"), api_key=None):
+        self.base_url = base_url
+        self.api_key = api_key
         self.client = httpx.Client(
-            base_url=self.base_url,
-            headers={"Authorization": f"Bearer {self.api_key}"}
+            base_url=base_url,
+            headers={"Authorization": f"Bearer {api_key}"}
         )
         logging_utility.info("FileClient initialized with base_url: %s", self.base_url)
 
@@ -33,6 +28,15 @@ class FileClient:
                     metadata: Optional[Dict[str, Any]] = None) -> FileResponse:
         """
         Upload a file to the server, following the OpenAI files endpoint style.
+
+        Args:
+            file_path: Path to the file to upload.
+            user_id: ID of the user uploading the file.
+            purpose: Purpose of the file (e.g., "assistants").
+            metadata: Additional metadata (optional).
+
+        Returns:
+            FileResponse: The response from the server with file metadata.
         """
         filename = os.path.basename(file_path)
         mime_type, _ = mimetypes.guess_type(file_path)
@@ -42,10 +46,12 @@ class FileClient:
 
         try:
             with open(file_path, 'rb') as file_object:
+                # Simplified: Only send the required fields as specified in the FileUploadRequest schema
                 form_data = {
                     "purpose": purpose,
                     "user_id": user_id
                 }
+
                 files = {'file': (filename, file_object, mime_type)}
 
                 response = self.client.post("/v1/uploads", data=form_data, files=files)
@@ -70,6 +76,16 @@ class FileClient:
                            metadata: Optional[Dict[str, Any]] = None) -> FileResponse:
         """
         Upload a file-like object to the server.
+
+        Args:
+            file_object: File-like object to upload.
+            file_name: Name to give the file.
+            user_id: ID of the user uploading the file.
+            purpose: Purpose of the file.
+            metadata: Additional metadata (optional).
+
+        Returns:
+            FileResponse: The response from the server with file metadata.
         """
         mime_type, _ = mimetypes.guess_type(file_name)
         mime_type = mime_type or 'application/octet-stream'
@@ -77,10 +93,12 @@ class FileClient:
         logging_utility.info("Uploading file object: %s with purpose: %s for user: %s", file_name, purpose, user_id)
 
         try:
+            # Simplified: Only send the required fields as specified in the FileUploadRequest schema
             form_data = {
                 "purpose": purpose,
                 "user_id": user_id
             }
+
             files = {'file': (file_name, file_object, mime_type)}
 
             response = self.client.post("/v1/uploads", data=form_data, files=files)
@@ -104,6 +122,17 @@ class FileClient:
     def retrieve_file(self, file_id: str) -> FileResponse:
         """
         Retrieve file metadata by ID.
+
+        Args:
+            file_id: The ID of the file to retrieve.
+
+        Returns:
+            FileResponse: The file metadata from the server.
+
+        Raises:
+            httpx.HTTPStatusError: If HTTP error occurs
+            ValueError: If validation error occurs
+            Exception: For other errors
         """
         logging_utility.info("Retrieving file with ID: %s", file_id)
 
@@ -129,12 +158,20 @@ class FileClient:
     def delete_file(self, file_id: str) -> bool:
         """
         Delete a file by its ID from the server.
+
+        Args:
+            file_id: The ID of the file to delete.
+
+        Returns:
+            bool: True if the file was deleted successfully, False if it was not found.
         """
         logging_utility.info("Attempting to delete file with ID: %s", file_id)
 
         try:
             response = self.client.delete(f"/v1/uploads/{file_id}")
             response.raise_for_status()
+
+            # Assuming the API returns a raw boolean in the response body.
             deletion_result = response.json()
             logging_utility.info("File deletion result for ID %s: %s", file_id, deletion_result)
             return deletion_result
@@ -151,6 +188,7 @@ class FileClient:
         Retrieve file content as a file-like object (BytesIO).
         """
         try:
+            # Endpoint returns raw file content
             response = self.client.get(f"/v1/uploads/{file_id}/object")
             response.raise_for_status()
             return io.BytesIO(response.content)
