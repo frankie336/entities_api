@@ -1,9 +1,14 @@
 # entities/services/assistant_setup_service.py
 
-from entities.services.logging_service import LoggingUtility
+from entities_common import ValidationInterface
+
 from entities import EntitiesInternalInterface
 from entities.constants.assistant import DEFAULT_MODEL, BASE_ASSISTANT_INSTRUCTIONS, BASE_TOOLS
-from entities.schemas.tools import ToolFunction
+from entities.services.logging_service import LoggingUtility
+
+ent_validator = ValidationInterface()
+
+
 from entities.services.vector_store_service import VectorStoreService
 from entities.services.vector_waves import AssistantVectorWaves
 
@@ -29,7 +34,9 @@ class AssistantSetupService:
         for func_def in function_definitions:
             try:
                 tool_name = func_def['function']['name']
-                tool_function = ToolFunction(function=func_def['function'])
+                tool_function = ent_validator.ToolFunction(function=func_def['function'])
+
+
 
                 new_tool = self.client.tool_service.create_tool(
                     name=tool_name,
@@ -37,6 +44,8 @@ class AssistantSetupService:
                     function=tool_function,
                     assistant_id=assistant_id
                 )
+
+
 
                 self.client.tool_service.associate_tool_with_assistant(
                     tool_id=new_tool.id,
