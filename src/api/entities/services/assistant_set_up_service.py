@@ -36,16 +36,12 @@ class AssistantSetupService:
                 tool_name = func_def['function']['name']
                 tool_function = ent_validator.ToolFunction(function=func_def['function'])
 
-
-
                 new_tool = self.client.tool_service.create_tool(
                     name=tool_name,
                     type='function',
                     function=tool_function,
                     assistant_id=assistant_id
                 )
-
-
 
                 self.client.tool_service.associate_tool_with_assistant(
                     tool_id=new_tool.id,

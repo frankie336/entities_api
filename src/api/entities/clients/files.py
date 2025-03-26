@@ -6,8 +6,11 @@ from typing import Dict, Any, Optional, BinaryIO
 import httpx
 from dotenv import load_dotenv
 from pydantic import ValidationError
+from entities_common import ValidationInterface
 
-from entities.schemas.file_service import FileResponse
+validation = ValidationInterface()
+
+
 from entities.services.logging_service import LoggingUtility
 
 load_dotenv()
@@ -25,7 +28,7 @@ class FileClient:
         logging_utility.info("FileClient initialized with base_url: %s", self.base_url)
 
     def upload_file(self, file_path: str, user_id: str, purpose: str,
-                    metadata: Optional[Dict[str, Any]] = None) -> FileResponse:
+                    metadata: Optional[Dict[str, Any]] = None) -> validation.FileResponse:
         """
         Upload a file to the server, following the OpenAI files endpoint style.
 
@@ -58,7 +61,7 @@ class FileClient:
                 response.raise_for_status()
 
                 file_data = response.json()
-                validated_response = FileResponse.model_validate(file_data)
+                validated_response = validation.FileResponse.model_validate(file_data)
                 logging_utility.info("File uploaded successfully with id: %s", validated_response.id)
                 return validated_response
 
@@ -73,7 +76,7 @@ class FileClient:
             raise
 
     def upload_file_object(self, file_object: BinaryIO, file_name: str, user_id: str, purpose: str,
-                           metadata: Optional[Dict[str, Any]] = None) -> FileResponse:
+                           metadata: Optional[Dict[str, Any]] = None) -> validation.FileResponse:
         """
         Upload a file-like object to the server.
 
@@ -105,7 +108,7 @@ class FileClient:
             response.raise_for_status()
 
             file_data = response.json()
-            validated_response = FileResponse.model_validate(file_data)
+            validated_response = validation.FileResponse.model_validate(file_data)
             logging_utility.info("File uploaded successfully with id: %s", validated_response.id)
             return validated_response
 
@@ -119,7 +122,7 @@ class FileClient:
             logging_utility.error("An error occurred while uploading file: %s", str(e))
             raise
 
-    def retrieve_file(self, file_id: str) -> FileResponse:
+    def retrieve_file(self, file_id: str) -> validation.FileResponse:
         """
         Retrieve file metadata by ID.
 
@@ -141,7 +144,7 @@ class FileClient:
             response.raise_for_status()
 
             file_data = response.json()
-            validated_response = FileResponse.model_validate(file_data)
+            validated_response = validation.FileResponse.model_validate(file_data)
             logging_utility.info("File metadata retrieved successfully for ID: %s", file_id)
             return validated_response
 

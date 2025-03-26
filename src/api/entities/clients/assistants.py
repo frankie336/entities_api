@@ -3,7 +3,10 @@ from typing import Optional, List, Dict, Any
 
 import httpx
 from pydantic import ValidationError
-from entities.schemas.assistants import AssistantCreate, AssistantRead, AssistantUpdate
+from entities_common import ValidationInterface
+
+validation = ValidationInterface()
+
 from entities.services.logging_service import LoggingUtility
 
 # Initialize logging utility
@@ -33,7 +36,7 @@ class AssistantsClient:
             temperature: float = 1.0,
             response_format: str = "auto",
             assistant_id: Optional[str] = None
-    ) -> AssistantRead:
+    ) -> validation.AssistantRead:
         """
         Create an assistant without requiring a user_id, as the association
         is handled separately.
@@ -54,7 +57,7 @@ class AssistantsClient:
         try:
             # Validate using AssistantCreate to ensure data integrity.
             try:
-                validated_data = AssistantCreate(**assistant_data)
+                validated_data = validation.AssistantCreate(**assistant_data)
             except ValidationError as e:
                 logging_utility.error("Validation error: %s", e.json())
                 raise ValueError(f"Validation error: {e}")
@@ -73,7 +76,7 @@ class AssistantsClient:
             # Parse the response JSON and validate it against AssistantRead.
             if response.status_code == 200:
                 created_assistant = response.json()  # Only parse if the response is successful
-                validated_response = AssistantRead(**created_assistant)
+                validated_response = validation.AssistantRead(**created_assistant)
                 logging_utility.info("Assistant created successfully with id: %s", validated_response.id)
                 return validated_response
             else:
@@ -88,13 +91,13 @@ class AssistantsClient:
             logging_utility.error("An error occurred while creating assistant: %s", str(e))
             raise
 
-    def retrieve_assistant(self, assistant_id: str) -> AssistantRead:
+    def retrieve_assistant(self, assistant_id: str) -> validation.AssistantRead:
         logging_utility.info("Retrieving assistant with id: %s", assistant_id)
         try:
             response = self.client.get(f"/v1/assistants/{assistant_id}")
             response.raise_for_status()
             assistant = response.json()
-            validated_data = AssistantRead(**assistant)
+            validated_data = validation.AssistantRead(**assistant)
             logging_utility.info("Assistant retrieved successfully")
             return validated_data
         except ValidationError as e:
@@ -107,19 +110,19 @@ class AssistantsClient:
             logging_utility.error("An error occurred while retrieving assistant: %s", str(e))
             raise
 
-    def update_assistant(self, assistant_id: str, **updates) -> AssistantRead:
+    def update_assistant(self, assistant_id: str, **updates) -> validation.AssistantRead:
         logging_utility.info("Updating assistant with id: %s", assistant_id)
         try:
             updates.pop('id', None)
             updates.pop('assistant_id', None)
 
-            validated_data = AssistantUpdate(**updates)
+            validated_data = validation.AssistantUpdate(**updates)
 
             response = self.client.put(f"/v1/assistants/{assistant_id}",
                                        json=validated_data.model_dump(exclude_unset=True))
             response.raise_for_status()
             updated_assistant = response.json()
-            validated_response = AssistantRead(**updated_assistant)
+            validated_response = validation.AssistantRead(**updated_assistant)
             logging_utility.info("Assistant updated successfully")
             return validated_response
         except ValidationError as e:
@@ -182,7 +185,7 @@ class AssistantsClient:
             raise
 
 
-    def list_assistants_by_user(self, user_id: str) -> List[AssistantRead]:
+    def list_assistants_by_user(self, user_id: str) -> List[validation.AssistantRead]:
         """
         Retrieve the list of assistants associated with a specific user.
         """
@@ -191,7 +194,7 @@ class AssistantsClient:
             response = self.client.get(f"/v1/users/{user_id}/assistants")
             response.raise_for_status()
             assistants = response.json()
-            validated_assistants = [AssistantRead(**assistant) for assistant in assistants]
+            validated_assistants = [validation.AssistantRead(**assistant) for assistant in assistants]
             logging_utility.info("Assistants retrieved successfully for user id: %s", user_id)
             return validated_assistants
         except ValidationError as e:

@@ -3,8 +3,12 @@ from typing import List, Dict, Any, Optional
 
 import httpx
 from pydantic import ValidationError
+from entities_common import ValidationInterface
 
-from entities.schemas.messages import MessageCreate, MessageRead, MessageUpdate  # Import the relevant Pydantic models
+validation = ValidationInterface()
+
+
+
 from entities.services.logging_service import LoggingUtility
 
 # Initialize logging utility
@@ -34,7 +38,7 @@ class MessagesClient:
 
         logging_utility.info("Creating message for thread_id: %s, role: %s", thread_id, role)
         try:
-            validated_data = MessageCreate(**message_data)  # Validate data using Pydantic model
+            validated_data = validation.MessageCreate(**message_data)  # Validate data using Pydantic model
             response = self.client.post("/v1/messages", json=validated_data.dict())
             response.raise_for_status()
             created_message = response.json()
@@ -51,13 +55,13 @@ class MessagesClient:
             raise
 
 
-    def retrieve_message(self, message_id: str) -> MessageRead:
+    def retrieve_message(self, message_id: str) -> validation.MessageRead:
         logging_utility.info("Retrieving message with id: %s", message_id)
         try:
             response = self.client.get(f"/v1/messages/{message_id}")
             response.raise_for_status()
             message = response.json()
-            validated_message = MessageRead(**message)  # Validate data using Pydantic model
+            validated_message = validation.MessageRead(**message)  # Validate data using Pydantic model
             logging_utility.info("Message retrieved successfully")
             return validated_message
         except ValidationError as e:
@@ -70,14 +74,14 @@ class MessagesClient:
             logging_utility.error("An error occurred while retrieving message: %s", str(e))
             raise
 
-    def update_message(self, message_id: str, **updates) -> MessageRead:
+    def update_message(self, message_id: str, **updates) -> validation.MessageRead:
         logging_utility.info("Updating message with id: %s", message_id)
         try:
-            validated_data = MessageUpdate(**updates)  # Validate data using Pydantic model
+            validated_data = validation.MessageUpdate(**updates)  # Validate data using Pydantic model
             response = self.client.put(f"/v1/messages/{message_id}", json=validated_data.dict(exclude_unset=True))
             response.raise_for_status()
             updated_message = response.json()
-            validated_response = MessageRead(**updated_message)  # Validate response using Pydantic model
+            validated_response = validation.MessageRead(**updated_message)  # Validate response using Pydantic model
             logging_utility.info("Message updated successfully")
             return validated_response
         except ValidationError as e:
@@ -100,7 +104,7 @@ class MessagesClient:
             response = self.client.get(f"/v1/threads/{thread_id}/messages", params=params)
             response.raise_for_status()
             messages = response.json()
-            validated_messages = [MessageRead(**message) for message in
+            validated_messages = [validation.MessageRead(**message) for message in
                                   messages]  # Validate response using Pydantic model
             logging_utility.info("Retrieved %d messages", len(validated_messages))
             return [message.dict() for message in validated_messages]  # Convert Pydantic models to dictionaries
@@ -211,7 +215,7 @@ class MessagesClient:
             sender_id: str,  # Required parameter
             is_last_chunk: bool = False,
             meta_data: Optional[Dict[str, Any]] = None  # Optional metadata
-    ) -> Optional[MessageRead]:  # Return MessageRead for final chunk, None for non-final chunks
+    ) -> Optional[validation.MessageRead]:  # Return MessageRead for final chunk, None for non-final chunks
         """
         Save a message chunk from the assistant, with support for streaming and dynamic roles.
 
@@ -253,7 +257,7 @@ class MessagesClient:
 
             # Parse the response for final chunks
             if is_last_chunk:
-                message_read = MessageRead(**response.json())
+                message_read = validation.MessageRead(**response.json())
                 logging_utility.info(
                     "Final assistant message chunk saved successfully. Message ID: %s",
                     message_read.id
@@ -304,7 +308,7 @@ class MessagesClient:
         logging_utility.info("Creating message for thread_id: %s, role: %s", thread_id, role)
         try:
 
-            validated_data = MessageCreate(**message_data)  # Validate data using the Pydantic model
+            validated_data = validation.MessageCreate(**message_data)  # Validate data using the Pydantic model
 
             response = self.client.post("/v1/messages/tools", json=validated_data.dict())
             response.raise_for_status()
@@ -320,6 +324,4 @@ class MessagesClient:
         except Exception as e:
             logging_utility.error("An error occurred while creating message: %s", str(e))
             raise
-
-
 

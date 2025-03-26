@@ -2,16 +2,20 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from entities.dependencies import get_db
-from entities.schemas.threads import ThreadReadDetailed, ThreadRead, ThreadIds
 from entities.serializers import ThreadCreate
 from entities.services.logging_service import LoggingUtility
 from entities.services.thread_service import ThreadService
+
+
+from entities_common import ValidationInterface
+
+validation = ValidationInterface()
 
 router = APIRouter()
 logging_utility = LoggingUtility()
 
 
-@router.post("/threads", response_model=ThreadReadDetailed)
+@router.post("/threads", response_model=validation.ThreadReadDetailed)
 def create_thread(thread: ThreadCreate, db: Session = Depends(get_db)):
     logging_utility.info("Received request to create a new thread.")
     thread_service = ThreadService(db)
@@ -26,8 +30,7 @@ def create_thread(thread: ThreadCreate, db: Session = Depends(get_db)):
         logging_utility.error(f"An unexpected error occurred while creating thread: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
-
-@router.get("/threads/{thread_id}", response_model=ThreadRead)
+@router.get("/threads/{thread_id}", response_model=validation.ThreadRead)
 def get_thread(thread_id: str, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to get thread with ID: {thread_id}")
     thread_service = ThreadService(db)
@@ -59,7 +62,7 @@ def delete_thread(thread_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-@router.get("/users/{user_id}/threads", response_model=ThreadIds)
+@router.get("/users/{user_id}/threads", response_model=validation.ThreadIds)
 def list_threads_by_user(user_id: str, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to list threads for user ID: {user_id}")
     thread_service = ThreadService(db)

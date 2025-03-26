@@ -1,9 +1,11 @@
+from entities_common import ValidationInterface
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from entities.dependencies import get_db
-from entities.schemas.tools import ToolRead
-from entities.schemas.tools import ToolCreate, ToolUpdate, ToolList
+
+validation = ValidationInterface()
+
 from entities.services.logging_service import LoggingUtility
 from entities.services.tool_service import ToolService
 
@@ -11,8 +13,8 @@ router = APIRouter()
 logging_utility = LoggingUtility()
 
 
-@router.post("/tools", response_model=ToolRead)
-def create_tool(tool: ToolCreate, db: Session = Depends(get_db)):
+@router.post("/tools", response_model=validation.ToolRead)
+def create_tool(tool: validation.ToolCreate, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to create a new tool.")
     tool_service = ToolService(db)
     try:
@@ -63,7 +65,7 @@ def disassociate_tool_from_assistant(assistant_id: str, tool_id: str, db: Sessio
 
 
 
-@router.get("/tools/{tool_id}", response_model=ToolRead)
+@router.get("/tools/{tool_id}", response_model=validation.ToolRead)
 def get_tool(tool_id: str, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to get tool with ID: {tool_id}")
     tool_service = ToolService(db)
@@ -79,7 +81,7 @@ def get_tool(tool_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-@router.get("/tools/name/{name}", response_model=ToolRead)
+@router.get("/tools/name/{name}", response_model=validation.ToolRead)
 def get_tool_by_name(name: str, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to get tool by name: {name}")
     tool_service = ToolService(db)
@@ -95,8 +97,8 @@ def get_tool_by_name(name: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-@router.put("/tools/{tool_id}", response_model=ToolRead)
-def update_tool(tool_id: str, tool_update: ToolUpdate, db: Session = Depends(get_db)):
+@router.put("/tools/{tool_id}", response_model=validation.ToolRead)
+def update_tool(tool_id: str, tool_update: validation.ToolUpdate, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to update tool with ID: {tool_id}")
     tool_service = ToolService(db)
     try:
@@ -127,8 +129,8 @@ def delete_tool(tool_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-@router.get("/tools", response_model=ToolList)
-@router.get("/assistants/{assistant_id}/tools", response_model=ToolList)
+@router.get("/tools", response_model=validation.ToolList)
+@router.get("/assistants/{assistant_id}/tools", response_model=validation.ToolList)
 def list_tools(assistant_id: str = None, db: Session = Depends(get_db)):
     if assistant_id:
         logging_utility.info(f"Received request to list tools for assistant ID: {assistant_id}")
@@ -138,7 +140,7 @@ def list_tools(assistant_id: str = None, db: Session = Depends(get_db)):
     try:
         tools = tool_service.list_tools(assistant_id)
         logging_utility.info("Tools retrieved successfully.")
-        return ToolList(tools=tools)
+        return validation.ToolList(tools=tools)
     except HTTPException as e:
         logging_utility.error(f"HTTP error occurred while listing tools: {str(e)}")
         raise e
