@@ -15,13 +15,7 @@ from entities_common import EntitiesInternalInterface
 #user = client.users.create_user(name="test user")
 #print(user.id)
 #time.sleep(100)
-
-
-
-
 from sandbox.services.logging_service import LoggingUtility
-
-
 
 
 class StreamingCodeExecutionHandler:
