@@ -8,7 +8,7 @@ DEFAULT_MODEL = "llama3.1"
 # Tool schemas with strict validation rules
 BASE_TOOLS = [
     {
-        "type": "code_interpreter",
+        "type": "function",
         "function": {
             "name": "code_interpreter",
             "description": "Executes Python code in a sandbox environment and returns JSON output.",
@@ -23,7 +23,7 @@ BASE_TOOLS = [
     },
 
     {
-        "type": "web_search",
+        "type": "function",
         "function": {
             "name": "web_search",
             "description": "Performs web searches with structured results",
@@ -46,7 +46,7 @@ BASE_TOOLS = [
 
 
     {
-      "type": "computer",
+      "type": "function",
       "function": {
         "name": "computer",
         "description": "This function acts as your personal computer—specifically a Linux computer with internet access. When you send a list of computer commands, it executes them in a recoverable computer session, streaming output continuously. It simulates a Linux terminal environment, allowing you to run commands as if you were using your personal Linux workstation. The thread ID is managed internally.",
@@ -65,7 +65,7 @@ BASE_TOOLS = [
     },
 
     {
-        "type": "vector_store_search",
+        "type": "function",
         "function": {
             "name": "vector_store_search",
             "description": "Qdrant-compatible semantic search with advanced filters",
