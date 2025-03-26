@@ -12,12 +12,12 @@ from entities.services.logging_service import LoggingUtility
 logging_utility = LoggingUtility()
 
 
-class UserService:
+class UserClient:
     def __init__(self, base_url=os.getenv("ASSISTANTS_BASE_URL"), api_key=None):
         self.base_url = base_url
         self.api_key = api_key
         self.client = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"})
-        logging_utility.info("UserService initialized with base_url: %s", self.base_url)
+        logging_utility.info("UserClient initialized with base_url: %s", self.base_url)
 
     def create_user(self, name: str) -> UserRead:
         logging_utility.info("Creating user with name: %s", name)
@@ -114,10 +114,10 @@ if __name__ == "__main__":
     base_url = "http://localhost:9000"
     api_key = "your_api_key"
 
-    logging_utility.info("Starting UserService test")
+    logging_utility.info("Starting UserClient test")
 
     # Initialize the client
-    user_service = UserService(base_url, api_key)
+    user_service = UserClient(base_url, api_key)
 
     try:
         # Create a user
@@ -142,4 +142,4 @@ if __name__ == "__main__":
         # logging_utility.info("Delete result: %s", delete_result)
 
     except Exception as e:
-        logging_utility.error("An error occurred during UserService test: %s", str(e))
+        logging_utility.error("An error occurred during UserClient test: %s", str(e))

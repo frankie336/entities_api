@@ -13,7 +13,7 @@ load_dotenv()
 logging_utility = LoggingUtility()
 
 
-class ClientToolService:
+class ToolSClient:
     def __init__(self, base_url=os.getenv("ASSISTANTS_BASE_URL"),  api_key=None):
         self.base_url = base_url
         self.api_key = api_key
@@ -22,7 +22,7 @@ class ClientToolService:
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=10.0  # Add a timeout of 10 seconds
         )
-        logging_utility.info("ClientToolService initialized with base_url: %s", self.base_url)
+        logging_utility.info("ToolSClient initialized with base_url: %s", self.base_url)
 
     def __del__(self):
         # Close the client when the instance is destroyed to prevent resource leaks

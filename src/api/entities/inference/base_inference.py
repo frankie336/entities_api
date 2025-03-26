@@ -14,13 +14,13 @@ import httpx
 from openai import OpenAI
 from together import Together
 
-from entities.clients.client_actions_client import ClientActionService
-from entities.clients.client_assistant_client import ClientAssistantService
-from entities.clients.client_message_client import ClientMessageService
-from entities.clients.client_run_client import ClientRunService
-from entities.clients.client_thread_client import ThreadService
-from entities.clients.client_tool_client import ClientToolService
-from entities.clients.client_user_client import UserService
+from common.clients.client import ActionsClient
+from common.clients.client import AssistantsClient
+from common.clients.client import MessagesClient
+from common.clients.client import RunsClient
+from common.clients.client import ThreadsClient
+from common.clients.client import ToolSClient
+from common.clients.client import UserClient
 from entities.platform_tools.code_interpreter.code_execution_client import StreamOutput
 from entities.platform_tools.platform_tool_service import PlatformToolService
 from entities.services.conversation_truncator import ConversationTruncator
@@ -29,7 +29,7 @@ from entities.services.vector_store_service import VectorStoreService
 
 
 from entities.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS, PLATFORM_TOOLS
-from entities.constants.platform import MODEL_MAP, ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING, TOOLS_ID_MAP
+from entities.constants.platform import MODEL_MAP, ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING
 
 logging_utility = LoggingUtility()
 
@@ -171,27 +171,27 @@ class BaseInference(ABC):
 
     @property
     def user_service(self):
-        return self._get_service(UserService)
+        return self._get_service(UserClient)
 
     @property
     def assistant_service(self):
-        return self._get_service(ClientAssistantService)
+        return self._get_service(AssistantsClient)
 
     @property
     def thread_service(self):
-        return self._get_service(ThreadService)
+        return self._get_service(ThreadsClient)
 
     @property
     def message_service(self):
-        return self._get_service(ClientMessageService)
+        return self._get_service(MessagesClient)
 
     @property
     def run_service(self):
-        return self._get_service(ClientRunService)
+        return self._get_service(RunsClient)
 
     @property
     def tool_service(self):
-        return self._get_service(ClientToolService)
+        return self._get_service(ToolSClient)
 
     @property
     def platform_tool_service(self):
@@ -199,7 +199,7 @@ class BaseInference(ABC):
 
     @property
     def action_service(self):
-        return self._get_service(ClientActionService)
+        return self._get_service(ActionsClient)
 
     @property
     def code_execution_client(self):
@@ -1549,7 +1549,6 @@ class BaseInference(ABC):
                         content=fc_state,
                         run_id=run_id
                     )
-
                     #-----------------------------
                     # Remind the assistant to synthesise
                     # a contextual response on tool submission
@@ -1564,7 +1563,6 @@ class BaseInference(ABC):
 
 
                 else:
-
                      #-----------------------
                      # Handles consumer side tool calls.
                      #------------------------

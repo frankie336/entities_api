@@ -8,11 +8,11 @@ Function calling allows your assistant to interact with defined tools, enabling 
 **Define the function**
 
 ```python
-from src.api.entities import OllamaClient
+from src.api.entities import EntitiesInternalInterface
 from src.api.entities import ToolFunction  # Import ToolFunction
 
 # Initialize the client
-client = OllamaClient()
+client = EntitiesInternalInterface()
 
 # Create assistant
 assistant = client.assistant_service.create_assistant(
@@ -64,7 +64,7 @@ print(new_tool.id)
 
 **Explanation**
 
-1. Initialize the Client: Connect to the `OllamaClient` to interact with the API services.
+1. Initialize the Client: Connect to the `EntitiesInternalInterface` to interact with the API services.
 
     2. Create a User: Instantiate a user who will own the assistant.
 
@@ -210,7 +210,7 @@ available_functions = {
 **available_functions is an optional parameter when you call the api client**
 
 ```python
-client = entities_api.OllamaClient(available_functions=available_functions)
+client = entities_api.EntitiesInternalInterface(available_functions=available_functions)
 ```
 
 **A back end handler for making calls to the API**

@@ -10,13 +10,13 @@ from entities.services.logging_service import LoggingUtility
 logging_utility = LoggingUtility()
 
 
-class ClientAssistantService:
+class AssistantsClient:
 
     def __init__(self, base_url=os.getenv("ASSISTANTS_BASE_URL"), api_key=None):
         self.base_url = base_url
         self.api_key = api_key
         self.client = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"})
-        logging_utility.info("ClientAssistantService initialized with base_url: %s", self.base_url)
+        logging_utility.info("AssistantsClient initialized with base_url: %s", self.base_url)
 
 
     logging_utility = LoggingUtility()

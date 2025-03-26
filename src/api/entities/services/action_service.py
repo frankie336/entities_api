@@ -8,7 +8,7 @@ from entities.schemas.actions import ActionCreate, ActionRead, ActionUpdate, Act
 from datetime import datetime
 from entities.utils.conversion_utils import  datetime_to_iso
 from entities.services.identifier_service import IdentifierService
-from entities.clients.client_tool_client import ClientToolService
+from common.clients.client import ToolSClient
 from entities.models.models import Run  # Ensure Run is imported
 
 logging_utility = LoggingUtility()
@@ -132,7 +132,7 @@ class ActionService:
 
 
             # we indirectly fetch the tool name by id which is already available on another end point
-            tool_service = ClientToolService()
+            tool_service = ToolSClient()
             tool = tool_service.get_tool_by_id(tool_id=action.tool_id)
 
             return ActionRead(

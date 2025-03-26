@@ -14,10 +14,10 @@ By leveraging the Messages endpoint, you can manage the flow of conversation and
 ```python
 
 
-from src.api.entities import OllamaClient
+from src.api.entities import EntitiesInternalInterface
 
 # Initialize the client
-client = OllamaClient()
+client = EntitiesInternalInterface()
 
 # Create user
 user = client.user_service.create_user(name='test_user')

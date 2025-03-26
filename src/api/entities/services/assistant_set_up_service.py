@@ -1,5 +1,5 @@
 # entities_api/services/assistant_setup_service.py
-from entities.clients.client import OllamaClient
+from common.clients.client import EntitiesInternalInterface
 from entities.constants.assistant import DEFAULT_MODEL, BASE_ASSISTANT_INSTRUCTIONS, BASE_TOOLS
 from entities.schemas.tools import ToolFunction
 from entities.services.logging_service import LoggingUtility
@@ -9,7 +9,7 @@ from entities.services.vector_waves import AssistantVectorWaves
 
 class AssistantSetupService:
     def __init__(self):
-        self.client = OllamaClient()
+        self.client = EntitiesInternalInterface()
         self.logging_utility = LoggingUtility()
         self.vector_store_service = VectorStoreService()
         self._vector_waves = None  # Lazy initialization holder
@@ -91,6 +91,7 @@ class AssistantSetupService:
         try:
             # Get or create pattern prevents duplicate users
             user = self.client.user_service.create_user(name="default")
+
             self.logging_utility.debug(
                 "Using existing user: ID %s",
                 user.id

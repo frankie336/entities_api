@@ -18,10 +18,10 @@ Associated methods can be used to extend the memory and contextual recall of AI 
 **Create a Vector Store**
 
 ```python
-from src.api.entities import OllamaClient
+from src.api.entities import EntitiesInternalInterface
 
 # Initialize the client
-client = OllamaClient()
+client = EntitiesInternalInterface()
 
 # Create user
 user = user_service.create_user(name="test_user")

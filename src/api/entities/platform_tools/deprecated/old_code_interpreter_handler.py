@@ -2,10 +2,10 @@ import json
 import os
 import re
 
-from entities.clients.client_code_executor import ClientCodeService
+from common.clients import ClientCodeService
 from entities.services.logging_service import LoggingUtility
 
-# Initialize the logging utility and OllamaClient
+# Initialize the logging utility and EntitiesInternalInterface
 logging_utility = LoggingUtility()
 
 
@@ -70,7 +70,7 @@ def code_interpreter(code: str, language: str = "python", user_id: str = "test_u
 
     try:
 
-        # Execute the code using the OllamaClient's code_executor_service
+        # Execute the code using the EntitiesInternalInterface's code_executor_service
 
         client = ClientCodeService(
             sandbox_server_url=os.getenv('CODE_SERVER_URL', 'http://localhost:9000/v1/execute_code')

@@ -2,8 +2,8 @@ import json
 import threading
 import time
 from typing import Optional, Dict, Any
-from entities.clients.client_actions_client import ClientActionService
-from entities.clients.client_run_client import ClientRunService
+from common.clients.client import ActionsClient
+from common.clients.client import RunsClient
 from entities.services.logging_service import LoggingUtility
 from entities.constants.assistant import PLATFORM_TOOLS
 
@@ -23,7 +23,7 @@ class EntitiesEventHandler:
         self._current_run: Optional[Any] = None
         self._current_tool_call: Optional[Any] = None
 
-        self._action_service = ClientActionService()
+        self._action_service = ActionsClient()
 
     def start_monitoring(self, run_id: str):
         """
@@ -175,7 +175,7 @@ class EntitiesEventHandler:
             # After processing the tool event, update the run status to "in_progress"
             if self._current_run:
                 run_id = self._current_run.id
-                run_client = ClientRunService()
+                run_client = RunsClient()
                 # Update the run status to "in_progress" after handling the tool call.
                 run_client.update_run_status(run_id=run_id, new_status='in_progress')
                 logging_utility.info(f"Run {run_id} status updated to in_progress after tool invocation.")

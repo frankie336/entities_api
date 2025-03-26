@@ -13,7 +13,7 @@ The code interpreter is enabled by default, so no additional coding is required.
 **Turning on Code Interpreter**
 
 ```python
-from src.api.entities import OllamaClient
+from src.api.entities import EntitiesInternalInterface
 from src.api.entities import code_interpreter
 
 available_functions = {
@@ -21,12 +21,12 @@ available_functions = {
     # Add other functions as needed
 }
 
-client = entities_api.OllamaClient(available_functions=available_functions)
+client = entities_api.EntitiesInternalInterface(available_functions=available_functions)
 ```
 
 **Call the client with the code_interpreter handler injected in**
 
 ```python
 
-client = entities_api.OllamaClient(available_functions=available_functions)
+client = entities_api.EntitiesInternalInterface(available_functions=available_functions)
 ```

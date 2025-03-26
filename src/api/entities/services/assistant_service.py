@@ -4,7 +4,7 @@ from typing import List
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from entities.clients.client import OllamaClient
+from common.clients.client import EntitiesInternalInterface
 from entities.models.models import Assistant, User
 from entities.schemas.assistants import AssistantCreate, AssistantRead, AssistantUpdate
 from entities.services.identifier_service import IdentifierService
@@ -15,7 +15,7 @@ logging_utility = LoggingUtility()
 class AssistantService:
     def __init__(self, db: Session):
         self.db = db
-        self.client = OllamaClient()
+        self.client = EntitiesInternalInterface()
 
     def create_assistant(self, assistant: AssistantCreate) -> AssistantRead:
         # Use provided ID or generate new

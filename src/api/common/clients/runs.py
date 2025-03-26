@@ -10,12 +10,12 @@ from entities.schemas.runs import Run, RunStatusUpdate, RunReadDetailed  # Impor
 logging_utility = LoggingUtility()
 
 
-class ClientRunService:
+class RunsClient:
     def __init__(self, base_url="http://localhost:9000/", api_key=None):
         self.base_url = base_url
         self.api_key = api_key
         self.client = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"})
-        logging_utility.info("ClientRunService initialized with base_url: %s", self.base_url)
+        logging_utility.info("RunsClient initialized with base_url: %s", self.base_url)
 
     def create_run(self, assistant_id: str, thread_id: str, instructions: Optional[str] = "",
                    meta_data: Optional[Dict[str, Any]] = {}) -> Run:  # Return type is now RunReadDetailed
