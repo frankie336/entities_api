@@ -8,7 +8,7 @@ from qdrant_client.http import models
 
 from entities.interfaces.base_vector_store import BaseVectorStore, StoreExistsError, VectorStoreError, \
     StoreNotFoundError
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 

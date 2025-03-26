@@ -15,7 +15,7 @@ from entities.clients.threads import ThreadsClient
 from entities.clients.tools import ToolSClient
 from entities.clients.users import UserClient
 from entities.dependencies import SessionLocal
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 from entities.services.vector_store_service import VectorStoreService
 
 # Load environment variables from .env file

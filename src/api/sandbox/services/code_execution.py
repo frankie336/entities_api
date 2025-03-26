@@ -7,7 +7,7 @@ import tempfile
 import time
 from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
-from common import CommonEntitiesInternalInterface
+from entities_common import EntitiesCommon
 from sandbox.services.logging_service import LoggingUtility
 
 
@@ -192,14 +192,12 @@ class StreamingCodeExecutionHandler:
                 continue
 
             try:
-
-                client = CommonEntitiesInternalInterface()
+                client = EntitiesCommon()
                 upload = client.files.upload_file(
                     file_path=file_path,
                     user_id="user_fD3oruiyNMu4ycAvcZgzRI",
                     purpose="assistants"
                 )
-
 
                 expires = int(time.time()) + 600
                 secret_key = os.getenv("DEFAULT_SECRET_KEY", "default_secret_key")

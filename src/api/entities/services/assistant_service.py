@@ -8,7 +8,7 @@ from entities.clients.client import EntitiesInternalInterface
 from entities.models.models import Assistant, User
 from entities.schemas.assistants import AssistantCreate, AssistantRead, AssistantUpdate
 from entities.services.identifier_service import IdentifierService
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 

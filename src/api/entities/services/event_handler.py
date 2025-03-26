@@ -3,7 +3,8 @@ import threading
 import time
 from typing import Optional, Dict, Any
 
-from entities import EntitiesInternalInterface
+from entities_common import EntitiesInternalInterface
+
 from entities.constants.assistant import PLATFORM_TOOLS
 from entities.services.logging_service import LoggingUtility
 

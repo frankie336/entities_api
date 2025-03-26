@@ -8,7 +8,7 @@ from entities.models.models import Tool, Assistant
 from entities.schemas.tools import ToolRead
 from entities.schemas.tools import ToolCreate, ToolUpdate
 from entities.services.identifier_service import IdentifierService
-from common.services.logging_service import LoggingUtility
+from entities.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 

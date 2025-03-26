@@ -49,7 +49,7 @@ WORKDIR /app
 # Copy application components
 COPY src/api/sandbox/requirements.txt /app/
 COPY src/api/sandbox/ /app/sandbox/
-COPY src/api/common/ /app/common/
+
 
 # Upgrade pip and install Python dependencies
 RUN pip install --upgrade pip setuptools wheel
