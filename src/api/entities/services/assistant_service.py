@@ -1,8 +1,6 @@
 import time
 from typing import List
-
-from entities_common import ValidationInterface
-from entities_common.utils.identifier_service import IdentifierService
+from entities_common import ValidationInterface, UtilsInterface
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
@@ -21,7 +19,7 @@ class AssistantService:
 
     def create_assistant(self, assistant: validator.AssistantCreate) ->validator.AssistantRead:
         # Use provided ID or generate new
-        assistant_id = assistant.id or IdentifierService.generate_assistant_id()
+        assistant_id = assistant.id or UtilsInterface.IdentifierService.generate_assistant_id()
 
         # Validate ID uniqueness if provided
         if assistant.id:

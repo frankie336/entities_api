@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 from typing import List, Dict, Optional, Union
 
-from entities_common import ValidationInterface
+from entities_common import ValidationInterface, UtilsInterface
 from qdrant_client.http import models
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, joinedload
@@ -16,7 +16,6 @@ from entities.constants.platform import DIRECT_DATABASE_URL
 from entities.interfaces.base_vector_store import StoreNotFoundError, VectorStoreError
 from entities.models.models import VectorStore, Base, Assistant
 from entities.services.file_processor import FileProcessor
-from entities_common.utils.identifier_service import IdentifierService
 from entities.services.logging_service import LoggingUtility
 from entities.services.vector_store_manager import VectorStoreManager
 
@@ -37,7 +36,7 @@ class VectorStoreService:
         Base.metadata.create_all(bind=self.engine)
 
         self.vector_manager = VectorStoreManager()
-        self.identity_service = IdentifierService()
+        self.identity_service = UtilsInterface.IdentifierService()
         self.file_processor = FileProcessor()
         self._batch_executor = ThreadPoolExecutor(max_workers=4)
         self.file_processor = FileProcessor()

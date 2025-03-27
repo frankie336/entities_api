@@ -6,8 +6,7 @@ import os
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
-from entities_common import ValidationInterface
-from entities_common.utils.identifier_service import IdentifierService
+from entities_common import ValidationInterface, UtilsInterface
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
@@ -26,7 +25,7 @@ class FileService:
         """
         Initialize FileService with a database session.
         """
-        self.identifier_service = IdentifierService()
+        self.identifier_service = UtilsInterface.IdentifierService()
         self.db = db
         self.samba_client = SambaClient(
             os.getenv("SMBCLIENT_SERVER"),

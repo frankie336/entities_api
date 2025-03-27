@@ -2,7 +2,7 @@ import json
 import time
 from typing import List, Dict, Any
 
-from entities_common import ValidationInterface
+from entities_common import ValidationInterface, UtilsInterface
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
@@ -10,7 +10,6 @@ from entities.models.models import Message, Thread
 from entities.schemas.messages import MessageRead
 
 validator = ValidationInterface()
-from entities_common.utils.identifier_service import IdentifierService
 from entities.services.logging_service import LoggingUtility
 
 # Initialize logging
@@ -40,7 +39,7 @@ class MessageService:
 
         # Create the message
         db_message = Message(
-            id=IdentifierService.generate_message_id(),
+            id=UtilsInterface.IdentifierService.generate_message_id(),
             assistant_id=message.assistant_id,  # Include assistant_id
             attachments=[],
             completed_at=None,
@@ -192,7 +191,7 @@ class MessageService:
 
         # Create and save the message
         db_message = Message(
-            id=IdentifierService.generate_message_id(),
+            id=UtilsInterface.IdentifierService.generate_message_id(),
             assistant_id=assistant_id,
             attachments=[],
             completed_at=int(time.time()),

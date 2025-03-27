@@ -33,38 +33,22 @@ class ToolSClient:
         logging_utility.info("Creating new tool")
         try:
             function_data = tool_data.get('function', {})
+            # Unwrap potential double nesting safely
+            if 'function' in function_data:
+                function_data = function_data['function']
 
-            # Handle nesting safely and unwrap
-            if isinstance(function_data, validation.ToolFunction):
-                function_dict = function_data.model_dump()
-                name = function_dict.get("name")  # <-- Use get to avoid KeyError
-            elif isinstance(function_data, dict):
-                while 'function' in function_data:
-                    function_data = function_data['function']
-                if not isinstance(function_data, dict):
-                    raise ValueError("Malformed 'function' data after unwrapping.")
-                name = function_data.get('name')
-                function_dict = function_data
-            else:
-                raise ValueError("Unsupported type for 'function' field")
-
-            # Safety Check
-            if not name:
-                raise ValueError("Critical field 'name' missing in 'function' data.")
-
+            # Explicitly pass 'name' at top-level
             tool_create_payload = {
                 "type": tool_data["type"],
-                "function": function_dict,
-                "name": name
+                "function": function_data,
+                "name": function_data.get("name")
             }
 
-            # Validate payload
             tool = validation.ToolCreate(**tool_create_payload)
             response = self.client.post("/v1/tools", json=tool.model_dump())
             response.raise_for_status()
             created_tool = response.json()
 
-            # Validate response
             validated_tool = validation.ToolRead.model_validate(created_tool)
             logging_utility.info("Tool created successfully with id: %s", validated_tool.id)
             return validated_tool

@@ -39,7 +39,7 @@ setuptools
 groq
 openai
 azure-ai-inference
-Together
+together
 transformers
 jinja2
 validators

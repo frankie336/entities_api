@@ -1,11 +1,10 @@
 from typing import List, Optional
 
-from entities_common import ValidationInterface
+from entities_common import ValidationInterface, UtilsInterface
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 from entities.models.models import Tool, Assistant
-from entities_common.utils.identifier_service import IdentifierService
 from entities.services.logging_service import LoggingUtility
 validator = ValidationInterface()
 logging_utility = LoggingUtility()
@@ -26,7 +25,7 @@ class ToolService:
                 tool_id = set_id
                 logging_utility.debug("Using provided set_id for tool id: %s", tool_id)
             else:
-                tool_id = IdentifierService.generate_tool_id()
+                tool_id = UtilsInterface.IdentifierService.generate_tool_id()
                 logging_utility.debug("Generated tool ID: %s", tool_id)
 
             db_tool = Tool(

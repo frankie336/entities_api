@@ -1,8 +1,7 @@
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
-from entities_common import ValidationInterface
-from entities_common.utils.identifier_service import IdentifierService
+from entities_common import ValidationInterface, UtilsInterface
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -87,7 +86,7 @@ class ActionService:
             logging_utility.debug("Fetched tool: %s", {"id": tool.id, "name": tool.name})
 
             # Generate a new action id (or decide if you want to use action_data.id)
-            new_action_id = IdentifierService.generate_action_id()
+            new_action_id = UtilsInterface.IdentifierService.generate_action_id()
             logging_utility.debug("Generated new action ID: %s", new_action_id)
 
             # Use the provided status (should be a string, as expected)

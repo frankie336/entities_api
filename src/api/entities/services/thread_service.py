@@ -1,4 +1,4 @@
-from entities_common import ValidationInterface
+from entities_common import ValidationInterface, UtilsInterface
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
@@ -6,7 +6,6 @@ from entities.models.models import Thread, User, Message
 from entities.schemas.users import UserBase
 
 validator = ValidationInterface()
-from entities_common.utils.identifier_service import IdentifierService
 
 
 import json
@@ -26,7 +25,7 @@ class ThreadService:
             raise HTTPException(status_code=400, detail="Invalid user IDs")
 
         db_thread = Thread(
-            id=IdentifierService.generate_thread_id(),
+            id=UtilsInterface.IdentifierService.generate_thread_id(),
             created_at=int(time.time()),
             meta_data=json.dumps({}),
             object="thread",

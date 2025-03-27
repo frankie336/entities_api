@@ -2,10 +2,10 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 import httpx
 from pydantic import ValidationError
-from entities_common import ValidationInterface
+from entities_common import ValidationInterface, UtilsInterface
 
 validation = ValidationInterface()
-from entities_common.utils.identifier_service import IdentifierService
+
 from entities.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
@@ -20,7 +20,7 @@ class ActionsClient:
                       expires_at: Optional[datetime] = None) -> validation.ActionRead:
         """Create a new action using the provided tool_name, run_id, and function_args."""
         try:
-            action_id = IdentifierService.generate_action_id()
+            action_id = UtilsInterface.IdentifierService.generate_action_id()
 
             # Convert expires_at to ISO 8601 string format if provided
             expires_at_iso = expires_at.isoformat() if expires_at else None

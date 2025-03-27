@@ -4,22 +4,22 @@ from typing import List
 import httpx
 from pydantic import ValidationError
 
-
 from entities.services.logging_service import LoggingUtility
-
 from entities_common import ValidationInterface
 
 validation = ValidationInterface()
-
-# Initialize logging utility
 logging_utility = LoggingUtility()
+
 
 
 class UserClient:
     def __init__(self, base_url=os.getenv("ASSISTANTS_BASE_URL"), api_key=None):
         self.base_url = base_url
         self.api_key = api_key
-        self.client = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"})
+        self.client = httpx.Client(
+            base_url=base_url,
+            headers={"Authorization": f"Bearer {api_key}"}
+        )
         logging_utility.info("UserClient initialized with base_url: %s", self.base_url)
 
     def create_user(self, name: str) -> validation.UserRead:
@@ -28,15 +28,11 @@ class UserClient:
         try:
             response = self.client.post("/v1/users", json=user_data.model_dump())
             response.raise_for_status()
-            created_user = response.json()
-            validated_user = validation.UserRead(**created_user)
+            validated_user = validation.UserRead.model_validate(response.json())
             logging_utility.info("User created successfully with id: %s", validated_user.id)
             return validated_user
-        except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error occurred while creating user: %s", str(e))
-            raise
-        except Exception as e:
-            logging_utility.error("An error occurred while creating user: %s", str(e))
+        except (httpx.HTTPStatusError, ValidationError) as e:
+            logging_utility.error("Error during user creation: %s", str(e))
             raise
 
     def retrieve_user(self, user_id: str) -> validation.UserRead:
@@ -44,15 +40,11 @@ class UserClient:
         try:
             response = self.client.get(f"/v1/users/{user_id}")
             response.raise_for_status()
-            user = response.json()
-            validated_user = validation.UserRead(**user)
+            validated_user = validation.UserRead.model_validate(response.json())
             logging_utility.info("User retrieved successfully")
             return validated_user
-        except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error occurred while retrieving user: %s", str(e))
-            raise
-        except Exception as e:
-            logging_utility.error("An error occurred while retrieving user: %s", str(e))
+        except (httpx.HTTPStatusError, ValidationError) as e:
+            logging_utility.error("Error during user retrieval: %s", str(e))
             raise
 
     def update_user(self, user_id: str, **updates) -> validation.UserRead:
@@ -62,21 +54,17 @@ class UserClient:
             user_data = current_user.model_dump()
             user_data.update(updates)
 
-            validated_data = validation.UserUpdate(**user_data)  # Validate data using Pydantic model
-            response = self.client.put(f"/v1/users/{user_id}", json=validated_data.model_dump(exclude_unset=True))
+            validated_data = validation.UserUpdate(**user_data)
+            response = self.client.put(
+                f"/v1/users/{user_id}",
+                json=validated_data.model_dump(exclude_unset=True)
+            )
             response.raise_for_status()
-            updated_user = response.json()
-            validated_response = validation.UserRead(**updated_user)  # Validate response using Pydantic model
+            validated_response = validation.UserRead.model_validate(response.json())
             logging_utility.info("User updated successfully")
             return validated_response
-        except ValidationError as e:
-            logging_utility.error("Validation error: %s", e.json())
-            raise ValueError(f"Validation error: {e}")
-        except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error occurred while updating user: %s", str(e))
-            raise
-        except Exception as e:
-            logging_utility.error("An error occurred while updating user: %s", str(e))
+        except (ValidationError, httpx.HTTPStatusError) as e:
+            logging_utility.error("Error during user update: %s", str(e))
             raise
 
     def delete_user(self, user_id: str) -> validation.UserDeleteResponse:
@@ -84,15 +72,11 @@ class UserClient:
         try:
             response = self.client.delete(f"/v1/users/{user_id}")
             response.raise_for_status()
-            result = response.json()
-            validated_result = validation.UserDeleteResponse(**result)
+            validated_result = validation.UserDeleteResponse.model_validate(response.json())
             logging_utility.info("User deleted successfully")
             return validated_result
-        except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error occurred while deleting user: %s", str(e))
-            raise
-        except Exception as e:
-            logging_utility.error("An error occurred while deleting user: %s", str(e))
+        except (httpx.HTTPStatusError, ValidationError) as e:
+            logging_utility.error("Error during user deletion: %s", str(e))
             raise
 
     def list_assistants_by_user(self, user_id: str) -> List[validation.AssistantRead]:
@@ -101,48 +85,31 @@ class UserClient:
             response = self.client.get(f"/v1/users/{user_id}/assistants")
             response.raise_for_status()
             assistants = response.json()
-            validated_assistants = [validation.AssistantRead(**assistant) for assistant in assistants]
+            validated_assistants = [validation.AssistantRead.model_validate(a) for a in assistants]
             logging_utility.info("Assistants retrieved successfully for user id: %s", user_id)
             return validated_assistants
-        except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error occurred while retrieving assistants: %s", str(e))
-            raise
-        except Exception as e:
-            logging_utility.error("An error occurred while retrieving assistants: %s", str(e))
+        except (httpx.HTTPStatusError, ValidationError) as e:
+            logging_utility.error("Error during assistants retrieval: %s", str(e))
             raise
 
 
 if __name__ == "__main__":
-    # Replace with your actual base URL and API key
     base_url = "http://localhost:9000"
     api_key = "your_api_key"
 
     logging_utility.info("Starting UserClient test")
 
-    # Initialize the client
     user_service = UserClient(base_url, api_key)
 
     try:
-        # Create a user
         new_user = user_service.create_user(name="Test User")
-        user_id = new_user.id
-        logging_utility.info("Created user with ID: %s", user_id)
+        logging_utility.info("Created user with ID: %s", new_user.id)
 
-        # Retrieve the user
-        retrieved_user = user_service.retrieve_user(user_id)
+        retrieved_user = user_service.retrieve_user(new_user.id)
         logging_utility.info("Retrieved user: %s", retrieved_user)
 
-        # List assistants for the user
-        assistants = user_service.list_assistants_by_user(user_id)
-        logging_utility.info("Retrieved assistants for user %s: %s", user_id, assistants)
-
-        # Update the user (optional)
-        # updated_user = user_service.update_user(user_id, name="Updated Test User")
-        # logging_utility.info("Updated user: %s", updated_user)
-
-        # Delete the user (optional)
-        # delete_result = user_service.delete_user(user_id)
-        # logging_utility.info("Delete result: %s", delete_result)
+        assistants = user_service.list_assistants_by_user(new_user.id)
+        logging_utility.info("Assistants: %s", assistants)
 
     except Exception as e:
-        logging_utility.error("An error occurred during UserClient test: %s", str(e))
+        logging_utility.error("UserClient test encountered an error: %s", str(e))

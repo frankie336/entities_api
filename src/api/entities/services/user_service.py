@@ -1,11 +1,11 @@
-from entities_common import ValidationInterface
+from entities_common import ValidationInterface, UtilsInterface
 from sqlalchemy.orm import Session
 
 from entities.models.models import User
 from entities.schemas.assistants import AssistantRead
 
 validator = ValidationInterface()
-from entities_common.utils.identifier_service import IdentifierService
+
 
 from typing import List
 from fastapi import HTTPException
@@ -20,7 +20,7 @@ class UserService:
             user = validator.UserCreate()
 
         new_user = User(
-            id=IdentifierService.generate_user_id(),
+            id=UtilsInterface.IdentifierService.generate_user_id(),
             name=user.name
         )
         self.db.add(new_user)

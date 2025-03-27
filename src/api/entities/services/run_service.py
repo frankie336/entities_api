@@ -1,8 +1,12 @@
 import time
 from typing import List
 
-from entities_common import ValidationInterface
-from entities_common.utils.identifier_service import IdentifierService
+
+
+from entities_common import ValidationInterface, UtilsInterface
+
+
+
 from fastapi import HTTPException
 from pydantic import parse_obj_as
 from sqlalchemy.orm import Session
@@ -20,7 +24,7 @@ class RunService:
 
     def create_run(self, run_data):
         run = Run(
-            id=IdentifierService.generate_run_id(),
+            id=UtilsInterface.IdentifierService.generate_run_id(),
             assistant_id=run_data.assistant_id,
             cancelled_at=run_data.cancelled_at,
             completed_at=run_data.completed_at,
