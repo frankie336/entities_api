@@ -81,6 +81,11 @@ services:
         condition: service_healthy
     volumes:
       - /tmp/sandbox_logs:/app/logs
+
+    env_file:
+
+      - .env
+
     networks:
       - my_custom_network
 

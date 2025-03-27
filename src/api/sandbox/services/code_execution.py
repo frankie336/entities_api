@@ -189,13 +189,13 @@ class StreamingCodeExecutionHandler:
         uploaded_urls = []
         self.logging_utility.debug("Scanning directory: %s", self.generated_files_dir)
 
-        #secret_key = os.getenv("DEFAULT_SECRET_KEY")
-
-        secret_key ='k-WBnsS54HZrM8ZVzYiQ-MLPOV53TuuhzEJOdG8kHcM'
-
+        # Retrieve the secret key for signing
+        secret_key = os.getenv("DEFAULT_SECRET_KEY", 'k-WBnsS54HZrM8ZVzYiQ-MLPOV53TuuhzEJOdG8kHcM')
         if not secret_key:
             raise EnvironmentError("DEFAULT_SECRET_KEY must be set for signing URLs!")
 
+        # Get the base download URL from env, defaulting to localhost if not set
+        download_base_url = os.getenv("DOWNLOAD_BASE_URL", "http://localhost:9000/v1/files/download")
 
         client = EntitiesInternalInterface(base_url="http://fastapi_cosmic_catalyst:9000")
 
@@ -204,9 +204,7 @@ class StreamingCodeExecutionHandler:
             if not os.path.isfile(file_path):
                 continue
             try:
-
                 user = client.users.create_user(name='test_user')
-
                 upload = client.files.upload_file(
                     file_path=file_path,
                     user_id=user.id,
@@ -216,10 +214,11 @@ class StreamingCodeExecutionHandler:
                 expires = int(time.time()) + 600
                 data = f"{upload.id}:{expires}"
                 signature = hmac.new(secret_key.encode(), data.encode(), hashlib.sha256).hexdigest()
-                file_url = f"https://samba_server/cosmic_share/{upload.id}?sig={signature}&expires={expires}"
+
+                # Construct the file URL using the env-managed base URL
+                file_url = f"{download_base_url}?file_id={upload.id}&expires={expires}&signature={signature}"
                 uploaded_urls.append(file_url)
                 self.logging_utility.info("Uploaded and signed URL generated for %s", filename)
-
 
             except Exception as e:
                 self.logging_utility.error("Upload failed for %s: %s", filename, str(e))
