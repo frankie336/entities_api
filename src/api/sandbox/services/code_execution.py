@@ -9,6 +9,9 @@ from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
 from entities_common import EntitiesInternalInterface
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from sandbox.services.logging_service import LoggingUtility
 
 
@@ -185,20 +188,28 @@ class StreamingCodeExecutionHandler:
     async def _upload_generated_files(self, user_id: str) -> list:
         uploaded_urls = []
         self.logging_utility.debug("Scanning directory: %s", self.generated_files_dir)
-        secret_key = os.getenv("DEFAULT_SECRET_KEY")
+
+        #secret_key = os.getenv("DEFAULT_SECRET_KEY")
+
+        secret_key ='k-WBnsS54HZrM8ZVzYiQ-MLPOV53TuuhzEJOdG8kHcM'
+
         if not secret_key:
             raise EnvironmentError("DEFAULT_SECRET_KEY must be set for signing URLs!")
 
-        client = EntitiesInternalInterface()
+
+        client = EntitiesInternalInterface(base_url="http://fastapi_cosmic_catalyst:9000")
 
         for filename in os.listdir(self.generated_files_dir):
             file_path = os.path.join(self.generated_files_dir, filename)
             if not os.path.isfile(file_path):
                 continue
             try:
+
+                user = client.users.create_user(name='test_user')
+
                 upload = client.files.upload_file(
                     file_path=file_path,
-                    user_id=user_id,
+                    user_id=user.id,
                     purpose="assistants"
                 )
 
@@ -208,6 +219,7 @@ class StreamingCodeExecutionHandler:
                 file_url = f"https://samba_server/cosmic_share/{upload.id}?sig={signature}&expires={expires}"
                 uploaded_urls.append(file_url)
                 self.logging_utility.info("Uploaded and signed URL generated for %s", filename)
+
 
             except Exception as e:
                 self.logging_utility.error("Upload failed for %s: %s", filename, str(e))
@@ -219,4 +231,5 @@ class StreamingCodeExecutionHandler:
                     self.logging_utility.error("Cleanup failed for %s: %s", filename, str(e))
 
         self.logging_utility.debug("Total uploaded files: %d", len(uploaded_urls))
+        self.logging_utility.info("File urls: %s", uploaded_urls)
         return uploaded_urls

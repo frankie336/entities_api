@@ -17,7 +17,7 @@ logging_utility = LoggingUtility()
 
 @dataclass
 class ExecutionClientConfig:
-    endpoint: str = 'localhost'
+    endpoint: str = os.getenv('CODE_SERVER_URL')
     timeout: float = 15.0
     retries: int = 3
     retry_delay: float = 2.0
@@ -127,8 +127,14 @@ class StreamOutput:
         except StopAsyncIteration:
             pass
 
+
 if __name__ == '__main__':
     logging_utility.info("Starting code execution.")
     output = StreamOutput()
+
+    # Create a file and write to it
+    with open("output_file.txt", "w") as file:
+        file.write("This file was created by the script.\n")
+
     for chunk in output.stream_output("print('Hello, world!')"):
         logging_utility.info("Received chunk: %s", json.loads(chunk))
