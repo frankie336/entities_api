@@ -2,6 +2,7 @@ import logging
 import time
 from datetime import datetime
 from enum import Enum as PyEnum
+from entities_common import ValidationInterface
 
 from sqlalchemy import (
     Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, BigInteger, Index, Enum as SAEnum
@@ -13,6 +14,9 @@ from sqlalchemy.orm import relationship, declarative_base, joinedload
 logger = logging.getLogger(__name__)
 
 Base = declarative_base()
+
+validation = ValidationInterface
+
 
 # Association tables
 thread_participants = Table(
@@ -162,7 +166,7 @@ class Run(Base):
     required_action = Column(String(256), nullable=True)
     response_format = Column(String(64), nullable=True)
     started_at = Column(DateTime, nullable=True)
-    status = Column(SAEnum(StatusEnum), nullable=False)
+    status = Column(SAEnum(validation.StatusEnum), nullable=False)
     thread_id = Column(String(64), nullable=False)
     tool_choice = Column(String(64), nullable=True)
     tools = Column(JSON, nullable=True)

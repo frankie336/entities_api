@@ -17,7 +17,7 @@ logging_utility = LoggingUtility()
 
 @dataclass
 class ExecutionClientConfig:
-    endpoint: str = os.getenv('CODE_SERVER_URL')
+    endpoint: str = os.getenv('CODE_EXECUTION_URL')
     timeout: float = 15.0
     retries: int = 3
     retry_delay: float = 2.0

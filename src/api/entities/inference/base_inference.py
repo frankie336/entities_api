@@ -26,12 +26,13 @@ from entities.platform_tools.platform_tool_service import PlatformToolService
 from entities.services.conversation_truncator import ConversationTruncator
 from entities.services.logging_service import LoggingUtility
 from entities.services.vector_store_service import VectorStoreService
-
+from entities_common import ValidationInterface
 
 from entities.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS, PLATFORM_TOOLS
 from entities.constants.platform import MODEL_MAP, ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING
 
 logging_utility = LoggingUtility()
+validator = ValidationInterface()
 
 class MissingParameterError(ValueError):
     """Specialized error for missing service parameters"""
@@ -68,7 +69,6 @@ class BaseInference(ABC):
         self.tool_response = None
         self.function_call = None
         self.client = Together(api_key=os.getenv("TOGETHER_API_KEY"))
-
         #-------------------------------
         #Clients
         #--------------------------------
@@ -559,7 +559,7 @@ class BaseInference(ABC):
                 is_last_chunk=True
             )
             logging_utility.info("Partial assistant response stored successfully.")
-            self.run_service.update_run_status(run_id, "failed")
+            self.run_service.update_run_status(run_id, validator.StatusEnum.failed)
 
     def finalize_conversation(self, assistant_reply, thread_id, assistant_id, run_id):
         """Finalize the conversation by storing the assistant's reply."""
@@ -574,7 +574,8 @@ class BaseInference(ABC):
                 is_last_chunk=True
             )
             logging_utility.info("Assistant response stored successfully.")
-            self.run_service.update_run_status(run_id, "completed")
+
+            self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
 
             return message
 
@@ -648,7 +649,7 @@ class BaseInference(ABC):
         )
 
         # Update run status to 'action_required'
-        self.run_service.update_run_status(run_id=run_id, new_status='action_required')
+        self.run_service.update_run_status(run_id=run_id, new_status=validator.StatusEnum.pending_action)
         logging_utility.info(f"Run {run_id} status updated to action_required")
 
         # Now wait for the run's status to change from 'action_required'.
@@ -807,7 +808,7 @@ class BaseInference(ABC):
             )
 
             # Update run status
-            self.run_service.update_run_status(run_id=run_id, new_status='action_required')
+            self.run_service.update_run_status(run_id=run_id, new_status=validator.StatusEnum.pending_action)
             logging_utility.info(
                 "Run %s status updated to action_required for tool %s",
                 run_id, content["name"]
@@ -1132,7 +1133,7 @@ class BaseInference(ABC):
             )
             logging_utility.info("Assistant response stored successfully.")
 
-        self.run_service.update_run_status(run_id, "completed")
+        self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
         if reasoning_content:
             logging_utility.info("Final reasoning content: %s", reasoning_content)
 
@@ -1456,7 +1457,7 @@ class BaseInference(ABC):
             self.parse_and_set_function_calls(accumulated_content, assistant_reply)
 
 
-        self.run_service.update_run_status(run_id, "completed")
+        self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
         if reasoning_content:
             logging_utility.info("Final reasoning content: %s", reasoning_content)
 
