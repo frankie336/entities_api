@@ -9,12 +9,6 @@ from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
 from entities_common import EntitiesInternalInterface
 
-#print(EntitiesInternalInterface())
-#client = EntitiesInternalInterface()
-#user = client.users.create_user(name="test user")
-#print(user.id)
-#time.sleep(100)
-
 from sandbox.services.logging_service import LoggingUtility
 
 
@@ -29,18 +23,14 @@ class StreamingCodeExecutionHandler:
             "firejail_args": [
                 "--noprofile",
                 f"--whitelist={self.generated_files_dir}",
-                f"--chdir={self.generated_files_dir}",  # Critical fix
+                f"--chdir={self.generated_files_dir}",
                 "--nogroups",
                 "--nosound",
                 "--notv",
                 "--seccomp",
                 "--caps.drop=all",
-                #--------------------------------
-                # !!four outside communication!!
-                #-------------------------------
-                "--net",  # Allow network access for uploads
+                "--net",
                 "--env=PYTHONPATH",
-
             ] if os.name != 'nt' else []
         }
         self.required_imports = (
@@ -78,7 +68,7 @@ class StreamingCodeExecutionHandler:
         code_lines = []
         indent_level = 0
         for line in lines:
-            line = line.expandtabs(4)
+            line = line.expandtabs(indent_size)
             stripped = line.lstrip()
             current_indent = len(line) - len(stripped)
             expected_indent = indent_level * indent_size
@@ -100,16 +90,16 @@ class StreamingCodeExecutionHandler:
             full_code = self.normalize_code(code)
             if not self._validate_code_security(full_code):
                 await websocket.send_json({"error": "Code violates security policy"})
+                self.logging_utility.warning("Security validation failed for user %s", user_id)
                 return
 
             execution_id = f"{user_id}-{int(time.time() * 1000)}"
 
-            # Create temp file INSIDE generated_files_dir
             with tempfile.NamedTemporaryFile(
                     mode='w',
                     suffix='.py',
                     delete=False,
-                    dir=self.generated_files_dir  # Critical fix
+                    dir=self.generated_files_dir
             ) as tmp:
                 tmp.write(full_code)
                 tmp_path = tmp.name
@@ -136,7 +126,7 @@ class StreamingCodeExecutionHandler:
             self.active_processes[execution_id] = proc
             await self._stream_process_output(proc, websocket, execution_id)
 
-            uploaded_files = await self._upload_generated_files()
+            uploaded_files = await self._upload_generated_files(user_id=user_id)
             await websocket.send_json({
                 "status": "complete",
                 "execution_id": execution_id,
@@ -154,10 +144,10 @@ class StreamingCodeExecutionHandler:
     async def _stream_process_output(self, proc, websocket, execution_id):
         try:
             while True:
-                line = await proc.stdout.readline()
+                line = await asyncio.wait_for(proc.stdout.readline(), timeout=30)
                 if not line:
                     break
-                await websocket.send_text(line.decode())
+                await websocket.send_text(line.decode(errors='replace'))
 
             return_code = await proc.wait()
             await websocket.send_json({
@@ -165,6 +155,10 @@ class StreamingCodeExecutionHandler:
                 "exit_code": return_code,
                 "execution_id": execution_id
             })
+        except asyncio.TimeoutError:
+            self.logging_utility.error("Timeout occurred for execution_id: %s", execution_id)
+            proc.terminate()
+            await websocket.send_json({"error": "Execution timed out."})
         except WebSocketDisconnect:
             self.logging_utility.warning("Client disconnected: %s", execution_id)
             proc.terminate()
@@ -175,42 +169,45 @@ class StreamingCodeExecutionHandler:
 
     def _validate_code_security(self, code: str) -> bool:
         blocked_patterns = [
-            r"(__import__|exec|eval)\s*\(",
-            r"(subprocess|os|sys)\.(system|popen|run)",
+            r"(__import__|exec|eval|compile|open|input)\s*\(",
+            r"(subprocess|os|sys)\.(system|popen|run|exec)",
             r"open\s*\([^)]*[wac]\+",
             r"asyncio\.(create_subprocess|run_in_executor)",
             r"loop\.(add_reader|set_default_executor)",
-            r"import\s+os\s*,\s*sys",
-            r"import\s+ctypes",
-            r"os\.(environ|chdir|chmod)"
+            r"import\s+(os|sys|ctypes)",
+            r"os\.(environ|chdir|chmod|remove|unlink|rmdir)",
         ]
-        return not any(re.search(pattern, code) for pattern in blocked_patterns)
+        violation = any(re.search(pattern, code) for pattern in blocked_patterns)
+        if violation:
+            self.logging_utility.warning("Blocked pattern detected in code.")
+        return not violation
 
-    async def _upload_generated_files(self) -> list:
+    async def _upload_generated_files(self, user_id: str) -> list:
         uploaded_urls = []
         self.logging_utility.debug("Scanning directory: %s", self.generated_files_dir)
+        secret_key = os.getenv("DEFAULT_SECRET_KEY")
+        if not secret_key:
+            raise EnvironmentError("DEFAULT_SECRET_KEY must be set for signing URLs!")
+
+        client = EntitiesInternalInterface()
 
         for filename in os.listdir(self.generated_files_dir):
             file_path = os.path.join(self.generated_files_dir, filename)
             if not os.path.isfile(file_path):
                 continue
-
             try:
-                client = EntitiesInternalInterface()
                 upload = client.files.upload_file(
                     file_path=file_path,
-                    user_id="user_fD3oruiyNMu4ycAvcZgzRI",
+                    user_id=user_id,
                     purpose="assistants"
                 )
 
                 expires = int(time.time()) + 600
-                secret_key = os.getenv("DEFAULT_SECRET_KEY", "default_secret_key")
                 data = f"{upload.id}:{expires}"
                 signature = hmac.new(secret_key.encode(), data.encode(), hashlib.sha256).hexdigest()
-                file_url = f"http://samba_server/cosmic_share/{upload.id}?sig={signature}&expires={expires}"
+                file_url = f"https://samba_server/cosmic_share/{upload.id}?sig={signature}&expires={expires}"
                 uploaded_urls.append(file_url)
-                self.logging_utility.info("Uploaded %s", filename)
-
+                self.logging_utility.info("Uploaded and signed URL generated for %s", filename)
 
             except Exception as e:
                 self.logging_utility.error("Upload failed for %s: %s", filename, str(e))
@@ -221,5 +218,5 @@ class StreamingCodeExecutionHandler:
                 except Exception as e:
                     self.logging_utility.error("Cleanup failed for %s: %s", filename, str(e))
 
-        self.logging_utility.debug("Found %d files to upload", len(uploaded_urls))
+        self.logging_utility.debug("Total uploaded files: %d", len(uploaded_urls))
         return uploaded_urls

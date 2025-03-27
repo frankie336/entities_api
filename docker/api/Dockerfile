@@ -1,5 +1,5 @@
-# Use a minimal Python base image (Upgraded to Python 3.11 for better compatibility)
-FROM python:3.11-slim
+# Use a minimal Python base image (Reverting to Python 3.8 for compatibility with Pydantic V1)
+FROM python:3.8-slim
 
 # Set up environment variables to avoid Python buffering issues
 ENV PYTHONUNBUFFERED=1
@@ -22,7 +22,6 @@ WORKDIR /app
 COPY requirements.txt /app/
 RUN pip install --upgrade pip setuptools wheel
 RUN pip install --no-cache-dir --default-timeout=100 -r requirements.txt
-
 
 # Copy the API source into /app/api
 COPY src/api /app/api

@@ -5,8 +5,7 @@ from pydantic import ValidationError
 from entities_common import ValidationInterface
 
 validation = ValidationInterface()
-
-from entities.services.identifier_service import IdentifierService
+from entities_common.utils.identifier_service import IdentifierService
 from entities.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()

@@ -5,8 +5,8 @@ from entities.models.models import User
 from entities.schemas.assistants import AssistantRead
 
 validator = ValidationInterface()
+from entities_common.utils.identifier_service import IdentifierService
 
-from entities.services.identifier_service import IdentifierService
 from typing import List
 from fastapi import HTTPException
 

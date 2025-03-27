@@ -2,7 +2,7 @@ import httpx
 import time
 from typing import List, Dict, Any, Optional
 from pydantic import ValidationError
-from entities.services.identifier_service import IdentifierService
+from entities_common.utils.identifier_service import IdentifierService
 from entities.services.logging_service import LoggingUtility
 from entities_common import ValidationInterface
 

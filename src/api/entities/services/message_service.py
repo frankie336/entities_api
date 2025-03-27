@@ -2,18 +2,15 @@ import json
 import time
 from typing import List, Dict, Any
 
+from entities_common import ValidationInterface
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from entities.models.models import Message, Thread
-
 from entities.schemas.messages import MessageRead
-from entities_common import ValidationInterface
 
 validator = ValidationInterface()
-
-
-from entities.services.identifier_service import IdentifierService
+from entities_common.utils.identifier_service import IdentifierService
 from entities.services.logging_service import LoggingUtility
 
 # Initialize logging

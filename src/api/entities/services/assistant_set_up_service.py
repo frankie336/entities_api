@@ -6,7 +6,7 @@ from entities import EntitiesInternalInterface
 from entities.constants.assistant import DEFAULT_MODEL, BASE_ASSISTANT_INSTRUCTIONS, BASE_TOOLS
 from entities.services.logging_service import LoggingUtility
 
-ent_validator = ValidationInterface()
+validate = ValidationInterface()
 
 
 from entities.services.vector_store_service import VectorStoreService
@@ -34,7 +34,7 @@ class AssistantSetupService:
         for func_def in function_definitions:
             try:
                 tool_name = func_def['function']['name']
-                tool_function = ent_validator.ToolFunction(function=func_def['function'])
+                tool_function = validate.ToolFunction(function=func_def['function']['name'])
 
                 new_tool = self.client.tool_service.create_tool(
                     name=tool_name,

@@ -1,5 +1,5 @@
 # Use a minimal Python base image (upgraded to Python 3.11 for better compatibility)
-FROM python:3.11-slim
+FROM python:3.8-slim
 
 # Set up environment variables to avoid Python buffering issues
 ENV PYTHONUNBUFFERED=1

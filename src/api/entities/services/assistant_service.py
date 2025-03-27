@@ -2,12 +2,12 @@ import time
 from typing import List
 
 from entities_common import ValidationInterface
+from entities_common.utils.identifier_service import IdentifierService
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from entities.clients.client import EntitiesInternalInterface
 from entities.models.models import Assistant, User
-from entities.services.identifier_service import IdentifierService
 from entities.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()

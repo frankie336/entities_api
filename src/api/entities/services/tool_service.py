@@ -4,14 +4,10 @@ from entities_common import ValidationInterface
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
-
 from entities.models.models import Tool, Assistant
-
-validator = ValidationInterface()
-
-from entities.services.identifier_service import IdentifierService
+from entities_common.utils.identifier_service import IdentifierService
 from entities.services.logging_service import LoggingUtility
-
+validator = ValidationInterface()
 logging_utility = LoggingUtility()
 
 

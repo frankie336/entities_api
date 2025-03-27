@@ -1,22 +1,19 @@
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
+from entities_common import ValidationInterface
+from entities_common.utils.identifier_service import IdentifierService
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from entities import EntitiesInternalInterface
 from entities.models.models import Action, Tool
-
-from entities_common import ValidationInterface
-
-validator = ValidationInterface()
-
-from entities.services.identifier_service import IdentifierService
 from entities.services.logging_service import LoggingUtility
 from entities.utils.conversion_utils import datetime_to_iso
 
 client = EntitiesInternalInterface()
+validator = ValidationInterface()
 
 
 

@@ -12,12 +12,11 @@ from qdrant_client.http import models
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, joinedload
 from tenacity import retry, stop_after_attempt, wait_random_exponential, retry_if_exception_type
-
 from entities.constants.platform import DIRECT_DATABASE_URL
 from entities.interfaces.base_vector_store import StoreNotFoundError, VectorStoreError
 from entities.models.models import VectorStore, Base, Assistant
 from entities.services.file_processor import FileProcessor
-from entities.services.identifier_service import IdentifierService
+from entities_common.utils.identifier_service import IdentifierService
 from entities.services.logging_service import LoggingUtility
 from entities.services.vector_store_manager import VectorStoreManager
 

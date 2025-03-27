@@ -6,9 +6,7 @@ from entities.models.models import Thread, User, Message
 from entities.schemas.users import UserBase
 
 validator = ValidationInterface()
-
-
-from entities.services.identifier_service import IdentifierService
+from entities_common.utils.identifier_service import IdentifierService
 
 
 import json

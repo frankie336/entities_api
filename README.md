@@ -112,7 +112,11 @@ Whilst it involves a little more effort, adding state management to distinct par
   [Assistants](/docs/assistants.md)
   
   [Code Interpretation](/docs/code_interpretation.md)
+  
+  [Docker Containers](/docs/docker_containers.md)
 
+  [Database](/docs/database.md)
+ 
   [Files](/docs/files.md)
   
   [Function Calling](/docs/function_calling.md)

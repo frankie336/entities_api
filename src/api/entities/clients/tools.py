@@ -1,4 +1,5 @@
 import os
+import time
 from typing import List, Optional
 
 import httpx
@@ -7,10 +8,6 @@ from entities_common import ValidationInterface
 from pydantic import ValidationError
 
 validation = ValidationInterface()
-
-
-
-
 from entities.services.logging_service import LoggingUtility
 
 load_dotenv()
@@ -35,13 +32,43 @@ class ToolSClient:
     def create_tool(self, **tool_data) -> validation.ToolRead:
         logging_utility.info("Creating new tool")
         try:
-            tool = validation.ToolCreate(**tool_data)
+            function_data = tool_data.get('function', {})
+
+            # Handle nesting safely and unwrap
+            if isinstance(function_data, validation.ToolFunction):
+                function_dict = function_data.model_dump()
+                name = function_dict.get("name")  # <-- Use get to avoid KeyError
+            elif isinstance(function_data, dict):
+                while 'function' in function_data:
+                    function_data = function_data['function']
+                if not isinstance(function_data, dict):
+                    raise ValueError("Malformed 'function' data after unwrapping.")
+                name = function_data.get('name')
+                function_dict = function_data
+            else:
+                raise ValueError("Unsupported type for 'function' field")
+
+            # Safety Check
+            if not name:
+                raise ValueError("Critical field 'name' missing in 'function' data.")
+
+            tool_create_payload = {
+                "type": tool_data["type"],
+                "function": function_dict,
+                "name": name
+            }
+
+            # Validate payload
+            tool = validation.ToolCreate(**tool_create_payload)
             response = self.client.post("/v1/tools", json=tool.model_dump())
             response.raise_for_status()
             created_tool = response.json()
+
+            # Validate response
             validated_tool = validation.ToolRead.model_validate(created_tool)
             logging_utility.info("Tool created successfully with id: %s", validated_tool.id)
             return validated_tool
+
         except ValidationError as e:
             logging_utility.error("Validation error during tool creation: %s", e.json())
             raise ValueError(f"Validation error: {e}")
