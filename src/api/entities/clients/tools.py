@@ -37,10 +37,9 @@ class ToolSClient:
             if 'function' in function_data:
                 function_data = function_data['function']
 
-            # Explicitly pass 'name' at top-level
             tool_create_payload = {
                 "type": tool_data["type"],
-                "function": function_data,
+                "function": {"function": function_data},  # Wrap function_data inside a "function" key
                 "name": function_data.get("name")
             }
 

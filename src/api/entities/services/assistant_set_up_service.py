@@ -1,4 +1,5 @@
 # entities/services/assistant_setup_service.py
+import time
 
 from entities_common import ValidationInterface
 
@@ -34,12 +35,15 @@ class AssistantSetupService:
         for func_def in function_definitions:
             try:
                 tool_name = func_def['function']['name']
-                tool_function = validate.ToolFunction(function=func_def['function']['name'])
+
+
+                tool_function = validate.ToolFunction(function=func_def)
+
 
                 new_tool = self.client.tool_service.create_tool(
                     name=tool_name,
                     type='function',
-                    function=tool_function,
+                    function=tool_function.model_dump(),
                     assistant_id=assistant_id
                 )
 
@@ -135,4 +139,5 @@ class AssistantSetupService:
 # Example usage remains unchanged
 if __name__ == "__main__":
     service = AssistantSetupService()
+    #service.create_and_associate_tools(function_definitions=BASE_TOOLS,assistant_id='default')
     service.orchestrate_default_assistant()
