@@ -15,13 +15,13 @@ load_dotenv()
 from sandbox.services.logging_service import LoggingUtility
 
 
-
 class StreamingCodeExecutionHandler:
     def __init__(self):
         self.logging_utility = LoggingUtility()
         self.active_processes = {}
         self.generated_files_dir = os.path.abspath("generated_files")
         os.makedirs(self.generated_files_dir, exist_ok=True)
+        self.last_executed_script_path = None
 
         self.logging_utility.info("Current working directory: %s", os.getcwd())
         self.logging_utility.info("Generated files directory: %s", self.generated_files_dir)
@@ -109,14 +109,15 @@ class StreamingCodeExecutionHandler:
             execution_id = f"{user_id}-{int(time.time() * 1000)}"
 
             with tempfile.NamedTemporaryFile(
-                    mode='w',
-                    suffix='.py',
-                    delete=False,
-                    dir=self.generated_files_dir
+                mode='w',
+                suffix='.py',
+                delete=False,
+                dir=self.generated_files_dir
             ) as tmp:
                 tmp.write(full_code)
                 tmp_path = tmp.name
 
+            self.last_executed_script_path = tmp_path
             self.logging_utility.info("Normalized code written to: %s", tmp_path)
 
             disable_firejail = os.getenv("DISABLE_FIREJAIL", "false").lower() == "true"
@@ -157,6 +158,7 @@ class StreamingCodeExecutionHandler:
         finally:
             if tmp_path and os.path.exists(tmp_path):
                 os.remove(tmp_path)
+            self.last_executed_script_path = None
             try:
                 await websocket.close()
             except RuntimeError:
@@ -206,8 +208,8 @@ class StreamingCodeExecutionHandler:
         uploaded_files = []
         self.logging_utility.debug("Scanning directory: %s", self.generated_files_dir)
 
-        secret_key = os.getenv("SIGNED_URL_SECRET", 'k-WBnsS54HZrM8ZVzYiQ-MLPOV53TuuhzEJOdG8kHcM')
-
+        # ✅ Keep the original working key
+        secret_key = os.getenv("SIGNED_URL_SECRET", "k-WBnsS54HZrM8ZVzYiQ-MLPOV53TuuhzEJOdG8kHcM")
         if not secret_key:
             raise EnvironmentError("SIGNED_URL_SECRET must be set for signing URLs!")
 
@@ -252,10 +254,17 @@ class StreamingCodeExecutionHandler:
             file_path = os.path.join(self.generated_files_dir, filename)
             if not os.path.isfile(file_path):
                 continue
+
+            # ✅ Exclude the temp script
+            if self.last_executed_script_path and os.path.samefile(file_path, self.last_executed_script_path):
+                self.logging_utility.debug("Skipping script file: %s", file_path)
+                continue
+
             tasks.append(upload_single_file(filename, file_path))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
+        # Clean up everything afterward
         for filename in os.listdir(self.generated_files_dir):
             file_path = os.path.join(self.generated_files_dir, filename)
             try:

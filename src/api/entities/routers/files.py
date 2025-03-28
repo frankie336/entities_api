@@ -1,9 +1,11 @@
+import hashlib
+import hmac
+import os
+from datetime import datetime
+
+from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import StreamingResponse
-import os
-import hmac
-import hashlib
-from datetime import datetime
 from sqlalchemy.orm import Session
 
 from entities.dependencies import get_db
@@ -12,10 +14,11 @@ from entities.services.logging_service import LoggingUtility
 
 router = APIRouter()
 logging_utility = LoggingUtility()
+load_dotenv()
 
 
 def verify_signature(file_id: str, expires: int, signature: str) -> bool:
-    secret_key = os.getenv("SIGNED_URL_SECRET", "default_secret_key")
+    secret_key = os.getenv("SIGNED_URL_SECRET", "k-WBnsS54HZrM8ZVzYiQ-MLPOV53TuuhzEJOdG8kHcM")
     data = f"{file_id}:{expires}"
     computed_signature = hmac.new(secret_key.encode(), data.encode(), hashlib.sha256).hexdigest()
     return hmac.compare_digest(computed_signature, signature)
