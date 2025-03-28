@@ -15,6 +15,7 @@ load_dotenv()
 from sandbox.services.logging_service import LoggingUtility
 
 
+
 class StreamingCodeExecutionHandler:
     def __init__(self):
         self.logging_utility = LoggingUtility()
@@ -22,20 +23,29 @@ class StreamingCodeExecutionHandler:
         self.generated_files_dir = os.path.abspath("generated_files")
         os.makedirs(self.generated_files_dir, exist_ok=True)
 
-        self.security_profile = {
-            "firejail_args": [
-                "--noprofile",
-                f"--whitelist={self.generated_files_dir}",
-                f"--chdir={self.generated_files_dir}",
-                "--nogroups",
-                "--nosound",
-                "--notv",
-                "--seccomp",
-                "--caps.drop=all",
-                "--net",
-                "--env=PYTHONPATH",
-            ] if os.name != 'nt' else []
-        }
+        self.logging_utility.info("Current working directory: %s", os.getcwd())
+        self.logging_utility.info("Generated files directory: %s", self.generated_files_dir)
+
+        disable_firejail = os.getenv("DISABLE_FIREJAIL", "false").lower() == "true"
+
+        if os.name != 'nt' and not disable_firejail:
+            self.security_profile = {
+                "firejail_args": [
+                    "--noprofile",
+                    f"--chdir={self.generated_files_dir}",
+                    f"--whitelist={self.generated_files_dir}",
+                    "--nogroups",
+                    "--nosound",
+                    "--notv",
+                    "--seccomp",
+                    "--caps.drop=all",
+                    "--net",
+                    "--env=PYTHONPATH",
+                ]
+            }
+        else:
+            self.security_profile = {"firejail_args": []}
+
         self.required_imports = (
             "import asyncio\n"
             "import math\n"
@@ -109,8 +119,9 @@ class StreamingCodeExecutionHandler:
 
             self.logging_utility.info("Normalized code written to: %s", tmp_path)
 
-            if os.name == 'nt':
-                cmd = ["python", tmp_path]
+            disable_firejail = os.getenv("DISABLE_FIREJAIL", "false").lower() == "true"
+            if os.name == 'nt' or disable_firejail:
+                cmd = ["python3", "-u", tmp_path]
                 cwd = self.generated_files_dir
             else:
                 cmd = [
@@ -130,6 +141,7 @@ class StreamingCodeExecutionHandler:
             await self._stream_process_output(proc, websocket, execution_id)
 
             uploaded_files = await self._upload_generated_files(user_id=user_id)
+
             await websocket.send_json({
                 "status": "complete",
                 "execution_id": execution_id,
@@ -138,13 +150,19 @@ class StreamingCodeExecutionHandler:
 
         except Exception as e:
             self.logging_utility.error("Execution failed: %s", str(e))
-            await websocket.send_json({"error": str(e)})
+            try:
+                await websocket.send_json({"error": str(e)})
+            except Exception:
+                pass
         finally:
             if tmp_path and os.path.exists(tmp_path):
                 os.remove(tmp_path)
-            await websocket.close()
+            try:
+                await websocket.close()
+            except RuntimeError:
+                self.logging_utility.debug("WebSocket already closed.")
 
-    async def _stream_process_output(self, proc, websocket, execution_id):
+    async def _stream_process_output(self, proc, websocket: WebSocket, execution_id: str) -> None:
         try:
             while True:
                 line = await asyncio.wait_for(proc.stdout.readline(), timeout=30)
@@ -172,9 +190,8 @@ class StreamingCodeExecutionHandler:
 
     def _validate_code_security(self, code: str) -> bool:
         blocked_patterns = [
-            r"(__import__|exec|eval|compile|open|input)\s*\(",
+            r"(__import__|exec|eval|compile|input)\s*\(",
             r"(subprocess|os|sys)\.(system|popen|run|exec)",
-            r"open\s*\([^)]*[wac]\+",
             r"asyncio\.(create_subprocess|run_in_executor)",
             r"loop\.(add_reader|set_default_executor)",
             r"import\s+(os|sys|ctypes)",
@@ -186,49 +203,72 @@ class StreamingCodeExecutionHandler:
         return not violation
 
     async def _upload_generated_files(self, user_id: str) -> list:
-        uploaded_urls = []
+        uploaded_files = []
         self.logging_utility.debug("Scanning directory: %s", self.generated_files_dir)
 
-        # Retrieve the secret key for signing
         secret_key = os.getenv("DEFAULT_SECRET_KEY", 'k-WBnsS54HZrM8ZVzYiQ-MLPOV53TuuhzEJOdG8kHcM')
         if not secret_key:
             raise EnvironmentError("DEFAULT_SECRET_KEY must be set for signing URLs!")
 
-        # Get the base download URL from env, defaulting to localhost if not set
         download_base_url = os.getenv("DOWNLOAD_BASE_URL", "http://localhost:9000/v1/files/download")
 
         client = EntitiesInternalInterface(base_url="http://fastapi_cosmic_catalyst:9000")
 
+        try:
+            user = client.users.create_user(name='test_user')
+        except Exception as e:
+            self.logging_utility.error("Failed to create user for file uploads: %s", str(e))
+            return uploaded_files
+
+        async def upload_single_file(filename, file_path):
+            max_attempts = 3
+            attempt = 0
+            while attempt < max_attempts:
+                try:
+                    upload = client.files.upload_file(
+                        file_path=file_path,
+                        user_id=user.id,
+                        purpose="assistants"
+                    )
+                    expires = int(time.time()) + 600
+                    data = f"{upload.id}:{expires}"
+                    signature = hmac.new(secret_key.encode(), data.encode(), hashlib.sha256).hexdigest()
+                    file_url = f"{download_base_url}?file_id={upload.id}&expires={expires}&signature={signature}"
+                    self.logging_utility.info("Uploaded and signed URL generated for %s", filename)
+                    return {
+                        "filename": filename,
+                        "id": upload.id,
+                        "url": file_url
+                    }
+                except Exception as e:
+                    attempt += 1
+                    self.logging_utility.error("Attempt %d: Upload failed for %s: %s", attempt, filename, str(e))
+                    await asyncio.sleep(1)
+            return None
+
+        tasks = []
         for filename in os.listdir(self.generated_files_dir):
             file_path = os.path.join(self.generated_files_dir, filename)
             if not os.path.isfile(file_path):
                 continue
+            tasks.append(upload_single_file(filename, file_path))
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for filename in os.listdir(self.generated_files_dir):
+            file_path = os.path.join(self.generated_files_dir, filename)
             try:
-                user = client.users.create_user(name='test_user')
-                upload = client.files.upload_file(
-                    file_path=file_path,
-                    user_id=user.id,
-                    purpose="assistants"
-                )
-
-                expires = int(time.time()) + 600
-                data = f"{upload.id}:{expires}"
-                signature = hmac.new(secret_key.encode(), data.encode(), hashlib.sha256).hexdigest()
-
-                # Construct the file URL using the env-managed base URL
-                file_url = f"{download_base_url}?file_id={upload.id}&expires={expires}&signature={signature}"
-                uploaded_urls.append(file_url)
-                self.logging_utility.info("Uploaded and signed URL generated for %s", filename)
-
+                os.remove(file_path)
+                self.logging_utility.debug("Cleaned up %s", filename)
             except Exception as e:
-                self.logging_utility.error("Upload failed for %s: %s", filename, str(e))
-            finally:
-                try:
-                    os.remove(file_path)
-                    self.logging_utility.debug("Cleaned up %s", filename)
-                except Exception as e:
-                    self.logging_utility.error("Cleanup failed for %s: %s", filename, str(e))
+                self.logging_utility.error("Cleanup failed for %s: %s", filename, str(e))
 
-        self.logging_utility.debug("Total uploaded files: %d", len(uploaded_urls))
-        self.logging_utility.info("File urls: %s", uploaded_urls)
-        return uploaded_urls
+        for res in results:
+            if isinstance(res, Exception):
+                self.logging_utility.error("Upload task exception: %s", str(res))
+            elif res is not None:
+                uploaded_files.append(res)
+
+        self.logging_utility.debug("Total uploaded files: %d", len(uploaded_files))
+        self.logging_utility.info("Uploaded file metadata: %s", uploaded_files)
+        return uploaded_files

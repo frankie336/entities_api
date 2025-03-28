@@ -23,15 +23,12 @@ class ExecutionClientConfig:
     retry_delay: float = 2.0
 
 class CodeExecutionClientError(Exception):
-    """Base exception for execution client errors"""
     pass
 
 class ExecutionTimeoutError(CodeExecutionClientError):
-    """Raised when server response times out"""
     pass
 
 class ExecutionSecurityViolation(CodeExecutionClientError):
-    """Raised when code violates security policies"""
     pass
 
 class CodeExecutionClient:
@@ -53,7 +50,6 @@ class CodeExecutionClient:
         retry=retry_if_exception_type((OSError, ConnectionRefusedError)),
     )
     async def connect(self):
-        """Establishes WebSocket connection with timeout."""
         try:
             logging_utility.info("Attempting to connect to WebSocket endpoint: %s", self.config.endpoint)
             self._connection = await asyncio.wait_for(
@@ -66,7 +62,6 @@ class CodeExecutionClient:
             raise ExecutionTimeoutError(f"Connection to {self.config.endpoint} timed out") from e
 
     async def close(self):
-        """Gracefully closes connection."""
         if self._connection:
             logging_utility.info("Closing WebSocket connection.")
             await self._connection.close()
@@ -88,23 +83,41 @@ class CodeExecutionClient:
 
                 try:
                     data = json.loads(message)
+
                     if isinstance(data, dict):
                         if 'error' in data:
                             logging_utility.error("ExecutionSecurityViolation: %s", data['error'])
                             raise ExecutionSecurityViolation(data['error'])
-                        if 'status' in data:
-                            yield json.dumps({'type': 'status', 'content': data['status']})
+
+                        if 'status' in data and 'uploaded_files' in data:
+                            # Final message with files
+                            yield json.dumps({
+                                'type': 'status',
+                                'content': data['status'],
+                                'execution_id': data.get('execution_id'),
+                                'uploaded_files': data.get('uploaded_files', [])
+                            })
                             break
-                        if 'output' in data:
+                        elif 'status' in data:
+                            # Intermediate status message
+                            yield json.dumps({'type': 'status', 'content': data['status']})
+                            # Do NOT break — we may not be done yet
+                        elif 'output' in data:
                             yield json.dumps({'type': 'output', 'content': data['output']})
+                        else:
+                            # Unrecognized dict – treat as raw
+                            yield json.dumps({'type': 'hot_code_output', 'content': str(data)})
                     else:
                         yield json.dumps({'type': 'hot_code_output', 'content': str(data)})
+
                 except json.JSONDecodeError:
                     logging_utility.warning("Received non-JSON output: %s", message)
                     yield json.dumps({'type': 'hot_code_output', 'content': message})
+
         except websockets.exceptions.ConnectionClosed:
             logging_utility.error("WebSocket connection closed unexpectedly.")
             raise CodeExecutionClientError("Connection closed unexpectedly")
+
 
 class StreamOutput:
     def stream_output(self, code: str) -> Generator[str, None, None]:
@@ -132,9 +145,9 @@ if __name__ == '__main__':
     logging_utility.info("Starting code execution.")
     output = StreamOutput()
 
-    # Create a file and write to it
-    with open("output_file.txt", "w") as file:
-        file.write("This file was created by the script.\n")
-
     for chunk in output.stream_output("print('Hello, world!')"):
-        logging_utility.info("Received chunk: %s", json.loads(chunk))
+        message = json.loads(chunk)
+        if message["type"] == "status" and "uploaded_files" in message:
+            logging_utility.info("Files: %s", message["uploaded_files"])
+        else:
+            logging_utility.info("Chunk: %s", message)

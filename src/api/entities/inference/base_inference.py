@@ -914,10 +914,7 @@ class BaseInference(ABC):
             # Re-raise the exception for further handling
             raise
 
-
     def handle_code_interpreter_action(self, thread_id, run_id, assistant_id, arguments_dict):
-
-
         action = self.action_service.create_action(
             tool_name="code_interpreter",
             run_id=run_id,
@@ -925,19 +922,33 @@ class BaseInference(ABC):
         )
 
         code = arguments_dict.get("code")
+        uploaded_files = []
         hot_code_buffer = []
 
-        # Stream code execution output
         for chunk in self.code_execution_client.stream_output(code):
             parsed = json.loads(chunk)
 
-            if parsed.get('type') == 'hot_code_output':
-                hot_code_buffer.append(parsed['content'])
+            if parsed.get("type") == "status":
+                if parsed.get("content") == "complete" and "uploaded_files" in parsed:
+                    uploaded_files.extend(parsed["uploaded_files"])
+                hot_code_buffer.append(f"[{parsed['content']}]")
+            else:
+                hot_code_buffer.append(parsed["content"])
 
-            yield chunk  # Preserve streaming
+            yield chunk
 
-        # Submit final output after execution completes
-        content = '\n'.join(hot_code_buffer)
+        # Compose output content
+        if uploaded_files:
+            content_lines = []
+            for f in uploaded_files:
+                content_lines.append(f"{f['url']}")
+            content = '\n'.join(content_lines)
+        else:
+            content = '\n'.join(hot_code_buffer)
+
+        print("CODE INTERPRETER CONTENT*************************************")
+        print(content)
+        print("CODE INTERPRETER CONTENT*************************************")
 
         self.submit_tool_output(
             thread_id=thread_id,

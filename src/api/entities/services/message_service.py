@@ -291,7 +291,7 @@ class MessageService:
 
         # Create the message
         db_message = Message(
-            id=IdentifierService.generate_message_id(),
+            id=UtilsInterface.IdentifierService.generate_message_id(),
             assistant_id=message.assistant_id,  # Include assistant_id
             attachments=[],
             completed_at=None,
