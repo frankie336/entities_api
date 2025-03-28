@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 from openai import OpenAI
 from together import Together
+from torchvision import message
 
 from entities.clients.client import ActionsClient
 from entities.clients.client import AssistantsClient
@@ -28,7 +29,8 @@ from entities.services.logging_service import LoggingUtility
 from entities.services.vector_store_service import VectorStoreService
 from entities_common import ValidationInterface
 
-from entities.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS, PLATFORM_TOOLS
+from entities.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS, PLATFORM_TOOLS, \
+    CODE_INTERPRETER_MESSAGE, DEFAULT_REMINDER_MESSAGE
 from entities.constants.platform import MODEL_MAP, ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING
 
 logging_utility = LoggingUtility()
@@ -914,6 +916,7 @@ class BaseInference(ABC):
             # Re-raise the exception for further handling
             raise
 
+
     def handle_code_interpreter_action(self, thread_id, run_id, assistant_id, arguments_dict):
         action = self.action_service.create_action(
             tool_name="code_interpreter",
@@ -941,14 +944,22 @@ class BaseInference(ABC):
         if uploaded_files:
             content_lines = []
             for f in uploaded_files:
-                content_lines.append(f"{f['url']}")
+                url = f["url"]
+                filename = f.get("filename", "")
+                ext = os.path.splitext(filename)[1].lower()
+
+                if ext in [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg"]:
+                    content_lines.append(
+                        f'<img src="{url}" alt="{filename}" style="max-width: 100%; border-radius: 12px;" />'
+                    )
+                else:
+                    content_lines.append(
+                        f'<a href="{url}" download="{filename}" style="color: #007bff;">Download {filename}</a>'
+                    )
+
             content = '\n'.join(content_lines)
         else:
             content = '\n'.join(hot_code_buffer)
-
-        print("CODE INTERPRETER CONTENT*************************************")
-        print(content)
-        print("CODE INTERPRETER CONTENT*************************************")
 
         self.submit_tool_output(
             thread_id=thread_id,
@@ -1044,7 +1055,7 @@ class BaseInference(ABC):
         pass
 
     def stream_function_call_output(self, thread_id, run_id, assistant_id,
-                                    model, stream_reasoning=False):
+                                    model, name=None, stream_reasoning=False):
 
         """
         Simplified streaming handler for enforced tool response presentation.
@@ -1065,6 +1076,7 @@ class BaseInference(ABC):
             run_id (str): Current execution run identifier
             assistant_id (str): Target assistant profile UUID
             model (str): Model identifier override for tool responses
+            name(str): The name of the tool invokes
             stream_reasoning (bool): [Reserved] Compatibility placeholder
 
         Yields:
@@ -1077,20 +1089,24 @@ class BaseInference(ABC):
         - Enforces tool response protocol through system message injection
         - Accumulates raw content for final validation (JSON/format checks)
         """
-
-
-        model  = "deepseek-ai/DeepSeek-V3"
-
         logging_utility.info(
             "Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
             thread_id, run_id, assistant_id
         )
 
+
+        if name == 'code_interpreter':
+
+            reminder = CODE_INTERPRETER_MESSAGE
+
+        else:
+            reminder = DEFAULT_REMINDER_MESSAGE
+
         # Send the assistant a reminder message about protocol
         self.message_service.create_message(
             thread_id=thread_id,
             assistant_id=assistant_id,
-            content='give the user the output from tool as advised in system message',
+            content=reminder,
             role='user',
         )
         logging_utility.info("Sent the assistant a reminder message: %s", )
@@ -1520,12 +1536,12 @@ class BaseInference(ABC):
                 ):
                     yield chunk
 
-
                 for chunk in self.stream_function_call_output(
                         thread_id=thread_id,
                         run_id=run_id,
                         model=model,
-                        assistant_id=assistant_id
+                        assistant_id=assistant_id,
+                        name=fc_state.get("name")
                 ):
                     yield chunk
 
