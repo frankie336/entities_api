@@ -915,8 +915,6 @@ class BaseInference(ABC):
             raise
 
     def handle_code_interpreter_action(self, thread_id, run_id, assistant_id, arguments_dict):
-        import os
-
         action = self.action_service.create_action(
             tool_name="code_interpreter",
             run_id=run_id,
@@ -939,17 +937,12 @@ class BaseInference(ABC):
 
             yield chunk
 
-        # Compose output content
+        # Compose output content using pre-formatted Markdown links
         if uploaded_files:
-            content_lines = []
-            for f in uploaded_files:
-                url = f["url"].strip().rstrip(")")
-                filename = f.get("filename", "Download File")
-                content_lines.append(f"[{filename}]({url})")
-
-            content = '\n'.join(content_lines)
+            content_lines = [f["url"] for f in uploaded_files]
+            content = "\n\n".join(content_lines)
         else:
-            content = '\n'.join(hot_code_buffer)
+            content = "\n".join(hot_code_buffer)
 
         self.submit_tool_output(
             thread_id=thread_id,

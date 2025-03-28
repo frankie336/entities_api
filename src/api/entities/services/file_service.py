@@ -181,9 +181,19 @@ class FileService:
             logging_utility.error(f"Error retrieving file object for ID {file_id}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")
 
-    def get_file_as_signed_url(self, file_id: str, expires_in: int = 3600) -> str:
+    from urllib.parse import urlencode, quote
+
+    def get_file_as_signed_url(self, file_id: str, expires_in: int = 3600, label: str = None) -> str:
         """
-        Generate a signed URL for downloading the file.
+        Generate a signed Markdown-safe URL for downloading or rendering the file.
+
+        Args:
+            file_id (str): ID of the file in the database
+            expires_in (int): Time in seconds until the link expires (default 1 hour)
+            label (str): Optional label for Markdown formatting (e.g., "plot.png")
+
+        Returns:
+            str: A Markdown-formatted link using [label](<signed_url>) style
         """
         file_record = self.db.query(File).filter(File.id == file_id).first()
         if not file_record:
@@ -205,9 +215,15 @@ class FileService:
             "expires": expiration_timestamp,
             "signature": signature,
         }
+
         base_url = os.getenv("BASE_URL", "http://localhost:9000")
         signed_url = f"{base_url}/v1/files/download?{urlencode(query_params)}"
-        return signed_url
+
+        if label:
+            # Return Markdown-formatted clickable link
+            return f"[{label}](<{signed_url}>)"
+        else:
+            return f"<{signed_url}>"
 
     def get_file_as_base64(self, file_id: str) -> str:
         """
