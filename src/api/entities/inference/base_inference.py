@@ -915,6 +915,8 @@ class BaseInference(ABC):
             raise
 
     def handle_code_interpreter_action(self, thread_id, run_id, assistant_id, arguments_dict):
+        import os
+
         action = self.action_service.create_action(
             tool_name="code_interpreter",
             run_id=run_id,
@@ -941,18 +943,9 @@ class BaseInference(ABC):
         if uploaded_files:
             content_lines = []
             for f in uploaded_files:
-                url = f["url"]
-                filename = f.get("filename", "")
-                ext = os.path.splitext(filename)[1].lower()
-
-                if ext in [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg"]:
-                    content_lines.append(
-                        f'<img src="{url}" alt="{filename}" style="max-width: 100%; border-radius: 12px;" />'
-                    )
-                else:
-                    content_lines.append(
-                        f'<a href="{url}" download="{filename}" style="color: #007bff;">Download {filename}</a>'
-                    )
+                url = f["url"].strip().rstrip(")")
+                filename = f.get("filename", "Download File")
+                content_lines.append(f"[{filename}]({url})")
 
             content = '\n'.join(content_lines)
         else:
@@ -1538,7 +1531,7 @@ class BaseInference(ABC):
                         run_id=run_id,
                         model=model,
                         assistant_id=assistant_id,
-                        name=fc_state.get("name")
+                        #name='code_interpreter'
                 ):
                     yield chunk
 
