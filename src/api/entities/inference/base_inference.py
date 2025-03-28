@@ -13,7 +13,6 @@ from typing import Any
 import httpx
 from openai import OpenAI
 from together import Together
-from torchvision import message
 
 from entities.clients.client import ActionsClient
 from entities.clients.client import AssistantsClient
