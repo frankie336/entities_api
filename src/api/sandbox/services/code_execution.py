@@ -206,9 +206,10 @@ class StreamingCodeExecutionHandler:
         uploaded_files = []
         self.logging_utility.debug("Scanning directory: %s", self.generated_files_dir)
 
-        secret_key = os.getenv("DEFAULT_SECRET_KEY", 'k-WBnsS54HZrM8ZVzYiQ-MLPOV53TuuhzEJOdG8kHcM')
+        secret_key = os.getenv("SIGNED_URL_SECRET", 'k-WBnsS54HZrM8ZVzYiQ-MLPOV53TuuhzEJOdG8kHcM')
+
         if not secret_key:
-            raise EnvironmentError("DEFAULT_SECRET_KEY must be set for signing URLs!")
+            raise EnvironmentError("SIGNED_URL_SECRET must be set for signing URLs!")
 
         download_base_url = os.getenv("DOWNLOAD_BASE_URL", "http://localhost:9000/v1/files/download")
 
