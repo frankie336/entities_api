@@ -33,12 +33,10 @@ def download_file(
 ):
     logging_utility.info(f"Received request to download file with ID: {file_id}")
 
-    # Expiry check
     if datetime.utcnow().timestamp() > expires:
         logging_utility.error("Signed URL has expired")
         raise HTTPException(status_code=400, detail="Signed URL has expired")
 
-    # Signature verification
     if not verify_signature(file_id, expires, signature):
         logging_utility.error("Invalid signature for file download request")
         raise HTTPException(status_code=403, detail="Invalid signature")
@@ -52,8 +50,12 @@ def download_file(
         logging_utility.error(f"Error retrieving file object for file ID {file_id}: {str(e)}")
         raise HTTPException(status_code=404, detail=f"File not found: {str(e)}")
 
+    # Conditionally set Content-Disposition
+    is_inline = mime_type.startswith("image/")
+    disposition_type = "inline" if is_inline else "attachment"
+
     headers = {
-        "Content-Disposition": f'attachment; filename="{filename}"'
+        "Content-Disposition": f'{disposition_type}; filename="{filename}"'
     }
 
     return StreamingResponse(file_stream, media_type=mime_type, headers=headers)

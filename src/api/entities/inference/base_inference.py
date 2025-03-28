@@ -11,6 +11,7 @@ from functools import lru_cache
 from typing import Any
 
 import httpx
+from entities_common import ValidationInterface
 from openai import OpenAI
 from together import Together
 
@@ -21,16 +22,14 @@ from entities.clients.client import RunsClient
 from entities.clients.client import ThreadsClient
 from entities.clients.client import ToolSClient
 from entities.clients.client import UserClient
+from entities.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS, PLATFORM_TOOLS, \
+    CODE_INTERPRETER_MESSAGE, DEFAULT_REMINDER_MESSAGE
+from entities.constants.platform import MODEL_MAP, ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING
 from entities.platform_tools.code_interpreter.code_execution_client import StreamOutput
 from entities.platform_tools.platform_tool_service import PlatformToolService
 from entities.services.conversation_truncator import ConversationTruncator
 from entities.services.logging_service import LoggingUtility
 from entities.services.vector_store_service import VectorStoreService
-from entities_common import ValidationInterface
-
-from entities.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS, PLATFORM_TOOLS, \
-    CODE_INTERPRETER_MESSAGE, DEFAULT_REMINDER_MESSAGE
-from entities.constants.platform import MODEL_MAP, ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING
 
 logging_utility = LoggingUtility()
 validator = ValidationInterface()
@@ -914,7 +913,6 @@ class BaseInference(ABC):
 
             # Re-raise the exception for further handling
             raise
-
 
     def handle_code_interpreter_action(self, thread_id, run_id, assistant_id, arguments_dict):
         action = self.action_service.create_action(
