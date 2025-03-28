@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -26,34 +26,34 @@ def verify_signature(file_id: str, expires: int, signature: str) -> bool:
 
 @router.get("/v1/files/download", response_class=StreamingResponse)
 def download_file(
-        file_id: str = Query(...),
-        expires: int = Query(...),
-        signature: str = Query(...),
-        db: Session = Depends(get_db)
+    file_id: str = Query(...),
+    expires: int = Query(...),
+    signature: str = Query(...),
+    db: Session = Depends(get_db)
 ):
     logging_utility.info(f"Received request to download file with ID: {file_id}")
 
-    # Check URL expiry
+    # Expiry check
     if datetime.utcnow().timestamp() > expires:
         logging_utility.error("Signed URL has expired")
         raise HTTPException(status_code=400, detail="Signed URL has expired")
 
-    # Verify the signature
+    # Signature verification
     if not verify_signature(file_id, expires, signature):
         logging_utility.error("Invalid signature for file download request")
         raise HTTPException(status_code=403, detail="Invalid signature")
 
-    # Retrieve file using FileService
     file_service = FileService(db)
+
     try:
-        file_obj = file_service.get_file_as_object(file_id)
+        file_stream, filename, mime_type = file_service.get_file_with_metadata(file_id)
         logging_utility.info(f"File retrieved successfully for file ID: {file_id}")
     except Exception as e:
         logging_utility.error(f"Error retrieving file object for file ID {file_id}: {str(e)}")
         raise HTTPException(status_code=404, detail=f"File not found: {str(e)}")
 
-    # Set default MIME type and headers
-    mime_type = "application/octet-stream"
-    headers = {"Content-Disposition": f"attachment; filename={file_id}"}
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"'
+    }
 
-    return StreamingResponse(file_obj, media_type=mime_type, headers=headers)
+    return StreamingResponse(file_stream, media_type=mime_type, headers=headers)

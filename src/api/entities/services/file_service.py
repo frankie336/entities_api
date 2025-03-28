@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 from entities_common import ValidationInterface, UtilsInterface
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from typing import Tuple
 
 from entities.constants.platform import SUPPORTED_MIME_TYPES, get_mime_type
 from entities.models.models import File, User, FileStorage
@@ -222,3 +223,18 @@ class FileService:
         except Exception as e:
             logging_utility.error(f"Error retrieving BASE64 for file ID {file_id}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")
+
+    def get_file_with_metadata(self, file_id: str) -> Tuple[io.BytesIO, str, str]:
+        """
+        Returns (file-like-object, filename, mime_type) tuple for download use.
+        """
+        file_obj = self.get_file_as_object(file_id)
+        file_record = self.db.query(File).filter(File.id == file_id).first()
+
+        if not file_record:
+            raise HTTPException(status_code=404, detail="File metadata not found")
+
+        filename = file_record.filename or f"{file_id}"
+        mime_type = file_record.mime_type or "application/octet-stream"
+
+        return file_obj, filename, mime_type

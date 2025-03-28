@@ -90,7 +90,9 @@ def get_mime_type(filename: str) -> str:
     _, ext = os.path.splitext(filename)
     return SUPPORTED_MIME_TYPES.get(ext.lower())
 
-
+BROWSER_RENDERABLE_EXTENSIONS = {
+    ".pdf", ".txt", ".html", ".htm", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp"
+}
 
 # For text/* MIME types, define allowed encodings
 ALLOWED_TEXT_ENCODINGS = ['utf-8', 'utf-16', 'ascii']
