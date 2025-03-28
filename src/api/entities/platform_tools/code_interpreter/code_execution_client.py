@@ -145,7 +145,34 @@ if __name__ == '__main__':
     logging_utility.info("Starting code execution.")
     output = StreamOutput()
 
-    for chunk in output.stream_output("print('Hello, world!')"):
+    test_script = """
+import pandas as pd
+import matplotlib.pyplot as plt
+from docx import Document
+
+# Pandas CSV output
+df = pd.DataFrame({
+    'Year': [2021, 2022, 2023],
+    'Revenue': [100, 150, 200]
+})
+df.to_csv('report.csv', index=False)
+
+# Matplotlib plot
+plt.plot(df['Year'], df['Revenue'], marker='o')
+plt.title('Revenue by Year')
+plt.xlabel('Year')
+plt.ylabel('Revenue')
+plt.grid(True)
+plt.savefig('plot.png')
+
+# Word document
+doc = Document()
+doc.add_heading('Automated Report', level=1)
+doc.add_paragraph('This report contains a CSV file, a chart, and a Word document.')
+doc.save('summary.docx')
+"""
+
+    for chunk in output.stream_output(test_script):
         message = json.loads(chunk)
         if message["type"] == "status" and "uploaded_files" in message:
             logging_utility.info("Files: %s", message["uploaded_files"])

@@ -1,10 +1,8 @@
-# Use a minimal Python base image (upgraded to Python 3.11 for better compatibility)
 FROM python:3.8-slim
 
-# Set up environment variables to avoid Python buffering issues
 ENV PYTHONUNBUFFERED=1
 
-# Install necessary system dependencies, including Supervisor, Firejail, SSH, and various network tools
+# Install system dependencies for pandas, matplotlib, docx support, and sandboxing tooling
 RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo \
     firejail \
@@ -30,40 +28,46 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     traceroute \
     procps \
     git \
+    build-essential \
+    libjpeg-dev \
+    libpng-dev \
+    libfreetype6-dev \
+    libopenblas-dev \
+    liblapack-dev \
+    libxml2-dev \
+    libxslt1-dev \
+    libffi-dev \
+    libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Create a non-root user for sandboxing
+# Create non-root sandbox user
 RUN useradd -ms /bin/bash sandboxuser
 
-# Configure passwordless sudo for sandboxuser with Firejail restrictions
+# Allow limited sudo access for firejail
 RUN echo "sandboxuser ALL=(ALL) NOPASSWD: /usr/bin/firejail /bin/bash, /usr/bin/firejail /usr/bin/apt-get *, /usr/bin/firejail /usr/bin/pip" > /etc/sudoers.d/sandboxuser \
     && chmod 440 /etc/sudoers.d/sandboxuser
 
-# Create necessary directories and adjust permissions; ensure supervisor log directory is writable
+# Prepare application directories
 RUN mkdir -p /app /var/log/supervisor && chown -R sandboxuser:sandboxuser /app /var/log/supervisor
 
-
-# Set the working directory
+# Set working directory
 WORKDIR /app
 
-# Copy application components
+# Copy source
 COPY src/api/sandbox/requirements.txt /app/
 COPY src/api/sandbox/ /app/sandbox/
 
-
-# Upgrade pip and install Python dependencies
+# Upgrade pip and install Python deps (pandas, matplotlib, docx support should be listed in requirements.txt)
 RUN pip install --upgrade pip setuptools wheel
 RUN pip install --no-cache-dir --default-timeout=100 -r /app/requirements.txt
 
-# Copy the wait-for-it.sh script from docker/common to /app and make it executable
+# wait-for-it utility
 COPY docker/common/wait-for-it.sh /app/wait-for-it.sh
 RUN chmod +x /app/wait-for-it.sh
 
-# Copy Supervisor configuration
+# Supervisor config
 COPY docker/sandbox/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# Expose the FastAPI port for server access
 EXPOSE 8000
 
-# Start Supervisor in the foreground
 CMD ["/usr/bin/supervisord", "-n"]

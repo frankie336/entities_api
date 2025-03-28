@@ -31,16 +31,15 @@ class StreamingCodeExecutionHandler:
         if os.name != 'nt' and not disable_firejail:
             self.security_profile = {
                 "firejail_args": [
+                    f"--private={self.generated_files_dir}",
                     "--noprofile",
-                    f"--chdir={self.generated_files_dir}",
-                    f"--whitelist={self.generated_files_dir}",
                     "--nogroups",
                     "--nosound",
                     "--notv",
                     "--seccomp",
                     "--caps.drop=all",
                     "--net",
-                    "--env=PYTHONPATH",
+                    "--env=PYTHONPATH"
                 ]
             }
         else:
@@ -208,7 +207,6 @@ class StreamingCodeExecutionHandler:
         uploaded_files = []
         self.logging_utility.debug("Scanning directory: %s", self.generated_files_dir)
 
-        # ✅ Keep the original working key
         secret_key = os.getenv("SIGNED_URL_SECRET", "k-WBnsS54HZrM8ZVzYiQ-MLPOV53TuuhzEJOdG8kHcM")
         if not secret_key:
             raise EnvironmentError("SIGNED_URL_SECRET must be set for signing URLs!")
@@ -254,17 +252,13 @@ class StreamingCodeExecutionHandler:
             file_path = os.path.join(self.generated_files_dir, filename)
             if not os.path.isfile(file_path):
                 continue
-
-            # ✅ Exclude the temp script
             if self.last_executed_script_path and os.path.samefile(file_path, self.last_executed_script_path):
                 self.logging_utility.debug("Skipping script file: %s", file_path)
                 continue
-
             tasks.append(upload_single_file(filename, file_path))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Clean up everything afterward
         for filename in os.listdir(self.generated_files_dir):
             file_path = os.path.join(self.generated_files_dir, filename)
             try:

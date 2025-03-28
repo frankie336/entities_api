@@ -10,7 +10,7 @@ from entities_common import ValidationInterface, UtilsInterface
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from entities.constants.platform import SUPPORTED_MIME_TYPES
+from entities.constants.platform import SUPPORTED_MIME_TYPES, get_mime_type
 from entities.models.models import File, User, FileStorage
 from entities.services.logging_service import LoggingUtility
 from entities.utils.samba_client import SambaClient
@@ -39,20 +39,18 @@ class FileService:
         Validates if the file type is supported based on extension and optional content_type.
         Returns the validated MIME type or raises an HTTPException if not supported.
         """
-        _, ext = os.path.splitext(filename.lower())
+        mime_type = get_mime_type(filename)
+        if not mime_type:
+            raise HTTPException(status_code=400,
+                                detail=f"Unsupported file type: {os.path.splitext(filename)[1].lower()}. Supported types: {list(SUPPORTED_MIME_TYPES.keys())}")
 
-        if ext not in SUPPORTED_MIME_TYPES:
-            raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}. Supported types: {SUPPORTED_MIME_TYPES.keys()}")
-
-        expected_mime = SUPPORTED_MIME_TYPES[ext]
-
-        if content_type and content_type != expected_mime:
+        if content_type and content_type != mime_type:
             raise HTTPException(
                 status_code=400,
-                detail=f"Content type mismatch: expected {expected_mime}, got {content_type}",
+                detail=f"Content type mismatch: expected {mime_type}, got {content_type}",
             )
 
-        return expected_mime
+        return mime_type
 
     def validate_user(self, user_id: str) -> User:
         """

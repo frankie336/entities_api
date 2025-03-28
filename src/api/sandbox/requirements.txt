@@ -7,5 +7,12 @@ python-socketio[asyncio]
 redis
 httpx
 pydantic
+pandas
+matplotlib
+openpyxl
+python-docx
+seaborn
+scikit-learn
 git+https://github.com/frankie336/entities_common.git#egg=entities_common
+
 
