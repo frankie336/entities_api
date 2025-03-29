@@ -211,9 +211,6 @@ class BaseInference(ABC):
     def vector_store_service(self):
         return self._get_service(VectorStoreService)
 
-    @property
-    def internal_sdk_client_interface(self):
-        return self._get_service(EntitiesInternalInterface)
 
     @property
     def conversation_truncator(self):
@@ -980,10 +977,10 @@ class BaseInference(ABC):
         # -------------------------------
 
         if uploaded_files:
-            file_client = self.internal_sdk_client_interface()
+            interface = EntitiesInternalInterface()
             for file in uploaded_files:
                 try:
-                    base64_str = file_client.files.get_file_as_base64(file_id=file["id"])
+                    base64_str = interface.files.get_file_as_base64(file_id=file["id"])
                     mime_type = file.get("mime_type", "application/octet-stream")
                     # Log the base64 preview (first 50 characters for brevity)
                     logging_utility.info("Streaming base64 preview for file %s (%s): %s...",
@@ -1363,10 +1360,10 @@ class BaseInference(ABC):
 
         # Check for tool invocations embedded in multi-line text.
         tool_invocation_in_multi_line_text = self.extract_function_calls_within_body_of_text(text=assistant_reply)
-        #-----------------------------------------------
+        #--------------------------------------------------
         #  The assistant may wrap a function call in
         #  response text. This block  will catch that
-        #------------------------------------------------
+        #--------------------------------------------------
         if tool_invocation_in_multi_line_text and not self.get_tool_response_state():
 
             logging_utility.debug("Embedded Function Call detected : %s", tool_invocation_in_multi_line_text)
@@ -1445,6 +1442,7 @@ class BaseInference(ABC):
                 # Optionally output raw content for debugging.
                 sys.stdout.write(delta_content)
                 sys.stdout.flush()
+
 
                 # Split the content based on reasoning tags (<think> and </think>)
                 segments = self.REASONING_PATTERN.split(delta_content) if hasattr(self, 'REASONING_PATTERN') else [
