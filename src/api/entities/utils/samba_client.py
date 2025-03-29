@@ -147,6 +147,7 @@ class SambaClient:
             raise Exception(f"Failed to rename file/directory: {str(e)}")
 
     def get_file_as_signed_url(self, file_id: str, expires_in: int = 3600) -> str:
+        # Note: This method expects access to self.db, which should be injected or set externally.
         file_record = self.db.query(File).filter(File.id == file_id).first()
         if not file_record:
             raise HTTPException(status_code=404, detail=f"File with ID {file_id} not found")
@@ -169,4 +170,138 @@ class SambaClient:
         base_url = os.getenv("BASE_URL", "http://localhost:9000")
         signed_url = f"{base_url}/v1/files/download?{urlencode(query_params)}"
         return signed_url
+
+    def find_file_by_id_to_bytes(self, file_id: str, remote_dir: str = "") -> bytes:
+        """
+        Locate a file on the Samba share using its file id (assumes naming convention {file_id}_{filename})
+        and return its contents as bytes for in-memory processing.
+
+        Args:
+            file_id (str): The unique file identifier.
+            remote_dir (str): Optional remote directory to search in.
+
+        Returns:
+            bytes: The file's content as bytes.
+
+        Raises:
+            Exception: If the file cannot be found or read.
+        """
+        # List all files in the specified remote directory
+        files = self.listdir(remote_dir)
+        target_file = None
+
+        # Find the file that starts with the given file_id followed by an underscore
+        for filename in files:
+            if filename.startswith(f"{file_id}_"):
+                target_file = filename
+                break
+
+        if not target_file:
+            raise Exception(f"File with ID {file_id} not found on share.")
+
+        # Download and return the file content as bytes
+        try:
+            file_bytes = self.download_file_to_bytes(target_file)
+            return file_bytes
+        except Exception as e:
+            raise Exception(f"Failed to retrieve file by ID {file_id}: {str(e)}")
+
+    def find_file_by_id_with_name(self, file_id: str, remote_dir: str = "") -> (str, bytes):
+        """
+        Locate a file on the Samba share using its file id (assuming naming convention {file_id}_{original_filename})
+        and return its original filename along with its contents as bytes.
+
+        Args:
+            file_id (str): The unique file identifier.
+            remote_dir (str): Optional remote directory to search in.
+
+        Returns:
+            tuple: (original_filename, bytes) where original_filename is the file's original name with extension.
+
+        Raises:
+            Exception: If the file cannot be found or read.
+        """
+        # List all files in the specified remote directory
+        files = self.listdir(remote_dir)
+        target_file = None
+
+        # Create the expected prefix based on the file id.
+        # Note: file_id is expected to already include any necessary prefix like "file_"
+        expected_prefix = f"{file_id}_"
+        for filename in files:
+            if filename.startswith(expected_prefix):
+                target_file = filename
+                break
+
+        if not target_file:
+            raise Exception(f"File with ID {file_id} not found on share.")
+
+        try:
+            file_bytes = self.download_file_to_bytes(target_file)
+            # Remove the file id and the underscore to obtain the original filename.
+            original_filename = target_file[len(expected_prefix):]
+            return original_filename, file_bytes
+        except Exception as e:
+            raise Exception(f"Failed to retrieve file by ID {file_id}: {str(e)}")
+
+    def download_file_as_io(self, file_id: str, remote_dir: str = "") -> (str, io.BytesIO):
+        """
+        Locate a file on the Samba share using its file id (assuming naming convention {file_id}_{original_filename}),
+        download its contents, and return both the original filename and an in-memory file-like object (io.BytesIO).
+
+        Args:
+            file_id (str): The unique file identifier.
+            remote_dir (str): Optional remote directory to search in.
+
+        Returns:
+            tuple: (original_filename, file_io) where:
+                - original_filename (str) is the file's original name with extension.
+                - file_io (io.BytesIO) is the in-memory file object containing the file's bytes.
+
+        Raises:
+            Exception: If the file cannot be found or read.
+        """
+        # Use the method that finds the file by ID and returns the original filename and file bytes.
+        original_filename, file_bytes = self.find_file_by_id_with_name(file_id, remote_dir)
+
+        # Create an in-memory BytesIO object with the downloaded bytes.
+        file_io = io.BytesIO(file_bytes)
+
+        return original_filename, file_io
+
+    def save_file_to_disk(self, file_id: str, save_dir: str, remote_dir: str = "") -> str:
+        """
+        Locate a file on the Samba share using its file id (assuming naming convention {file_id}_{original_filename}),
+        download its contents into an in-memory BytesIO object, and then save it to disk using the original filename.
+
+        Args:
+            file_id (str): The unique file identifier.
+            save_dir (str): The local directory where the file will be saved.
+            remote_dir (str): Optional remote directory on the Samba share to search in.
+
+        Returns:
+            str: The full path to the saved file.
+
+        Raises:
+            Exception: If the file cannot be found or read.
+        """
+        # Retrieve the original filename and file as an in-memory IO object.
+        original_filename, file_io = self.download_file_as_io(file_id, remote_dir)
+
+        # Ensure that the save directory exists.
+        import os
+        os.makedirs(save_dir, exist_ok=True)
+
+        # Build the full path for saving the file.
+        save_path = os.path.join(save_dir, original_filename)
+
+        # Write the contents of the in-memory file to disk.
+        with open(save_path, "wb") as f:
+            # Optionally, ensure the pointer is at the beginning.
+            file_io.seek(0)
+            f.write(file_io.read())
+
+        return save_path
+
+
 
