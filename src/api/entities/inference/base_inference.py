@@ -1,6 +1,7 @@
 import inspect
 import json
 import os
+import pprint
 import re
 import sys
 import threading
@@ -9,7 +10,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import lru_cache
 from typing import Any
-import pprint
+
 import httpx
 from entities_common import ValidationInterface
 from openai import OpenAI
@@ -33,6 +34,9 @@ from entities.services.vector_store_service import VectorStoreService
 
 logging_utility = LoggingUtility()
 validator = ValidationInterface()
+
+#TODO: Needs full integration
+from entities_common import EntitiesInternalInterface
 
 class MissingParameterError(ValueError):
     """Specialized error for missing service parameters"""
@@ -918,9 +922,6 @@ class BaseInference(ABC):
 
     def handle_code_interpreter_action(self, thread_id, run_id, assistant_id, arguments_dict):
 
-        import json
-        import pprint
-        from entities_common import EntitiesInternalInterface
 
         action = self.action_service.create_action(
             tool_name="code_interpreter",
