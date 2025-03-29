@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from entities.dependencies import get_db
 from entities.schemas.actions import ActionUpdate, ActionCreate
 from entities.schemas.actions import ActionRead
-from entities.services.action_service import ActionService
+from entities.services.actions import ActionService
 from entities.services.logging_service import LoggingUtility
 
 router = APIRouter()

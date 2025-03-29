@@ -1,6 +1,7 @@
 import inspect
 import json
 import os
+import pprint
 import re
 import sys
 import threading
@@ -12,6 +13,7 @@ from typing import Any
 
 import httpx
 from entities_common import ValidationInterface
+from entities_common import EntitiesInternalInterface
 from openai import OpenAI
 from together import Together
 
@@ -23,7 +25,7 @@ from entities.clients.client import ThreadsClient
 from entities.clients.client import ToolSClient
 from entities.clients.client import UserClient
 from entities.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS, PLATFORM_TOOLS, \
-    CODE_INTERPRETER_MESSAGE, DEFAULT_REMINDER_MESSAGE
+    CODE_INTERPRETER_MESSAGE, DEFAULT_REMINDER_MESSAGE, CODE_ANALYSIS_TOOL_MESSAGE
 from entities.constants.platform import MODEL_MAP, ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING
 from entities.platform_tools.code_interpreter.code_execution_client import StreamOutput
 from entities.platform_tools.platform_tool_service import PlatformToolService
@@ -33,6 +35,7 @@ from entities.services.vector_store_service import VectorStoreService
 
 logging_utility = LoggingUtility()
 validator = ValidationInterface()
+
 
 class MissingParameterError(ValueError):
     """Specialized error for missing service parameters"""
@@ -70,7 +73,7 @@ class BaseInference(ABC):
         self.function_call = None
         self.client = Together(api_key=os.getenv("TOGETHER_API_KEY"))
         #-------------------------------
-        #Clients
+        # Clients
         #--------------------------------
         self.hyperbolic_client = OpenAI(
             api_key=os.getenv("HYPERBOLIC_API_KEY"),
@@ -167,8 +170,6 @@ class BaseInference(ABC):
             except Exception as e:
                 raise AuthenticationError(f"Credential validation failed: {str(e)}")
 
-
-
     @property
     def user_service(self):
         return self._get_service(UserClient)
@@ -205,9 +206,11 @@ class BaseInference(ABC):
     def code_execution_client(self):
         return self._get_service(StreamOutput)
 
+
     @property
     def vector_store_service(self):
         return self._get_service(VectorStoreService)
+
 
     @property
     def conversation_truncator(self):
@@ -218,14 +221,12 @@ class BaseInference(ABC):
     def setup_services(self):
         """Initialize any additional services required by child classes."""
         pass
-
     # -------------------------------------------------
     # ENTITIES STATE INFORMATION
     # From time to time we need to pass
     # Some state information into PlatformToolService
     # This is the cleanest way to do that
     # -------------------------------------------------
-
     def set_assistant_id(self, assistant_id):
         if self.assistant_id != assistant_id:
             # Clear cached services that depend on assistant_id
@@ -914,7 +915,9 @@ class BaseInference(ABC):
             # Re-raise the exception for further handling
             raise
 
+
     def handle_code_interpreter_action(self, thread_id, run_id, assistant_id, arguments_dict):
+
         action = self.action_service.create_action(
             tool_name="code_interpreter",
             run_id=run_id,
@@ -925,6 +928,9 @@ class BaseInference(ABC):
         uploaded_files = []
         hot_code_buffer = []
 
+        # -------------------------------
+        # Step 1: Stream raw code execution output as-is
+        # -------------------------------
         for chunk in self.code_execution_client.stream_output(code):
             parsed = json.loads(chunk)
 
@@ -935,21 +941,102 @@ class BaseInference(ABC):
             else:
                 hot_code_buffer.append(parsed["content"])
 
-            yield chunk
+            yield json.dumps({
+                "stream_type": "code_execution",
+                "chunk": parsed
+            })
 
-        # Compose output content using pre-formatted Markdown links
+        # -------------------------------
+        # Step 2: Construct signed URL list and markdown lines
+        # -------------------------------
+        markdown_lines = []
+        url_list = []
+
         if uploaded_files:
-            content_lines = [f["url"] for f in uploaded_files]
-            content = "\n\n".join(content_lines)
+            for file in uploaded_files:
+                try:
+                    presigned_url = file.get("url")
+                    if presigned_url and presigned_url.startswith("["):
+                        # Extract URL inside markdown brackets: [filename](<<url>>)
+                        start = presigned_url.find("<<") + 2
+                        end = presigned_url.find(">>")
+                        clean_url = presigned_url[start:end]
+                    else:
+                        clean_url = f"http://localhost:9000/v1/files/download?file_id={file['id']}"
+                    url_list.append(clean_url)
+                    markdown_lines.append(f"[{file['filename']}]({clean_url})")
+                except Exception as e:
+                    logging_utility.error("Error parsing signed URL for file %s: %s", file["id"], str(e))
+                    markdown_lines.append(f"{file['filename']}: Error parsing signed URL")
+            content = "\n\n".join(markdown_lines)
         else:
             content = "\n".join(hot_code_buffer)
 
-        self.submit_tool_output(
-            thread_id=thread_id,
-            assistant_id=assistant_id,
-            content=content,
-            action=action
-        )
+        # -------------------------------
+        # Step 3: Stream base64 previews for frontend rendering
+        # -------------------------------
+
+        if uploaded_files:
+            interface = EntitiesInternalInterface()
+            for file in uploaded_files:
+                try:
+                    base64_str = interface.files.get_file_as_base64(file_id=file["id"])
+                    mime_type = file.get("mime_type", "application/octet-stream")
+                    # Log the base64 preview (first 50 characters for brevity)
+                    logging_utility.info("Streaming base64 preview for file %s (%s): %s...",
+                                         file["id"], file["filename"], base64_str[:50])
+                except Exception as e:
+                    base64_str = f"Error: {str(e)}"
+                    mime_type = "text/plain"
+                    logging_utility.error("Error converting file %s to base64: %s", file["id"], str(e))
+
+                yield json.dumps({
+                    "stream_type": "code_execution",
+                    "chunk": {
+                        "type": "code_interpreter_stream",
+                        "content": {
+                            "filename": file["filename"],
+                            "file_id": file["id"],
+                            "base64": base64_str,
+                            "mime_type": mime_type
+                        }
+                    }
+                })
+
+        # -------------------------------
+        # Step 4: Final frontend-visible chunk (markdown summary)
+        # -------------------------------
+        yield json.dumps({
+            "stream_type": "code_execution",
+            "chunk": {
+                "type": "content",
+                "content": content
+            }
+        })
+
+        # -------------------------------
+        # Step 5: Log uploaded file contents for debug
+        # -------------------------------
+        logging_utility.info("Final uploaded_files payload:\n%s", pprint.pformat(uploaded_files))
+
+        # -------------------------------
+        # Step 6: Submit ONLY the native URL(s) to the assistant — nothing else.
+        # If more than one, pass them as a list.
+        # -------------------------------
+        if url_list:
+            self.submit_tool_output(
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                content=CODE_ANALYSIS_TOOL_MESSAGE,
+                action=action
+            )
+        else:
+            self.submit_tool_output(
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                content=content,
+                action=action
+            )
 
     def handle_shell_action(self, thread_id, run_id, assistant_id, arguments_dict):
         from entities.platform_tools.computer.shell_command_interface import run_shell_commands
@@ -1039,114 +1126,99 @@ class BaseInference(ABC):
 
     def stream_function_call_output(self, thread_id, run_id, assistant_id,
                                     model, name=None, stream_reasoning=False):
-
         """
-        Simplified streaming handler for enforced tool response presentation.
+        Streaming handler for tool-based assistant responses, including reasoning and content.
 
-        Forces assistant output formatting compliance through protocol-aware streaming:
-        - Directly triggers tool output rendering from assistant's system instructions
-        - Bypasses complex reasoning streams for direct tool response delivery
-        - Maintains API compatibility with core streaming interface
-
-        Protocol Enforcement:
-        1. Injects protocol reminder message to assistant context
-        2. Uses minimal temperature (0.6) for deterministic output
-        3. Disables markdown wrapping in final output
-        4. Maintains cancellation safety during tool output streaming
+        Injects protocol reminders, initiates assistant conversation, and yields output chunks.
+        Handles reasoning content (`<think>...</think>`) alongside normal responses.
 
         Args:
-            thread_id (str): UUID of active conversation thread
-            run_id (str): Current execution run identifier
-            assistant_id (str): Target assistant profile UUID
-            model (str): Model identifier override for tool responses
-            name(str): The name of the tool invokes
-            stream_reasoning (bool): [Reserved] Compatibility placeholder
+            thread_id (str): UUID of conversation.
+            run_id (str): Execution context.
+            assistant_id (str): Assistant identity.
+            model (str): Model to use.
+            name (str): Name of the invoked tool.
+            stream_reasoning (bool): Whether to include reasoning output.
 
         Yields:
-            str: JSON-stringified chunks with structure:
-                {'type': 'content'|'error', 'content': <payload>}
-
-        Implementation Notes:
-        - Bypasses complex message processing pipelines
-        - Maintains separate cancellation listener instance
-        - Enforces tool response protocol through system message injection
-        - Accumulates raw content for final validation (JSON/format checks)
+            JSON stringified chunks.
         """
         logging_utility.info(
             "Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
             thread_id, run_id, assistant_id
         )
 
+        # Choose reminder message based on tool
+        reminder = CODE_INTERPRETER_MESSAGE if name == 'code_interpreter' else DEFAULT_REMINDER_MESSAGE
 
-        if name == 'code_interpreter':
-
-            reminder = CODE_INTERPRETER_MESSAGE
-
-        else:
-            reminder = DEFAULT_REMINDER_MESSAGE
-
-        # Send the assistant a reminder message about protocol
+        # Inject system reminder into context
         self.message_service.create_message(
             thread_id=thread_id,
             assistant_id=assistant_id,
             content=reminder,
             role='user',
         )
-        logging_utility.info("Sent the assistant a reminder message: %s", )
+        logging_utility.info("Sent reminder message to assistant: %s", reminder)
 
+        # Begin streaming via hyperbolic backend
         try:
-            stream_response = self.hyperbolic_client.chat.completions.create(
+            stream_generator = self.stream_response_hyperbolic(
+                thread_id=thread_id,
+                message_id=None,  # Optional: extend interface to capture user msg ID if needed
+                run_id=run_id,
+                assistant_id=assistant_id,
                 model=model,
-                messages=self._set_up_context_window(assistant_id, thread_id, trunk=True),
-                stream=True,
-                temperature=0.6
+                stream_reasoning=True
             )
 
             assistant_reply = ""
-            accumulated_content = ""
             reasoning_content = ""
 
-            for chunk in stream_response:
-                logging_utility.debug("Raw chunk received: %s", chunk)
-                reasoning_chunk = getattr(chunk.choices[0].delta, 'reasoning_content', '')
+            for chunk in stream_generator:
+                parsed = json.loads(chunk) if isinstance(chunk, str) else chunk
 
-                if reasoning_chunk:
-                    reasoning_content += reasoning_chunk
-                    yield json.dumps({
-                        'type': 'reasoning',
-                        'content': reasoning_chunk
-                    })
+                chunk_type = parsed.get("type")
+                content = parsed.get("content", "")
 
-                content_chunk = getattr(chunk.choices[0].delta, 'content', '')
-                if content_chunk:
-                    assistant_reply += content_chunk
-                    accumulated_content += content_chunk
-                    yield json.dumps({'type': 'content', 'content': content_chunk}) + '\n'
+                if chunk_type == "reasoning":
+                    reasoning_content += content
+                    yield json.dumps({'type': 'reasoning', 'content': content})
+
+                elif chunk_type == "content":
+                    assistant_reply += content
+                    yield json.dumps({'type': 'content', 'content': content}) + '\n'
+
+                elif chunk_type == "error":
+                    logging_utility.error("Error in assistant stream: %s", content)
+                    yield json.dumps({'type': 'error', 'content': content})
+                    return
+
+                else:
+                    # Default fallback for other chunk types (optional: forward raw)
+                    yield json.dumps(parsed)
 
                 time.sleep(0.01)
 
         except Exception as e:
-            error_msg = "[ERROR] DeepSeek API streaming error"
-            logging_utility.error(f"{error_msg}: {str(e)}", exc_info=True)
-            yield json.dumps({
-                'type': 'error',
-                'content': error_msg
-            })
+            error_msg = f"[ERROR] Hyperbolic stream failed: {str(e)}"
+            logging_utility.error(error_msg, exc_info=True)
+            yield json.dumps({'type': 'error', 'content': error_msg})
             return
 
+        # Finalize only if content was generated
         if assistant_reply:
-            assistant_message = self.finalize_conversation(
-                assistant_reply=assistant_reply,
+            full_output = reasoning_content + assistant_reply
+            self.finalize_conversation(
+                assistant_reply=full_output,
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 run_id=run_id
             )
-            logging_utility.info("Assistant response stored successfully.")
+            logging_utility.info("Assistant response finalized and stored.")
 
         self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
         if reasoning_content:
             logging_utility.info("Final reasoning content: %s", reasoning_content)
-
 
     def _process_code_interpreter_chunks(self, content_chunk, code_buffer):
         """
@@ -1288,10 +1360,10 @@ class BaseInference(ABC):
 
         # Check for tool invocations embedded in multi-line text.
         tool_invocation_in_multi_line_text = self.extract_function_calls_within_body_of_text(text=assistant_reply)
-        #-----------------------------------------------
+        #--------------------------------------------------
         #  The assistant may wrap a function call in
         #  response text. This block  will catch that
-        #------------------------------------------------
+        #--------------------------------------------------
         if tool_invocation_in_multi_line_text and not self.get_tool_response_state():
 
             logging_utility.debug("Embedded Function Call detected : %s", tool_invocation_in_multi_line_text)
@@ -1370,6 +1442,7 @@ class BaseInference(ABC):
                 # Optionally output raw content for debugging.
                 sys.stdout.write(delta_content)
                 sys.stdout.flush()
+
 
                 # Split the content based on reasoning tags (<think> and </think>)
                 segments = self.REASONING_PATTERN.split(delta_content) if hasattr(self, 'REASONING_PATTERN') else [
