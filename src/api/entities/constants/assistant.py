@@ -11,7 +11,7 @@ CODE_INTERPRETER_MESSAGE = ("Return the tool output clearly and directly."
                             "If a file URL is present, include it as a user-friendly download link.")
 DEFAULT_REMINDER_MESSAGE = "give the user the output from tool as advised in system message."
 
-CODE_ANALYSIS_TOOL_MESSAGE = "The file has been made available to the user in a secondary stream."
+CODE_ANALYSIS_TOOL_MESSAGE = "Advise the user that their file can be downloaded by clicking the link below."
 
 
 # Tool schemas with strict validation rules
