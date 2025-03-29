@@ -1,15 +1,20 @@
 import time
 from typing import List
 
+
+
+from entities_common import ValidationInterface, UtilsInterface
+
+
+
 from fastapi import HTTPException
 from pydantic import parse_obj_as
 from sqlalchemy.orm import Session
 
-from entities.schemas.tools import Tool
-from entities.services.identifier_service import IdentifierService
-from entities.services.logging_service import LoggingUtility
 from entities.models.models import Run, StatusEnum  # Ensure Run is imported
+from entities.services.logging_service import LoggingUtility
 
+validator = ValidationInterface()
 
 class RunService:
     def __init__(self, db: Session):
@@ -19,7 +24,7 @@ class RunService:
 
     def create_run(self, run_data):
         run = Run(
-            id=IdentifierService.generate_run_id(),
+            id=UtilsInterface.IdentifierService.generate_run_id(),
             assistant_id=run_data.assistant_id,
             cancelled_at=run_data.cancelled_at,
             completed_at=run_data.completed_at,
@@ -61,7 +66,7 @@ class RunService:
 
         try:
             # Convert the string to the StatusEnum type
-            run.status = StatusEnum(new_status)
+            run.status = validator.StatusEnum(new_status)
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid status: {new_status}")
 
@@ -95,7 +100,7 @@ class RunService:
                 status=run.status,
                 thread_id=run.thread_id,
                 tool_choice=run.tool_choice,
-                tools=parse_obj_as(List[Tool], run.tools),
+                tools=parse_obj_as(List[validator.Tool], run.tools),
                 truncation_strategy=run.truncation_strategy,
                 usage=run.usage,
                 temperature=run.temperature,

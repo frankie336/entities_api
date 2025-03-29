@@ -39,7 +39,7 @@ setuptools
 groq
 openai
 azure-ai-inference
-Together
+together
 transformers
 jinja2
 validators
@@ -56,3 +56,4 @@ pysmb
 python-multipart
 alembic
 requests
+git+https://github.com/frankie336/entities_common.git#egg=entities_common

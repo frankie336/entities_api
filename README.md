@@ -78,7 +78,6 @@ thread = client.threads.create_thread(participant_ids=[user.id])
 
 assistant = client.assistant.create_assistant()
 
-
 message = client.messages.create_message(
     thread_id=thread.id,
     role='user',
@@ -88,7 +87,6 @@ run = client.runs.create_run(assistant_id=assistant.id,
                              thread_id=thread.id,
 
                              )
-
 
 try:
     completion = client.inference.create_completion(
@@ -114,7 +112,11 @@ Whilst it involves a little more effort, adding state management to distinct par
   [Assistants](/docs/assistants.md)
   
   [Code Interpretation](/docs/code_interpretation.md)
+  
+  [Docker Containers](/docs/docker_containers.md)
 
+  [Database](/docs/database.md)
+ 
   [Files](/docs/files.md)
   
   [Function Calling](/docs/function_calling.md)
@@ -127,7 +129,7 @@ Whilst it involves a little more effort, adding state management to distinct par
 
   [Threads](/docs/threads.md)
 
-  [Tools](/docs/code_interpretation.md)
+  [Tools](/docs/tools.md)
   
   [Users](/docs/users.md)
   

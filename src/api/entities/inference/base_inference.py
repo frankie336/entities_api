@@ -11,27 +11,28 @@ from functools import lru_cache
 from typing import Any
 
 import httpx
+from entities_common import ValidationInterface
 from openai import OpenAI
 from together import Together
 
-from entities.clients.client_actions_client import ClientActionService
-from entities.clients.client_assistant_client import ClientAssistantService
-from entities.clients.client_message_client import ClientMessageService
-from entities.clients.client_run_client import ClientRunService
-from entities.clients.client_thread_client import ThreadService
-from entities.clients.client_tool_client import ClientToolService
-from entities.clients.client_user_client import UserService
+from entities.clients.client import ActionsClient
+from entities.clients.client import AssistantsClient
+from entities.clients.client import MessagesClient
+from entities.clients.client import RunsClient
+from entities.clients.client import ThreadsClient
+from entities.clients.client import ToolSClient
+from entities.clients.client import UserClient
+from entities.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS, PLATFORM_TOOLS, \
+    CODE_INTERPRETER_MESSAGE, DEFAULT_REMINDER_MESSAGE
+from entities.constants.platform import MODEL_MAP, ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING
 from entities.platform_tools.code_interpreter.code_execution_client import StreamOutput
 from entities.platform_tools.platform_tool_service import PlatformToolService
 from entities.services.conversation_truncator import ConversationTruncator
 from entities.services.logging_service import LoggingUtility
 from entities.services.vector_store_service import VectorStoreService
 
-
-from entities.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS, PLATFORM_TOOLS
-from entities.constants.platform import MODEL_MAP, ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING, TOOLS_ID_MAP
-
 logging_utility = LoggingUtility()
+validator = ValidationInterface()
 
 class MissingParameterError(ValueError):
     """Specialized error for missing service parameters"""
@@ -68,7 +69,6 @@ class BaseInference(ABC):
         self.tool_response = None
         self.function_call = None
         self.client = Together(api_key=os.getenv("TOGETHER_API_KEY"))
-
         #-------------------------------
         #Clients
         #--------------------------------
@@ -171,27 +171,27 @@ class BaseInference(ABC):
 
     @property
     def user_service(self):
-        return self._get_service(UserService)
+        return self._get_service(UserClient)
 
     @property
     def assistant_service(self):
-        return self._get_service(ClientAssistantService)
+        return self._get_service(AssistantsClient)
 
     @property
     def thread_service(self):
-        return self._get_service(ThreadService)
+        return self._get_service(ThreadsClient)
 
     @property
     def message_service(self):
-        return self._get_service(ClientMessageService)
+        return self._get_service(MessagesClient)
 
     @property
     def run_service(self):
-        return self._get_service(ClientRunService)
+        return self._get_service(RunsClient)
 
     @property
     def tool_service(self):
-        return self._get_service(ClientToolService)
+        return self._get_service(ToolSClient)
 
     @property
     def platform_tool_service(self):
@@ -199,7 +199,7 @@ class BaseInference(ABC):
 
     @property
     def action_service(self):
-        return self._get_service(ClientActionService)
+        return self._get_service(ActionsClient)
 
     @property
     def code_execution_client(self):
@@ -559,7 +559,7 @@ class BaseInference(ABC):
                 is_last_chunk=True
             )
             logging_utility.info("Partial assistant response stored successfully.")
-            self.run_service.update_run_status(run_id, "failed")
+            self.run_service.update_run_status(run_id, validator.StatusEnum.failed)
 
     def finalize_conversation(self, assistant_reply, thread_id, assistant_id, run_id):
         """Finalize the conversation by storing the assistant's reply."""
@@ -574,7 +574,8 @@ class BaseInference(ABC):
                 is_last_chunk=True
             )
             logging_utility.info("Assistant response stored successfully.")
-            self.run_service.update_run_status(run_id, "completed")
+
+            self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
 
             return message
 
@@ -648,7 +649,7 @@ class BaseInference(ABC):
         )
 
         # Update run status to 'action_required'
-        self.run_service.update_run_status(run_id=run_id, new_status='action_required')
+        self.run_service.update_run_status(run_id=run_id, new_status=validator.StatusEnum.pending_action)
         logging_utility.info(f"Run {run_id} status updated to action_required")
 
         # Now wait for the run's status to change from 'action_required'.
@@ -807,7 +808,7 @@ class BaseInference(ABC):
             )
 
             # Update run status
-            self.run_service.update_run_status(run_id=run_id, new_status='action_required')
+            self.run_service.update_run_status(run_id=run_id, new_status=validator.StatusEnum.pending_action)
             logging_utility.info(
                 "Run %s status updated to action_required for tool %s",
                 run_id, content["name"]
@@ -913,10 +914,7 @@ class BaseInference(ABC):
             # Re-raise the exception for further handling
             raise
 
-
     def handle_code_interpreter_action(self, thread_id, run_id, assistant_id, arguments_dict):
-
-
         action = self.action_service.create_action(
             tool_name="code_interpreter",
             run_id=run_id,
@@ -924,19 +922,28 @@ class BaseInference(ABC):
         )
 
         code = arguments_dict.get("code")
+        uploaded_files = []
         hot_code_buffer = []
 
-        # Stream code execution output
         for chunk in self.code_execution_client.stream_output(code):
             parsed = json.loads(chunk)
 
-            if parsed.get('type') == 'hot_code_output':
-                hot_code_buffer.append(parsed['content'])
+            if parsed.get("type") == "status":
+                if parsed.get("content") == "complete" and "uploaded_files" in parsed:
+                    uploaded_files.extend(parsed["uploaded_files"])
+                hot_code_buffer.append(f"[{parsed['content']}]")
+            else:
+                hot_code_buffer.append(parsed["content"])
 
-            yield chunk  # Preserve streaming
+            yield chunk
 
-        # Submit final output after execution completes
-        content = '\n'.join(hot_code_buffer)
+        # Compose output content using pre-formatted Markdown links
+        if uploaded_files:
+            content_lines = [f["url"] for f in uploaded_files]
+            content = "\n\n".join(content_lines)
+        else:
+            content = "\n".join(hot_code_buffer)
+
         self.submit_tool_output(
             thread_id=thread_id,
             assistant_id=assistant_id,
@@ -1031,7 +1038,7 @@ class BaseInference(ABC):
         pass
 
     def stream_function_call_output(self, thread_id, run_id, assistant_id,
-                                    model, stream_reasoning=False):
+                                    model, name=None, stream_reasoning=False):
 
         """
         Simplified streaming handler for enforced tool response presentation.
@@ -1052,6 +1059,7 @@ class BaseInference(ABC):
             run_id (str): Current execution run identifier
             assistant_id (str): Target assistant profile UUID
             model (str): Model identifier override for tool responses
+            name(str): The name of the tool invokes
             stream_reasoning (bool): [Reserved] Compatibility placeholder
 
         Yields:
@@ -1064,20 +1072,24 @@ class BaseInference(ABC):
         - Enforces tool response protocol through system message injection
         - Accumulates raw content for final validation (JSON/format checks)
         """
-
-
-        model  = "deepseek-ai/DeepSeek-V3"
-
         logging_utility.info(
             "Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
             thread_id, run_id, assistant_id
         )
 
+
+        if name == 'code_interpreter':
+
+            reminder = CODE_INTERPRETER_MESSAGE
+
+        else:
+            reminder = DEFAULT_REMINDER_MESSAGE
+
         # Send the assistant a reminder message about protocol
         self.message_service.create_message(
             thread_id=thread_id,
             assistant_id=assistant_id,
-            content='give the user the output from tool as advised in system message',
+            content=reminder,
             role='user',
         )
         logging_utility.info("Sent the assistant a reminder message: %s", )
@@ -1131,7 +1143,7 @@ class BaseInference(ABC):
             )
             logging_utility.info("Assistant response stored successfully.")
 
-        self.run_service.update_run_status(run_id, "completed")
+        self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
         if reasoning_content:
             logging_utility.info("Final reasoning content: %s", reasoning_content)
 
@@ -1455,7 +1467,7 @@ class BaseInference(ABC):
             self.parse_and_set_function_calls(accumulated_content, assistant_reply)
 
 
-        self.run_service.update_run_status(run_id, "completed")
+        self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
         if reasoning_content:
             logging_utility.info("Final reasoning content: %s", reasoning_content)
 
@@ -1507,12 +1519,12 @@ class BaseInference(ABC):
                 ):
                     yield chunk
 
-
                 for chunk in self.stream_function_call_output(
                         thread_id=thread_id,
                         run_id=run_id,
                         model=model,
-                        assistant_id=assistant_id
+                        assistant_id=assistant_id,
+                        #name='code_interpreter'
                 ):
                     yield chunk
 
@@ -1549,7 +1561,6 @@ class BaseInference(ABC):
                         content=fc_state,
                         run_id=run_id
                     )
-
                     #-----------------------------
                     # Remind the assistant to synthesise
                     # a contextual response on tool submission
@@ -1564,7 +1575,6 @@ class BaseInference(ABC):
 
 
                 else:
-
                      #-----------------------
                      # Handles consumer side tool calls.
                      #------------------------

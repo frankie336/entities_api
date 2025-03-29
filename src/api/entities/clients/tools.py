@@ -1,19 +1,20 @@
 import os
+import time
 from typing import List, Optional
 
 import httpx
 from dotenv import load_dotenv
+from entities_common import ValidationInterface
 from pydantic import ValidationError
 
-from entities.schemas.tools import ToolCreate, ToolUpdate
-from entities.schemas.tools import ToolRead
+validation = ValidationInterface()
 from entities.services.logging_service import LoggingUtility
 
 load_dotenv()
 logging_utility = LoggingUtility()
 
 
-class ClientToolService:
+class ToolSClient:
     def __init__(self, base_url=os.getenv("ASSISTANTS_BASE_URL"),  api_key=None):
         self.base_url = base_url
         self.api_key = api_key
@@ -22,22 +23,35 @@ class ClientToolService:
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=10.0  # Add a timeout of 10 seconds
         )
-        logging_utility.info("ClientToolService initialized with base_url: %s", self.base_url)
+        logging_utility.info("ToolSClient initialized with base_url: %s", self.base_url)
 
     def __del__(self):
         # Close the client when the instance is destroyed to prevent resource leaks
         self.client.close()
 
-    def create_tool(self, **tool_data) -> ToolRead:
+    def create_tool(self, **tool_data) -> validation.ToolRead:
         logging_utility.info("Creating new tool")
         try:
-            tool = ToolCreate(**tool_data)
+            function_data = tool_data.get('function', {})
+            # Unwrap potential double nesting safely
+            if 'function' in function_data:
+                function_data = function_data['function']
+
+            tool_create_payload = {
+                "type": tool_data["type"],
+                "function": {"function": function_data},  # Wrap function_data inside a "function" key
+                "name": function_data.get("name")
+            }
+
+            tool = validation.ToolCreate(**tool_create_payload)
             response = self.client.post("/v1/tools", json=tool.model_dump())
             response.raise_for_status()
             created_tool = response.json()
-            validated_tool = ToolRead.model_validate(created_tool)
+
+            validated_tool = validation.ToolRead.model_validate(created_tool)
             logging_utility.info("Tool created successfully with id: %s", validated_tool.id)
             return validated_tool
+
         except ValidationError as e:
             logging_utility.error("Validation error during tool creation: %s", e.json())
             raise ValueError(f"Validation error: {e}")
@@ -75,14 +89,14 @@ class ClientToolService:
             logging_utility.error("Unexpected error during tool-assistant disassociation: %s", str(e))
             raise
 
-    def get_tool_by_id(self, tool_id: str) -> ToolRead:
+    def get_tool_by_id(self, tool_id: str) -> validation.ToolRead:
         """Retrieve a tool by its ID."""
         logging_utility.info("Retrieving tool with id: %s", tool_id)
         try:
             response = self.client.get(f"/v1/tools/{tool_id}")
             response.raise_for_status()
             tool = response.json()
-            validated_tool = ToolRead.model_validate(tool)
+            validated_tool = validation.ToolRead.model_validate(tool)
             logging_utility.info("Tool retrieved successfully")
             return validated_tool
         except ValidationError as e:
@@ -95,14 +109,14 @@ class ClientToolService:
             logging_utility.error("Unexpected error during tool retrieval: %s", str(e))
             raise
 
-    def get_tool_by_name(self, name: str) -> ToolRead:
+    def get_tool_by_name(self, name: str) -> validation.ToolRead:
         """Retrieve a tool by its name."""
         logging_utility.info("Retrieving tool with name: %s", name)
         try:
             response = self.client.get(f"/v1/tools/name/{name}")
             response.raise_for_status()
             tool = response.json()
-            validated_tool = ToolRead.model_validate(tool)
+            validated_tool = validation.ToolRead.model_validate(tool)
             logging_utility.info("Tool retrieved successfully")
             return validated_tool
         except ValidationError as e:
@@ -115,13 +129,13 @@ class ClientToolService:
             logging_utility.error("Unexpected error during tool retrieval: %s", str(e))
             raise
 
-    def update_tool(self, tool_id: str, tool_update: ToolUpdate) -> ToolRead:
+    def update_tool(self, tool_id: str, tool_update: validation.ToolUpdate) -> validation.ToolRead:
         logging_utility.info("Updating tool with ID: %s", tool_id)
         try:
             response = self.client.put(f"/v1/tools/{tool_id}", json=tool_update.model_dump(exclude_unset=True))
             response.raise_for_status()
             updated_tool = response.json()
-            validated_tool = ToolRead.model_validate(updated_tool)
+            validated_tool = validation.ToolRead.model_validate(updated_tool)
             logging_utility.info("Tool updated successfully with ID: %s", tool_id)
             return validated_tool
         except ValidationError as e:

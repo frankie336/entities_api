@@ -42,49 +42,57 @@ MODEL_MAP = {"deepseek-ai/deepseek-reasoner": "deepseek-reasoner",
 
 WEB_SEARCH_BASE_URL = "http://localhost:8080/"
 
+# Extend SUPPORTED_MIME_TYPES and define helper
 SUPPORTED_MIME_TYPES = {
-        # C/C++
-        '.c': 'text/x-c',
-        '.cpp': 'text/x-c++',
-        # C#
-        '.cs': 'text/x-csharp',
-        # CSS
-        '.css': 'text/css',
-        # Word documents
-        '.doc': 'application/msword',
-        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        # Go
-        '.go': 'text/x-golang',
-        # HTML
-        '.html': 'text/html',
-        # Java
-        '.java': 'text/x-java',
-        # JavaScript
-        '.js': 'text/javascript',
-        # JSON
-        '.json': 'application/json',
-        # Markdown
-        '.md': 'text/markdown',
-        # PDF
-        '.pdf': 'application/pdf',
-        # PHP
-        '.php': 'text/x-php',
-        # PowerPoint
-        '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-        # Python
-        '.py': 'text/x-python',
-        '.pyx': 'text/x-script.python',
-        # Ruby
-        '.rb': 'text/x-ruby',
-        # Shell script
-        '.sh': 'application/x-sh',
-        # TeX
-        '.tex': 'text/x-tex',
-        # TypeScript
-        '.ts': 'application/typescript',
-        # Plain text
-        '.txt': 'text/plain',
-    }
+    '.c': 'text/x-c',
+    '.cpp': 'text/x-c++',
+    '.cs': 'text/x-csharp',
+    '.css': 'text/css',
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.go': 'text/x-golang',
+    '.html': 'text/html',
+    '.java': 'text/x-java',
+    '.js': 'text/javascript',
+    '.json': 'application/json',
+    '.md': 'text/markdown',
+    '.pdf': 'application/pdf',
+    '.php': 'text/x-php',
+    '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    '.py': 'text/x-python',
+    '.pyx': 'text/x-script.python',
+    '.rb': 'text/x-ruby',
+    '.sh': 'application/x-sh',
+    '.tex': 'text/x-tex',
+    '.ts': 'application/typescript',
+    '.txt': 'text/plain',
+    '.csv': 'text/csv',
+    '.tsv': 'text/tab-separated-values',
+    '.xls': 'application/vnd.ms-excel',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.zip': 'application/zip',
+    '.tar': 'application/x-tar',
+    '.gz': 'application/gzip',
+    '.rar': 'application/vnd.rar',
+    '.7z': 'application/x-7z-compressed',
+    '.mp3': 'audio/mpeg',
+    '.mp4': 'video/mp4',
+    '.wav': 'audio/wav',
+    '.ogg': 'audio/ogg',
+}
+
+def get_mime_type(filename: str) -> str:
+    _, ext = os.path.splitext(filename)
+    return SUPPORTED_MIME_TYPES.get(ext.lower())
+
+BROWSER_RENDERABLE_EXTENSIONS = {
+    ".pdf", ".txt", ".html", ".htm", ".jpg", ".jpeg", ".png", ".gif", ".svg", ".webp"
+}
 
 # For text/* MIME types, define allowed encodings
 ALLOWED_TEXT_ENCODINGS = ['utf-8', 'utf-16', 'ascii']

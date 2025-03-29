@@ -1,8 +1,9 @@
 from typing import Optional
 
+from entities_common import ValidationInterface
 from pydantic import BaseModel, Field
 
-from entities.schemas.common import ProviderEnum
+validator = ValidationInterface()
 
 
 class ProcessOutput(BaseModel):
@@ -13,7 +14,7 @@ class ProcessOutput(BaseModel):
 
 
 class StreamRequest(BaseModel):
-    provider: ProviderEnum = Field(..., description="The inference provider")
+    provider: validator.ProviderEnum = Field(..., description="The inference provider")
     model: str = Field(..., description="The model to use for inference")
     api_key: Optional[str] = Field(None, description="Optional API key for third-party providers")
     thread_id: str = Field(..., description="Thread identifier")

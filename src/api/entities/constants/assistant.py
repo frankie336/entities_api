@@ -5,10 +5,17 @@ PLATFORM_TOOLS = ["code_interpreter", "web_search", "vector_store_search", "comp
 API_TIMEOUT = 30
 DEFAULT_MODEL = "llama3.1"
 
+
+# function call reminder messages
+CODE_INTERPRETER_MESSAGE = ("Return the tool output clearly and directly."
+                            "If a file URL is present, include it as a user-friendly download link.")
+DEFAULT_REMINDER_MESSAGE = "give the user the output from tool as advised in system message."
+
+
 # Tool schemas with strict validation rules
 BASE_TOOLS = [
     {
-        "type": "code_interpreter",
+        "type": "function",
         "function": {
             "name": "code_interpreter",
             "description": "Executes Python code in a sandbox environment and returns JSON output.",
@@ -23,7 +30,7 @@ BASE_TOOLS = [
     },
 
     {
-        "type": "web_search",
+        "type": "function",
         "function": {
             "name": "web_search",
             "description": "Performs web searches with structured results",
@@ -46,7 +53,7 @@ BASE_TOOLS = [
 
 
     {
-      "type": "computer",
+      "type": "function",
       "function": {
         "name": "computer",
         "description": "This function acts as your personal computer—specifically a Linux computer with internet access. When you send a list of computer commands, it executes them in a recoverable computer session, streaming output continuously. It simulates a Linux terminal environment, allowing you to run commands as if you were using your personal Linux workstation. The thread ID is managed internally.",
@@ -65,7 +72,7 @@ BASE_TOOLS = [
     },
 
     {
-        "type": "vector_store_search",
+        "type": "function",
         "function": {
             "name": "vector_store_search",
             "description": "Qdrant-compatible semantic search with advanced filters",
@@ -145,6 +152,13 @@ BASE_ASSISTANT_INSTRUCTIONS = (
     "3. import math\n"
     "4. sqrt_144 = math.sqrt(144)\n\n"
     "5. print(sqrt_144)\n\n"
+
+    "FILE GENERATION & INTERPRETER:\n"
+    "• The sandbox has these external libraries available:\n"
+    "  pandas, matplotlib, openpyxl, python-docx, seaborn, scikit-learn, and entities_common.\n"
+    "• All images generated should be rendered as .png by default unless otherwise specified.\n"
+    "• When returning file links, present them as neat, clickable markdown links (e.g.,\n"
+    "  [Example File](http://yourserver/v1/files/download?file_id=...)) to hide raw URLs.\n\n"
 
     "🔹 **VECTOR SEARCH COMMANDMENTS**\n"
     "1. Temporal filters use UNIX timestamps (numeric)\n"

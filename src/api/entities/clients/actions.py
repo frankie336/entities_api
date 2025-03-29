@@ -3,29 +3,30 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 import httpx
 from pydantic import ValidationError
+from entities_common import ValidationInterface, UtilsInterface
 
-from entities.schemas.actions import ActionRead, ActionUpdate, ActionCreate, ActionStatus
-from entities.services.identifier_service import IdentifierService
+validation = ValidationInterface()
+
 from entities.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 
-class ClientActionService:
+class ActionsClient:
     def __init__(self, base_url="http://localhost:9000/", api_key=None):
         """Initialize with base URL and API key for authentication."""
         self.client = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"})
-        logging_utility.info("ClientActionService initialized with base_url: %s", base_url)
+        logging_utility.info("ActionsClient initialized with base_url: %s", base_url)
 
     def create_action(self, tool_name: str, run_id: str, function_args: Optional[Dict[str, Any]] = None,
-                      expires_at: Optional[datetime] = None) -> ActionRead:
+                      expires_at: Optional[datetime] = None) -> validation.ActionRead:
         """Create a new action using the provided tool_name, run_id, and function_args."""
         try:
-            action_id = IdentifierService.generate_action_id()
+            action_id = UtilsInterface.IdentifierService.generate_action_id()
 
             # Convert expires_at to ISO 8601 string format if provided
             expires_at_iso = expires_at.isoformat() if expires_at else None
 
-            payload = ActionCreate(
+            payload = validation.ActionCreate(
                 id=action_id,
                 tool_name=tool_name,
                 run_id=run_id,
@@ -46,7 +47,7 @@ class ClientActionService:
             response.raise_for_status()
 
             response_data = response.json()
-            validated_action = ActionRead(**response_data)
+            validated_action = validation.ActionRead(**response_data)
             logging_utility.info("Action created successfully with ID: %s", action_id)
             return validated_action
 
@@ -57,7 +58,7 @@ class ClientActionService:
             logging_utility.error("Unexpected error during action creation: %s", str(e))
             raise ValueError(f"Unexpected error: {str(e)}")
 
-    def get_action(self, action_id: str) -> ActionRead:
+    def get_action(self, action_id: str) -> validation.ActionRead:
         """
         Retrieve a specific action by its ID and return the validated `ActionRead` object.
 
@@ -79,7 +80,7 @@ class ClientActionService:
 
             # Parse and validate the response
             response_data = response.json()
-            validated_action = ActionRead(**response_data)
+            validated_action = validation.ActionRead(**response_data)
 
             # Log success and debug details
             logging_utility.info("Action retrieved successfully with ID: %s", action_id)
@@ -112,12 +113,12 @@ class ClientActionService:
             logging_utility.error("Unexpected error: %s", str(e))
             raise ValueError(f"Unexpected error: {str(e)}")
 
-    def update_action(self, action_id: str, status: ActionStatus,
-                      result: Optional[Dict[str, Any]] = None) -> ActionRead:
+    def update_action(self, action_id: str, status: validation.ActionStatus,
+                      result: Optional[Dict[str, Any]] = None) -> validation.ActionRead:
         """Update an action's status and result."""
         try:
             # Create the payload using the ActionUpdate schema
-            payload = ActionUpdate(status=status, result=result).dict(exclude_none=True)
+            payload = validation.ActionUpdate(status=status, result=result).dict(exclude_none=True)
             logging_utility.debug("Payload for action update: %s", payload)
 
             # Ensure the URL includes the /routers prefix
@@ -126,7 +127,7 @@ class ClientActionService:
 
             # Parse the response
             response_data = response.json()
-            validated_action = ActionRead(**response_data)
+            validated_action = validation.ActionRead(**response_data)
             logging_utility.info("Action updated successfully with ID: %s", action_id)
             return validated_action
 

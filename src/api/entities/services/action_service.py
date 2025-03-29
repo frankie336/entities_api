@@ -1,14 +1,21 @@
-from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
-from fastapi import HTTPException
-from entities.models.models import Action, Tool
-from typing import List, Optional, Dict, Any
-from entities.services.logging_service import LoggingUtility
-from entities.schemas.actions import ActionCreate, ActionRead, ActionUpdate, ActionStatus
 from datetime import datetime
-from entities.utils.conversion_utils import  datetime_to_iso
-from entities.services.identifier_service import IdentifierService
-from entities.clients.client_tool_client import ClientToolService
+from typing import List, Optional, Dict, Any
+
+from entities_common import ValidationInterface, UtilsInterface
+from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from entities import EntitiesInternalInterface
+from entities.models.models import Action, Tool
+from entities.services.logging_service import LoggingUtility
+from entities.utils.conversion_utils import datetime_to_iso
+
+client = EntitiesInternalInterface()
+validator = ValidationInterface()
+
+
+
 from entities.models.models import Run  # Ensure Run is imported
 
 logging_utility = LoggingUtility()
@@ -56,14 +63,14 @@ class ActionService:
         else:
             action.result['full_output'] = new_content
             action.result['status'] = 'completed'
-            action.status = ActionStatus.completed
+            action.status = validator.ActionStatus.completed
             action.processed_at = datetime.utcnow()
 
         self.db.commit()
 
 
 
-    def create_action(self, action_data: ActionCreate) -> ActionRead:
+    def create_action(self, action_data: validator.ActionCreate) -> validator.ActionRead:
         logging_utility.info("Creating action for tool_name: %s, run_id: %s", action_data.tool_name, action_data.run_id)
         try:
             # Log the received ActionCreate data
@@ -79,7 +86,7 @@ class ActionService:
             logging_utility.debug("Fetched tool: %s", {"id": tool.id, "name": tool.name})
 
             # Generate a new action id (or decide if you want to use action_data.id)
-            new_action_id = IdentifierService.generate_action_id()
+            new_action_id = UtilsInterface.IdentifierService.generate_action_id()
             logging_utility.debug("Generated new action ID: %s", new_action_id)
 
             # Use the provided status (should be a string, as expected)
@@ -103,7 +110,7 @@ class ActionService:
             self.db.refresh(new_action)
             logging_utility.info("New action committed with ID: %s", new_action.id)
 
-            return ActionRead(
+            return validator.ActionRead(
                 id=new_action.id,
                 status=new_action.status,
                 result=new_action.result
@@ -119,7 +126,7 @@ class ActionService:
             logging_utility.exception("Full exception traceback:")
             raise HTTPException(status_code=500, detail="An error occurred while creating the action")
 
-    def get_action(self, action_id: str) -> ActionRead:
+    def get_action(self, action_id: str) -> validator.ActionRead:
         """Retrieve an action by its ID with proper datetime conversion."""
         logging_utility.info("Retrieving action with ID: %s", action_id)
         try:
@@ -132,10 +139,9 @@ class ActionService:
 
 
             # we indirectly fetch the tool name by id which is already available on another end point
-            tool_service = ClientToolService()
-            tool = tool_service.get_tool_by_id(tool_id=action.tool_id)
+            tool = client.tool_service.get_tool_by_id(tool_id=action.tool_id)
 
-            return ActionRead(
+            return validator.ActionRead(
                 id=action.id,
                 run_id=action.run_id,
                 tool_id=action.tool_id,
@@ -153,7 +159,7 @@ class ActionService:
             logging_utility.error("Database error: %s", str(e))
             raise HTTPException(status_code=500, detail="Internal server error")
 
-    def update_action_status(self, action_id: str, action_update: ActionUpdate) -> ActionRead:
+    def update_action_status(self, action_id: str, action_update: validator.ActionUpdate) -> validator.ActionRead:
         """Update the status of an action and store the result."""
         try:
             action = self.db.query(Action).filter(Action.id == action_id).first()
@@ -161,13 +167,13 @@ class ActionService:
                 raise HTTPException(status_code=404, detail=f"Action with ID {action_id} not found")
 
             # Validate status value by checking the ActionStatus enum
-            if action_update.status not in ActionStatus.__members__:
+            if action_update.status not in validator.ActionStatus.__members__:
                 raise HTTPException(status_code=400, detail="Invalid status value")
 
             # Update fields
             action.status = action_update.status
             action.result = action_update.result
-            if action_update.status == ActionStatus.completed:  # Use the enum value here
+            if action_update.status == validator.ActionStatus.completed:  # Use the enum value here
                 action.is_processed = True
                 action.processed_at = datetime.now()
 
@@ -175,7 +181,7 @@ class ActionService:
             self.db.refresh(action)
 
             # Return the updated ActionRead object
-            return ActionRead(
+            return validator.ActionRead(
                 id=action.id,
                 status=action.status,
                 result=action.result,
@@ -187,12 +193,12 @@ class ActionService:
             logging_utility.error(f"Error updating action status: {str(e)}")
             raise HTTPException(status_code=500, detail="Error updating action status")
 
-    def get_actions_by_status(self, run_id: str, status: Optional[str] = "pending") -> List[ActionRead]:
+    def get_actions_by_status(self, run_id: str, status: Optional[str] = "pending") -> List[validator.ActionRead]:
         """Retrieve actions by run_id and status with proper datetime conversion."""
         logging_utility.info(f"Retrieving actions for run_id: {run_id} with status: {status}")
         try:
             actions = self.db.query(Action).filter(Action.run_id == run_id, Action.status == status).all()
-            return [ActionRead(
+            return [validator.ActionRead(
                 id=action.id,
                 run_id=action.run_id,
                 triggered_at=datetime_to_iso(action.triggered_at),  # Convert here

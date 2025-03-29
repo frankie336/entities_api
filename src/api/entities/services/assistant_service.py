@@ -1,25 +1,25 @@
 import time
 from typing import List
-
+from entities_common import ValidationInterface, UtilsInterface
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from entities.clients.client import OllamaClient
+from entities.clients.client import EntitiesInternalInterface
 from entities.models.models import Assistant, User
-from entities.schemas.assistants import AssistantCreate, AssistantRead, AssistantUpdate
-from entities.services.identifier_service import IdentifierService
 from entities.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 
+validator = ValidationInterface()
+
 class AssistantService:
     def __init__(self, db: Session):
         self.db = db
-        self.client = OllamaClient()
+        self.client = EntitiesInternalInterface()
 
-    def create_assistant(self, assistant: AssistantCreate) -> AssistantRead:
+    def create_assistant(self, assistant: validator.AssistantCreate) ->validator.AssistantRead:
         # Use provided ID or generate new
-        assistant_id = assistant.id or IdentifierService.generate_assistant_id()
+        assistant_id = assistant.id or UtilsInterface.IdentifierService.generate_assistant_id()
 
         # Validate ID uniqueness if provided
         if assistant.id:
@@ -52,7 +52,7 @@ class AssistantService:
 
         return self.map_to_read_model(db_assistant)
 
-    def retrieve_assistant(self, assistant_id: str) -> AssistantRead:
+    def retrieve_assistant(self, assistant_id: str) -> validator.AssistantRead:
         db_assistant = self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
 
         if not db_assistant:
@@ -66,7 +66,7 @@ class AssistantService:
         return self.map_to_read_model(db_assistant)
 
 
-    def update_assistant(self, assistant_id: str, assistant_update: AssistantUpdate) -> AssistantRead:
+    def update_assistant(self, assistant_id: str, assistant_update: validator.AssistantUpdate) -> validator.AssistantRead:
         db_assistant = self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
         if not db_assistant:
             raise HTTPException(status_code=404, detail="Assistant not found")
@@ -112,7 +112,7 @@ class AssistantService:
         else:
             raise HTTPException(status_code=400, detail="Assistant not associated with the user")
 
-    def list_assistants_by_user(self, user_id: str) -> List[AssistantRead]:
+    def list_assistants_by_user(self, user_id: str) -> List[validator.AssistantRead]:
         """List all assistants associated with a given user."""
         user = self.db.query(User).filter(User.id == user_id).first()
         if not user:
@@ -123,7 +123,7 @@ class AssistantService:
             for assistant in user.assistants
         ]
 
-    def map_to_read_model(self, db_assistant: Assistant) -> AssistantRead:
+    def map_to_read_model(self, db_assistant: Assistant) -> validator.AssistantRead:
         """
         Helper method to map the database Assistant model to an AssistantRead model.
         This function ensures that the 'tool_configs' field from the DB is moved to the
@@ -135,4 +135,4 @@ class AssistantService:
         assistant_data.pop('_sa_instance_state', None)
         # Rename the key from 'tool_configs' to 'tools'.
         assistant_data['tools'] = assistant_data.pop('tool_configs', None)
-        return AssistantRead.model_validate(assistant_data)
+        return validator.AssistantRead.model_validate(assistant_data)

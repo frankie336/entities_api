@@ -2,17 +2,20 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from entities.dependencies import get_db
-from entities.schemas.users import UserRead, UserCreate
 from entities.serializers import UserUpdate
 from entities.services.logging_service import LoggingUtility
 from entities.services.user_service import UserService
+
+from entities_common import ValidationInterface
+
+validation = ValidationInterface()
 
 router = APIRouter()
 logging_utility = LoggingUtility()
 
 
-@router.post("/users", response_model=UserRead)
-def create_user(user: UserCreate = None, db: Session = Depends(get_db)):
+@router.post("/users", response_model=validation.UserRead)
+def create_user(user: validation.UserCreate = None, db: Session = Depends(get_db)):
     logging_utility.info("Received request to create a new user.")
     user_service = UserService(db)
     try:
@@ -27,7 +30,7 @@ def create_user(user: UserCreate = None, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-@router.get("/users/{user_id}", response_model=UserRead)
+@router.get("/users/{user_id}", response_model=validation.UserRead)
 def get_user(user_id: str, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to get user with ID: {user_id}")
     user_service = UserService(db)
@@ -43,7 +46,7 @@ def get_user(user_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-@router.put("/users/{user_id}", response_model=UserRead)
+@router.put("/users/{user_id}", response_model=validation.UserRead)
 def update_user(user_id: str, user_update: UserUpdate, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to update user with ID: {user_id}")
     user_service = UserService(db)

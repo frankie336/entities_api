@@ -19,10 +19,10 @@ This provides a robust and efficient user management system that can be used to 
 # Create user
 
 ```python
-from entities import OllamaClient
+from entities import CommonEntitiesInternalInterface
 
 # Initialize the client
-client = OllamaClient()
+client = CommonEntitiesInternalInterface()
 
 user = client.user_service.create_user(name='test_user')
 print(f"User created: ID: {user.id}")

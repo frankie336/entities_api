@@ -48,6 +48,7 @@ services:
       - DATABASE_URL=mysql+pymysql://ollama:3e4Qv5uo2Cg31zC1@db:3306/cosmic_catalyst
       - SANDBOX_SERVER_URL=http://sandbox:8000
       - QDRANT_URL=http://qdrant:6333
+      - DEFAULT_SECRET_KEY=k-WBnsS54HZrM8ZVzYiQ-MLPOV53TuuhzEJOdG8kHcM
     ports:
       - "9000:9000"
     depends_on:
@@ -80,6 +81,11 @@ services:
         condition: service_healthy
     volumes:
       - /tmp/sandbox_logs:/app/logs
+
+    env_file:
+
+      - .env
+
     networks:
       - my_custom_network
 

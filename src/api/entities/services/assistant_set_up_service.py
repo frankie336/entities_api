@@ -1,15 +1,22 @@
-# entities_api/services/assistant_setup_service.py
-from entities.clients.client import OllamaClient
+# entities/services/assistant_setup_service.py
+import time
+
+from entities_common import ValidationInterface
+
+from entities import EntitiesInternalInterface
 from entities.constants.assistant import DEFAULT_MODEL, BASE_ASSISTANT_INSTRUCTIONS, BASE_TOOLS
-from entities.schemas.tools import ToolFunction
 from entities.services.logging_service import LoggingUtility
+
+validate = ValidationInterface()
+
+
 from entities.services.vector_store_service import VectorStoreService
 from entities.services.vector_waves import AssistantVectorWaves
 
 
 class AssistantSetupService:
     def __init__(self):
-        self.client = OllamaClient()
+        self.client = EntitiesInternalInterface()
         self.logging_utility = LoggingUtility()
         self.vector_store_service = VectorStoreService()
         self._vector_waves = None  # Lazy initialization holder
@@ -28,12 +35,15 @@ class AssistantSetupService:
         for func_def in function_definitions:
             try:
                 tool_name = func_def['function']['name']
-                tool_function = ToolFunction(function=func_def['function'])
+
+
+                tool_function = validate.ToolFunction(function=func_def)
+
 
                 new_tool = self.client.tool_service.create_tool(
                     name=tool_name,
                     type='function',
-                    function=tool_function,
+                    function=tool_function.model_dump(),
                     assistant_id=assistant_id
                 )
 
@@ -91,6 +101,7 @@ class AssistantSetupService:
         try:
             # Get or create pattern prevents duplicate users
             user = self.client.user_service.create_user(name="default")
+
             self.logging_utility.debug(
                 "Using existing user: ID %s",
                 user.id
@@ -128,4 +139,5 @@ class AssistantSetupService:
 # Example usage remains unchanged
 if __name__ == "__main__":
     service = AssistantSetupService()
+    #service.create_and_associate_tools(function_definitions=BASE_TOOLS,assistant_id='default')
     service.orchestrate_default_assistant()

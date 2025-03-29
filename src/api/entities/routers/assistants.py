@@ -3,7 +3,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from entities.clients.client_user_client import UserService
+from entities.clients.client import UserClient
 from entities.dependencies import get_db
 from entities.schemas.assistants import AssistantRead, AssistantCreate, AssistantUpdate
 from entities.services.assistant_service import AssistantService
@@ -65,7 +65,7 @@ def list_assistants_by_user(user_id: str, db: Session = Depends(get_db)):
     Endpoint to list all assistants associated with a given user.
     """
     logging_utility.info(f"Received request to list assistants for user ID: {user_id}")
-    user_service = UserService(db)
+    user_service = UserClient(db)
     try:
         assistants = user_service.list_assistants_by_user(user_id)
         logging_utility.info(f"Assistants retrieved for user ID: {user_id}")

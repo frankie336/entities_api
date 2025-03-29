@@ -38,7 +38,7 @@ def wait_for_health(health_url, timeout=300, interval=5):
 def main():
     # Set up command-line argument parsing
     parser = argparse.ArgumentParser(
-        description="Manage Docker Compose with optional build toggle, clear volumes, no-cache, attached mode, and assistant orchestration"
+        description="Manage Docker Compose with optional build toggle, clear volumes, no-cache, attached mode, refresh package, and assistant orchestration"
     )
     parser.add_argument(
         "--mode",
@@ -71,9 +71,14 @@ def main():
         action="store_true",
         help="Run docker-compose up in attached mode (without -d)"
     )
+    parser.add_argument(
+        "--refresh-package",
+        action="store_true",
+        help="Refresh the entities_common package from GitHub without rebuilding containers"
+    )
     args = parser.parse_args()
 
-    # Determine OS and set shared_path accordingly
+    # Set up environment variables and shared path
     system = platform.system().lower()
     if system == 'windows':
         shared_path = r"C:\ProgramData\entities\samba_share"
@@ -88,7 +93,6 @@ def main():
     os.environ['SHARED_PATH'] = shared_path
     print(f"SHARED_PATH set to: {os.environ.get('SHARED_PATH')}")
 
-    # Create the directory if it doesn't exist
     if not os.path.exists(shared_path):
         os.makedirs(shared_path, exist_ok=True)
         print(f"Created directory: {shared_path}")
@@ -96,6 +100,27 @@ def main():
         print(f"Directory already exists: {shared_path}")
 
     env = os.environ.copy()  # Ensure subprocesses inherit our environment
+
+    # If the refresh-package flag is used, update the package and exit.
+    if args.refresh_package:
+        print("Refreshing entities_common package from GitHub using --no-cache-dir...")
+        try:
+            subprocess.run(
+                [
+                    "pip",
+                    "install",
+                    "--no-cache-dir",
+                    "--upgrade",
+                    "git+https://github.com/frankie336/entities_common.git#egg=entities_common"
+                ],
+                check=True,
+                env=env
+            )
+            print("Package refresh complete.")
+        except subprocess.CalledProcessError as e:
+            print("Error refreshing entities_common package:", e)
+            sys.exit(e.returncode)
+        sys.exit(0)
 
     if args.down:
         print("Stopping and removing Docker containers...")
