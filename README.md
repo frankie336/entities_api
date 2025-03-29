@@ -129,7 +129,7 @@ Whilst it involves a little more effort, adding state management to distinct par
 
   [Threads](/docs/threads.md)
 
-  [Tools](/docs/code_interpretation.md)
+  [Tools](/docs/tools.md)
   
   [Users](/docs/users.md)
   

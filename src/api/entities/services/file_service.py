@@ -4,12 +4,12 @@ import hmac
 import io
 import os
 from datetime import datetime, timedelta
+from typing import Tuple
 from urllib.parse import urlencode
 
 from entities_common import ValidationInterface, UtilsInterface
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
-from typing import Tuple
 
 from entities.constants.platform import SUPPORTED_MIME_TYPES, get_mime_type
 from entities.models.models import File, User, FileStorage
@@ -180,8 +180,6 @@ class FileService:
         except Exception as e:
             logging_utility.error(f"Error retrieving file object for ID {file_id}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")
-
-    from urllib.parse import urlencode, quote
 
     def get_file_as_signed_url(self, file_id: str, expires_in: int = 3600, label: str = None) -> str:
         """

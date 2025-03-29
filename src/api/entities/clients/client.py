@@ -2,13 +2,9 @@
 import os
 from contextlib import contextmanager
 from typing import Any, Dict, Optional, Generator
-
 from dotenv import load_dotenv
-
-
 from entities.clients.actions import ActionsClient
 from entities.clients.assistants import AssistantsClient
-from entities.clients.files import FileClient
 from entities.clients.messages import MessagesClient
 from entities.clients.runs import RunsClient
 from entities.clients.threads import ThreadsClient
@@ -53,7 +49,6 @@ class EntitiesInternalInterface:
         self._run_service: Optional[RunsClient] = None
         self._action_service: Optional[ActionsClient] = None
         self._vector_service: Optional[VectorStoreService] = None
-        self._file_client: Optional[FileClient] = None
 
     @property
     def user_service(self) -> UserClient:
@@ -122,12 +117,6 @@ class EntitiesInternalInterface:
             raise
         finally:
             session.close()
-
-    @property
-    def files(self) -> FileClient:
-        if self._file_client is None:
-            self._file_client = FileClient()
-        return self._file_client
 
 
     def close(self):

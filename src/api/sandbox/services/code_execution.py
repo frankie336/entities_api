@@ -191,7 +191,7 @@ class StreamingCodeExecutionHandler:
             try:
                 upload = client.files.upload_file(file_path=file_path, user_id=user.id, purpose="assistants")
 
-                file_url = client.files.get_signed_url(upload.id, label=filename, markdown=True)
+                file_url = client.files.get_signed_url(upload.id, label=filename, markdown=True, use_real_filename=True)
 
                 return {"filename": filename, "id": upload.id, "url": file_url}
             except Exception as e:
