@@ -13,6 +13,7 @@ from typing import Any
 
 import httpx
 from entities_common import ValidationInterface
+from entities_common import EntitiesInternalInterface
 from openai import OpenAI
 from together import Together
 
@@ -24,7 +25,7 @@ from entities.clients.client import ThreadsClient
 from entities.clients.client import ToolSClient
 from entities.clients.client import UserClient
 from entities.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS, PLATFORM_TOOLS, \
-    CODE_INTERPRETER_MESSAGE, DEFAULT_REMINDER_MESSAGE
+    CODE_INTERPRETER_MESSAGE, DEFAULT_REMINDER_MESSAGE, CODE_ANALYSIS_TOOL_MESSAGE
 from entities.constants.platform import MODEL_MAP, ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING
 from entities.platform_tools.code_interpreter.code_execution_client import StreamOutput
 from entities.platform_tools.platform_tool_service import PlatformToolService
@@ -35,8 +36,6 @@ from entities.services.vector_store_service import VectorStoreService
 logging_utility = LoggingUtility()
 validator = ValidationInterface()
 
-#TODO: Needs full integration
-from entities_common import EntitiesInternalInterface
 
 class MissingParameterError(ValueError):
     """Specialized error for missing service parameters"""
@@ -74,7 +73,7 @@ class BaseInference(ABC):
         self.function_call = None
         self.client = Together(api_key=os.getenv("TOGETHER_API_KEY"))
         #-------------------------------
-        #Clients
+        # Clients
         #--------------------------------
         self.hyperbolic_client = OpenAI(
             api_key=os.getenv("HYPERBOLIC_API_KEY"),
@@ -171,8 +170,6 @@ class BaseInference(ABC):
             except Exception as e:
                 raise AuthenticationError(f"Credential validation failed: {str(e)}")
 
-
-
     @property
     def user_service(self):
         return self._get_service(UserClient)
@@ -209,9 +206,14 @@ class BaseInference(ABC):
     def code_execution_client(self):
         return self._get_service(StreamOutput)
 
+
     @property
     def vector_store_service(self):
         return self._get_service(VectorStoreService)
+
+    @property
+    def internal_sdk_client_interface(self):
+        return self._get_service(EntitiesInternalInterface)
 
     @property
     def conversation_truncator(self):
@@ -222,14 +224,12 @@ class BaseInference(ABC):
     def setup_services(self):
         """Initialize any additional services required by child classes."""
         pass
-
     # -------------------------------------------------
     # ENTITIES STATE INFORMATION
     # From time to time we need to pass
     # Some state information into PlatformToolService
     # This is the cleanest way to do that
     # -------------------------------------------------
-
     def set_assistant_id(self, assistant_id):
         if self.assistant_id != assistant_id:
             # Clear cached services that depend on assistant_id
@@ -919,9 +919,7 @@ class BaseInference(ABC):
             raise
 
 
-
     def handle_code_interpreter_action(self, thread_id, run_id, assistant_id, arguments_dict):
-
 
         action = self.action_service.create_action(
             tool_name="code_interpreter",
@@ -980,8 +978,9 @@ class BaseInference(ABC):
         # -------------------------------
         # Step 3: Stream base64 previews for frontend rendering
         # -------------------------------
+
         if uploaded_files:
-            file_client = EntitiesInternalInterface()
+            file_client = self.internal_sdk_client_interface()
             for file in uploaded_files:
                 try:
                     base64_str = file_client.files.get_file_as_base64(file_id=file["id"])
@@ -1031,7 +1030,7 @@ class BaseInference(ABC):
             self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
-                content=url_list,
+                content=CODE_ANALYSIS_TOOL_MESSAGE,
                 action=action
             )
         else:
