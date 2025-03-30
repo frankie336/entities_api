@@ -28,7 +28,7 @@ logging.basicConfig(level=logging.INFO) # Basic config for demonstration
 sse_manager = SSEManager()
 
 # Define the FastAPI router with a prefix
-router = APIRouter(prefix="/v1/events") # Grouping event endpoints
+router = APIRouter()
 
 
 # --- Request Models ---
