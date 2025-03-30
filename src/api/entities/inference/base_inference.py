@@ -172,6 +172,13 @@ class BaseInference(ABC):
                 raise AuthenticationError(f"Credential validation failed: {str(e)}")
 
     @property
+    def internal_sdk_interface(self):
+        """Lazy-loaded property for EntitiesInternalInterface."""
+
+        return self._get_service(EntitiesInternalInterface)
+
+
+    @property
     def user_service(self):
         return self._get_service(UserClient)
 
@@ -567,14 +574,18 @@ class BaseInference(ABC):
         """Finalize the conversation by storing the assistant's reply."""
 
         if assistant_reply:
-            message = self.message_service.save_assistant_message_chunk(
+
+            interface = self.internal_sdk_interface()
+            message = interface.messages.save_assistant_message_chunk(
                 thread_id=thread_id,
                 content=assistant_reply,
                 role="assistant",
                 assistant_id=assistant_id,
                 sender_id=assistant_id,
                 is_last_chunk=True
+
             )
+
             logging_utility.info("Assistant response stored successfully.")
 
             self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
@@ -879,12 +890,16 @@ class BaseInference(ABC):
 
         try:
             # Submit tool output
-            self.message_service.submit_tool_output(
+
+            interface = self.internal_sdk_interface()
+
+            interface.messages.submit_tool_output(
                 thread_id=thread_id,
                 content=content,
                 role="tool",
                 assistant_id=assistant_id,
                 tool_id="dummy"  # Replace with actual tool_id if available
+
             )
 
             # Update action status
@@ -902,12 +917,14 @@ class BaseInference(ABC):
             )
 
             # Send the error message to the user
-            self.message_service.submit_tool_output(
+            interface = self.internal_sdk_interface()
+            interface.messages.submit_tool_output(
                 thread_id=thread_id,
                 content=f"ERROR: {str(e)}",
                 role="tool",
                 assistant_id=assistant_id,
                 tool_id="dummy"  # Replace with actual tool_id if available
+
             )
 
             # Update action status to 'failed'
@@ -923,6 +940,7 @@ class BaseInference(ABC):
             run_id=run_id,
             function_args=arguments_dict
         )
+
 
         code = arguments_dict.get("code")
         uploaded_files = []  # This list will still contain the original (potentially wrong) mime_type from Step 1
@@ -1083,7 +1101,8 @@ class BaseInference(ABC):
             # Assuming EntitiesInternalInterface provides file access
             # Ensure base URL is correctly configured
             entities_base_url = os.getenv("ENTITIES_BASE_URL", "http://fastapi_cosmic_catalyst:9000")
-            interface = EntitiesInternalInterface(base_url=entities_base_url)
+
+            interface = self.internal_sdk_interface(base_url=entities_base_url)
 
             for file_meta in uploaded_files:  # Use file_meta again
                 file_id = file_meta.get("id")
@@ -1302,11 +1321,15 @@ class BaseInference(ABC):
         reminder = CODE_INTERPRETER_MESSAGE if name == 'code_interpreter' else DEFAULT_REMINDER_MESSAGE
 
         # Inject system reminder into context
-        self.message_service.create_message(
+
+        interface = self.internal_sdk_interface()
+
+        interface.messages.create_message(
             thread_id=thread_id,
             assistant_id=assistant_id,
             content=reminder,
             role='user',
+
         )
         logging_utility.info("Sent reminder message to assistant: %s", reminder)
 
@@ -1439,7 +1462,11 @@ class BaseInference(ABC):
             Uses LRU-cached service calls for assistant/message retrieval to optimize
             repeated requests with identical parameters.
         """
-        assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
+
+        interface = self.internal_sdk_interface()
+
+        assistant = interface.assistants.retrieve_assistant(assistant_id=assistant_id)
+
         associated_tools = self.tool_service.list_tools(assistant_id=assistant_id)
 
         tools = self.tool_service.list_tools(assistant_id=assistant_id, restructure=True)
