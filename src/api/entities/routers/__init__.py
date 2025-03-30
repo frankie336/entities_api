@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 from .routers import router as main_router
-from .handlers import router as handlers
+from .events import router as handlers
 from .inference import router as inference
 from  .samba import router as samba
 from  .threads import router as threads
@@ -13,6 +13,7 @@ from  .assistants import router as assistants
 from  .tools import router as tools
 from  .actions import router as actions
 from .files import router as files
+from  .events import router as events
 
 # Create a central API router
 api_router = APIRouter()
@@ -30,3 +31,4 @@ api_router.include_router(messages, tags=["messages"])
 api_router.include_router(tools, tags=["tools"])
 api_router.include_router(actions, tags=["actions"])
 api_router.include_router(files, tags=["files"])
+api_router.include_router(events, tags=["Event Monitoring"])

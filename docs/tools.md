@@ -17,3 +17,23 @@ There are two distinct categories of tools:
 | **file_search**      | The assistant can search, retrieve, and utilize files stored within its accessible storage systems.                              |
 | **code_interpreter** | The assistant can execute arbitrary Python code, draft documents, and perform data analysis in a secure sandbox environment.     |
 
+
+
+**Attach a tool to an assistant**
+
+```python
+
+assistant = client.assistant_service.create_assistant(
+                name='Mathy',
+                description='Test assistant',
+                model=model,
+                instructions='You are an AI assistant',
+                assistant_id="id_123",
+                tools=[{"type":"code_interpreter"}]
+
+
+            )
+
+
+```
+

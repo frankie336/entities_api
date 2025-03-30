@@ -172,6 +172,13 @@ class BaseInference(ABC):
                 raise AuthenticationError(f"Credential validation failed: {str(e)}")
 
     @property
+    def internal_sdk_interface(self):
+        """Lazy-loaded property for EntitiesInternalInterface."""
+
+        return self._get_service(EntitiesInternalInterface)
+
+
+    @property
     def user_service(self):
         return self._get_service(UserClient)
 
@@ -501,39 +508,122 @@ class BaseInference(ABC):
 
     def ensure_valid_json(self, text: str):
         """
-        Ensures the accumulated tool response is in valid JSON format.
-        - Fixes incorrect single quotes (`'`) → double quotes (`"`)
-        - Ensures proper key formatting
-        - Removes trailing commas if present
-        Returns a parsed JSON object if it's a valid dictionary, otherwise returns False.
+        Ensures the input text represents a valid JSON dictionary.
+        Handles:
+        - Direct JSON parsing.
+        - JSON strings that are escaped within an outer string (e.g., '"{\"key\": \"value\"}"').
+        - Incorrect single quotes (`'`) -> double quotes (`"`).
+        - Trailing commas before closing braces/brackets.
+
+        Returns a parsed JSON dictionary if successful, otherwise returns False.
         """
         if not isinstance(text, str) or not text.strip():
-            logging_utility.error("Received empty or non-string JSON content.")
+            logging_utility.error("Received empty or non-string content for JSON validation.")
             return False
 
+        original_text_for_logging = text[:200] + ('...' if len(text) > 200 else '')  # Log snippet
+        processed_text = text.strip()
+        parsed_json = None
+
+        # --- Stage 1: Attempt Direct or Unescaping Parse ---
         try:
-            # Step 1: Standardize Quotes
-            if "'" in text and '"' not in text:
-                logging_utility.warning(f"Malformed JSON detected, attempting fix: {text}")
-                text = text.replace("'", '"')
+            # Attempt parsing directly. This might succeed if the input is already valid JSON,
+            # OR if it's an escaped JSON string like "\"{\\\"key\\\": \\\"value\\\"}\"".
+            # In the latter case, json.loads() will return the *inner* string "{\"key\": \"value\"}".
+            intermediate_parse = json.loads(processed_text)
 
-            # Step 2: Remove trailing commas
-            text = re.sub(r",\s*}", "}", text)
-            text = re.sub(r",\s*\]", "]", text)
+            if isinstance(intermediate_parse, dict):
+                # Direct parse successful and it's a dictionary!
+                logging_utility.debug("Direct JSON parse successful.")
+                parsed_json = intermediate_parse
+                # We can return early if we don't suspect trailing commas in this clean case
+                # Let's apply comma fix just in case, doesn't hurt.
+                # Fall through to Stage 2 for potential comma fixing.
 
-            # Step 3: Validate JSON
-            parsed_json = json.loads(text)  # Raises JSONDecodeError if invalid
+            elif isinstance(intermediate_parse, str):
+                # Parsed successfully, but resulted in a string.
+                # This means the original 'processed_text' was an escaped JSON string.
+                # 'intermediate_parse' now holds the actual JSON string we need to parse.
+                logging_utility.warning("Initial parse resulted in string, attempting inner JSON parse.")
+                processed_text = intermediate_parse  # Use the unescaped string for the next stage
+                # Fall through to Stage 2 for parsing and fixes
 
-            # Ensure the parsed JSON is a dictionary; if not, return False
-            if not isinstance(parsed_json, dict):
-                logging_utility.warning("Parsed JSON is not a dictionary.")
+            else:
+                # Parsed to something other than dict or string (e.g., list, number)
+                logging_utility.error(
+                    f"Direct JSON parse resulted in unexpected type: {type(intermediate_parse)}. Expected dict or escaped string.")
+                return False  # Not suitable for function call structure
+
+        except json.JSONDecodeError:
+            # Direct parse failed. This is expected if it needs quote/comma fixes,
+            # or if it wasn't an escaped string to begin with.
+            logging_utility.debug("Direct/Unescaping parse failed. Proceeding to fixes.")
+            # Fall through to Stage 2 where 'processed_text' is still the original stripped text.
+            pass  # Continue to Stage 2
+        except Exception as e:
+            # Catch unexpected errors during the first parse attempt
+            logging_utility.error(
+                f"Unexpected error during initial JSON parse stage: {e}. Text: {original_text_for_logging}",
+                exc_info=True)
+            return False
+
+        # --- Stage 2: Apply Fixes and Attempt Final Parse ---
+        # This stage runs if:
+        # 1. Direct parse succeeded yielding a dict (parsed_json is set) -> mainly for comma fix.
+        # 2. Direct parse yielded a string (processed_text updated) -> needs parsing + fixes.
+        # 3. Direct parse failed (processed_text is original) -> needs parsing + fixes.
+
+        if parsed_json and isinstance(parsed_json, dict):
+            # If already parsed to dict, just check for/fix trailing commas in string representation
+            # This is less common, usually fix before parsing. Let's skip for simplicity unless needed.
+            logging_utility.debug("JSON already parsed, skipping fix stage (commas assumed handled or valid).")
+            # If trailing commas *after* initial parse are a problem, convert dict back to string, fix, re-parse (complex).
+            # Let's assume the initial parse handled it or it was valid.
+            pass  # proceed to return parsed_json
+        else:
+            # We need to parse 'processed_text' (either original or unescaped string) after fixes
+            try:
+                # Fix 1: Standardize Single Quotes (Use cautiously)
+                # Only apply if single quotes are present and double quotes are likely not intentional structure
+                # This is heuristic and might break valid JSON with single quotes in string values.
+                if "'" in processed_text and '"' not in processed_text.replace("\\'",
+                                                                               ""):  # Avoid replacing escaped quotes if possible
+                    logging_utility.warning(f"Attempting single quote fix on: {processed_text[:100]}...")
+                    fixed_text = processed_text.replace("'", '"')
+                else:
+                    fixed_text = processed_text  # No quote fix needed or too risky
+
+                # Fix 2: Remove Trailing Commas (before closing brace/bracket)
+                # Handles cases like [1, 2,], {"a":1, "b":2,}
+                fixed_text = re.sub(r",(\s*[}\]])", r"\1", fixed_text)
+
+                # Final Parse Attempt
+                parsed_json = json.loads(fixed_text)
+
+                if not isinstance(parsed_json, dict):
+                    logging_utility.error(
+                        f"Parsed JSON after fixes is not a dictionary (type: {type(parsed_json)}). Text after fixes: {fixed_text[:200]}...")
+                    return False
+
+                logging_utility.info("JSON successfully parsed after fixes.")
+
+            except json.JSONDecodeError as e:
+                logging_utility.error(
+                    f"Failed to parse JSON even after fixes. Error: {e}. Text after fixes attempt: {fixed_text[:200]}...")
+                return False
+            except Exception as e:
+                logging_utility.error(
+                    f"Unexpected error during JSON fixing/parsing stage: {e}. Text: {original_text_for_logging}",
+                    exc_info=True)
                 return False
 
-            return parsed_json  # Return the valid JSON dictionary
-
-        except json.JSONDecodeError as e:
-            logging_utility.error(f"JSON decoding failed: {e} | Raw: {text}")
-            return False  # Return False for any JSON decoding error
+        # --- Stage 3: Final Check and Return ---
+        if isinstance(parsed_json, dict):
+            return parsed_json
+        else:
+            # Should technically be caught earlier, but as a safeguard
+            logging_utility.error("Final check failed: parsed_json is not a dictionary.")
+            return False
 
     def normalize_content(self, content):
         """Smart format normalization with fallback."""
@@ -574,7 +664,9 @@ class BaseInference(ABC):
                 assistant_id=assistant_id,
                 sender_id=assistant_id,
                 is_last_chunk=True
+
             )
+
             logging_utility.info("Assistant response stored successfully.")
 
             self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
@@ -885,6 +977,7 @@ class BaseInference(ABC):
                 role="tool",
                 assistant_id=assistant_id,
                 tool_id="dummy"  # Replace with actual tool_id if available
+
             )
 
             # Update action status
@@ -908,7 +1001,9 @@ class BaseInference(ABC):
                 role="tool",
                 assistant_id=assistant_id,
                 tool_id="dummy"  # Replace with actual tool_id if available
+
             )
+
 
             # Update action status to 'failed'
             self.action_service.update_action(action_id=action.id, status='failed')
@@ -923,6 +1018,7 @@ class BaseInference(ABC):
             run_id=run_id,
             function_args=arguments_dict
         )
+
 
         code = arguments_dict.get("code")
         uploaded_files = []  # This list will still contain the original (potentially wrong) mime_type from Step 1
@@ -1083,7 +1179,8 @@ class BaseInference(ABC):
             # Assuming EntitiesInternalInterface provides file access
             # Ensure base URL is correctly configured
             entities_base_url = os.getenv("ENTITIES_BASE_URL", "http://fastapi_cosmic_catalyst:9000")
-            interface = EntitiesInternalInterface(base_url=entities_base_url)
+
+            interface = EntitiesInternalInterface()
 
             for file_meta in uploaded_files:  # Use file_meta again
                 file_id = file_meta.get("id")
@@ -1302,11 +1399,13 @@ class BaseInference(ABC):
         reminder = CODE_INTERPRETER_MESSAGE if name == 'code_interpreter' else DEFAULT_REMINDER_MESSAGE
 
         # Inject system reminder into context
+
         self.message_service.create_message(
             thread_id=thread_id,
             assistant_id=assistant_id,
             content=reminder,
             role='user',
+
         )
         logging_utility.info("Sent reminder message to assistant: %s", reminder)
 
@@ -1439,7 +1538,11 @@ class BaseInference(ABC):
             Uses LRU-cached service calls for assistant/message retrieval to optimize
             repeated requests with identical parameters.
         """
+
+        #interface = self.internal_sdk_interface()
+
         assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
+
         associated_tools = self.tool_service.list_tools(assistant_id=assistant_id)
 
         tools = self.tool_service.list_tools(assistant_id=assistant_id, restructure=True)
@@ -1521,6 +1624,107 @@ class BaseInference(ABC):
             self.set_function_call_state(tool_invocation_in_multi_line_text)
 
             self.set_function_call_state(tool_invocation_in_multi_line_text[0])
+
+
+    def stream_response_hyperbolic_llama3(self, thread_id, message_id, run_id, assistant_id, model,
+                                          stream_reasoning=True):
+        """
+        Llama 3 (Hyperbolic) streaming with content, code, and function call handling.
+        Mirrors stream_response_hyperbolic structure, excluding reasoning logic.
+        """
+        self.start_cancellation_listener(run_id)
+
+        model = 'meta-llama/Llama-3.3-70B-Instruct'
+        request_payload = {
+            "model": model,
+            "messages": self._set_up_context_window(assistant_id, thread_id, trunk=True),
+            "max_tokens": None,
+            "temperature": 0.6,
+            "stream": True
+        }
+
+        assistant_reply = ""
+        accumulated_content = ""
+        code_mode = False
+        code_buffer = ""
+
+        try:
+            response = self.hyperbolic_client.chat.completions.create(**request_payload)
+
+            for token in response:
+                if self.check_cancellation_flag():
+                    logging_utility.warning(f"Run {run_id} cancelled mid-stream")
+                    yield json.dumps({'type': 'error', 'content': 'Run cancelled'})
+                    break
+
+                if not hasattr(token, "choices") or not token.choices:
+                    continue
+
+                delta = token.choices[0].delta
+                delta_content = getattr(delta, "content", "")
+                if not delta_content:
+                    continue
+
+                sys.stdout.write(delta_content)
+                sys.stdout.flush()
+
+                segments = [delta_content]
+
+                for seg in segments:
+                    if not seg:
+                        continue
+
+                    assistant_reply += seg
+                    accumulated_content += seg
+
+                    # --- Code Interpreter Trigger Check ---
+                    partial_match = self.parse_code_interpreter_partial(accumulated_content)
+
+                    if not code_mode and partial_match:
+                        full_match = partial_match.get('full_match')
+                        if full_match:
+                            match_index = accumulated_content.find(full_match)
+                            if match_index != -1:
+                                accumulated_content = accumulated_content[match_index + len(full_match):]
+                        code_mode = True
+                        code_buffer = partial_match.get('code', '')
+                        self.code_mode = True
+                        yield json.dumps({'type': 'hot_code', 'content': '```python\n'})
+                        continue
+
+                    if code_mode:
+                        results, code_buffer = self._process_code_interpreter_chunks(seg, code_buffer)
+                        for r in results:
+                            yield r
+                            assistant_reply += r
+                        continue
+
+                    if not code_buffer:
+                        yield json.dumps({'type': 'content', 'content': seg}) + '\n'
+
+                time.sleep(0.05)
+
+        except Exception as e:
+            error_msg = f"Llama 3 / Hyperbolic SDK error: {str(e)}"
+            logging_utility.error(error_msg, exc_info=True)
+            self.handle_error(assistant_reply, thread_id, assistant_id, run_id)
+            yield json.dumps({'type': 'error', 'content': error_msg})
+            return
+
+        # Finalize assistant message and parse function calls
+        if assistant_reply:
+            self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
+
+        if accumulated_content:
+            self.parse_and_set_function_calls(accumulated_content, assistant_reply)
+            logging_utility.info(f"Function call parsing completed for run {run_id}")
+
+        self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
+
+
+
+
+
 
     def stream_response_hyperbolic(self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=True):
         """
@@ -1678,6 +1882,7 @@ class BaseInference(ABC):
         if assistant_reply:
             combined = reasoning_content + assistant_reply
             self.finalize_conversation(combined, thread_id, assistant_id, run_id)
+
 
         #-----------------------------------------
         #  Parsing the complete accumulated content
