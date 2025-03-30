@@ -1232,7 +1232,6 @@ class BaseInference(ABC):
                 - results: list of JSON strings representing code chunks.
                 - updated code_buffer: the remaining buffer content.
         """
-        forbidden_functions = ['os.system', 'subprocess.run', 'eval', 'exec']
 
         self.code_mode = True
 
