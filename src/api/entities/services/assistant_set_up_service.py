@@ -1,5 +1,4 @@
 # entities/services/assistant_setup_service.py
-import time
 
 from entities_common import ValidationInterface
 
@@ -36,9 +35,7 @@ class AssistantSetupService:
             try:
                 tool_name = func_def['function']['name']
 
-
                 tool_function = validate.ToolFunction(function=func_def)
-
 
                 new_tool = self.client.tool_service.create_tool(
                     name=tool_name,
@@ -70,15 +67,19 @@ class AssistantSetupService:
                                    model, instructions, function_definitions):
         """Streamlined setup with pre-validated user ID"""
         try:
+
             assistant = self.client.assistant_service.create_assistant(
                 name=assistant_name,
                 description=assistant_description,
                 model=model,
                 instructions=instructions,
-                assistant_id="default"
+                assistant_id="default",
+                tools=[{"type":"code_interpreter"}]
 
 
             )
+
+
             self.logging_utility.info(
                 "Created assistant: %s (ID: %s)",
                 assistant_name,

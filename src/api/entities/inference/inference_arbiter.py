@@ -9,6 +9,9 @@ from entities.inference.cloud_hyperbolic_r1 import HyperbolicR1Inference
 from entities.inference.cloud_hyperbolic_v3 import HyperbolicV3Inference
 from entities.inference.cloud_together_ai_r1 import TogetherR1Inference
 from entities.inference.cloud_together_ai_v3 import TogetherV3Inference
+from entities.inference.cloud_together_ai_llama2 import TogetherLlama2Inference
+from entities.inference.cloud_hyperbolic_llama3 import HyperbolicLlama3Inference
+
 from entities.inference.local_inference import LocalInference  # New local inference provider
 from entities.services.logging_service import LoggingUtility
 
@@ -54,11 +57,24 @@ class InferenceArbiter:
     def get_hyperbolic_v3(self):
         return self._get_provider(HyperbolicV3Inference)
 
+
+    def get_hyperbolic_llama3(self):
+        return self._get_provider(HyperbolicLlama3Inference)
+
+
+
+
+    def get_together_llama2(self):
+        return self._get_provider(TogetherLlama2Inference)
+
     def get_together_r1(self):
         return self._get_provider(TogetherR1Inference)
 
     def get_together_v3(self):
         return self._get_provider(TogetherV3Inference)
+
+
+
 
     # Provider access method for local inference:
     def get_local(self):

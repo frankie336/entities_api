@@ -31,8 +31,10 @@ DIRECT_DATABASE_URL = "mysql+pymysql://ollama:3e4Qv5uo2Cg31zC1@localhost:3307/co
 MODEL_MAP = {"deepseek-ai/deepseek-reasoner": "deepseek-reasoner",
              "deepseek-ai/deepseek-chat": "deepseek-chat",
 
+             # Together Ai
              "together-ai/deepseek-ai/DeepSeek-R1": "deepseek-ai/DeepSeek-R1",
              "together-ai/deepseek-ai/DeepSeek-V3": "deepseek-ai/DeepSeek-V3",
+             "meta/meta-llama/Llama-2-70b-hf": "meta-llama/Llama-2-70b-hf",
 
              "hyperbolic/deepseek-ai/DeepSeek-R1": "deepseek-ai/DeepSeek-R1",
              "hyperbolic/deepseek-ai/DeepSeek-V3": "deepseek-ai/DeepSeek-V3",
