@@ -71,8 +71,6 @@ func_def = {
     }
 }
 
-
-
 #-----------------------------------------------------------
 # You only need to  complete the above steps  once per  
 # function call. 
@@ -108,7 +106,13 @@ run = client.runs.create_run(
     assistant_id=assistant.id
 )
 
+# ------------------------------
 # Function Call handler Class
+# Can be scaled to handle and manage
+# additional calls 
+#--------------------------------
+
+
 class FunctionCallService:
     def __init__(self):
         self.function_handlers = {
