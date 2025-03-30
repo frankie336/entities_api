@@ -331,7 +331,6 @@ class StreamingCodeExecutionHandler:
                 self.logging_utility.debug("WebSocket already closed.")
 
 
-
     async def _stream_process_output(self, proc, websocket: WebSocket, execution_id: str) -> None:
         try:
             while True:

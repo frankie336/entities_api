@@ -1,3 +1,4 @@
+import base64
 import inspect
 import json
 import os
@@ -10,7 +11,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import lru_cache
 from typing import Any
-
+import mimetypes
 import httpx
 from entities_common import ValidationInterface
 from entities_common import EntitiesInternalInterface
@@ -915,7 +916,6 @@ class BaseInference(ABC):
             # Re-raise the exception for further handling
             raise
 
-
     def handle_code_interpreter_action(self, thread_id, run_id, assistant_id, arguments_dict):
 
         action = self.action_service.create_action(
@@ -925,118 +925,268 @@ class BaseInference(ABC):
         )
 
         code = arguments_dict.get("code")
-        uploaded_files = []
+        uploaded_files = []  # This list will still contain the original (potentially wrong) mime_type from Step 1
         hot_code_buffer = []
+        final_content_for_assistant = ""  # Initialize variable for Step 6
 
         # -------------------------------
         # Step 1: Stream raw code execution output as-is
         # -------------------------------
-        for chunk in self.code_execution_client.stream_output(code):
-            parsed = json.loads(chunk)
+        logging_utility.info("Starting code execution streaming...")
+        try:
+            # Use a temporary list to hold chunks received during execution
+            execution_chunks = []
+            for chunk_str in self.code_execution_client.stream_output(code):
+                execution_chunks.append(chunk_str)  # Store raw chunks first
 
-            if parsed.get("type") == "status":
-                if parsed.get("content") == "complete" and "uploaded_files" in parsed:
-                    uploaded_files.extend(parsed["uploaded_files"])
-                hot_code_buffer.append(f"[{parsed['content']}]")
-            else:
-                hot_code_buffer.append(parsed["content"])
+            # Now process the stored chunks
+            for chunk_str in execution_chunks:
+                try:
+                    parsed_chunk_wrapper = json.loads(chunk_str)
+                    # --- Crucial: Adapt based on actual structure from stream_output ---
+                    # Check if the structure is { "stream_type": "...", "chunk": {...} }
+                    if "stream_type" in parsed_chunk_wrapper and "chunk" in parsed_chunk_wrapper:
+                        parsed = parsed_chunk_wrapper["chunk"]
+                        # Yield the original wrapper structure
+                        yield chunk_str  # Yield the raw JSON string as received
+                    else:
+                        # Assume the old structure if the new one isn't found
+                        parsed = parsed_chunk_wrapper
+                        # Wrap in the expected frontend structure before yielding
+                        yield json.dumps({
+                            "stream_type": "code_execution",
+                            "chunk": parsed
+                        })
 
+                    # Process the parsed content (the actual chunk data)
+                    chunk_type = parsed.get("type")
+                    content = parsed.get("content")
+
+                    if chunk_type == "status":
+                        status_content = content  # Renamed for clarity
+                        logging_utility.debug("Received status chunk: %s", status_content)
+                        if status_content == "complete" and "uploaded_files" in parsed:
+                            # Extract uploaded files metadata - this list has the original mime_type
+                            uploaded_files_metadata = parsed.get("uploaded_files", [])
+                            uploaded_files.extend(uploaded_files_metadata)
+                            logging_utility.info("Execution complete. Received uploaded files metadata: %s",
+                                                 uploaded_files_metadata)
+                        elif status_content == "process_complete":
+                            logging_utility.info("Code execution process completed with exit code: %s",
+                                                 parsed.get("exit_code"))
+
+                        # Append status to buffer *only if* needed for final output
+                        # hot_code_buffer.append(f"[{status_content}]") # Often not needed in final output
+
+                    elif chunk_type == "hot_code_output":
+                        # Append actual code output
+                        hot_code_buffer.append(content)
+                    elif chunk_type == "error":
+                        logging_utility.error("Received error chunk during code execution: %s", content)
+                        hot_code_buffer.append(f"[Code Execution Error: {content}]")
+                    # Ignore other types like 'hot_code' for the buffer meant for final output
+
+                except json.JSONDecodeError:
+                    logging_utility.error("Failed to decode JSON chunk: %s", chunk_str)
+                    # Decide how to handle invalid JSON - maybe yield an error chunk?
+                    yield json.dumps({
+                        "stream_type": "code_execution",
+                        "chunk": {"type": "error", "content": "Received invalid data from code execution."}
+                    })
+                except Exception as e:
+                    logging_utility.error("Error processing execution chunk: %s - Chunk: %s", str(e), chunk_str,
+                                          exc_info=True)
+                    yield json.dumps({
+                        "stream_type": "code_execution",
+                        "chunk": {"type": "error", "content": f"Internal error processing execution output: {str(e)}"}
+                    })
+
+        except Exception as stream_err:
+            logging_utility.error("Error during code_execution_client.stream_output: %s", str(stream_err),
+                                  exc_info=True)
             yield json.dumps({
                 "stream_type": "code_execution",
-                "chunk": parsed
+                "chunk": {"type": "error", "content": f"Failed to stream code execution: {str(stream_err)}"}
             })
+            # Ensure flow continues to submit something if possible, or handle failure
+            uploaded_files = []  # Reset uploaded files as execution failed
 
         # -------------------------------
-        # Step 2: Construct signed URL list and markdown lines
+        # Step 2: Construct signed URL list and markdown lines (Uses original uploaded_files)
         # -------------------------------
+        logging_utility.info("Constructing URLs and markdown links...")
         markdown_lines = []
         url_list = []
 
         if uploaded_files:
-            for file in uploaded_files:
+            logging_utility.info("Processing %d uploaded files for URLs/Markdown.", len(uploaded_files))
+            for file_meta in uploaded_files:  # Use a different variable name like file_meta
                 try:
-                    presigned_url = file.get("url")
-                    if presigned_url and presigned_url.startswith("["):
-                        # Extract URL inside markdown brackets: [filename](<<url>>)
-                        start = presigned_url.find("<<") + 2
-                        end = presigned_url.find(">>")
-                        clean_url = presigned_url[start:end]
-                    else:
-                        clean_url = f"http://localhost:9000/v1/files/download?file_id={file['id']}"
-                    url_list.append(clean_url)
-                    markdown_lines.append(f"[{file['filename']}]({clean_url})")
+                    file_id = file_meta.get("id")
+                    filename = file_meta.get("filename")
+                    presigned_url = file_meta.get("url")  # URL from _upload_generated_files
+
+                    if not file_id or not filename:
+                        logging_utility.warning("Skipping file metadata entry with missing id or filename: %s",
+                                                file_meta)
+                        continue
+
+                    # Determine the URL to use/display
+                    display_url = None
+                    if presigned_url:
+                        # Check if it's the markdown format `[filename](<<url>>)`
+                        if presigned_url.startswith("[") and presigned_url.endswith(")"):
+                            match = re.search(r'\(\<\<(.*?)\>\>\)', presigned_url)
+                            if match:
+                                display_url = match.group(1)
+                            else:
+                                logging_utility.warning("Could not extract URL from markdown-like string: %s",
+                                                        presigned_url)
+                                # Fallback or handle error
+                        else:
+                            display_url = presigned_url  # Assume it's a direct URL
+
+                    # Fallback if no presigned URL was successfully obtained or parsed
+                    if not display_url:
+                        # Construct a fallback download URL if your API supports it
+                        # Adjust the host/path as needed
+                        fallback_base = os.getenv("FILE_DOWNLOAD_BASE_URL", "http://localhost:9000")  # Example base URL
+                        display_url = f"{fallback_base}/v1/files/download?file_id={file_id}"
+                        logging_utility.info("Using fallback download URL for %s: %s", filename, display_url)
+
+                    url_list.append(display_url)  # Add the URL for the assistant
+                    markdown_lines.append(f"[{filename}]({display_url})")  # Add markdown link for the user
+
                 except Exception as e:
-                    logging_utility.error("Error parsing signed URL for file %s: %s", file["id"], str(e))
-                    markdown_lines.append(f"{file['filename']}: Error parsing signed URL")
-            content = "\n\n".join(markdown_lines)
+                    logging_utility.error("Error processing URL/Markdown for file %s: %s", file_meta.get("id", "N/A"),
+                                          str(e), exc_info=True)
+                    # Add a placeholder if processing fails for a file
+                    fn = file_meta.get("filename", "Unknown File")
+                    markdown_lines.append(f"{fn}: Error generating link")
+
+            # Content for the final user message (Step 4)
+            final_content_for_assistant = "\n\n".join(markdown_lines)  # Use markdown links
+
         else:
-            content = "\n".join(hot_code_buffer)
+            logging_utility.info("No uploaded files found. Using code output buffer for content.")
+            # Use the captured stdout/stderr if no files were generated
+            final_content_for_assistant = "\n".join(hot_code_buffer).strip()
+            # If buffer is empty, provide a default message
+            if not final_content_for_assistant:
+                final_content_for_assistant = "[Code executed successfully, but produced no output or files.]"
 
         # -------------------------------
-        # Step 3: Stream base64 previews for frontend rendering
+        # Step 3: Stream base64 previews for frontend rendering (Correct MIME Type Here)
         # -------------------------------
-
         if uploaded_files:
-            interface = EntitiesInternalInterface()
-            for file in uploaded_files:
-                try:
-                    base64_str = interface.files.get_file_as_base64(file_id=file["id"])
-                    mime_type = file.get("mime_type", "application/octet-stream")
-                    # Log the base64 preview (first 50 characters for brevity)
-                    logging_utility.info("Streaming base64 preview for file %s (%s): %s...",
-                                         file["id"], file["filename"], base64_str[:50])
-                except Exception as e:
-                    base64_str = f"Error: {str(e)}"
-                    mime_type = "text/plain"
-                    logging_utility.error("Error converting file %s to base64: %s", file["id"], str(e))
+            logging_utility.info("Streaming base64 previews for %d files...", len(uploaded_files))
+            # Assuming EntitiesInternalInterface provides file access
+            # Ensure base URL is correctly configured
+            entities_base_url = os.getenv("ENTITIES_BASE_URL", "http://fastapi_cosmic_catalyst:9000")
+            interface = EntitiesInternalInterface(base_url=entities_base_url)
 
+            for file_meta in uploaded_files:  # Use file_meta again
+                file_id = file_meta.get("id")
+                filename = file_meta.get("filename")
+
+                if not file_id or not filename:
+                    logging_utility.warning("Skipping base64 streaming for entry with missing id or filename: %s",
+                                            file_meta)
+                    continue
+
+                base64_str = None
+                # <<< START MODIFICATION >>>
+                # Dynamically determine MIME type based on filename *here*
+                guessed_mime_type, _ = mimetypes.guess_type(filename)
+                final_mime_type = guessed_mime_type if guessed_mime_type else 'application/octet-stream'
+                logging_utility.info("Determined MIME type for '%s' (ID: %s) as: %s", filename, file_id,
+                                     final_mime_type)
+                # <<< END MODIFICATION >>>
+
+                try:
+                    # Fetch the base64 content using the file ID
+                    base64_str = interface.files.get_file_as_base64(file_id=file_id)
+                    logging_utility.debug("Successfully fetched base64 for file %s (%s)", filename, file_id)
+
+                except Exception as e:
+                    logging_utility.error("Error fetching base64 for file %s (%s): %s", filename, file_id, str(e),
+                                          exc_info=True)
+                    # Send an error placeholder in the stream
+                    base64_str = base64.b64encode(
+                        f"Error retrieving content: {str(e)}".encode()).decode()  # Encode error message
+                    final_mime_type = "text/plain"  # Set mime type to text for error
+
+                # Yield the chunk with the corrected MIME type
                 yield json.dumps({
                     "stream_type": "code_execution",
                     "chunk": {
                         "type": "code_interpreter_stream",
                         "content": {
-                            "filename": file["filename"],
-                            "file_id": file["id"],
+                            "filename": filename,
+                            "file_id": file_id,
                             "base64": base64_str,
-                            "mime_type": mime_type
+                            "mime_type": final_mime_type  # Use the dynamically determined type
                         }
                     }
                 })
+                logging_utility.info("Yielded base64 chunk for %s (%s) with MIME type %s", filename, file_id,
+                                     final_mime_type)
 
         # -------------------------------
-        # Step 4: Final frontend-visible chunk (markdown summary)
+        # Step 4: Final frontend-visible chunk (Uses content generated in Step 2)
         # -------------------------------
+        logging_utility.info("Yielding final content chunk for display.")
         yield json.dumps({
             "stream_type": "code_execution",
             "chunk": {
                 "type": "content",
-                "content": content
+                "content": final_content_for_assistant  # Send the constructed markdown or buffer
             }
         })
 
         # -------------------------------
-        # Step 5: Log uploaded file contents for debug
+        # Step 5: Log uploaded file contents for debug (Uses original uploaded_files)
         # -------------------------------
-        logging_utility.info("Final uploaded_files payload:\n%s", pprint.pformat(uploaded_files))
+        # Note: 'uploaded_files' still contains the original mime_type from Step 1
+        logging_utility.info("Final uploaded_files metadata (original mime_type):\n%s", pprint.pformat(uploaded_files))
 
         # -------------------------------
-        # Step 6: Submit ONLY the native URL(s) to the assistant — nothing else.
-        # If more than one, pass them as a list.
+        # Step 6: Submit Tool Output (Uses url_list or final_content_for_assistant from Step 2)
         # -------------------------------
-        if url_list:
+        try:
+            # Choose content based on whether file URLs were generated
+            content_to_submit = url_list if url_list else final_content_for_assistant
+            submission_message = CODE_ANALYSIS_TOOL_MESSAGE if url_list else final_content_for_assistant  # Message for assistant context
+
+            logging_utility.info("Submitting tool output. Content type: %s", "URL List" if url_list else "Text Content")
+            # Ensure content_to_submit is not None (handle empty buffer case from Step 2)
+            if content_to_submit is None:
+                logging_utility.warning("Content to submit is None, submitting empty string.")
+                content_to_submit = ""  # Avoid sending None
+
             self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
-                content=CODE_ANALYSIS_TOOL_MESSAGE,
+                # Decide precisely what the assistant needs: URLs or the text output?
+                # If assistant only needs confirmation or URLs, use a standard message or url_list
+                # If assistant needs the text output when no files, use final_content_for_assistant
+                content=submission_message,  # Content for the assistant's context
                 action=action
+                # Consider adding raw output if needed by submit_tool_output, e.g., tool_outputs=content_to_submit
             )
-        else:
-            self.submit_tool_output(
-                thread_id=thread_id,
-                assistant_id=assistant_id,
-                content=content,
-                action=action
-            )
+            logging_utility.info("Tool output submitted successfully.")
+
+        except Exception as submit_err:
+            # This is likely where the "Together SDK error: 422... 'input': None" occurred
+            logging_utility.error("Error submitting tool output: %s", str(submit_err), exc_info=True)
+            # Optionally yield another error to the frontend if submission fails critically
+            yield json.dumps({
+                "stream_type": "code_execution",
+                "chunk": {"type": "error", "content": f"Failed to submit results: {str(submit_err)}"}
+            })
+
+
+
 
     def handle_shell_action(self, thread_id, run_id, assistant_id, arguments_dict):
         from entities.platform_tools.computer.shell_command_interface import run_shell_commands
@@ -1393,7 +1543,7 @@ class BaseInference(ABC):
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)
         else:
-            pass
+            model = 'deepseek-ai/DeepSeek-V3'
 
         request_payload = {
             "model": model,
@@ -1508,8 +1658,6 @@ class BaseInference(ABC):
                             continue
 
                         # Yield non-code content as normal.
-
-
                         if not  code_buffer:
                             yield json.dumps({'type': 'content', 'content': seg}) + '\n'
                         else:
@@ -1519,7 +1667,7 @@ class BaseInference(ABC):
                 time.sleep(0.05)
 
         except Exception as e:
-            error_msg = f"Together SDK error: {str(e)}"
+            error_msg = f"Hyperbolic SDK error: {str(e)}"
             logging_utility.error(error_msg, exc_info=True)
             combined = reasoning_content + assistant_reply
             self.handle_error(combined, thread_id, assistant_id, run_id)
