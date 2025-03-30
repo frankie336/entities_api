@@ -9,6 +9,7 @@ from entities.services.logging_service import LoggingUtility
 validate = ValidationInterface()
 
 
+
 from entities.services.vector_store_service import VectorStoreService
 from entities.services.vector_waves import AssistantVectorWaves
 
