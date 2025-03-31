@@ -116,6 +116,8 @@ Whilst it involves a little more effort, adding state management to distinct par
   [Docker Containers](/docs/docker_containers.md)
 
   [Database](/docs/database.md)
+
+  [Event Management](/docs/event_monitor.md)
  
   [Files](/docs/files.md)
   
