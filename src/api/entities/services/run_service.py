@@ -1,16 +1,9 @@
 import time
 from typing import List
-
-
-
 from entities_common import ValidationInterface, UtilsInterface
-
-
-
 from fastapi import HTTPException
 from pydantic import parse_obj_as
 from sqlalchemy.orm import Session
-
 from entities.models.models import Run, StatusEnum  # Ensure Run is imported
 from entities.services.logging_service import LoggingUtility
 
