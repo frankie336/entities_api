@@ -18,27 +18,30 @@ Assuming you're happy to migrate, here's a clean walkthrough on how to implement
 pip install git+https://github.com/frankie336/entitites_sdk.git
 ```
 
-### 🔧 Step 2: Install the SDK
+### 🔧 Step 2: Install the API Server
 
+```bash
 git clone https://github.com/frankie336/entities_api
- 
 cd entities_api   
 python start.py
+```
 
+---
 
-🤖 **Building Your SQL-Ready Assistant (Code Example)**
+## 🤖 **Building Your SQL-Ready Assistant (Code Example)**
 
 ```python
-
 import json
 import logging
-import threading
 from entities import Entities
+from entities import EventsInterface
+from entities.clients.actions import ActionsClient
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("inference")
 
 client = Entities()
+actions_client = ActionsClient()
 
 # Step 1: Create a user
 user = client.users.create_user(name="user_name_here")
@@ -71,13 +74,6 @@ func_def = {
     }
 }
 
-#-----------------------------------------------------------
-# You only need to  complete the above steps  once per  
-# function call. 
-#  
-#-----------------------------------------------------------
-            
-
 tool = client.tools.create_tool(
     name="sql_query_tool",
     type="function",
@@ -108,10 +104,8 @@ run = client.runs.create_run(
 
 # ------------------------------
 # Function Call handler Class
-# Can be scaled to handle and manage
-# additional calls 
-#--------------------------------
-
+# Can be scaled to handle and manage additional calls 
+# ------------------------------
 
 class FunctionCallService:
     def __init__(self):
@@ -124,60 +118,55 @@ class FunctionCallService:
 
     @staticmethod
     def handle_get_movie_database(arguments):
-        """
-        Replace this with your actual SQL adapter logic.
-        """
         parsed_args = json.loads(arguments) if isinstance(arguments, str) else arguments
         query = parsed_args.get("query")
         logger.info(f"Executing SQL: {query}")
-        # Simulate response
         return {"rows": [{"title": "Oblivion", "year": 2013, "rating": 7.1}]}
 
-# Threaded SSE Monitoring
-def monitor_run():
-    def my_callback(event_type: str, event_data: dict):
-        logger.info(f"🔔 Event received: {event_type}")
-        if event_type == 'tool_invoked':
-            tool_name = event_data.get("tool_name")
-            arguments = event_data.get("function_args")
-            tool_call_id = event_data.get("tool_call_id")
-            tool_id = event_data.get("tool_id")
-            thread_id = event_data.get("thread_id")
-            assistant_id = event_data.get("assistant_id")
+# ------------------------------
+# ✅ NEW: Asynchronous Monitor using MonitorLauncher
+# ------------------------------
 
-            handler = FunctionCallService()
-            result = handler.call_function(tool_name, arguments)
+def my_custom_tool_handler(run_id, run_data, pending_actions):
+    logger.info(f"[ACTION_REQUIRED] run {run_id} has {len(pending_actions)} pending action(s)")
+    for action in pending_actions:
+        action_id = action.get("id")
+        tool_name = action.get("tool_name")
+        args = action.get("function_args")
 
-            client.message_service.submit_tool_output(
-                thread_id=thread_id,
-                assistant_id=assistant_id,
-                tool_id=tool_id,
-                role="tool",
-                content=json.dumps(result)
-            )
-            
-            client.actions.update_action(
-                action_id=tool_call_id,
-                status="completed"
-            )
-            
-            #-----------------------------------------------------------
-            # You have now completed the function call life cycle 
-            # The assistant will now synthesize its response 
-            # with content from your database. 
-            #-----------------------------------------------------------
-            
-            logger.info("✅ Tool output submitted and action marked complete.")
+        logger.info(f"[ACTION] Tool: {tool_name}, Args: {args}")
 
-    threading.Thread(
-        target=lambda: client.runs_monitor.start(run.id, callback=my_callback),
-        daemon=True
-    ).start()
+        handler = FunctionCallService()
+        result = handler.call_function(tool_name, args)
 
-# Start monitoring
-monitor_run()
+        client.message_service.submit_tool_output(
+            thread_id=run_data["thread_id"],
+            assistant_id=run_data["assistant_id"],
+            tool_id=action.get("tool_id"),
+            role="tool",
+            content=json.dumps(result)
+        )
 
-# Start streaming response
+        client.actions.update_action(
+            action_id=action_id,
+            status="completed"
+        )
+
+        logger.info("✅ Tool output submitted and action marked complete.")
+
+# 🔄 Launch the monitor in the background
+monitor = EventsInterface.MonitorLauncher(
+    client=client,
+    actions_client=actions_client,
+    run_id=run.id,
+    on_action_required=my_custom_tool_handler,
+    events=EventsInterface
+)
+monitor.start()
+
+# ------------------------------
+# Step 6: Stream the assistant response
+# ------------------------------
 stream = client.synchronous_inference_stream
 stream.setup(
     user_id=user.id,
@@ -199,8 +188,14 @@ finally:
         stream.close()
     except Exception as e:
         logger.warning("⚠️ Stream cleanup failed: %s", str(e))
-
 ```
 
+---
 
-            
+## ✅ Summary
+
+- The assistant now handles `function_call` events via the `MonitorLauncher`, which runs in a non-blocking background thread.
+- When the assistant reaches `requires_action`, your handler receives the full `action_id`, `tool_name`, and `function_args`.
+- You can scale this pattern across multiple assistants and tools with pluggable handler logic.
+
+Ready to expand this to support retries, fallback tools, or multiple models? Just say the word.
