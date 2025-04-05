@@ -14,17 +14,35 @@ from typing import Any
 import mimetypes
 import httpx
 from entities_common import ValidationInterface
-from entities_common import EntitiesInternalInterface
+
+
+
 from openai import OpenAI
 from together import Together
 
-from entities_api.clients.client import ActionsClient
-from entities_api.clients.client import AssistantsClient
-from entities_api.clients.client import MessagesClient
-from entities_api.clients.client import RunsClient
-from entities_api.clients.client import ThreadsClient
-from entities_api.clients.client import ToolSClient
-from entities_api.clients.client import UserClient
+#--------------------------------------------------
+# These are external SDK methods
+# migrating
+from entities import Entities
+from entities.clients.users import UsersClient
+from entities_api.clients.threads import ThreadsClient
+from entities.clients.messages import MessagesClient
+from entities.clients.runs import RunsClient
+from entities.clients.actions import ActionsClient
+from entities.clients.assistants import AssistantsClient
+from entities.clients.tools import ToolsClient
+#-------------------------------------------------------
+
+
+#from entities_api.clients.client import ActionsClient
+#from entities_api.clients.client import AssistantsClient
+#from entities_api.clients.client import MessagesClient
+#from entities_api.clients.client import RunsClient
+#from entities_api.clients.client import ThreadsClient
+#from entities_api.clients.client import ToolSClient
+#from entities_api.clients.client import UserClient
+
+
 from entities_api.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS, PLATFORM_TOOLS, \
     CODE_INTERPRETER_MESSAGE, DEFAULT_REMINDER_MESSAGE, CODE_ANALYSIS_TOOL_MESSAGE
 from entities_api.constants.platform import MODEL_MAP, ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING
@@ -32,6 +50,7 @@ from entities_api.platform_tools.code_interpreter.code_execution_client import S
 from entities_api.platform_tools.platform_tool_service import PlatformToolService
 from entities_api.services.conversation_truncator import ConversationTruncator
 from entities_api.services.logging_service import LoggingUtility
+from entities_api.services.user_service import UserService
 from entities_api.services.vector_store_service import VectorStoreService
 
 logging_utility = LoggingUtility()
@@ -171,16 +190,12 @@ class BaseInference(ABC):
             except Exception as e:
                 raise AuthenticationError(f"Credential validation failed: {str(e)}")
 
-    @property
-    def internal_sdk_interface(self):
-        """Lazy-loaded property for EntitiesInternalInterface."""
-
-        return self._get_service(EntitiesInternalInterface)
 
 
     @property
     def user_service(self):
-        return self._get_service(UserClient)
+
+        return self._get_service(UserService)
 
     @property
     def assistant_service(self):
@@ -200,7 +215,7 @@ class BaseInference(ABC):
 
     @property
     def tool_service(self):
-        return self._get_service(ToolSClient)
+        return self._get_service(ToolsClient)
 
     @property
     def platform_tool_service(self):
@@ -486,6 +501,10 @@ class BaseInference(ABC):
             .*?        # Any characters
             \}         # Closing curly brace
         '''
+
+
+
+
 
         tool_matches = []
         for match in re.finditer(pattern, text, re.DOTALL | re.VERBOSE):

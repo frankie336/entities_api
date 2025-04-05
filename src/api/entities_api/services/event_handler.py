@@ -2,8 +2,7 @@ import json
 import threading
 import time
 from typing import Optional, Dict, Any
-
-from entities_common import EntitiesInternalInterface
+from entities import Entities
 
 from entities_api.constants.assistant import PLATFORM_TOOLS
 from entities_api.services.logging_service import LoggingUtility
@@ -24,7 +23,7 @@ class EntitiesEventHandler:
         self._current_run: Optional[Any] = None
         self._current_tool_call: Optional[Any] = None
 
-        self._client = EntitiesInternalInterface()
+        self._client = Entities()
 
     def start_monitoring(self, run_id: str):
         """

@@ -1,3 +1,8 @@
+--index-url https://pypi.org/simple/
+--extra-index-url https://test.pypi.org/simple/
+--prefer-binary
+
+# Core sandbox packages
 uvicorn[standard]
 websockets
 python-multipart
@@ -13,6 +18,7 @@ openpyxl
 python-docx
 seaborn
 scikit-learn
-git+https://github.com/frankie336/entities_common.git#egg=entities_common
 
-
+# Test PyPI-scoped packages (intentionally placed last)
+entities
+entities-common==0.1.0

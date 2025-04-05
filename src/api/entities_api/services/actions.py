@@ -6,12 +6,14 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from entities_api import EntitiesInternalInterface
+from entities import Entities
+
 from entities_api.models.models import Action, Tool
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.utils.conversion_utils import datetime_to_iso
 
-client = EntitiesInternalInterface()
+client = Entities()
+
 validator = ValidationInterface()
 
 

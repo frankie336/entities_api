@@ -4,7 +4,8 @@ from entities_common import ValidationInterface, UtilsInterface
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from entities_api.clients.client import EntitiesInternalInterface
+from entities import Entities
+
 from entities_api.models.models import Assistant, User
 from entities_api.services.logging_service import LoggingUtility
 
@@ -15,7 +16,7 @@ validator = ValidationInterface()
 class AssistantService:
     def __init__(self, db: Session):
         self.db = db
-        self.client = EntitiesInternalInterface()
+        self.client = Entities()
 
     def create_assistant(self, assistant: validator.AssistantCreate) ->validator.AssistantRead:
         # Use provided ID or generate new

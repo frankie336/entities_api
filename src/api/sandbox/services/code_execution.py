@@ -5,9 +5,9 @@ import re
 import tempfile
 import time
 import traceback
-
 from dotenv import load_dotenv
-from entities_common import EntitiesInternalInterface
+from entities import Entities
+
 from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
 from typing import Tuple
@@ -370,7 +370,7 @@ class StreamingCodeExecutionHandler:
 
     async def _upload_generated_files(self, user_id: str) -> list:
         uploaded_files = []
-        client = EntitiesInternalInterface(base_url="http://fastapi_cosmic_catalyst:9000")
+        client = Entities(base_url="http://fastapi_cosmic_catalyst:9000")
 
 
         try:
