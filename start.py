@@ -10,11 +10,11 @@ import requests
 from dotenv import load_dotenv
 
 load_dotenv()
-# Adjust sys.path so that the 'entities' package is found
+# Adjust sys.path so that the 'entities_api' package is found
 import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "src", "api"))
 
-from src.api.entities.services.assistant_set_up_service import AssistantSetupService
+from src.api.entities_api.services.assistant_set_up_service import AssistantSetupService
 
 def wait_for_health(health_url, timeout=300, interval=5):
     """
@@ -83,9 +83,9 @@ def main():
     if system == 'windows':
         shared_path = r"C:\ProgramData\entities\samba_share"
     elif system == 'linux':
-        shared_path = "/srv/entities/samba_share"
+        shared_path = "/srv/entities_api/samba_share"
     elif system == 'darwin':
-        shared_path = "/Users/Shared/entities/samba_share"
+        shared_path = "/Users/Shared/entities_api/samba_share"
     else:
         print("Unsupported OS detected. Exiting...")
         sys.exit(1)

@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-from entities.utils.samba_client import SambaClient
+from entities_api.utils.samba_client import SambaClient
 
 
 def check_file_exists(expected_filename: str) -> bool:

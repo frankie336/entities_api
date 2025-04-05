@@ -8,43 +8,43 @@ Function calling allows your assistant to interact with defined tools, enabling 
 **Define the function**
 
 ```python
-from src.api.entities import CommonEntitiesInternalInterface
-from src.api.entities import ToolFunction  # Import ToolFunction
+from src.api.entities_api import CommonEntitiesInternalInterface
+from src.api.entities_api import ToolFunction  # Import ToolFunction
 
 # Initialize the client
 client = CommonEntitiesInternalInterface()
 
 # Create assistant
 assistant = client.assistant_service.create_assistant(
-   user_id=user.id,
-   name='Flighty',
-   description='test_case',
-   model='llama3.1',
-   instructions='You are a helpful flight attendant'
+    user_id=user.id,
+    name='Flighty',
+    description='test_case',
+    model='llama3.1',
+    instructions='You are a helpful flight attendant'
 )
 print(f"Assistant created: ID: {assistant.id}")
 
 # Define the function definition
 function_definition = {
-   "type": "function",
-   "function": {
-      "name": "get_flight_times",
-      "description": "Get the flight times between two cities.",
-      "parameters": {
-         "type": "object",
-         "properties": {
-            "departure": {
-               "type": "string",
-               "description": "The departure city (airport code)."
+    "type": "function",
+    "function": {
+        "name": "get_flight_times",
+        "description": "Get the flight times between two cities.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "departure": {
+                    "type": "string",
+                    "description": "The departure city (airport code)."
+                },
+                "arrival": {
+                    "type": "string",
+                    "description": "The arrival city (airport code)."
+                }
             },
-            "arrival": {
-               "type": "string",
-               "description": "The arrival city (airport code)."
-            }
-         },
-         "required": ["departure", "arrival"]
-      }
-   }
+            "required": ["departure", "arrival"]
+        }
+    }
 }
 
 # Wrap the function definition in ToolFunction
@@ -52,10 +52,10 @@ tool_function = ToolFunction(function=function_definition['function'])
 
 # Create a new tool with the name included
 new_tool = client.tool_service.create_tool(
-   name=function_definition['function']['name'],  # Pass the tool name explicitly
-   type='function',
-   function=tool_function,  # Pass the wrapped ToolFunction
-   assistant_id=assistant_id
+    name=function_definition['function']['name'],  # Pass the tool name explicitly
+    type='function',
+    function=tool_function,  # Pass the wrapped ToolFunction
+    assistant_id=assistant_id
 )
 
 print(new_tool.id)

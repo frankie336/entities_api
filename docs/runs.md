@@ -23,7 +23,7 @@ Runs track the state of nine steps within the user prompt and assistant response
 **Create a Run**
 
 ```python
-from src.api.entities import CommonEntitiesInternalInterface
+from src.api.entities_api import CommonEntitiesInternalInterface
 
 run = client.run_service.create_run(thread_id=thread.id,
                                     assistant_id=user.id)

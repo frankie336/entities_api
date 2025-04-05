@@ -8,7 +8,7 @@ Create an Assistant by defining its custom instructions and picking a model. If 
 **Create an Assistant**
 
 ```python
-from src.api.entities import CommonEntitiesInternalInterface
+from src.api.entities_api import CommonEntitiesInternalInterface
 
 # Initialize the client
 client = CommonEntitiesInternalInterface()

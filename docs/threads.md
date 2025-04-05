@@ -11,7 +11,7 @@ Threads facilitate ready-to-use conversation context, making it easier to manage
 **Create a Thread**
 
 ```python
-from src.api.entities import CommonEntitiesInternalInterface
+from src.api.entities_api import CommonEntitiesInternalInterface
 
 thread = client.thread_service.create_thread(participant_ids=[user.id])
 print(thread.dict())
@@ -27,7 +27,7 @@ Please see [here](docs/users.md) for instructions on creating users.
 **List Threads by [User](docs/users.md)**
 
 ```python
-from src.api.entities import CommonEntitiesInternalInterface
+from src.api.entities_api import CommonEntitiesInternalInterface
 
 threads = client.thread_service.list_threads(user_id=user.id)
 print(threads)
@@ -38,7 +38,7 @@ print(threads)
 You can fetch the conversation history of a thread with:
 
 ```python
-from src.api.entities import CommonEntitiesInternalInterface
+from src.api.entities_api import CommonEntitiesInternalInterface
 
 messages = client.message_service.list_messages(thread_id=thread.id)
 
@@ -142,7 +142,7 @@ messages = client.message_service.list_messages(thread_id=thread.id)
 **Delete a Thread**
 
 ```python
-from src.api.entities import CommonEntitiesInternalInterface
+from src.api.entities_api import CommonEntitiesInternalInterface
 
 thread = client.thread_service.delete_thread(thread_id='thread_vLbg2nyS2WqqbbxlMELylH')
 ```

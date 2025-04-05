@@ -14,7 +14,7 @@ By leveraging the Messages endpoint, you can manage the flow of conversation and
 ```python
 
 
-from src.api.entities import CommonEntitiesInternalInterface
+from src.api.entities_api import CommonEntitiesInternalInterface
 
 # Initialize the client
 client = CommonEntitiesInternalInterface()

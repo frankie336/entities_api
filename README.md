@@ -69,7 +69,7 @@ The Entities API [Threads](/docs/threads.md)  endpoint simplifies dialogue manag
 ```python
 
 # Import the public SDK interface.
-from entities import Entities
+from entities_api import Entities
 
 client = Entities()
 user = client.user.create_user(name='test_user')
