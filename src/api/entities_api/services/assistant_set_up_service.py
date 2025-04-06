@@ -37,21 +37,21 @@ class AssistantSetupService:
 
                 tool_function = validate.ToolFunction(function=func_def)
 
-                new_tool = self.client.tool_service.create_tool(
+                new_tool = self.client.tools.create_tool(
                     name=tool_name,
                     type="function",
                     function=tool_function.model_dump(),
                     assistant_id=assistant_id,
                 )
 
-                self.client.tool_service.associate_tool_with_assistant(
+                self.client.tools.associate_tool_with_assistant(
                     tool_id=new_tool.id, assistant_id=assistant_id
                 )
 
                 self.logging_utility.info("Created tool: %s (ID: %s)", tool_name, new_tool.id)
 
             except Exception as e:
-                self.logging_utility.error("Tool creation failed for %s: %s", tool_name, str(e))
+                self.logging_utility.error("Tool creation failed for %s: %s", new_tool.name, str(e))
                 raise
 
     def setup_assistant_with_tools(
@@ -66,13 +66,13 @@ class AssistantSetupService:
         """Streamlined setup with pre-validated user ID"""
         try:
 
-            assistant = self.client.assistant_service.create_assistant(
+            assistant = self.client.assistants.create_assistant(
                 name=assistant_name,
                 description=assistant_description,
                 model=model,
                 instructions=instructions,
                 assistant_id="default",
-                tools=[{"type": "code_interpreter"}],
+                # tools=[{"type": "code_interpreter"}],
             )
 
             self.logging_utility.info(
@@ -91,7 +91,7 @@ class AssistantSetupService:
         """Optimized main flow with single user creation"""
         try:
             # Get or create pattern prevents duplicate users
-            user = self.client.user_service.create_user(name="default")
+            user = self.client.users.create_user(name="default")
 
             self.logging_utility.debug("Using existing user: ID %s", user.id)
 
@@ -105,7 +105,9 @@ class AssistantSetupService:
             )
 
             # Deferred initialization of vector waves
-            self.vector_waves._initialize_core_waves(user_id=user.id, assistant_id=assistant.id)
+            # Vector waves needs re architecting
+            #
+            # self.vector_waves._initialize_core_waves(user_id=user.id, assistant_id=assistant.id)
 
             self.logging_utility.info("Setup completed. Assistant ID: %s", assistant.id)
             return assistant

@@ -207,4 +207,9 @@ python start.py --with-ollama --ollama-gpu
 - **Stop & clear all data**: `python start.py --down --clear-volumes`
 - **Debug cache/docker health**: `python start.py --debug-cache`
 
+#### Build specific servies
+
+- `python start.py --mode build --services entities_api`
+- `python start.py --mode build --services sandbox`
 ---
+

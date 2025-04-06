@@ -21,6 +21,6 @@ seaborn
 scikit-learn
 
 # Test PyPI-scoped packages (intentionally placed last)
-entities
+entities==1.0.13
 entities-common
 
