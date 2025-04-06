@@ -1,205 +1,210 @@
-# Entities V1
+#  Entities V1
 
-The **Entities** API is for developing projects that interact with LLMs.
-It aggregates inference calls to multiple providers as well as local using the [Ollama](https://github.com/ollama) library. 
+The **Entities API** is for developing projects that interact with LLMs.  
+It aggregates inference calls to multiple providers as well as local using the [Ollama](https://github.com/ollama) library.
 
-This enables rapid and flexible deployment of advanced features such as conversation management, 
-[function calling](/docs/function_calling.md), [code interpretation](/docs/function_calling.md), and more through easy-to-use API endpoints.
+This enables rapid and flexible deployment of advanced features such as conversation management,  
+[function calling](/docs/function_calling.md), [code interpretation](/docs/code_interpretation.md), and more through easy-to-use API endpoints.
+
+---
+
+![Network Diagram](./images/docker_containers.png)
 
 
-## Supported Inference Providers: 
 
-| Provider                                       | Type                        |
-|------------------------------------------------|-----------------------------|
-| [Ollama](https://github.com/ollama)            | **Local** (Self-Hosted)     |
-| [DeepSeek](https://platform.deepseek.com/)     | **Cloud** (Open-Source)     |
-| [Hyperbolic](https://hyperbolic.xyz/)          | **Cloud** (Proprietary)     |
-| [OpenAI](https://platform.openai.com/)         | **Cloud** (Proprietary)     |
-| [together.ai](https://www.together.ai/)        | **Cloud** (Aggregated)      |
+---
+
+
+## 🔍 Entities vs. LangChain (and Friends)
+
+| Feature                          | **Entities**                                    | LangChain / Others                     |
+|----------------------------------|-------------------------------------------------|----------------------------------------|
+| **Design Philosophy**            | Systems-level, composable, and user-controlled  | Framework-heavy, opinionated, abstract |
+| **Interface Style**              | Explicit class-based SDK + REST API             | Chained declarative syntax             |
+| **Vector Store Logic**           | Custom embeddings + Qdrant via HTTPx            | Plug-and-play vector wrappers          |
+| **Tool Use & AI Calls**          | Native function calling + structured streaming  | Wrapper-based toolchains               |
+| **Security Model**               | Firejail sandbox, subprocess isolation          | None / minimal                         |
+| **Licensing Philosophy**         | Open-use, revenue-share model                   | Varies (often restrictive)             |
+| **Docker Architecture**          | DevOps-ready, containerized, bootstrap-aware    | Rarely production-oriented             |
+| **Local LLM Support**            | Ollama integration (opt-in)                     | Often cloud-dependent                  |
+| **Buzzword Compliant**           | ❌ No agents, chains, or gimmicks               | ✅ All the latest acronyms             |
+
+---
+
+##  Why Entities?
+
+> Entities is a **developer-native**, **security-conscious**, and **deeply composable AI framework** built for:
+>
+> - People who want to **own their stack**
+> - Teams building **real-world intelligent assistants**
+> - Engineers who prefer **systems control over chained magic**
+
+You don’t “add a tool to a chain.”  
+You **register tools, trigger runs, stream thoughts, and command vector memory.**
+
+---
+
+## Supported Inference Providers
+
+| Provider                                        | Type                        |
+|-------------------------------------------------|-----------------------------|
+| [Ollama](https://github.com/ollama)             | **Local** (Self-Hosted)     |
+| [DeepSeek](https://platform.deepseek.com/)      | **Cloud** (Open-Source)     |
+| [Hyperbolic](https://hyperbolic.xyz/)           | **Cloud** (Proprietary)     |
+| [OpenAI](https://platform.openai.com/)          | **Cloud** (Proprietary)     |
+| [together.ai](https://www.together.ai/)         | **Cloud** (Aggregated)      |
 | [MS Azure Foundry](https://azure.microsoft.com) | **Cloud** (Enterprise)      |
 
+---
 
-## Why Entities API
+## Security Model 
 
-The landscape of AI inference has become both competitive and diverse. Every month, a new AI lab or vertical provider announces a breakthrough or releases a new API offering. No single provider meets all requirements or interests, as each one offers a different API with its own keys, schemas, endpoints, and features. This diversity has quickly made AI inference cumbersome.
+Entities places security at the forefront, employing:
 
-Entities API aggregates the core features and methodologies of all providers into one unified platform.
+- **Firejail Sandboxing**: Limits system access during code interpretation and local execution.
+- **Subprocess Isolation**: Ensures code executions cannot interfere with core API logic, providing robust protection in multi-user environments.
+
+This combination makes Entities highly suitable for secure deployments in sensitive, regulated environments.
+
+---
 
 ## State Management
 
-Advanced applications and integrations in LLMs require state management, which is not always a trivial task.
-For example, here is a typical LLM assistant's dialogue array:
+Advanced LLM applications require state management, which isn't always trivial.  
+Entities simplifies dialogue management with the [Threads](/docs/threads.md) endpoint by standardizing storage and retrieval procedures.
 
-For example,  here is a typical LLM assistant's dialogue array:
+Example dialogue array:
 
 ```json
-
 [
-  {
-    "role": "system",
-    "content": "You are a helpful assistant."
-  },
-  {
-    "role": "user",
-    "content": "What’s the capital of France?"
-  },
-  {
-    "role": "assistant",
-    "content": "The capital of France is Paris."
-  },
-  {
-    "role": "user",
-    "content": "What’s the population of Paris?"
-  },
-  {
-    "role": "assistant",
-    "content": "As of the latest data, the population of Paris is approximately 2.1 million."
-  }
+  {"role": "system", "content": "You are a helpful assistant."},
+  {"role": "user", "content": "What’s the capital of France?"},
+  {"role": "assistant", "content": "The capital of France is Paris."},
+  {"role": "user", "content": "What’s the population of Paris?"},
+  {"role": "assistant", "content": "Approximately 2.1 million."}
 ]
-
 ```
 
-This array represents a single multi-turn conversation. In a production environment, the life cycle of this array must be managed per user, per conversation. This may require a database and other back-end infrastructure.
-The Entities API [Threads](/docs/threads.md)  endpoint simplifies dialogue management by providing a standardized, data-driven setup and use procedure. Data storage and retrieval are handled by this endpoint.
+---
 
+## Quick Start 
 
+**Prerequisites**:
 
-## Quick Start
+- Python ≥3.8
+- Docker
+- `entities_common` package ([install here](https://github.com/frankie336/entities_common))
+- Environment variables set (`HYPERBOLIC_API_KEY`, etc.)
 
 ```python
+from dotenv import load_dotenv
+import os
+import pprint
+from entities import Entities
 
-# Import the public SDK interface.
-from entities_api import Entities
-
+load_dotenv()
 client = Entities()
-user = client.user.create_user(name='test_user')
 
+user = client.users.create_user(name='test_user')
 thread = client.threads.create_thread(participant_ids=[user.id])
-
-assistant = client.assistant.create_assistant()
+assistant = client.assistants.create_assistant()
 
 message = client.messages.create_message(
     thread_id=thread.id,
     role='user',
-    content='Hello, This is a test')
+    content='Hello, This is a test message.',
+    assistant_id=assistant.id
+)
 
-run = client.runs.create_run(assistant_id=assistant.id,
-                             thread_id=thread.id,
+run = client.runs.create_run(
+    assistant_id=assistant.id,
+    thread_id=thread.id
+)
 
-                             )
+completion = client.inference.stream_inference_response(
+    provider="Hyperbolic",
+    model="meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    thread_id=thread.id,
+    message_id=message.id,
+    run_id=run.id,
+    assistant_id=assistant.id,
+    api_key=os.getenv('HYPERBOLIC_API_KEY')
+)
 
-try:
-    completion = client.inference.create_completion(
-        provider="Hyperbolic",
-        model="meta-llama/Llama-3.3-70B-Instruct-Turbo",
-        thread_id=thread.id,
-        message_id=message['id'],
-        run_id=run.id,
-        assistant_id=assistant.id
-    )
-    pprint.pprint(completion)
-finally:
-    pass
-
-
-
+pprint.pprint(completion)
 ```
 
-Whilst it involves a little more effort, adding state management to distinct parts of the LLM/User interaction life cycle brings significant benefits. By pragmatically interacting with each stage, you can unlock an @OpenAI type feature set with minimal additional coding.
+---
 
 ## Documentation
 
-  [Assistants](/docs/assistants.md)
-  
-  [Code Interpretation](/docs/code_interpretation.md)
-  
-  [Docker Containers](/docs/docker_containers.md)
+### Getting Started & Basic Concepts
 
-  [Database](/docs/database.md)
- 
-  [Files](/docs/files.md)
-  
-  [Function Calling](/docs/function_calling.md)
-  
-  [Inference](/docs/inference.md)
-  
-  [Messages](/docs/messages.md)
-  
-  [Runs](/docs/runs.md)
+- [Assistants](/docs/assistants.md)  
+- [Threads](/docs/threads.md)  
+- [Messages](/docs/messages.md)  
+- [Runs](/docs/runs.md)  
+- [Inference](/docs/inference.md)  
+- [Streaming](/docs/streams.md)  
 
-  [Threads](/docs/threads.md)
+### Advanced Features
 
-  [Tools](/docs/tools.md)
-  
-  [Users](/docs/users.md)
-  
-  [Vector Store](/docs/vector_store.md)
+- [Function Calling](/docs/function_calling.md)  
+- [Code Interpretation](/docs/code_interpretation.md)  
 
-## Endpoint Documentation:
+### Data & Vector Storage
 
-[altredoc](http://localhost:9000/altredoc)  
-[Swagger](http://localhost:9000/mydocs#/)  
+- [Files](/docs/files.md)  
+- [Vector Store](/docs/vector_store.md)  
 
+### Infrastructure & Management
 
-In production encironments, please set to:
+- [Database](/docs/database.md)  
+- [Docker Containers](/docs/docker_containers.md)  
+- [Tools](/docs/tools.md)  
+- [Users](/docs/users.md)
 
-http://your-domain/altredoc/  
-http://your-domain/mydocs#/  
+---
 
+## Endpoint Documentation 🌐
 
-## Starting Docker Containers 
+- [altredoc](http://your-domain/altredoc/)
+- [Swagger](http://your-domain/mydocs#/)
+
+---
+
+## Starting Docker Containers 🐳
+
+Use `start.py` to simplify building images, starting/stopping containers, and managing volumes.
+
+Default orchestration:
+```bash
+python start.py
+```
+
+Skip orchestration:
+```bash
+python start.py --no-orchestrate
+```
+
+**Run with Ollama** (optional local inference):
 
 ```bash
-
-# Bring up the containers (using existing images):
-python start.py --mode up
-
-# Build the Docker images (using cache):
-python start.py --mode build
-
-# Build images then bring up the containers (using cache):
-python start.py --mode both
-
-# Build Docker images without cache:
-python start.py --mode build --no-cache
-
-# Build images without cache then bring up the containers:
-python start.py --mode both --no-cache
-
-# Bring up containers after clearing volumes:
-python start.py --mode up --clear-volumes
-
-# Build images after clearing volumes (using cache):
-python start.py --mode build --clear-volumes
-
-# Build images, clear volumes, then bring up containers (using cache):
-python start.py --mode both --clear-volumes
-
-# Build images without cache after clearing volumes, then bring up containers:
-python start.py --mode both --no-cache --clear-volumes
-
-# Bring up containers and run assistant orchestration:
-python start.py --mode up --orchestrate
-
-# Build images and run assistant orchestration (using cache):
-python start.py --mode build --orchestrate
-
-# Build images, bring up containers, then run orchestration (using cache):
-python start.py --mode both --orchestrate
-
-# Clear volumes, bring up containers, and run orchestration:
-python start.py --mode up --clear-volumes --orchestrate
-
-# Build images, clear volumes, bring up containers, then run orchestration (using cache):
-python start.py --mode both --clear-volumes --orchestrate
-
-# Build images without cache, clear volumes, bring up containers, then run orchestration:
-python start.py --mode both --no-cache --clear-volumes --orchestrate
-
-# Stop and remove all containers:
-python start.py --down
-
-# Stop and remove all containers, including volumes:
-python start.py --down --clear-volumes
-
+python start.py --with-ollama
+# GPU acceleration
+python start.py --with-ollama --ollama-gpu
 ```
+
+**Docker lifecycle commands**:
+
+- **Bring up containers**: `python start.py --mode up`
+- **Build Docker images**: `python start.py --mode build`
+- **Build & bring up**: `python start.py --mode both`
+- **No-cache build**: `python start.py --mode build --no-cache`
+- **No-cache build & up**: `python start.py --mode both --no-cache`
+- **Clear volumes & restart**: `python start.py --mode up --clear-volumes`
+- **Stop containers**: `python start.py --down`
+- **Stop & clear all data**: `python start.py --down --clear-volumes`
+- **Debug cache/docker health**: `python start.py --debug-cache`
+
+---

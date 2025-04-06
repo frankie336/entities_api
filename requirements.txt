@@ -66,3 +66,4 @@ pysmb
 # From Test PyPI (only these should resolve there)
 entities
 entities-common
+groq
