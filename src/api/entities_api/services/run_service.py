@@ -9,6 +9,7 @@ from entities_api.services.logging_service import LoggingUtility
 
 validator = ValidationInterface()
 
+
 class RunService:
     def __init__(self, db: Session):
 
@@ -44,13 +45,12 @@ class RunService:
             usage=run_data.usage,
             temperature=run_data.temperature,
             top_p=run_data.top_p,
-            tool_resources=run_data.tool_resources
+            tool_resources=run_data.tool_resources,
         )
         self.db.add(run)
         self.db.commit()
         self.db.refresh(run)
         return run
-
 
     def update_run_status(self, run_id: str, new_status: str):
         run = self.db.query(Run).filter(Run.id == run_id).first()
@@ -98,7 +98,7 @@ class RunService:
                 usage=run.usage,
                 temperature=run.temperature,
                 top_p=run.top_p,
-                tool_resources=run.tool_resources
+                tool_resources=run.tool_resources,
             )
             return run_data
         return None
@@ -117,8 +117,12 @@ class RunService:
 
             # Check if the run can be cancelled
             if run.status in [StatusEnum.completed, StatusEnum.cancelled]:
-                self.logger.warning("Cannot cancel run with ID %s because it is already %s", run_id, run.status)
-                raise HTTPException(status_code=400, detail="Cannot cancel a completed or already cancelled run")
+                self.logger.warning(
+                    "Cannot cancel run with ID %s because it is already %s", run_id, run.status
+                )
+                raise HTTPException(
+                    status_code=400, detail="Cannot cancel a completed or already cancelled run"
+                )
 
             # Set the status to 'cancelling'
             self.logger.info("Setting status to 'cancelling' for run ID %s", run_id)
@@ -143,5 +147,3 @@ class RunService:
             self.logger.error("Failed to cancel run with ID %s. Error: %s", run_id, str(e))
             self.db.rollback()  # Rollback in case of error
             raise HTTPException(status_code=500, detail=f"Failed to cancel run: {str(e)}")
-
-

@@ -13,8 +13,6 @@ logging_utility = LoggingUtility()
 router = APIRouter()
 
 
-
-
 @router.get("/health", tags=["Health"])
 def health_check(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """
@@ -33,16 +31,3 @@ def health_check(db: Session = Depends(get_db)) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail="Database connection failed.")
 
     return health_status
-
-
-
-
-
-
-
-
-
-
-
-
-

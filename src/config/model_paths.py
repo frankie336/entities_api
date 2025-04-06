@@ -1,5 +1,6 @@
 import os
 
+
 def get_model_path(model_name: str, use_docker: bool = False) -> str:
     """
     Return the absolute path for a given model name based on our naming convention.
@@ -23,6 +24,8 @@ def get_model_path(model_name: str, use_docker: bool = False) -> str:
 
     key = model_name.lower()
     if key not in model_mapping:
-        raise ValueError(f"Model name '{model_name}' is not recognized. Available models: {list(model_mapping.keys())}")
+        raise ValueError(
+            f"Model name '{model_name}' is not recognized. Available models: {list(model_mapping.keys())}"
+        )
 
     return os.path.join(base_dir, model_mapping[key])

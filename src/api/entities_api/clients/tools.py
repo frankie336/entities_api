@@ -15,13 +15,13 @@ logging_utility = LoggingUtility()
 
 
 class ToolSClient:
-    def __init__(self, base_url=os.getenv("ASSISTANTS_BASE_URL"),  api_key=None):
+    def __init__(self, base_url=os.getenv("ASSISTANTS_BASE_URL"), api_key=None):
         self.base_url = base_url
         self.api_key = api_key
         self.client = httpx.Client(
             base_url=base_url,
             headers={"Authorization": f"Bearer {api_key}"},
-            timeout=10.0  # Add a timeout of 10 seconds
+            timeout=10.0,  # Add a timeout of 10 seconds
         )
         logging_utility.info("ToolSClient initialized with base_url: %s", self.base_url)
 
@@ -32,15 +32,17 @@ class ToolSClient:
     def create_tool(self, **tool_data) -> validation.ToolRead:
         logging_utility.info("Creating new tool")
         try:
-            function_data = tool_data.get('function', {})
+            function_data = tool_data.get("function", {})
             # Unwrap potential double nesting safely
-            if 'function' in function_data:
-                function_data = function_data['function']
+            if "function" in function_data:
+                function_data = function_data["function"]
 
             tool_create_payload = {
                 "type": tool_data["type"],
-                "function": {"function": function_data},  # Wrap function_data inside a "function" key
-                "name": function_data.get("name")
+                "function": {
+                    "function": function_data
+                },  # Wrap function_data inside a "function" key
+                "name": function_data.get("name"),
             }
 
             tool = validation.ToolCreate(**tool_create_payload)
@@ -56,7 +58,9 @@ class ToolSClient:
             logging_utility.error("Validation error during tool creation: %s", e.json())
             raise ValueError(f"Validation error: {e}")
         except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error during tool creation: %s | Response: %s", str(e), e.response.text)
+            logging_utility.error(
+                "HTTP error during tool creation: %s | Response: %s", str(e), e.response.text
+            )
             raise
         except Exception as e:
             logging_utility.error("Unexpected error during tool creation: %s", str(e))
@@ -67,9 +71,15 @@ class ToolSClient:
         try:
             response = self.client.post(f"/v1/assistants/{assistant_id}/tools/{tool_id}")
             response.raise_for_status()
-            logging_utility.info("Tool %s associated with assistant %s successfully", tool_id, assistant_id)
+            logging_utility.info(
+                "Tool %s associated with assistant %s successfully", tool_id, assistant_id
+            )
         except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error during tool-assistant association: %s | Response: %s", str(e), e.response.text)
+            logging_utility.error(
+                "HTTP error during tool-assistant association: %s | Response: %s",
+                str(e),
+                e.response.text,
+            )
             raise
         except Exception as e:
             logging_utility.error("Unexpected error during tool-assistant association: %s", str(e))
@@ -80,13 +90,20 @@ class ToolSClient:
         try:
             response = self.client.delete(f"/v1/assistants/{assistant_id}/tools/{tool_id}")
             response.raise_for_status()
-            logging_utility.info("Tool %s disassociated from assistant %s successfully", tool_id, assistant_id)
+            logging_utility.info(
+                "Tool %s disassociated from assistant %s successfully", tool_id, assistant_id
+            )
         except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error during tool-assistant disassociation: %s | Response: %s", str(e),
-                                  e.response.text)
+            logging_utility.error(
+                "HTTP error during tool-assistant disassociation: %s | Response: %s",
+                str(e),
+                e.response.text,
+            )
             raise
         except Exception as e:
-            logging_utility.error("Unexpected error during tool-assistant disassociation: %s", str(e))
+            logging_utility.error(
+                "Unexpected error during tool-assistant disassociation: %s", str(e)
+            )
             raise
 
     def get_tool_by_id(self, tool_id: str) -> validation.ToolRead:
@@ -103,7 +120,9 @@ class ToolSClient:
             logging_utility.error("Validation error during tool retrieval: %s", e.json())
             raise ValueError(f"Validation error: {e}")
         except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error during tool retrieval: %s | Response: %s", str(e), e.response.text)
+            logging_utility.error(
+                "HTTP error during tool retrieval: %s | Response: %s", str(e), e.response.text
+            )
             raise
         except Exception as e:
             logging_utility.error("Unexpected error during tool retrieval: %s", str(e))
@@ -123,7 +142,9 @@ class ToolSClient:
             logging_utility.error("Validation error during tool retrieval: %s", e.json())
             raise ValueError(f"Validation error: {e}")
         except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error during tool retrieval: %s | Response: %s", str(e), e.response.text)
+            logging_utility.error(
+                "HTTP error during tool retrieval: %s | Response: %s", str(e), e.response.text
+            )
             raise
         except Exception as e:
             logging_utility.error("Unexpected error during tool retrieval: %s", str(e))
@@ -132,7 +153,9 @@ class ToolSClient:
     def update_tool(self, tool_id: str, tool_update: validation.ToolUpdate) -> validation.ToolRead:
         logging_utility.info("Updating tool with ID: %s", tool_id)
         try:
-            response = self.client.put(f"/v1/tools/{tool_id}", json=tool_update.model_dump(exclude_unset=True))
+            response = self.client.put(
+                f"/v1/tools/{tool_id}", json=tool_update.model_dump(exclude_unset=True)
+            )
             response.raise_for_status()
             updated_tool = response.json()
             validated_tool = validation.ToolRead.model_validate(updated_tool)
@@ -142,7 +165,9 @@ class ToolSClient:
             logging_utility.error("Validation error during tool update: %s", e.json())
             raise ValueError(f"Validation error: {e}")
         except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error during tool update: %s | Response: %s", str(e), e.response.text)
+            logging_utility.error(
+                "HTTP error during tool update: %s | Response: %s", str(e), e.response.text
+            )
             raise
         except Exception as e:
             logging_utility.error("Unexpected error during tool update: %s", str(e))
@@ -155,7 +180,9 @@ class ToolSClient:
             response.raise_for_status()
             logging_utility.info("Tool deleted successfully with ID: %s", tool_id)
         except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error during tool deletion: %s | Response: %s", str(e), e.response.text)
+            logging_utility.error(
+                "HTTP error during tool deletion: %s | Response: %s", str(e), e.response.text
+            )
             raise
         except Exception as e:
             logging_utility.error("Unexpected error during tool deletion: %s", str(e))
@@ -177,24 +204,26 @@ class ToolSClient:
         """Restructure the tools to match the target structure."""
         restructured_tools = []
         for tool in tools:
-            function_info = tool['function']
+            function_info = tool["function"]
 
             # The function details are nested one level deeper
-            if 'function' in function_info:
-                function_info = function_info['function']
+            if "function" in function_info:
+                function_info = function_info["function"]
 
             restructured_tool = {
-                'type': 'function',
-                'function': {
-                    'name': function_info.get('name', 'Unnamed tool'),
-                    'description': function_info.get('description', 'No description provided'),
-                    'parameters': function_info.get('parameters', {})
-                }
+                "type": "function",
+                "function": {
+                    "name": function_info.get("name", "Unnamed tool"),
+                    "description": function_info.get("description", "No description provided"),
+                    "parameters": function_info.get("parameters", {}),
+                },
             }
             restructured_tools.append(restructured_tool)
         return restructured_tools
 
-    def list_tools(self, assistant_id: Optional[str] = None, restructure: bool = False) -> List[dict]:
+    def list_tools(
+        self, assistant_id: Optional[str] = None, restructure: bool = False
+    ) -> List[dict]:
         """List tools for a given assistant and optionally restructure them."""
         url = f"/v1/assistants/{assistant_id}/tools" if assistant_id else "/routers/tools"
         logging_utility.info("Listing tools for assistant ID: %s", assistant_id)
@@ -208,7 +237,7 @@ class ToolSClient:
             logging_utility.info("Fetched tool list: %s", tools_list)
 
             # Extract the actual tools from the response data
-            tools = tools_list['tools']
+            tools = tools_list["tools"]
 
             logging_utility.info("Retrieved %d tools", len(tools))
 
@@ -220,7 +249,9 @@ class ToolSClient:
             else:
                 return tools
         except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error while listing tools: %s | Response: %s", str(e), e.response.text)
+            logging_utility.error(
+                "HTTP error while listing tools: %s | Response: %s", str(e), e.response.text
+            )
             raise
         except Exception as e:
             logging_utility.error("Unexpected error while listing tools: %s", str(e))

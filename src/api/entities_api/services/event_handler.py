@@ -34,9 +34,7 @@ class EntitiesEventHandler:
             return
 
         monitor_thread = threading.Thread(
-            target=self._monitor_run_status,
-            args=(run_id,),
-            daemon=True
+            target=self._monitor_run_status, args=(run_id,), daemon=True
         )
         self.active_monitors[run_id] = monitor_thread
         monitor_thread.start()
@@ -114,7 +112,9 @@ class EntitiesEventHandler:
                     if action:
                         pending_actions.append(action)
                 except Exception as e:
-                    logging_utility.warning(f"Failed to retrieve action {action_id['id']}: {str(e)}")
+                    logging_utility.warning(
+                        f"Failed to retrieve action {action_id['id']}: {str(e)}"
+                    )
 
         if pending_actions:
             logging_utility.info(f"Processing {len(pending_actions)} actions for run {run.id}.")
@@ -164,8 +164,16 @@ class EntitiesEventHandler:
                 "tool_name": tool_call.tool_name,
                 "function_args": tool_call.function_args,
                 "result": tool_call_result,
-                "thread_id": self._current_run.thread_id if self._current_run and hasattr(self._current_run, "thread_id") else None,
-                "assistant_id": self._current_run.assistant_id if self._current_run and hasattr(self._current_run, "assistant_id") else None,
+                "thread_id": (
+                    self._current_run.thread_id
+                    if self._current_run and hasattr(self._current_run, "thread_id")
+                    else None
+                ),
+                "assistant_id": (
+                    self._current_run.assistant_id
+                    if self._current_run and hasattr(self._current_run, "assistant_id")
+                    else None
+                ),
             }
 
             logging_utility.info(f"Emitting tool invoked event: {json.dumps(tool_event)}")
@@ -178,10 +186,11 @@ class EntitiesEventHandler:
                 run_id = self._current_run.id
                 # Update the run status to "in_progress" after handling the tool call.
 
-                self._client.run_service.update_run_status(run_id=run_id, new_status='in_progress')
+                self._client.run_service.update_run_status(run_id=run_id, new_status="in_progress")
 
-
-                logging_utility.info(f"Run {run_id} status updated to in_progress after tool invocation.")
+                logging_utility.info(
+                    f"Run {run_id} status updated to in_progress after tool invocation."
+                )
 
         except Exception as e:
             logging_utility.error(f"Error invoking tool: {str(e)}")

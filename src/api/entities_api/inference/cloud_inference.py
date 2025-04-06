@@ -13,6 +13,7 @@ from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 
+
 class CloudInference:
     def __init__(self):
         self._provider_cache = {}
@@ -78,10 +79,10 @@ class CloudInference:
     @property
     def cache_stats(self):
         return {
-            'current_size': len(self._provider_cache),
-            'hits': self._create_provider.cache_info().hits,
-            'misses': self._create_provider.cache_info().misses,
-            'max_size': self._create_provider.cache_info().max_size
+            "current_size": len(self._provider_cache),
+            "hits": self._create_provider.cache_info().hits,
+            "misses": self._create_provider.cache_info().misses,
+            "max_size": self._create_provider.cache_info().max_size,
         }
 
     @property

@@ -10,7 +10,9 @@ logger = logging.getLogger("shell_session")
 
 
 class PersistentShellSession:
-    def __init__(self, websocket: WebSocket, room: str, room_manager: RoomManager, elevated: bool = False):
+    def __init__(
+        self, websocket: WebSocket, room: str, room_manager: RoomManager, elevated: bool = False
+    ):
         """
         Initializes a persistent computer session with optional elevation.
 
@@ -33,14 +35,11 @@ class PersistentShellSession:
         await self.room_manager.connect(self.room, self.websocket)
 
         # Choose computer startup command based on elevation flag
-        shell_command = ['sudo', '/bin/bash'] if self.elevated else ['/bin/bash']
+        shell_command = ["sudo", "/bin/bash"] if self.elevated else ["/bin/bash"]
 
         # Start the subprocess
         self.process = await create_subprocess_exec(
-            *shell_command,
-            stdin=PIPE,
-            stdout=PIPE,
-            stderr=PIPE
+            *shell_command, stdin=PIPE, stdout=PIPE, stderr=PIPE
         )
 
         # Start streaming computer output
@@ -64,16 +63,17 @@ class PersistentShellSession:
 
                 elif action == "toggle_elevation":
                     self.elevated = not self.elevated  # Toggle elevation setting
-                    await self.websocket.send_json({
-                        "type": "status",
-                        "content": f"Elevation toggled: {'Enabled' if self.elevated else 'Disabled'}"
-                    })
+                    await self.websocket.send_json(
+                        {
+                            "type": "status",
+                            "content": f"Elevation toggled: {'Enabled' if self.elevated else 'Disabled'}",
+                        }
+                    )
 
                 else:
-                    await self.websocket.send_json({
-                        "type": "error",
-                        "content": f"Unknown action: {action}"
-                    })
+                    await self.websocket.send_json(
+                        {"type": "error", "content": f"Unknown action: {action}"}
+                    )
 
         except WebSocketDisconnect:
             logger.info(f"Client disconnected from room {self.room}")
@@ -90,14 +90,12 @@ class PersistentShellSession:
         # Append a marker to know when the command has completed
         full_cmd = f"{cmd}\necho {marker}"
 
-        await self.room_manager.broadcast(self.room, {
-            "type": "shell_command",
-            "thread_id": self.room,
-            "content": full_cmd
-        })
+        await self.room_manager.broadcast(
+            self.room, {"type": "shell_command", "thread_id": self.room, "content": full_cmd}
+        )
 
         if self.process and self.process.stdin:
-            self.process.stdin.write((full_cmd + '\n').encode())
+            self.process.stdin.write((full_cmd + "\n").encode())
             await self.process.stdin.drain()
 
     async def stream_output(self):
@@ -107,27 +105,24 @@ class PersistentShellSession:
             while self.alive:
                 chunk = await self.process.stdout.read(1024)
                 if chunk:
-                    text_chunk = chunk.decode(errors='replace')
+                    text_chunk = chunk.decode(errors="replace")
                     if marker in text_chunk:
                         # Remove the marker from the output before broadcasting
                         text_chunk = text_chunk.replace(marker, "")
-                        await self.room_manager.broadcast(self.room, {
-                            "type": "shell_output",
-                            "thread_id": self.room,
-                            "content": text_chunk
-                        })
+                        await self.room_manager.broadcast(
+                            self.room,
+                            {"type": "shell_output", "thread_id": self.room, "content": text_chunk},
+                        )
                         # Send explicit command complete signal
-                        await self.room_manager.broadcast(self.room, {
-                            "type": "command_complete",
-                            "thread_id": self.room,
-                            "content": ""
-                        })
+                        await self.room_manager.broadcast(
+                            self.room,
+                            {"type": "command_complete", "thread_id": self.room, "content": ""},
+                        )
                     else:
-                        await self.room_manager.broadcast(self.room, {
-                            "type": "shell_output",
-                            "thread_id": self.room,
-                            "content": text_chunk
-                        })
+                        await self.room_manager.broadcast(
+                            self.room,
+                            {"type": "shell_output", "thread_id": self.room, "content": text_chunk},
+                        )
                 else:
                     await asyncio.sleep(0.01)
 
@@ -142,7 +137,7 @@ class PersistentShellSession:
         self.alive = False
         if self.process:
             try:
-                self.process.stdin.write(b'exit\n')
+                self.process.stdin.write(b"exit\n")
                 await self.process.stdin.drain()
                 await asyncio.wait_for(self.process.wait(), timeout=5)
             except Exception as e:

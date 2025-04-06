@@ -1,6 +1,7 @@
 import base64
 import inspect
 import json
+import mimetypes
 import os
 import pprint
 import re
@@ -11,40 +12,27 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import lru_cache
 from typing import Any
-import mimetypes
+
 import httpx
+from entities.clients.actions import ActionsClient
+from entities.clients.assistants import AssistantsClient
+from entities.clients.messages import MessagesClient
+from entities.clients.runs import RunsClient
+from entities.clients.tools import ToolsClient
+from entities.clients.files import FileClient
+
 from entities_common import ValidationInterface
-
-
-
 from openai import OpenAI
 from together import Together
 
-#--------------------------------------------------
-# These are external SDK methods
-# migrating
-from entities import Entities
-from entities.clients.users import UsersClient
 from entities_api.clients.threads import ThreadsClient
-from entities.clients.messages import MessagesClient
-from entities.clients.runs import RunsClient
-from entities.clients.actions import ActionsClient
-from entities.clients.assistants import AssistantsClient
-from entities.clients.tools import ToolsClient
-#-------------------------------------------------------
-
-
-#from entities_api.clients.client import ActionsClient
-#from entities_api.clients.client import AssistantsClient
-#from entities_api.clients.client import MessagesClient
-#from entities_api.clients.client import RunsClient
-#from entities_api.clients.client import ThreadsClient
-#from entities_api.clients.client import ToolSClient
-#from entities_api.clients.client import UserClient
-
-
-from entities_api.constants.assistant import WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS, PLATFORM_TOOLS, \
-    CODE_INTERPRETER_MESSAGE, DEFAULT_REMINDER_MESSAGE, CODE_ANALYSIS_TOOL_MESSAGE
+from entities_api.constants.assistant import (
+    WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS,
+    PLATFORM_TOOLS,
+    CODE_INTERPRETER_MESSAGE,
+    DEFAULT_REMINDER_MESSAGE,
+    CODE_ANALYSIS_TOOL_MESSAGE,
+)
 from entities_api.constants.platform import MODEL_MAP, ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING
 from entities_api.platform_tools.code_interpreter.code_execution_client import StreamOutput
 from entities_api.platform_tools.platform_tool_service import PlatformToolService
@@ -60,26 +48,31 @@ validator = ValidationInterface()
 class MissingParameterError(ValueError):
     """Specialized error for missing service parameters"""
 
+
 class ConfigurationError(RuntimeError):
     """Error for invalid service configurations"""
+
 
 class AuthenticationError(PermissionError):
     """Error for credential-related issues"""
 
+
 class BaseInference(ABC):
 
-    REASONING_PATTERN = re.compile(r'(<think>|</think>)')
+    REASONING_PATTERN = re.compile(r"(<think>|</think>)")
 
-    def __init__(self,
-                 base_url=os.getenv('ASSISTANTS_BASE_URL'),
-                 api_key=None,
-                 assistant_id=None,
-                 thread_id  = None,
-                 # New parameters for ConversationTruncator
-                 model_name="deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
-                 max_context_window=128000,
-                 threshold_percentage=0.8,
-                 available_functions=None):
+    def __init__(
+        self,
+        base_url=os.getenv("ASSISTANTS_BASE_URL"),
+        api_key=None,
+        assistant_id=None,
+        thread_id=None,
+        # New parameters for ConversationTruncator
+        model_name="deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
+        max_context_window=128000,
+        threshold_percentage=0.8,
+        available_functions=None,
+    ):
 
         self.base_url = base_url
         self.api_key = api_key
@@ -92,14 +85,13 @@ class BaseInference(ABC):
         self.tool_response = None
         self.function_call = None
         self.client = Together(api_key=os.getenv("TOGETHER_API_KEY"))
-        #-------------------------------
+        # -------------------------------
         # Clients
-        #--------------------------------
+        # --------------------------------
         self.hyperbolic_client = OpenAI(
             api_key=os.getenv("HYPERBOLIC_API_KEY"),
             base_url="https://api.hyperbolic.xyz/v1",
-            timeout=httpx.Timeout(30.0, read=30.0)
-
+            timeout=httpx.Timeout(30.0, read=30.0),
         )
         logging_utility.info("DeepSeekV3Cloud specific setup completed.")
 
@@ -107,9 +99,9 @@ class BaseInference(ABC):
 
         # Store truncation parameters
         self.truncator_params = {
-            'model_name': model_name,
-            'max_context_window': max_context_window,
-            'threshold_percentage': threshold_percentage
+            "model_name": model_name,
+            "max_context_window": max_context_window,
+            "threshold_percentage": threshold_percentage,
         }
 
         logging_utility.info("BaseInference initialized with lazy service loading.")
@@ -127,7 +119,9 @@ class BaseInference(ABC):
                     # Explicitly initialize StreamOutput with no args
                     self._services[service_class] = self._init_stream_output()
                 else:
-                    self._services[service_class] = self._init_general_service(service_class, custom_params)
+                    self._services[service_class] = self._init_general_service(
+                        service_class, custom_params
+                    )
 
                 logging_utility.debug(f"Initialized {service_class.__name__}")
             except Exception as e:
@@ -142,14 +136,11 @@ class BaseInference(ABC):
             self.base_url,
             self.api_key,
             assistant_id=self.get_assistant_id(),
-            thread_id=self.thread_id
-
-
+            thread_id=self.thread_id,
         )
 
     def _init_stream_output(self):
         return StreamOutput()
-
 
     def _init_conversation_truncator(self):
         """Config-driven truncator initialization"""
@@ -169,7 +160,7 @@ class BaseInference(ABC):
         """Cached parameter resolution with attribute matching"""
         params = []
         for name, param in signature.parameters.items():
-            if name == 'self':
+            if name == "self":
                 continue
             if hasattr(self, name):
                 params.append(getattr(self, name))
@@ -184,13 +175,11 @@ class BaseInference(ABC):
         if not self.get_assistant_id():
             raise ConfigurationError("Platform services require assistant_id")
 
-        if not hasattr(self, '_platform_credentials_verified'):
+        if not hasattr(self, "_platform_credentials_verified"):
             try:
                 self._platform_credentials_verified = True
             except Exception as e:
                 raise AuthenticationError(f"Credential validation failed: {str(e)}")
-
-
 
     @property
     def user_service(self):
@@ -229,21 +218,23 @@ class BaseInference(ABC):
     def code_execution_client(self):
         return self._get_service(StreamOutput)
 
-
     @property
     def vector_store_service(self):
         return self._get_service(VectorStoreService)
 
+    @property
+    def files(self):
+        return self._get_service(FileClient)
 
     @property
     def conversation_truncator(self):
         return self._get_service(ConversationTruncator)
 
-
     @abstractmethod
     def setup_services(self):
         """Initialize any additional services required by child classes."""
         pass
+
     # -------------------------------------------------
     # ENTITIES STATE INFORMATION
     # From time to time we need to pass
@@ -274,7 +265,6 @@ class BaseInference(ABC):
             del self._services[service_class]
             logging_utility.debug(f"Invalidated cache for {service_class.__name__}")
 
-
     def set_tool_response_state(self, value):
         self.tool_response = value
 
@@ -289,7 +279,6 @@ class BaseInference(ABC):
 
     @staticmethod
     def parse_code_interpreter_partial(text):
-
         """
         Parses a partial JSON-like string that begins with:
         {'name': 'code_interpreter', 'arguments': {'code':
@@ -301,15 +290,18 @@ class BaseInference(ABC):
             A dictionary with the key 'code' containing the extracted text,
             or None if no match is found.
         """
-        pattern = re.compile(r"""
+        pattern = re.compile(
+            r"""
             \{\s*['"]name['"]\s*:\s*['"]code_interpreter['"]\s*,\s*   # "name": "code_interpreter"
             ['"]arguments['"]\s*:\s*\{\s*['"]code['"]\s*:\s*             # "arguments": {"code":
             (?P<code>.*)                                               # Capture the rest as code content
-        """, re.VERBOSE | re.DOTALL)
+        """,
+            re.VERBOSE | re.DOTALL,
+        )
 
         match = pattern.search(text)
         if match:
-            return {'code': match.group('code').strip()}
+            return {"code": match.group("code").strip()}
         else:
             return None
 
@@ -339,7 +331,8 @@ class BaseInference(ABC):
 
         If no match is found, returns None.
         """
-        pattern = re.compile(r'''
+        pattern = re.compile(
+            r"""
             \{\s*                                                      # Opening brace of outer object
             (?P<q1>["']) (?P<first_key> [^"']+?) (?P=q1) \s* : \s*      # First key
             (?P<q2>["']) (?P<first_value> [^"']+?) (?P=q2) \s* , \s*    # First value
@@ -347,18 +340,20 @@ class BaseInference(ABC):
             \{\s*                                                      # Opening brace of nested object
             (?P<q4>["']) (?P<nested_key> [^"']+?) (?P=q4) \s* : \s*     # Nested key
             (?P<q5>["']) (?P<nested_value> .*?) (?P=q5) \s*             # Nested value (multiline allowed)
-            \} \s*                                                     # Closing brace of nested object
-            \} \s*                                                     # Closing brace of outer object
-        ''', re.VERBOSE | re.DOTALL)  # re.DOTALL allows matching multiline values
+            } \s*                                                     # Closing brace of nested object
+            } \s*                                                     # Closing brace of outer object
+        """,
+            re.VERBOSE | re.DOTALL,
+        )  # re.DOTALL allows matching multiline values
 
         match = pattern.search(text)
         if match:
             return {
-                'first_key': match.group('first_key'),
-                'first_value': match.group('first_value'),
-                'second_key': match.group('second_key'),
-                'nested_key': match.group('nested_key'),
-                'nested_value': match.group('nested_value').strip(),  # Remove trailing whitespace
+                "first_key": match.group("first_key"),
+                "first_value": match.group("first_value"),
+                "second_key": match.group("second_key"),
+                "nested_key": match.group("nested_key"),
+                "nested_value": match.group("nested_value").strip(),  # Remove trailing whitespace
             }
         else:
             return None
@@ -366,10 +361,10 @@ class BaseInference(ABC):
     def convert_smart_quotes(self, text: str) -> str:
 
         replacements = {
-            '‘': "'",  # smart single quote to standard single quote
-            '’': "'",
-            '“': '"',  # smart double quote to standard double quote
-            '”': '"'
+            "‘": "'",  # smart single quote to standard single quote
+            "’": "'",
+            "“": '"',  # smart double quote to standard double quote
+            "”": '"',
         }
         for smart, standard in replacements.items():
             text = text.replace(smart, standard)
@@ -413,7 +408,7 @@ class BaseInference(ABC):
     def is_complex_vector_search(self, data: dict) -> bool:
         """Recursively validate operators with $ prefix"""
         for key, value in data.items():
-            if key.startswith('$'):
+            if key.startswith("$"):
                 # Operator values can be primitives or nested structures
                 if isinstance(value, dict) and not self.is_complex_vector_search(value):
                     return False
@@ -431,20 +426,16 @@ class BaseInference(ABC):
 
         return True
 
-
     def normalize_roles(self, conversation_history):
         """
         Normalize roles to ensure consistency with the Hyperbolic API.
         """
         normalized_history = []
         for message in conversation_history:
-            role = message.get('role', '').strip().lower()
-            if role not in ['user', 'assistant', 'system', 'tool', 'platform']:
-                role = 'user'
-            normalized_history.append({
-                "role": role,
-                "content": message.get('content', '').strip()
-            })
+            role = message.get("role", "").strip().lower()
+            if role not in ["user", "assistant", "system", "tool", "platform"]:
+                role = "user"
+            normalized_history.append({"role": role, "content": message.get("content", "").strip()})
         return normalized_history
 
     def extract_function_candidates(self, text):
@@ -456,7 +447,7 @@ class BaseInference(ABC):
         # - Looks for {...} structures with 'name' and 'arguments' keys
         # - Allows for nested JSON structures
         # - Tolerates some invalid JSON formatting that might appear in streams
-        pattern = r'''
+        pattern = r"""
             \{                      # Opening curly brace
             \s*                     # Optional whitespace
             (["'])name\1\s*:\s*     # 'name' key with quotes
@@ -464,7 +455,7 @@ class BaseInference(ABC):
             (["'])arguments\4\s*:\s* # 'arguments' key
             (\{.*?\})               # Capture arguments object
             \s*\}                   # Closing curly brace
-        '''
+        """
 
         candidates = []
         try:
@@ -485,26 +476,22 @@ class BaseInference(ABC):
         Handles multi-line JSON and schema validation without recursive patterns.
         """
         # Remove markdown code fences (e.g., ```json ... ```)
-        text = re.sub(r'```(?:json)?(.*?)```', r'\1', text, flags=re.DOTALL)
+        text = re.sub(r"```(?:json)?(.*?)```", r"\1", text, flags=re.DOTALL)
 
         # Normalization phase
-        text = re.sub(r'[“”]', '"', text)
-        text = re.sub(r'(\s|\\n)+', ' ', text)
+        text = re.sub(r"[“”]", '"', text)
+        text = re.sub(r"(\s|\\n)+", " ", text)
 
         # Simplified pattern without recursion
-        pattern = r'''
+        pattern = r"""
             \{         # Opening curly brace
             .*?        # Any characters
-            "name"\s*:\s*"(?P<name>[^"]+)" 
+            "name"\s*:\s*"(?P<name>[^"]+)"
             .*?        # Any characters
             "arguments"\s*:\s*\{(?P<args>.*?)\}
             .*?        # Any characters
             \}         # Closing curly brace
-        '''
-
-
-
-
+        """
 
         tool_matches = []
         for match in re.finditer(pattern, text, re.DOTALL | re.VERBOSE):
@@ -514,9 +501,9 @@ class BaseInference(ABC):
                 parsed = json.loads(raw_json)
 
                 # Schema validation
-                if not all(key in parsed for key in ['name', 'arguments']):
+                if not all(key in parsed for key in ["name", "arguments"]):
                     continue
-                if not isinstance(parsed['arguments'], dict):
+                if not isinstance(parsed["arguments"], dict):
                     continue
 
                 tool_matches.append(parsed)
@@ -536,11 +523,12 @@ class BaseInference(ABC):
 
         Returns a parsed JSON dictionary if successful, otherwise returns False.
         """
+        global fixed_text
         if not isinstance(text, str) or not text.strip():
             logging_utility.error("Received empty or non-string content for JSON validation.")
             return False
 
-        original_text_for_logging = text[:200] + ('...' if len(text) > 200 else '')  # Log snippet
+        original_text_for_logging = text[:200] + ("..." if len(text) > 200 else "")  # Log snippet
         processed_text = text.strip()
         parsed_json = None
 
@@ -563,14 +551,17 @@ class BaseInference(ABC):
                 # Parsed successfully, but resulted in a string.
                 # This means the original 'processed_text' was an escaped JSON string.
                 # 'intermediate_parse' now holds the actual JSON string we need to parse.
-                logging_utility.warning("Initial parse resulted in string, attempting inner JSON parse.")
+                logging_utility.warning(
+                    "Initial parse resulted in string, attempting inner JSON parse."
+                )
                 processed_text = intermediate_parse  # Use the unescaped string for the next stage
                 # Fall through to Stage 2 for parsing and fixes
 
             else:
                 # Parsed to something other than dict or string (e.g., list, number)
                 logging_utility.error(
-                    f"Direct JSON parse resulted in unexpected type: {type(intermediate_parse)}. Expected dict or escaped string.")
+                    f"Direct JSON parse resulted in unexpected type: {type(intermediate_parse)}. Expected dict or escaped string."
+                )
                 return False  # Not suitable for function call structure
 
         except json.JSONDecodeError:
@@ -583,7 +574,8 @@ class BaseInference(ABC):
             # Catch unexpected errors during the first parse attempt
             logging_utility.error(
                 f"Unexpected error during initial JSON parse stage: {e}. Text: {original_text_for_logging}",
-                exc_info=True)
+                exc_info=True,
+            )
             return False
 
         # --- Stage 2: Apply Fixes and Attempt Final Parse ---
@@ -595,7 +587,9 @@ class BaseInference(ABC):
         if parsed_json and isinstance(parsed_json, dict):
             # If already parsed to dict, just check for/fix trailing commas in string representation
             # This is less common, usually fix before parsing. Let's skip for simplicity unless needed.
-            logging_utility.debug("JSON already parsed, skipping fix stage (commas assumed handled or valid).")
+            logging_utility.debug(
+                "JSON already parsed, skipping fix stage (commas assumed handled or valid)."
+            )
             # If trailing commas *after* initial parse are a problem, convert dict back to string, fix, re-parse (complex).
             # Let's assume the initial parse handled it or it was valid.
             pass  # proceed to return parsed_json
@@ -605,9 +599,12 @@ class BaseInference(ABC):
                 # Fix 1: Standardize Single Quotes (Use cautiously)
                 # Only apply if single quotes are present and double quotes are likely not intentional structure
                 # This is heuristic and might break valid JSON with single quotes in string values.
-                if "'" in processed_text and '"' not in processed_text.replace("\\'",
-                                                                               ""):  # Avoid replacing escaped quotes if possible
-                    logging_utility.warning(f"Attempting single quote fix on: {processed_text[:100]}...")
+                if "'" in processed_text and '"' not in processed_text.replace(
+                    "\\'", ""
+                ):  # Avoid replacing escaped quotes if possible
+                    logging_utility.warning(
+                        f"Attempting single quote fix on: {processed_text[:100]}..."
+                    )
                     fixed_text = processed_text.replace("'", '"')
                 else:
                     fixed_text = processed_text  # No quote fix needed or too risky
@@ -621,19 +618,22 @@ class BaseInference(ABC):
 
                 if not isinstance(parsed_json, dict):
                     logging_utility.error(
-                        f"Parsed JSON after fixes is not a dictionary (type: {type(parsed_json)}). Text after fixes: {fixed_text[:200]}...")
+                        f"Parsed JSON after fixes is not a dictionary (type: {type(parsed_json)}). Text after fixes: {fixed_text[:200]}..."
+                    )
                     return False
 
                 logging_utility.info("JSON successfully parsed after fixes.")
 
             except json.JSONDecodeError as e:
                 logging_utility.error(
-                    f"Failed to parse JSON even after fixes. Error: {e}. Text after fixes attempt: {fixed_text[:200]}...")
+                    f"Failed to parse JSON even after fixes. Error: {e}. Text after fixes attempt: {fixed_text[:200]}..."
+                )
                 return False
             except Exception as e:
                 logging_utility.error(
                     f"Unexpected error during JSON fixing/parsing stage: {e}. Text: {original_text_for_logging}",
-                    exc_info=True)
+                    exc_info=True,
+                )
                 return False
 
         # --- Stage 3: Final Check and Return ---
@@ -667,7 +667,7 @@ class BaseInference(ABC):
                 role="assistant",
                 assistant_id=assistant_id,
                 sender_id=assistant_id,
-                is_last_chunk=True
+                is_last_chunk=True,
             )
             logging_utility.info("Partial assistant response stored successfully.")
             self.run_service.update_run_status(run_id, validator.StatusEnum.failed)
@@ -682,8 +682,7 @@ class BaseInference(ABC):
                 role="assistant",
                 assistant_id=assistant_id,
                 sender_id=assistant_id,
-                is_last_chunk=True
-
+                is_last_chunk=True,
             )
 
             logging_utility.info("Assistant response stored successfully.")
@@ -692,7 +691,9 @@ class BaseInference(ABC):
 
             return message
 
-    def get_vector_store_id_for_assistant(self, assistant_id: str, store_suffix: str = "chat") -> str:
+    def get_vector_store_id_for_assistant(
+        self, assistant_id: str, store_suffix: str = "chat"
+    ) -> str:
         """
         Retrieve the vector store ID for a specific assistant and store suffix.
 
@@ -704,15 +705,15 @@ class BaseInference(ABC):
             str: The collection name of the vector store.
         """
         # Retrieve a list of vector stores per assistant
-        vector_stores = self.vector_store_service.get_vector_stores_for_assistant(assistant_id=assistant_id)
+        vector_stores = self.vector_store_service.get_vector_stores_for_assistant(
+            assistant_id=assistant_id
+        )
 
         # Map name to collection_name
         vector_store_mapping = {vs.name: vs.collection_name for vs in vector_stores}
 
         # Return the collection name for the specific store
         return vector_store_mapping[f"{assistant_id}-{store_suffix}"]
-
-
 
     def start_cancellation_listener(self, run_id: str, poll_interval: float = 1.0) -> None:
         """
@@ -733,7 +734,7 @@ class BaseInference(ABC):
             event_handler = EntitiesEventHandler(
                 run_service=self.run_service,
                 action_service=self.action_service,
-                event_callback=handle_event
+                event_callback=handle_event,
             )
             while not self._cancelled:
                 if event_handler._emit_event("cancelled", run_id) == "cancelled":
@@ -749,20 +750,17 @@ class BaseInference(ABC):
         """Non-blocking check of the cancellation flag."""
         return self._cancelled
 
-
-    def _process_tool_calls(self, thread_id,
-                            assistant_id, content,
-                            run_id):
+    def _process_tool_calls(self, thread_id, assistant_id, content, run_id):
 
         # Save the tool invocation for state management.
         self.action_service.create_action(
-            tool_name=content["name"],
-            run_id=run_id,
-            function_args=content["arguments"]
+            tool_name=content["name"], run_id=run_id, function_args=content["arguments"]
         )
 
         # Update run status to 'action_required'
-        self.run_service.update_run_status(run_id=run_id, new_status=validator.StatusEnum.pending_action)
+        self.run_service.update_run_status(
+            run_id=run_id, new_status=validator.StatusEnum.pending_action
+        )
         logging_utility.info(f"Run {run_id} status updated to action_required")
 
         # Now wait for the run's status to change from 'action_required'.
@@ -776,7 +774,6 @@ class BaseInference(ABC):
 
         return content
 
-
     def _handle_web_search(self, thread_id, assistant_id, function_output, action):
         """Special handling for web search results."""
         try:
@@ -784,20 +781,13 @@ class BaseInference(ABC):
             search_output = str(function_output[0]) + WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS
 
             self.submit_tool_output(
-                thread_id=thread_id,
-                assistant_id=assistant_id,
-                content=search_output,
-                action=action
+                thread_id=thread_id, assistant_id=assistant_id, content=search_output, action=action
             )
-            logging_utility.info(
-                "Web search results submitted for action %s",
-                action.id
-            )
+            logging_utility.info("Web search results submitted for action %s", action.id)
 
         except IndexError as e:
             logging_utility.error(
-                "Invalid web search output format for action %s: %s",
-                action.id, str(e)
+                "Invalid web search output format for action %s: %s", action.id, str(e)
             )
             raise
 
@@ -805,23 +795,16 @@ class BaseInference(ABC):
         """Special handling for code interpreter results."""
         try:
             parsed_output = json.loads(function_output)
-            output_value = parsed_output['result']['output']
+            output_value = parsed_output["result"]["output"]
 
             self.submit_tool_output(
-                thread_id=thread_id,
-                assistant_id=assistant_id,
-                content=output_value,
-                action=action
+                thread_id=thread_id, assistant_id=assistant_id, content=output_value, action=action
             )
-            logging_utility.info(
-                "Code interpreter output submitted for action %s",
-                action.id
-            )
+            logging_utility.info("Code interpreter output submitted for action %s", action.id)
 
         except json.JSONDecodeError as e:
             logging_utility.error(
-                "Failed to parse code interpreter output for action %s: %s",
-                action.id, str(e)
+                "Failed to parse code interpreter output for action %s: %s", action.id, str(e)
             )
             raise
 
@@ -832,20 +815,13 @@ class BaseInference(ABC):
             search_output = str(function_output)
 
             self.submit_tool_output(
-                thread_id=thread_id,
-                assistant_id=assistant_id,
-                content=search_output,
-                action=action
+                thread_id=thread_id, assistant_id=assistant_id, content=search_output, action=action
             )
-            logging_utility.info(
-                "Web search results submitted for action %s",
-                action.id
-            )
+            logging_utility.info("Web search results submitted for action %s", action.id)
 
         except IndexError as e:
             logging_utility.error(
-                "Invalid web search output format for action %s: %s",
-                action.id, str(e)
+                "Invalid web search output format for action %s: %s", action.id, str(e)
             )
             raise
 
@@ -857,17 +833,13 @@ class BaseInference(ABC):
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 content=function_output,
-                action=action
+                action=action,
             )
-            logging_utility.info(
-                "Web search results submitted for action %s",
-                action.id
-            )
+            logging_utility.info("Web search results submitted for action %s", action.id)
 
         except IndexError as e:
             logging_utility.error(
-                "Invalid web search output format for action %s: %s",
-                action.id, str(e)
+                "Invalid web search output format for action %s: %s", action.id, str(e)
             )
             raise
 
@@ -880,20 +852,16 @@ class BaseInference(ABC):
                 content=content,
                 role="tool",
                 assistant_id=assistant_id,
-                tool_id="dummy"
+                tool_id="dummy",
             )
-            self.action_service.update_action(action_id=action.id, status='completed')
-            logging_utility.debug(
-                "Tool output submitted successfully for action %s",
-                action.id
-            )
+            self.action_service.update_action(action_id=action.id, status="completed")
+            logging_utility.debug("Tool output submitted successfully for action %s", action.id)
 
         except Exception as e:
             logging_utility.error(
-                "Failed to submit tool output for action %s: %s",
-                action.id, str(e)
+                "Failed to submit tool output for action %s: %s", action.id, str(e)
             )
-            self.action_service.update_action(action_id=action.id, status='failed')
+            self.action_service.update_action(action_id=action.id, status="failed")
             raise
 
     def _process_platform_tool_calls(self, thread_id, assistant_id, content, run_id):
@@ -904,27 +872,22 @@ class BaseInference(ABC):
 
         try:
             logging_utility.info(
-                "Starting tool call processing for run %s. Tool: %s",
-                run_id, content["name"]
+                "Starting tool call processing for run %s. Tool: %s", run_id, content["name"]
             )
 
             # Create action with sanitized logging
             action = self.action_service.create_action(
-                tool_name=content["name"],
-                run_id=run_id,
-                function_args=content["arguments"]
+                tool_name=content["name"], run_id=run_id, function_args=content["arguments"]
             )
 
-            logging_utility.debug(
-                "Created action %s for tool %s",
-                action.id, content["name"]
-            )
+            logging_utility.debug("Created action %s for tool %s", action.id, content["name"])
 
             # Update run status
-            self.run_service.update_run_status(run_id=run_id, new_status=validator.StatusEnum.pending_action)
+            self.run_service.update_run_status(
+                run_id=run_id, new_status=validator.StatusEnum.pending_action
+            )
             logging_utility.info(
-                "Run %s status updated to action_required for tool %s",
-                run_id, content["name"]
+                "Run %s status updated to action_required for tool %s", run_id, content["name"]
             )
 
             # Execute tool call
@@ -933,12 +896,10 @@ class BaseInference(ABC):
             function_output = platform_tool_service.call_function(
                 function_name=content["name"],
                 arguments=content["arguments"],
-
             )
 
             logging_utility.debug(
-                "Tool %s executed successfully for run %s",
-                content["name"], run_id
+                "Tool %s executed successfully for run %s", content["name"], run_id
             )
 
             # Handle specific tool types
@@ -946,8 +907,7 @@ class BaseInference(ABC):
                 "code_interpreter": self._handle_code_interpreter,
                 "web_search": self._handle_web_search,
                 "vector_store_search": self._handle_vector_search,
-                "computer": self._handle_computer
-
+                "computer": self._handle_computer,
             }
 
             handler = tool_handlers.get(content["name"])
@@ -956,28 +916,25 @@ class BaseInference(ABC):
                     thread_id=thread_id,
                     assistant_id=assistant_id,
                     function_output=function_output,
-                    action=action
+                    action=action,
                 )
             else:
                 logging_utility.warning(
-                    "No specific handler for tool %s, using default processing",
-                    content["name"]
+                    "No specific handler for tool %s, using default processing", content["name"]
                 )
                 self._submit_tool_output(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
                     content=function_output,
-                    action=action
+                    action=action,
                 )
 
         except Exception as e:
             logging_utility.error(
-                "Failed to process tool call for run %s: %s",
-                run_id, str(e), exc_info=True
+                "Failed to process tool call for run %s: %s", run_id, str(e), exc_info=True
             )
-            self.action_service.update_action(action_id=action.id, status='failed')
+            self.action_service.update_action(action_id=action.id, status="failed")
             raise  # Re-raise for upstream handling
-
 
     def submit_tool_output(self, thread_id, content, assistant_id, action):
         """
@@ -995,22 +952,16 @@ class BaseInference(ABC):
                 content=content,
                 role="tool",
                 assistant_id=assistant_id,
-                tool_id="dummy"  # Replace with actual tool_id if available
-
+                tool_id="dummy",  # Replace with actual tool_id if available
             )
 
             # Update action status
-            self.action_service.update_action(action_id=action.id, status='completed')
-            logging_utility.debug(
-                "Tool output submitted successfully for action %s",
-                action.id
-            )
+            self.action_service.update_action(action_id=action.id, status="completed")
+            logging_utility.debug("Tool output submitted successfully for action %s", action.id)
         except Exception as e:
             # Log the error
             logging_utility.error(
-                "Failed to submit tool output for action %s: %s",
-                action.id,
-                str(e)
+                "Failed to submit tool output for action %s: %s", action.id, str(e)
             )
 
             # Send the error message to the user
@@ -1019,13 +970,11 @@ class BaseInference(ABC):
                 content=f"ERROR: {str(e)}",
                 role="tool",
                 assistant_id=assistant_id,
-                tool_id="dummy"  # Replace with actual tool_id if available
-
+                tool_id="dummy",  # Replace with actual tool_id if available
             )
 
-
             # Update action status to 'failed'
-            self.action_service.update_action(action_id=action.id, status='failed')
+            self.action_service.update_action(action_id=action.id, status="failed")
 
             # Re-raise the exception for further handling
             raise
@@ -1033,14 +982,13 @@ class BaseInference(ABC):
     def handle_code_interpreter_action(self, thread_id, run_id, assistant_id, arguments_dict):
 
         action = self.action_service.create_action(
-            tool_name="code_interpreter",
-            run_id=run_id,
-            function_args=arguments_dict
+            tool_name="code_interpreter", run_id=run_id, function_args=arguments_dict
         )
 
-
         code = arguments_dict.get("code")
-        uploaded_files = []  # This list will still contain the original (potentially wrong) mime_type from Step 1
+        uploaded_files = (
+            []
+        )  # This list will still contain the original (potentially wrong) mime_type from Step 1
         hot_code_buffer = []
         final_content_for_assistant = ""  # Initialize variable for Step 6
 
@@ -1068,10 +1016,7 @@ class BaseInference(ABC):
                         # Assume the old structure if the new one isn't found
                         parsed = parsed_chunk_wrapper
                         # Wrap in the expected frontend structure before yielding
-                        yield json.dumps({
-                            "stream_type": "code_execution",
-                            "chunk": parsed
-                        })
+                        yield json.dumps({"stream_type": "code_execution", "chunk": parsed})
 
                     # Process the parsed content (the actual chunk data)
                     chunk_type = parsed.get("type")
@@ -1084,11 +1029,15 @@ class BaseInference(ABC):
                             # Extract uploaded files metadata - this list has the original mime_type
                             uploaded_files_metadata = parsed.get("uploaded_files", [])
                             uploaded_files.extend(uploaded_files_metadata)
-                            logging_utility.info("Execution complete. Received uploaded files metadata: %s",
-                                                 uploaded_files_metadata)
+                            logging_utility.info(
+                                "Execution complete. Received uploaded files metadata: %s",
+                                uploaded_files_metadata,
+                            )
                         elif status_content == "process_complete":
-                            logging_utility.info("Code execution process completed with exit code: %s",
-                                                 parsed.get("exit_code"))
+                            logging_utility.info(
+                                "Code execution process completed with exit code: %s",
+                                parsed.get("exit_code"),
+                            )
 
                         # Append status to buffer *only if* needed for final output
                         # hot_code_buffer.append(f"[{status_content}]") # Often not needed in final output
@@ -1097,32 +1046,56 @@ class BaseInference(ABC):
                         # Append actual code output
                         hot_code_buffer.append(content)
                     elif chunk_type == "error":
-                        logging_utility.error("Received error chunk during code execution: %s", content)
+                        logging_utility.error(
+                            "Received error chunk during code execution: %s", content
+                        )
                         hot_code_buffer.append(f"[Code Execution Error: {content}]")
                     # Ignore other types like 'hot_code' for the buffer meant for final output
 
                 except json.JSONDecodeError:
                     logging_utility.error("Failed to decode JSON chunk: %s", chunk_str)
                     # Decide how to handle invalid JSON - maybe yield an error chunk?
-                    yield json.dumps({
-                        "stream_type": "code_execution",
-                        "chunk": {"type": "error", "content": "Received invalid data from code execution."}
-                    })
+                    yield json.dumps(
+                        {
+                            "stream_type": "code_execution",
+                            "chunk": {
+                                "type": "error",
+                                "content": "Received invalid data from code execution.",
+                            },
+                        }
+                    )
                 except Exception as e:
-                    logging_utility.error("Error processing execution chunk: %s - Chunk: %s", str(e), chunk_str,
-                                          exc_info=True)
-                    yield json.dumps({
-                        "stream_type": "code_execution",
-                        "chunk": {"type": "error", "content": f"Internal error processing execution output: {str(e)}"}
-                    })
+                    logging_utility.error(
+                        "Error processing execution chunk: %s - Chunk: %s",
+                        str(e),
+                        chunk_str,
+                        exc_info=True,
+                    )
+                    yield json.dumps(
+                        {
+                            "stream_type": "code_execution",
+                            "chunk": {
+                                "type": "error",
+                                "content": f"Internal error processing execution output: {str(e)}",
+                            },
+                        }
+                    )
 
         except Exception as stream_err:
-            logging_utility.error("Error during code_execution_client.stream_output: %s", str(stream_err),
-                                  exc_info=True)
-            yield json.dumps({
-                "stream_type": "code_execution",
-                "chunk": {"type": "error", "content": f"Failed to stream code execution: {str(stream_err)}"}
-            })
+            logging_utility.error(
+                "Error during code_execution_client.stream_output: %s",
+                str(stream_err),
+                exc_info=True,
+            )
+            yield json.dumps(
+                {
+                    "stream_type": "code_execution",
+                    "chunk": {
+                        "type": "error",
+                        "content": f"Failed to stream code execution: {str(stream_err)}",
+                    },
+                }
+            )
             # Ensure flow continues to submit something if possible, or handle failure
             uploaded_files = []  # Reset uploaded files as execution failed
 
@@ -1134,7 +1107,9 @@ class BaseInference(ABC):
         url_list = []
 
         if uploaded_files:
-            logging_utility.info("Processing %d uploaded files for URLs/Markdown.", len(uploaded_files))
+            logging_utility.info(
+                "Processing %d uploaded files for URLs/Markdown.", len(uploaded_files)
+            )
             for file_meta in uploaded_files:  # Use a different variable name like file_meta
                 try:
                     file_id = file_meta.get("id")
@@ -1142,8 +1117,10 @@ class BaseInference(ABC):
                     presigned_url = file_meta.get("url")  # URL from _upload_generated_files
 
                     if not file_id or not filename:
-                        logging_utility.warning("Skipping file metadata entry with missing id or filename: %s",
-                                                file_meta)
+                        logging_utility.warning(
+                            "Skipping file metadata entry with missing id or filename: %s",
+                            file_meta,
+                        )
                         continue
 
                     # Determine the URL to use/display
@@ -1151,12 +1128,14 @@ class BaseInference(ABC):
                     if presigned_url:
                         # Check if it's the markdown format `[filename](<<url>>)`
                         if presigned_url.startswith("[") and presigned_url.endswith(")"):
-                            match = re.search(r'\(\<\<(.*?)\>\>\)', presigned_url)
+                            match = re.search(r"\(\<\<(.*?)\>\>\)", presigned_url)
                             if match:
                                 display_url = match.group(1)
                             else:
-                                logging_utility.warning("Could not extract URL from markdown-like string: %s",
-                                                        presigned_url)
+                                logging_utility.warning(
+                                    "Could not extract URL from markdown-like string: %s",
+                                    presigned_url,
+                                )
                                 # Fallback or handle error
                         else:
                             display_url = presigned_url  # Assume it's a direct URL
@@ -1165,16 +1144,26 @@ class BaseInference(ABC):
                     if not display_url:
                         # Construct a fallback download URL if your API supports it
                         # Adjust the host/path as needed
-                        fallback_base = os.getenv("FILE_DOWNLOAD_BASE_URL", "http://localhost:9000")  # Example base URL
+                        fallback_base = os.getenv(
+                            "FILE_DOWNLOAD_BASE_URL", "http://localhost:9000"
+                        )  # Example base URL
                         display_url = f"{fallback_base}/v1/files/download?file_id={file_id}"
-                        logging_utility.info("Using fallback download URL for %s: %s", filename, display_url)
+                        logging_utility.info(
+                            "Using fallback download URL for %s: %s", filename, display_url
+                        )
 
                     url_list.append(display_url)  # Add the URL for the assistant
-                    markdown_lines.append(f"[{filename}]({display_url})")  # Add markdown link for the user
+                    markdown_lines.append(
+                        f"[{filename}]({display_url})"
+                    )  # Add markdown link for the user
 
                 except Exception as e:
-                    logging_utility.error("Error processing URL/Markdown for file %s: %s", file_meta.get("id", "N/A"),
-                                          str(e), exc_info=True)
+                    logging_utility.error(
+                        "Error processing URL/Markdown for file %s: %s",
+                        file_meta.get("id", "N/A"),
+                        str(e),
+                        exc_info=True,
+                    )
                     # Add a placeholder if processing fails for a file
                     fn = file_meta.get("filename", "Unknown File")
                     markdown_lines.append(f"{fn}: Error generating link")
@@ -1188,7 +1177,9 @@ class BaseInference(ABC):
             final_content_for_assistant = "\n".join(hot_code_buffer).strip()
             # If buffer is empty, provide a default message
             if not final_content_for_assistant:
-                final_content_for_assistant = "[Code executed successfully, but produced no output or files.]"
+                final_content_for_assistant = (
+                    "[Code executed successfully, but produced no output or files.]"
+                )
 
         # -------------------------------
         # Step 3: Stream base64 previews for frontend rendering (Correct MIME Type Here)
@@ -1197,74 +1188,102 @@ class BaseInference(ABC):
             logging_utility.info("Streaming base64 previews for %d files...", len(uploaded_files))
             # Assuming EntitiesInternalInterface provides file access
             # Ensure base URL is correctly configured
-            entities_base_url = os.getenv("ENTITIES_BASE_URL", "http://fastapi_cosmic_catalyst:9000")
+            entities_base_url = os.getenv(
+                "ENTITIES_BASE_URL", "http://fastapi_cosmic_catalyst:9000"
+            )
 
-            interface = EntitiesInternalInterface()
 
             for file_meta in uploaded_files:  # Use file_meta again
                 file_id = file_meta.get("id")
                 filename = file_meta.get("filename")
 
                 if not file_id or not filename:
-                    logging_utility.warning("Skipping base64 streaming for entry with missing id or filename: %s",
-                                            file_meta)
+                    logging_utility.warning(
+                        "Skipping base64 streaming for entry with missing id or filename: %s",
+                        file_meta,
+                    )
                     continue
 
                 base64_str = None
                 # <<< START MODIFICATION >>>
                 # Dynamically determine MIME type based on filename *here*
                 guessed_mime_type, _ = mimetypes.guess_type(filename)
-                final_mime_type = guessed_mime_type if guessed_mime_type else 'application/octet-stream'
-                logging_utility.info("Determined MIME type for '%s' (ID: %s) as: %s", filename, file_id,
-                                     final_mime_type)
+                final_mime_type = (
+                    guessed_mime_type if guessed_mime_type else "application/octet-stream"
+                )
+                logging_utility.info(
+                    "Determined MIME type for '%s' (ID: %s) as: %s",
+                    filename,
+                    file_id,
+                    final_mime_type,
+                )
                 # <<< END MODIFICATION >>>
 
                 try:
                     # Fetch the base64 content using the file ID
-                    base64_str = interface.files.get_file_as_base64(file_id=file_id)
-                    logging_utility.debug("Successfully fetched base64 for file %s (%s)", filename, file_id)
+                    base64_str = self.files.get_file_as_base64(file_id=file_id)
+                    logging_utility.debug(
+                        "Successfully fetched base64 for file %s (%s)", filename, file_id
+                    )
 
                 except Exception as e:
-                    logging_utility.error("Error fetching base64 for file %s (%s): %s", filename, file_id, str(e),
-                                          exc_info=True)
+                    logging_utility.error(
+                        "Error fetching base64 for file %s (%s): %s",
+                        filename,
+                        file_id,
+                        str(e),
+                        exc_info=True,
+                    )
                     # Send an error placeholder in the stream
                     base64_str = base64.b64encode(
-                        f"Error retrieving content: {str(e)}".encode()).decode()  # Encode error message
+                        f"Error retrieving content: {str(e)}".encode()
+                    ).decode()  # Encode error message
                     final_mime_type = "text/plain"  # Set mime type to text for error
 
                 # Yield the chunk with the corrected MIME type
-                yield json.dumps({
-                    "stream_type": "code_execution",
-                    "chunk": {
-                        "type": "code_interpreter_stream",
-                        "content": {
-                            "filename": filename,
-                            "file_id": file_id,
-                            "base64": base64_str,
-                            "mime_type": final_mime_type  # Use the dynamically determined type
-                        }
+                yield json.dumps(
+                    {
+                        "stream_type": "code_execution",
+                        "chunk": {
+                            "type": "code_interpreter_stream",
+                            "content": {
+                                "filename": filename,
+                                "file_id": file_id,
+                                "base64": base64_str,
+                                "mime_type": final_mime_type,  # Use the dynamically determined type
+                            },
+                        },
                     }
-                })
-                logging_utility.info("Yielded base64 chunk for %s (%s) with MIME type %s", filename, file_id,
-                                     final_mime_type)
+                )
+                logging_utility.info(
+                    "Yielded base64 chunk for %s (%s) with MIME type %s",
+                    filename,
+                    file_id,
+                    final_mime_type,
+                )
 
         # -------------------------------
         # Step 4: Final frontend-visible chunk (Uses content generated in Step 2)
         # -------------------------------
         logging_utility.info("Yielding final content chunk for display.")
-        yield json.dumps({
-            "stream_type": "code_execution",
-            "chunk": {
-                "type": "content",
-                "content": final_content_for_assistant  # Send the constructed markdown or buffer
+        yield json.dumps(
+            {
+                "stream_type": "code_execution",
+                "chunk": {
+                    "type": "content",
+                    "content": final_content_for_assistant,  # Send the constructed markdown or buffer
+                },
             }
-        })
+        )
 
         # -------------------------------
         # Step 5: Log uploaded file contents for debug (Uses original uploaded_files)
         # -------------------------------
         # Note: 'uploaded_files' still contains the original mime_type from Step 1
-        logging_utility.info("Final uploaded_files metadata (original mime_type):\n%s", pprint.pformat(uploaded_files))
+        logging_utility.info(
+            "Final uploaded_files metadata (original mime_type):\n%s",
+            pprint.pformat(uploaded_files),
+        )
 
         # -------------------------------
         # Step 6: Submit Tool Output (Uses url_list or final_content_for_assistant from Step 2)
@@ -1272,9 +1291,14 @@ class BaseInference(ABC):
         try:
             # Choose content based on whether file URLs were generated
             content_to_submit = url_list if url_list else final_content_for_assistant
-            submission_message = CODE_ANALYSIS_TOOL_MESSAGE if url_list else final_content_for_assistant  # Message for assistant context
+            submission_message = (
+                CODE_ANALYSIS_TOOL_MESSAGE if url_list else final_content_for_assistant
+            )  # Message for assistant context
 
-            logging_utility.info("Submitting tool output. Content type: %s", "URL List" if url_list else "Text Content")
+            logging_utility.info(
+                "Submitting tool output. Content type: %s",
+                "URL List" if url_list else "Text Content",
+            )
             # Ensure content_to_submit is not None (handle empty buffer case from Step 2)
             if content_to_submit is None:
                 logging_utility.warning("Content to submit is None, submitting empty string.")
@@ -1287,22 +1311,26 @@ class BaseInference(ABC):
                 # If assistant only needs confirmation or URLs, use a standard message or url_list
                 # If assistant needs the text output when no files, use final_content_for_assistant
                 content=submission_message,  # Content for the assistant's context
-                action=action
+                action=action,
                 # Consider adding raw output if needed by submit_tool_output, e.g., tool_outputs=content_to_submit
             )
             logging_utility.info("Tool output submitted successfully.")
 
         except Exception as submit_err:
             # This is likely where the "Together SDK error: 422... 'input': None" occurred
-            logging_utility.error("Error submitting tool output: %s", str(submit_err), exc_info=True)
+            logging_utility.error(
+                "Error submitting tool output: %s", str(submit_err), exc_info=True
+            )
             # Optionally yield another error to the frontend if submission fails critically
-            yield json.dumps({
-                "stream_type": "code_execution",
-                "chunk": {"type": "error", "content": f"Failed to submit results: {str(submit_err)}"}
-            })
-
-
-
+            yield json.dumps(
+                {
+                    "stream_type": "code_execution",
+                    "chunk": {
+                        "type": "error",
+                        "content": f"Failed to submit results: {str(submit_err)}",
+                    },
+                }
+            )
 
     def handle_shell_action(self, thread_id, run_id, assistant_id, arguments_dict):
         from entities_api.platform_tools.computer.shell_command_interface import run_shell_commands
@@ -1310,9 +1338,7 @@ class BaseInference(ABC):
 
         # Create an action for the computer command execution
         action = self.action_service.create_action(
-            tool_name="computer",
-            run_id=run_id,
-            function_args=arguments_dict
+            tool_name="computer", run_id=run_id, function_args=arguments_dict
         )
 
         # Extract commands from the arguments dictionary
@@ -1331,12 +1357,14 @@ class BaseInference(ABC):
 
             except json.JSONDecodeError:
                 # Handle invalid JSON chunks
-                error_message = "Error: Invalid JSON chunk received from computer command execution."
+                error_message = (
+                    "Error: Invalid JSON chunk received from computer command execution."
+                )
                 self.submit_tool_output(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
                     content=error_message,
-                    action=action
+                    action=action,
                 )
                 raise RuntimeError(error_message)
 
@@ -1344,10 +1372,7 @@ class BaseInference(ABC):
         if not accumulated_content:
             error_message = "Error: No computer output was generated. The command may have failed or produced no output."
             self.submit_tool_output(
-                thread_id=thread_id,
-                assistant_id=assistant_id,
-                content=error_message,
-                action=action
+                thread_id=thread_id, assistant_id=assistant_id, content=error_message, action=action
             )
             raise RuntimeError(error_message)
 
@@ -1356,7 +1381,7 @@ class BaseInference(ABC):
             thread_id=thread_id,
             assistant_id=assistant_id,
             content=accumulated_content,
-            action=action
+            action=action,
         )
 
     def validate_and_set(self, content):
@@ -1378,8 +1403,9 @@ class BaseInference(ABC):
             return False
 
     @abstractmethod
-    def stream_response(self, thread_id, message_id, run_id, assistant_id,
-                        model, stream_reasoning=False):
+    def stream_response(
+        self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=False
+    ):
         """
         Streams tool responses in real time using the TogetherAI SDK.
         - Yields each token chunk immediately, split by reasoning tags.
@@ -1390,8 +1416,9 @@ class BaseInference(ABC):
         """
         pass
 
-    def stream_function_call_output(self, thread_id, run_id, assistant_id,
-                                    model, name=None, stream_reasoning=False):
+    def stream_function_call_output(
+        self, thread_id, run_id, assistant_id, model, name=None, stream_reasoning=False
+    ):
         """
         Streaming handler for tool-based assistant responses, including reasoning and content.
 
@@ -1411,11 +1438,15 @@ class BaseInference(ABC):
         """
         logging_utility.info(
             "Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
-            thread_id, run_id, assistant_id
+            thread_id,
+            run_id,
+            assistant_id,
         )
 
         # Choose reminder message based on tool
-        reminder = CODE_INTERPRETER_MESSAGE if name == 'code_interpreter' else DEFAULT_REMINDER_MESSAGE
+        reminder = (
+            CODE_INTERPRETER_MESSAGE if name == "code_interpreter" else DEFAULT_REMINDER_MESSAGE
+        )
 
         # Inject system reminder into context
 
@@ -1423,8 +1454,7 @@ class BaseInference(ABC):
             thread_id=thread_id,
             assistant_id=assistant_id,
             content=reminder,
-            role='user',
-
+            role="user",
         )
         logging_utility.info("Sent reminder message to assistant: %s", reminder)
 
@@ -1436,7 +1466,7 @@ class BaseInference(ABC):
                 run_id=run_id,
                 assistant_id=assistant_id,
                 model=model,
-                stream_reasoning=True
+                stream_reasoning=True,
             )
 
             assistant_reply = ""
@@ -1450,15 +1480,15 @@ class BaseInference(ABC):
 
                 if chunk_type == "reasoning":
                     reasoning_content += content
-                    yield json.dumps({'type': 'reasoning', 'content': content})
+                    yield json.dumps({"type": "reasoning", "content": content})
 
                 elif chunk_type == "content":
                     assistant_reply += content
-                    yield json.dumps({'type': 'content', 'content': content}) + '\n'
+                    yield json.dumps({"type": "content", "content": content}) + "\n"
 
                 elif chunk_type == "error":
                     logging_utility.error("Error in assistant stream: %s", content)
-                    yield json.dumps({'type': 'error', 'content': content})
+                    yield json.dumps({"type": "error", "content": content})
                     return
 
                 else:
@@ -1470,7 +1500,7 @@ class BaseInference(ABC):
         except Exception as e:
             error_msg = f"[ERROR] Hyperbolic stream failed: {str(e)}"
             logging_utility.error(error_msg, exc_info=True)
-            yield json.dumps({'type': 'error', 'content': error_msg})
+            yield json.dumps({"type": "error", "content": error_msg})
             return
 
         # Finalize only if content was generated
@@ -1480,7 +1510,7 @@ class BaseInference(ABC):
                 assistant_reply=full_output,
                 thread_id=thread_id,
                 assistant_id=assistant_id,
-                run_id=run_id
+                run_id=run_id,
             )
             logging_utility.info("Assistant response finalized and stored.")
 
@@ -1512,12 +1542,12 @@ class BaseInference(ABC):
             line_chunk = code_buffer[:newline_pos]
             code_buffer = code_buffer[newline_pos:]
             # Optionally, you can add security checks here for forbidden patterns.
-            results.append(json.dumps({'type': 'hot_code', 'content': line_chunk}))
+            results.append(json.dumps({"type": "hot_code", "content": line_chunk}))
 
         # Buffer overflow protection: if the code_buffer grows too large,
         # yield its content as a chunk and reset it.
         if len(code_buffer) > 100:
-            results.append(json.dumps({'type': 'hot_code', 'content': code_buffer}))
+            results.append(json.dumps({"type": "hot_code", "content": code_buffer}))
             code_buffer = ""
 
         return results, code_buffer
@@ -1558,7 +1588,7 @@ class BaseInference(ABC):
             repeated requests with identical parameters.
         """
 
-        #interface = self.internal_sdk_interface()
+        # interface = self.internal_sdk_interface()
 
         assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
 
@@ -1575,8 +1605,12 @@ class BaseInference(ABC):
         # Include the formatted date and time in the system message
         conversation_history = self.message_service.get_formatted_messages(
             thread_id,
-            system_message="tools:" + str(
-                tools) + "\n" + assistant.instructions + "\n" + f"Today's date and time:, {formatted_datetime}"
+            system_message="tools:"
+            + str(tools)
+            + "\n"
+            + assistant.instructions
+            + "\n"
+            + f"Today's date and time:, {formatted_datetime}",
         )
 
         messages = self.normalize_roles(conversation_history)
@@ -1616,7 +1650,9 @@ class BaseInference(ABC):
 
             if json_accumulated_content:
                 # Validate function call structure.
-                function_call = self.is_valid_function_call_response(json_data=json_accumulated_content)
+                function_call = self.is_valid_function_call_response(
+                    json_data=json_accumulated_content
+                )
                 logging_utility.debug("Valid Function call: %s", function_call)
 
                 # Check for complex vector search requirements.
@@ -1630,36 +1666,40 @@ class BaseInference(ABC):
                     logging_utility.debug("Function call State: %s", self.get_function_call_state())
 
         # Check for tool invocations embedded in multi-line text.
-        tool_invocation_in_multi_line_text = self.extract_function_calls_within_body_of_text(text=assistant_reply)
-        #--------------------------------------------------
+        tool_invocation_in_multi_line_text = self.extract_function_calls_within_body_of_text(
+            text=assistant_reply
+        )
+        # --------------------------------------------------
         #  The assistant may wrap a function call in
         #  response text. This block  will catch that
-        #--------------------------------------------------
+        # --------------------------------------------------
         if tool_invocation_in_multi_line_text and not self.get_tool_response_state():
 
-            logging_utility.debug("Embedded Function Call detected : %s", tool_invocation_in_multi_line_text)
+            logging_utility.debug(
+                "Embedded Function Call detected : %s", tool_invocation_in_multi_line_text
+            )
 
             self.set_tool_response_state(True)
             self.set_function_call_state(tool_invocation_in_multi_line_text)
 
             self.set_function_call_state(tool_invocation_in_multi_line_text[0])
 
-
-    def stream_response_hyperbolic_llama3(self, thread_id, message_id, run_id, assistant_id, model,
-                                          stream_reasoning=True):
+    def stream_response_hyperbolic_llama3(
+        self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=True
+    ):
         """
         Llama 3 (Hyperbolic) streaming with content, code, and function call handling.
         Mirrors stream_response_hyperbolic structure, excluding reasoning logic.
         """
         self.start_cancellation_listener(run_id)
 
-        model = 'meta-llama/Llama-3.3-70B-Instruct'
+        model = "meta-llama/Llama-3.3-70B-Instruct"
         request_payload = {
             "model": model,
             "messages": self._set_up_context_window(assistant_id, thread_id, trunk=True),
             "max_tokens": None,
             "temperature": 0.6,
-            "stream": True
+            "stream": True,
         }
 
         assistant_reply = ""
@@ -1673,7 +1713,7 @@ class BaseInference(ABC):
             for token in response:
                 if self.check_cancellation_flag():
                     logging_utility.warning(f"Run {run_id} cancelled mid-stream")
-                    yield json.dumps({'type': 'error', 'content': 'Run cancelled'})
+                    yield json.dumps({"type": "error", "content": "Run cancelled"})
                     break
 
                 if not hasattr(token, "choices") or not token.choices:
@@ -1700,26 +1740,30 @@ class BaseInference(ABC):
                     partial_match = self.parse_code_interpreter_partial(accumulated_content)
 
                     if not code_mode and partial_match:
-                        full_match = partial_match.get('full_match')
+                        full_match = partial_match.get("full_match")
                         if full_match:
                             match_index = accumulated_content.find(full_match)
                             if match_index != -1:
-                                accumulated_content = accumulated_content[match_index + len(full_match):]
+                                accumulated_content = accumulated_content[
+                                    match_index + len(full_match) :
+                                ]
                         code_mode = True
-                        code_buffer = partial_match.get('code', '')
+                        code_buffer = partial_match.get("code", "")
                         self.code_mode = True
-                        yield json.dumps({'type': 'hot_code', 'content': '```python\n'})
+                        yield json.dumps({"type": "hot_code", "content": "```python\n"})
                         continue
 
                     if code_mode:
-                        results, code_buffer = self._process_code_interpreter_chunks(seg, code_buffer)
+                        results, code_buffer = self._process_code_interpreter_chunks(
+                            seg, code_buffer
+                        )
                         for r in results:
                             yield r
                             assistant_reply += r
                         continue
 
                     if not code_buffer:
-                        yield json.dumps({'type': 'content', 'content': seg}) + '\n'
+                        yield json.dumps({"type": "content", "content": seg}) + "\n"
 
                 time.sleep(0.05)
 
@@ -1727,7 +1771,7 @@ class BaseInference(ABC):
             error_msg = f"Llama 3 / Hyperbolic SDK error: {str(e)}"
             logging_utility.error(error_msg, exc_info=True)
             self.handle_error(assistant_reply, thread_id, assistant_id, run_id)
-            yield json.dumps({'type': 'error', 'content': error_msg})
+            yield json.dumps({"type": "error", "content": error_msg})
             return
 
         # Finalize assistant message and parse function calls
@@ -1740,12 +1784,9 @@ class BaseInference(ABC):
 
         self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
 
-
-
-
-
-
-    def stream_response_hyperbolic(self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=True):
+    def stream_response_hyperbolic(
+        self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=True
+    ):
         """
         Process conversation with dual streaming of content and reasoning.
         If a tool call trigger is detected, update run status to 'action_required',
@@ -1766,14 +1807,14 @@ class BaseInference(ABC):
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)
         else:
-            model = 'deepseek-ai/DeepSeek-V3'
+            model = "deepseek-ai/DeepSeek-V3"
 
         request_payload = {
             "model": model,
             "messages": self._set_up_context_window(assistant_id, thread_id, trunk=True),
             "max_tokens": None,
             "temperature": 0.6,
-            "stream": True
+            "stream": True,
         }
 
         assistant_reply = ""
@@ -1784,7 +1825,6 @@ class BaseInference(ABC):
         code_buffer = ""
         matched = False
 
-
         try:
             # Using self.client for streaming responses; adjust if deepseek_client is required.
             response = self.hyperbolic_client.chat.completions.create(**request_payload)
@@ -1792,7 +1832,7 @@ class BaseInference(ABC):
             for token in response:
                 if self.check_cancellation_flag():
                     logging_utility.warning(f"Run {run_id} cancelled mid-stream")
-                    yield json.dumps({'type': 'error', 'content': 'Run cancelled'})
+                    yield json.dumps({"type": "error", "content": "Run cancelled"})
                     break
 
                 if not hasattr(token, "choices") or not token.choices:
@@ -1804,7 +1844,7 @@ class BaseInference(ABC):
                 delta_reasoning = getattr(delta, "reasoning_content", "")
                 if delta_reasoning:
                     reasoning_content += delta_reasoning
-                    yield json.dumps({'type': 'reasoning', 'content': delta_reasoning})
+                    yield json.dumps({"type": "reasoning", "content": delta_reasoning})
 
                 # Process content from delta.
                 delta_content = getattr(delta, "content", "")
@@ -1815,10 +1855,12 @@ class BaseInference(ABC):
                 sys.stdout.write(delta_content)
                 sys.stdout.flush()
 
-
                 # Split the content based on reasoning tags (<think> and </think>)
-                segments = self.REASONING_PATTERN.split(delta_content) if hasattr(self, 'REASONING_PATTERN') else [
-                    delta_content]
+                segments = (
+                    self.REASONING_PATTERN.split(delta_content)
+                    if hasattr(self, "REASONING_PATTERN")
+                    else [delta_content]
+                )
                 for seg in segments:
                     if not seg:
                         continue
@@ -1828,20 +1870,20 @@ class BaseInference(ABC):
                         in_reasoning = True
                         reasoning_content += seg
                         logging_utility.debug("Yielding reasoning tag: %s", seg)
-                        yield json.dumps({'type': 'reasoning', 'content': seg})
+                        yield json.dumps({"type": "reasoning", "content": seg})
                         continue
                     elif seg == "</think>":
                         in_reasoning = False
                         reasoning_content += seg
                         logging_utility.debug("Yielding reasoning tag: %s", seg)
-                        yield json.dumps({'type': 'reasoning', 'content': seg})
+                        yield json.dumps({"type": "reasoning", "content": seg})
                         continue
 
                     if in_reasoning:
                         # If within reasoning, yield as reasoning content.
                         reasoning_content += seg
                         logging_utility.debug("Yielding reasoning segment: %s", seg)
-                        yield json.dumps({'type': 'reasoning', 'content': seg})
+                        yield json.dumps({"type": "reasoning", "content": seg})
                     else:
                         # Outside reasoning: process as normal content.
                         assistant_reply += seg
@@ -1854,26 +1896,28 @@ class BaseInference(ABC):
                         if not code_mode:
 
                             if partial_match:
-                                full_match = partial_match.get('full_match')
+                                full_match = partial_match.get("full_match")
                                 if full_match:
                                     match_index = accumulated_content.find(full_match)
                                     if match_index != -1:
                                         # Remove all content up to and including the trigger.
-                                        accumulated_content = accumulated_content[match_index + len(full_match):]
+                                        accumulated_content = accumulated_content[
+                                            match_index + len(full_match) :
+                                        ]
                                 code_mode = True
-                                code_buffer = partial_match.get('code', '')
-
+                                code_buffer = partial_match.get("code", "")
 
                                 # Emit start-of-code block marker.
                                 self.code_mode = True
-                                yield json.dumps({'type': 'hot_code', 'content': '```python\n'})
+                                yield json.dumps({"type": "hot_code", "content": "```python\n"})
                                 continue  # Skip further processing of this segment.
 
                         # If already in code mode, delegate to code-chunk processing.
                         if code_mode:
 
-
-                            results, code_buffer = self._process_code_interpreter_chunks(seg, code_buffer)
+                            results, code_buffer = self._process_code_interpreter_chunks(
+                                seg, code_buffer
+                            )
                             for r in results:
                                 yield r  # Yield raw code line(s).
                                 assistant_reply += r  # Optionally accumulate the code.
@@ -1881,8 +1925,8 @@ class BaseInference(ABC):
                             continue
 
                         # Yield non-code content as normal.
-                        if not  code_buffer:
-                            yield json.dumps({'type': 'content', 'content': seg}) + '\n'
+                        if not code_buffer:
+                            yield json.dumps({"type": "content", "content": seg}) + "\n"
                         else:
                             continue
 
@@ -1894,7 +1938,7 @@ class BaseInference(ABC):
             logging_utility.error(error_msg, exc_info=True)
             combined = reasoning_content + assistant_reply
             self.handle_error(combined, thread_id, assistant_id, run_id)
-            yield json.dumps({'type': 'error', 'content': error_msg})
+            yield json.dumps({"type": "error", "content": error_msg})
             return
 
         # Finalize conversation if there's any assistant reply content.
@@ -1902,20 +1946,16 @@ class BaseInference(ABC):
             combined = reasoning_content + assistant_reply
             self.finalize_conversation(combined, thread_id, assistant_id, run_id)
 
-
-        #-----------------------------------------
+        # -----------------------------------------
         #  Parsing the complete accumulated content
         #  for function calls.
-        #-----------------------------------------
+        # -----------------------------------------
         if accumulated_content:
             self.parse_and_set_function_calls(accumulated_content, assistant_reply)
-
 
         self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
         if reasoning_content:
             logging_utility.info("Final reasoning content: %s", reasoning_content)
-
-
 
     def process_function_calls(self, thread_id, run_id, assistant_id, model=None):
         """
@@ -1949,95 +1989,84 @@ class BaseInference(ABC):
         """
         fc_state = self.get_function_call_state()
 
-
         if not fc_state:
             return
 
         if fc_state.get("name") in PLATFORM_TOOLS:
             if fc_state.get("name") == "code_interpreter":
                 for chunk in self.handle_code_interpreter_action(
-                        thread_id=thread_id,
-                        run_id=run_id,
-                        assistant_id=assistant_id,
-                        arguments_dict=fc_state.get("arguments")
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    assistant_id=assistant_id,
+                    arguments_dict=fc_state.get("arguments"),
                 ):
                     yield chunk
 
                 for chunk in self.stream_function_call_output(
-                        thread_id=thread_id,
-                        run_id=run_id,
-                        model=model,
-                        assistant_id=assistant_id,
-                        #name='code_interpreter'
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    model=model,
+                    assistant_id=assistant_id,
+                    # name='code_interpreter'
                 ):
                     yield chunk
 
             if fc_state.get("name") == "computer":
                 for chunk in self.handle_shell_action(
-                        thread_id=thread_id,
-                        run_id=run_id,
-                        assistant_id=assistant_id,
-                        arguments_dict=fc_state.get("arguments")
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    assistant_id=assistant_id,
+                    arguments_dict=fc_state.get("arguments"),
                 ):
                     yield chunk
 
-
-
                 for chunk in self.stream_function_call_output(
-                        thread_id=thread_id,
-                        run_id=run_id,
-                        model=model,
-                        assistant_id=assistant_id
+                    thread_id=thread_id, run_id=run_id, model=model, assistant_id=assistant_id
                 ):
                     yield chunk
 
             else:
 
-                #--------------------------------------
+                # --------------------------------------
                 # Exclude special case tools from further
                 # Handling here.
-                #---------------------------------------
+                # ---------------------------------------
                 if not fc_state.get("name") in SPECIAL_CASE_TOOL_HANDLING:
 
                     self._process_platform_tool_calls(
                         thread_id=thread_id,
                         assistant_id=assistant_id,
                         content=fc_state,
-                        run_id=run_id
+                        run_id=run_id,
                     )
-                    #-----------------------------
+                    # -----------------------------
                     # Remind the assistant to synthesise
                     # a contextual response on tool submission
-                    #-----------------------------
+                    # -----------------------------
                     for chunk in self.stream_function_call_output(
-                            thread_id=thread_id,
-                            run_id=run_id,
-                            model=model,
-                            assistant_id=assistant_id
+                        thread_id=thread_id, run_id=run_id, model=model, assistant_id=assistant_id
                     ):
                         yield chunk
 
-
                 else:
-                     #-----------------------
-                     # Handles consumer side tool calls.
-                     #------------------------
-                     self._process_tool_calls(
-                         thread_id=thread_id,
-                         assistant_id=assistant_id,
-                         content=fc_state,
-                         run_id=run_id
-                     )
-                     for chunk in self.stream_function_call_output(
-                             thread_id=thread_id,
-                             run_id=run_id,
-                             assistant_id=assistant_id
-                     ):
-                         yield chunk
+                    # -----------------------
+                    # Handles consumer side tool calls.
+                    # ------------------------
+                    self._process_tool_calls(
+                        thread_id=thread_id,
+                        assistant_id=assistant_id,
+                        content=fc_state,
+                        run_id=run_id,
+                    )
+                    for chunk in self.stream_function_call_output(
+                        thread_id=thread_id, run_id=run_id, assistant_id=assistant_id
+                    ):
+                        yield chunk
 
     @abstractmethod
-    def process_conversation(self, thread_id, message_id, run_id, assistant_id,
-                             model,  stream_reasoning=False):
+    def process_conversation(
+        self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=False
+    ):
         """Orchestrates conversation processing with real-time streaming and tool handling.
 
         Manages the complete lifecycle of assistant interactions including:
@@ -2076,9 +2105,7 @@ class BaseInference(ABC):
         """
         pass
 
-
     @lru_cache(maxsize=128)
     def cached_user_details(self, user_id):
         """Cache user details to avoid redundant API calls."""
         return self.user_service.get_user(user_id)
-

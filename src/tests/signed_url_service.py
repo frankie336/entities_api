@@ -26,6 +26,7 @@ def test_file(tmp_path):
     # Return the path to the test file
     return str(file_path)
 
+
 def test_generate_signed_url_valid_file(signed_url_service, test_file):
     # Test generating a signed URL for a valid file
     request = SignedUrlRequest(filename=os.path.basename(test_file))
@@ -112,7 +113,9 @@ def test_validate_signed_url_invalid_signature(signed_url_service, test_file):
 def test_validate_signed_url_file_not_found(signed_url_service):
     # Test validating a signed URL for a non-existent file
     with pytest.raises(HTTPException) as exc_info:
-        signed_url_service.validate_url("non_existent_file.txt", "fake_sig", int(time.time()) + 3600)
+        signed_url_service.validate_url(
+            "non_existent_file.txt", "fake_sig", int(time.time()) + 3600
+        )
 
     assert exc_info.value.status_code == 404
     assert "File not found" in str(exc_info.value.detail)

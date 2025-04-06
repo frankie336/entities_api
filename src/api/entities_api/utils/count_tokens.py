@@ -1,5 +1,6 @@
 from transformers import AutoTokenizer
 
+
 def count_tokens(input_string: str, tokenizer_name: str = "gpt2") -> int:
     """
     Count the number of tokens in the input string using a Hugging Face tokenizer.

@@ -16,10 +16,10 @@ logging_utility = LoggingUtility()
 
 @router.post("/uploads", response_model=FileResponse, status_code=201)
 def upload_file(
-        file: UploadFile = File(...),
-        purpose: str = Form(...),  # This extracts the string value from form data
-        user_id: str = Form(...),  # This extracts the string value from form data
-        db: Session = Depends(get_db)
+    file: UploadFile = File(...),
+    purpose: str = Form(...),  # This extracts the string value from form data
+    user_id: str = Form(...),  # This extracts the string value from form data
+    db: Session = Depends(get_db),
 ):
     """
     Upload a file and store its metadata.
@@ -27,7 +27,9 @@ def upload_file(
     # Create a request object manually
     request = FileUploadRequest(purpose=purpose, user_id=user_id)
 
-    logging_utility.info(f"Received file upload request: {file.filename} from user {request.user_id}")
+    logging_utility.info(
+        f"Received file upload request: {file.filename} from user {request.user_id}"
+    )
 
     file_service = FileService(db)  # Initialize the service with the database session
     try:
@@ -36,7 +38,9 @@ def upload_file(
 
         # Validate and return as Pydantic object (FileResponse)
         file_response = FileResponse.model_validate(file_metadata)
-        logging_utility.info(f"File uploaded successfully: {file.filename} for user {request.user_id}")
+        logging_utility.info(
+            f"File uploaded successfully: {file.filename} for user {request.user_id}"
+        )
         return file_response
 
     except HTTPException as e:
@@ -47,14 +51,13 @@ def upload_file(
     except Exception as e:
         # Catch any other exceptions, log, and return a 500 error
         logging_utility.error(f"Unexpected error during file upload: {str(e)}")
-        raise HTTPException(status_code=500, detail="An unexpected error occurred while uploading the file.")
+        raise HTTPException(
+            status_code=500, detail="An unexpected error occurred while uploading the file."
+        )
 
 
 @router.get("/uploads/{file_id}", response_model=FileResponse, status_code=200)
-def get_file_by_id(
-        file_id: str,
-        db: Session = Depends(get_db)
-):
+def get_file_by_id(file_id: str, db: Session = Depends(get_db)):
     """
     Retrieve file metadata by ID.
     """
@@ -82,8 +85,10 @@ def get_file_by_id(
     except Exception as e:
         # Catch any other exceptions, log, and return a 500 error
         logging_utility.error(f"Unexpected error during file retrieval: {str(e)}")
-        raise HTTPException(status_code=500, detail="An unexpected error occurred while retrieving the file metadata.")
-
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred while retrieving the file metadata.",
+        )
 
 
 @router.get("/uploads/{file_id}/object", response_class=Response)
@@ -160,10 +165,7 @@ def delete_file(file_id: str, db: Session = Depends(get_db)):
 
 @router.get("/files/download", response_class=Response)
 def download_file_via_signed_url(
-        file_id: str,
-        expires: int,
-        signature: str,
-        db: Session = Depends(get_db)
+    file_id: str, expires: int, signature: str, db: Session = Depends(get_db)
 ):
     """
     Download a file using a signed URL (validates signature and expiration).
@@ -175,9 +177,7 @@ def download_file_via_signed_url(
         secret_key = os.getenv("SIGNED_URL_SECRET", "default_secret_key")
         data = f"{file_id}:{expires}"
         expected_signature = hmac.new(
-            key=secret_key.encode(),
-            msg=data.encode(),
-            digestmod=hashlib.sha256
+            key=secret_key.encode(), msg=data.encode(), digestmod=hashlib.sha256
         ).hexdigest()
 
         if not hmac.compare_digest(signature, expected_signature):
@@ -193,7 +193,7 @@ def download_file_via_signed_url(
         return Response(
             content=file_obj.read(),
             media_type="application/octet-stream",
-            headers={"Content-Disposition": f"attachment; filename={file_id}"}
+            headers={"Content-Disposition": f"attachment; filename={file_id}"},
         )
     except HTTPException as e:
         raise e

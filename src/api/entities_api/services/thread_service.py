@@ -13,7 +13,8 @@ import time
 from typing import List, Dict, Any
 from entities_api.services.logging_service import LoggingUtility
 
-logging_utility= LoggingUtility()
+logging_utility = LoggingUtility()
+
 
 class ThreadService:
     def __init__(self, db: Session):
@@ -29,7 +30,7 @@ class ThreadService:
             created_at=int(time.time()),
             meta_data=json.dumps({}),
             object="thread",
-            tool_resources=json.dumps({})
+            tool_resources=json.dumps({}),
         )
         self.db.add(db_thread)
 
@@ -45,7 +46,6 @@ class ThreadService:
         db_thread = self._get_thread_or_404(thread_id)
         return self._create_thread_read_detailed(db_thread)
 
-
     def delete_thread(self, thread_id: str) -> bool:
         db_thread = self._get_thread_or_404(thread_id)
         self.db.query(Message).filter(Message.thread_id == thread_id).delete()
@@ -59,26 +59,30 @@ class ThreadService:
         threads = self.db.query(Thread).join(Thread.participants).filter(User.id == user_id).all()
         return [thread.id for thread in threads]
 
-    def update_thread_metadata(self, thread_id: str, new_metadata: Dict[str, Any]) -> validator.ThreadReadDetailed:
+    def update_thread_metadata(
+        self, thread_id: str, new_metadata: Dict[str, Any]
+    ) -> validator.ThreadReadDetailed:
         db_thread = self._get_thread_or_404(thread_id)
         db_thread.meta_data = json.dumps(new_metadata)
         self.db.commit()
         self.db.refresh(db_thread)
         return self._create_thread_read_detailed(db_thread)
 
-    def update_thread(self, thread_id: str, thread_update: validator.ThreadUpdate) -> validator.ThreadReadDetailed:
+    def update_thread(
+        self, thread_id: str, thread_update: validator.ThreadUpdate
+    ) -> validator.ThreadReadDetailed:
         logging_utility.info(f"Attempting to update thread with id: {thread_id}")
         logging_utility.info(f"Update data: {thread_update.dict()}")
         db_thread = self._get_thread_or_404(thread_id)
         update_data = thread_update.dict(exclude_unset=True)
 
-        if 'meta_data' in update_data:
+        if "meta_data" in update_data:
             current_metadata = json.loads(db_thread.meta_data)
-            current_metadata.update(update_data['meta_data'])
+            current_metadata.update(update_data["meta_data"])
             db_thread.meta_data = json.dumps(current_metadata)
 
         for key, value in update_data.items():
-            if key != 'meta_data':
+            if key != "meta_data":
                 setattr(db_thread, key, value)
 
         self.db.commit()
@@ -100,5 +104,5 @@ class ThreadService:
             meta_data=json.loads(db_thread.meta_data),
             object=db_thread.object,
             tool_resources=json.loads(db_thread.tool_resources),
-            participants=participants
+            participants=participants,
         )

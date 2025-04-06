@@ -17,21 +17,19 @@ class SignedUrlRequest(BaseModel):
     client_ip: Optional[str] = None
     custom_expiry: Optional[int] = Field(None, ge=60, le=86400)
 
-    @field_validator('filename')
+    @field_validator("filename")
     def validate_filename(cls, v):
-        if not re.match(r'^[\w\-\.]+$', v):
-            raise ValueError('Invalid filename format')
-        if '..' in v or v.startswith('/'):
-            raise ValueError('Path traversal detected')
+        if not re.match(r"^[\w\-\.]+$", v):
+            raise ValueError("Invalid filename format")
+        if ".." in v or v.startswith("/"):
+            raise ValueError("Path traversal detected")
         return v
 
 
 class SignedUrlService:
-    def __init__(self,
-                 secret_key: str,
-                 storage_path: str,
-                 max_expiry: int = 86400,
-                 rate_limit: int = 100):
+    def __init__(
+        self, secret_key: str, storage_path: str, max_expiry: int = 86400, rate_limit: int = 100
+    ):
         self.secret_key = secret_key.encode()
         self.storage_path = storage_path
         self.max_expiry = max_expiry
@@ -64,11 +62,7 @@ class SignedUrlService:
 
             # HMAC-based signature
             message = f"{request.filename}{expires_at}".encode()
-            signature = hmac.new(
-                self.secret_key,
-                msg=message,
-                digestmod='sha256'
-            ).hexdigest()
+            signature = hmac.new(self.secret_key, msg=message, digestmod="sha256").hexdigest()
             logging_utility.debug("Signature generated for file=%s", request.filename)
 
             return f"/files/{request.filename}?sig={signature}&exp={expires_at}"
@@ -97,11 +91,7 @@ class SignedUrlService:
 
             # Recompute signature
             message = f"{filename}{expires}".encode()
-            expected_sig = hmac.new(
-                self.secret_key,
-                msg=message,
-                digestmod='sha256'
-            ).hexdigest()
+            expected_sig = hmac.new(self.secret_key, msg=message, digestmod="sha256").hexdigest()
 
             if not hmac.compare_digest(signature, expected_sig):
                 logging_utility.error("Invalid signature for file=%s", filename)

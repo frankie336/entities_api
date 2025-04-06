@@ -42,21 +42,21 @@ class VectorStoreService:
         self.file_processor = FileProcessor()
 
     @retry(stop=stop_after_attempt(3), wait=wait_random_exponential())
-    def create_vector_store(self, name: str, user_id: str) ->validator.VectorStoreRead:
+    def create_vector_store(self, name: str, user_id: str) -> validator.VectorStoreRead:
         """Create store with improved error handling."""
         payload = validator.VectorStoreCreate(
             name=name,
             user_id=user_id,
             vector_size=384,
             distance_metric="COSINE",
-            config={"example": "value"}
+            config={"example": "value"},
         )
         unique_id = self.identity_service.generate_vector_id()
         try:
             response = self.vector_manager.create_store(
                 store_name=unique_id,
                 vector_size=payload.vector_size,
-                distance=payload.distance_metric
+                distance=payload.distance_metric,
             )
             logging_utility.debug(f"Qdrant response: {response}")
 
@@ -72,7 +72,7 @@ class VectorStoreService:
                         distance_metric=payload.distance_metric,
                         created_at=int(time.time()),
                         status=validator.StatusEnum.active.value,
-                        config=payload.config
+                        config=payload.config,
                     )
                     session.add(new_vector_store)
                 session.refresh(new_vector_store)
@@ -84,23 +84,26 @@ class VectorStoreService:
             self.vector_manager.delete_store(unique_id)
             raise
 
-    def add_to_store(self, store_name: str, texts: List[str],
-                     vectors: List[List[float]], metadata: List[dict]) -> dict:
+    def add_to_store(
+        self, store_name: str, texts: List[str], vectors: List[List[float]], metadata: List[dict]
+    ) -> dict:
         """Batch insert with improved error logging."""
         try:
             results = []
             for i in range(0, len(texts), 100):
                 batch = {
-                    "texts": texts[i:i + 100],
-                    "vectors": vectors[i:i + 100],
-                    "metadata": metadata[i:i + 100]
+                    "texts": texts[i : i + 100],
+                    "vectors": vectors[i : i + 100],
+                    "metadata": metadata[i : i + 100],
                 }
                 result = self.vector_manager.add_to_store(store_name, **batch)
-                results.append({
-                    "batch_index": len(results),
-                    "items_processed": len(batch['texts']),
-                    "result": result
-                })
+                results.append(
+                    {
+                        "batch_index": len(results),
+                        "items_processed": len(batch["texts"]),
+                        "result": result,
+                    }
+                )
             return {"batches": results}
         except Exception as e:
             logging_utility.error(f"Batch insert failed: {str(e)}")
@@ -127,26 +130,26 @@ class VectorStoreService:
         except TypeError as e:
             logging_utility.error(f"Serialization failed: {str(e)}")
             raise ValueError("Invalid filter structure for caching")
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_random_exponential(min=1, max=10),
         retry=retry_if_exception_type(VectorStoreError),
-        retry_error_callback=lambda state: state.outcome.result()
+        retry_error_callback=lambda state: state.outcome.result(),
     )
     def search_vector_store(
-            self,
-            store_name: str,
-            query_text: str,
-            top_k: int = 5,
-            filters: Optional[Dict] = None,
-            score_threshold: float = 0.5,
-            page: int = 1,
-            page_size: int = 10,
-            score_boosts: Optional[Dict[str, float]] = None,
-            explain: bool = False,
-            cache_key: Optional[str] = None,
-            search_type = None
-
+        self,
+        store_name: str,
+        query_text: str,
+        top_k: int = 5,
+        filters: Optional[Dict] = None,
+        score_threshold: float = 0.5,
+        page: int = 1,
+        page_size: int = 10,
+        score_boosts: Optional[Dict[str, float]] = None,
+        explain: bool = False,
+        cache_key: Optional[str] = None,
+        search_type=None,
     ) -> List[validator.EnhancedVectorSearchResult]:
         """
         Enhanced semantic search with:
@@ -164,17 +167,20 @@ class VectorStoreService:
 
             # Validate store existence
             with self.SessionLocal() as session:
-                store = session.query(VectorStore).filter(
-                    VectorStore.collection_name == store_name,
-                    VectorStore.status == validator.StatusEnum.active
-                ).first()
+                store = (
+                    session.query(VectorStore)
+                    .filter(
+                        VectorStore.collection_name == store_name,
+                        VectorStore.status == validator.StatusEnum.active,
+                    )
+                    .first()
+                )
             if not store:
                 raise StoreNotFoundError(f"Vector store {store_name} not found")
 
             # Generate query embedding
             query_vector = self.file_processor.embedding_model.encode(
-                [query_text],
-                convert_to_numpy=True
+                [query_text], convert_to_numpy=True
             ).tolist()[0]
 
             # Parse filters to Qdrant format
@@ -189,18 +195,13 @@ class VectorStoreService:
                 score_threshold=score_threshold,
                 offset=offset,
                 limit=page_size,
-                cache_key=cache_key
+                cache_key=cache_key,
             )
 
             # Process and enhance results
             processed_results = []
             for result in raw_results:
-                processed = self._process_result(
-                    result,
-                    store.id,
-                    score_boosts,
-                    explain
-                )
+                processed = self._process_result(result, store.id, score_boosts, explain)
                 processed_results.append(processed)
 
             return processed_results
@@ -208,7 +209,6 @@ class VectorStoreService:
         except Exception as e:
             logging_utility.error(f"Search failed: {str(e)}")
             raise VectorStoreError(f"Search operation failed: {str(e)}")
-
 
     # NEW: Added helper methods for enhanced functionality
     def _parse_advanced_filters(self, filters: Dict) -> models.Filter:
@@ -219,16 +219,10 @@ class VectorStoreService:
             # Handle logical operators
             if key.startswith("$"):
                 if key == "$or":
-                    or_conditions = [
-                        self._parse_advanced_filters(cond)
-                        for cond in value
-                    ]
+                    or_conditions = [self._parse_advanced_filters(cond) for cond in value]
                     conditions.append(models.Filter(should=or_conditions))
                 elif key == "$and":
-                    and_conditions = [
-                        self._parse_advanced_filters(cond)
-                        for cond in value
-                    ]
+                    and_conditions = [self._parse_advanced_filters(cond) for cond in value]
                     conditions.append(models.Filter(must=and_conditions))
                 continue
 
@@ -236,83 +230,74 @@ class VectorStoreService:
             if isinstance(value, dict):
                 for op, op_value in value.items():
                     if op == "$gt":
-                        conditions.append(models.FieldCondition(
-                            key=f"metadata.{key}",
-                            range=models.Range(gt=op_value)
-                        ))
+                        conditions.append(
+                            models.FieldCondition(
+                                key=f"metadata.{key}", range=models.Range(gt=op_value)
+                            )
+                        )
                     elif op == "$contains":
-                        conditions.append(models.FieldCondition(
-                            key=f"metadata.{key}",
-                            match=models.MatchAny(any=[op_value])
-                        ))
+                        conditions.append(
+                            models.FieldCondition(
+                                key=f"metadata.{key}", match=models.MatchAny(any=[op_value])
+                            )
+                        )
             else:
                 # Default to exact match
-                conditions.append(models.FieldCondition(
-                    key=f"metadata.{key}",
-                    match=models.MatchValue(value=value)
-                ))
+                conditions.append(
+                    models.FieldCondition(
+                        key=f"metadata.{key}", match=models.MatchValue(value=value)
+                    )
+                )
 
         return models.Filter(must=conditions) if conditions else None
 
     def _process_result(self, result, store_id, score_boosts, explain):
         """Apply scoring boosts and build explanations"""
-        base_score = result['score']
+        base_score = result["score"]
         boosts = {}
 
         if score_boosts:
             for field, boost in score_boosts.items():
                 # Handle nested metadata fields
-                value = result['metadata']
-                if '.' in field:
-                    for part in field.split('.'):
+                value = result["metadata"]
+                if "." in field:
+                    for part in field.split("."):
                         value = value.get(part, None) if isinstance(value, dict) else None
                         if value is None:
                             break
 
                 if value is not None:
                     base_score *= boost
-                    boosts[field] = {
-                        'value': value,
-                        'boost': boost
-                    }
+                    boosts[field] = {"value": value, "boost": boost}
 
         # Build explanation if requested
         explanation = None
         if explain:
             explanation = validator.SearchExplanation(
-                base_score=result['score'],
+                base_score=result["score"],
                 filters_passed=self._get_passed_filters(result),
-                boosts_applied={k: v['boost'] for k, v in boosts.items()},
-                final_score=base_score
+                boosts_applied={k: v["boost"] for k, v in boosts.items()},
+                final_score=base_score,
             )
 
         return validator.EnhancedVectorSearchResult(
-            text=result['text'],
-            metadata=result.get('metadata', {}),
+            text=result["text"],
+            metadata=result.get("metadata", {}),
             score=base_score,
-            vector_id=str(result['id']),
+            vector_id=str(result["id"]),
             store_id=store_id,
-            explanation=explanation
+            explanation=explanation,
         )
-
 
     def _get_passed_filters(self, result):
         """Identify which filters the result passed"""
         # Implementation note: This should compare result metadata against
         # the original query filters to determine which ones were matched
         # Current simplified version returns all filters
-        return list(result.get('metadata', {}).keys())
-
-
-
-
+        return list(result.get("metadata", {}).keys())
 
     def batch_search(
-            self,
-            queries: List[str],
-            store_name: str,
-            top_k: int = 5,
-            filters: Optional[Dict] = None
+        self, queries: List[str], store_name: str, top_k: int = 5, filters: Optional[Dict] = None
     ) -> Dict[str, List[validator.VectorStoreSearchResult]]:
         """
         Process multiple searches in parallel.
@@ -324,27 +309,24 @@ class VectorStoreService:
         """
         try:
             with self.SessionLocal() as session:
-                store = session.query(VectorStore).filter(
-                    VectorStore.collection_name == store_name,
-                    VectorStore.status == validator.StatusEnum.active
-                ).first()
+                store = (
+                    session.query(VectorStore)
+                    .filter(
+                        VectorStore.collection_name == store_name,
+                        VectorStore.status == validator.StatusEnum.active,
+                    )
+                    .first()
+                )
             if not store:
                 raise StoreNotFoundError(f"Vector store {store_name} not found")
             with self._batch_executor as executor:
                 futures = {
                     query: executor.submit(
-                        self.search_vector_store,
-                        store_name,
-                        query,
-                        top_k,
-                        filters
+                        self.search_vector_store, store_name, query, top_k, filters
                     )
                     for query in queries
                 }
-                return {
-                    query: future.result()
-                    for query, future in futures.items()
-                }
+                return {query: future.result() for query, future in futures.items()}
         except Exception as e:
             logging_utility.error(f"Batch search failed: {str(e)}")
             raise VectorStoreError(f"Batch search operation failed: {str(e)}")
@@ -357,9 +339,11 @@ class VectorStoreService:
         """
         try:
             with self.SessionLocal() as session:
-                store = session.query(VectorStore).filter(
-                    VectorStore.collection_name == store_name
-                ).first()
+                store = (
+                    session.query(VectorStore)
+                    .filter(VectorStore.collection_name == store_name)
+                    .first()
+                )
                 if not store:
                     raise StoreNotFoundError(f"Vector store {store_name} not found")
                 delete_result = self.vector_manager.delete_store(store_name)
@@ -374,7 +358,7 @@ class VectorStoreService:
                     "store_name": store_name,
                     "status": "deleted",
                     "permanent": permanent,
-                    "qdrant_result": delete_result
+                    "qdrant_result": delete_result,
                 }
         except Exception as e:
             logging_utility.error(f"Delete failed for '{store_name}': {str(e)}")
@@ -384,10 +368,14 @@ class VectorStoreService:
         """Get unique source files from a vector store."""
         try:
             with self.SessionLocal() as session:
-                store = session.query(VectorStore).filter(
-                    VectorStore.collection_name == store_name,
-                    VectorStore.status == validator.StatusEnum.active
-                ).first()
+                store = (
+                    session.query(VectorStore)
+                    .filter(
+                        VectorStore.collection_name == store_name,
+                        VectorStore.status == validator.StatusEnum.active,
+                    )
+                    .first()
+                )
             if not store:
                 raise StoreNotFoundError(f"Vector store {store_name} not found")
             return self.vector_manager.list_store_files(store_name)
@@ -400,17 +388,23 @@ class VectorStoreService:
         """Remove all chunks of a specific file from vector store."""
         try:
             with self.SessionLocal() as session:
-                store = session.query(VectorStore).filter(
-                    VectorStore.collection_name == store_name,
-                    VectorStore.status == validator.StatusEnum.active
-                ).first()
+                store = (
+                    session.query(VectorStore)
+                    .filter(
+                        VectorStore.collection_name == store_name,
+                        VectorStore.status == validator.StatusEnum.active,
+                    )
+                    .first()
+                )
             if not store:
                 raise StoreNotFoundError(f"Vector store {store_name} not found")
             result = self.vector_manager.delete_file_from_store(store_name, file_path)
             with self.SessionLocal() as session:
-                store = session.query(VectorStore).filter(
-                    VectorStore.collection_name == store_name
-                ).first()
+                store = (
+                    session.query(VectorStore)
+                    .filter(VectorStore.collection_name == store_name)
+                    .first()
+                )
                 try:
                     store.file_count = max(0, store.file_count - 1)
                     store.updated_at = int(time.time())
@@ -425,17 +419,22 @@ class VectorStoreService:
             raise VectorStoreError(f"File deletion operation failed: {str(e)}")
 
     @retry(stop=stop_after_attempt(3), wait=wait_random_exponential(min=1, max=5))
-    def add_files(self, file_path: Union[str, Path], destination_store: str,
-                  vector_service, user_metadata: dict = None, source_url: str = None) -> dict:
+    def add_files(
+        self,
+        file_path: Union[str, Path],
+        destination_store: str,
+        vector_service,
+        user_metadata: dict = None,
+        source_url: str = None,
+    ) -> dict:
 
         vector_service = VectorStoreService()
-        result = self.file_processor.process_and_store(file_path=file_path,
-                                                       destination_store=destination_store,
-                                                       vector_service=vector_service,
-                                                       user_metadata=user_metadata
-
-                                                       )
-
+        result = self.file_processor.process_and_store(
+            file_path=file_path,
+            destination_store=destination_store,
+            vector_service=vector_service,
+            user_metadata=user_metadata,
+        )
 
         # Convert the dictionary to a Pydantic object before returning.
         return validator.ProcessOutput(**result)
@@ -449,16 +448,23 @@ class VectorStoreService:
 
             if not vector_store:
                 logging_utility.warning("Vector store with ID %s not found.", vector_store_id)
-                raise HTTPException(status_code=404, detail=f"Vector store with id {vector_store_id} not found")
+                raise HTTPException(
+                    status_code=404, detail=f"Vector store with id {vector_store_id} not found"
+                )
             if not assistant:
                 logging_utility.warning("Assistant with ID %s not found.", assistant_id)
-                raise HTTPException(status_code=404, detail=f"Assistant with id {assistant_id} not found")
+                raise HTTPException(
+                    status_code=404, detail=f"Assistant with id {assistant_id} not found"
+                )
 
             # Append and commit in the same session
             assistant.vector_stores.append(vector_store)
             session.commit()
-            logging_utility.info("Successfully associated vector store ID %s with assistant ID %s", vector_store_id,
-                                 assistant_id)
+            logging_utility.info(
+                "Successfully associated vector store ID %s with assistant ID %s",
+                vector_store_id,
+                assistant_id,
+            )
             return True
 
     @retry(stop=stop_after_attempt(3), wait=wait_random_exponential(min=1, max=5))
@@ -470,24 +476,33 @@ class VectorStoreService:
 
             if not assistant:
                 logging_utility.warning("Assistant with ID %s not found.", assistant_id)
-                raise HTTPException(status_code=404, detail=f"Assistant with id {assistant_id} not found")
+                raise HTTPException(
+                    status_code=404, detail=f"Assistant with id {assistant_id} not found"
+                )
             if not vector_store:
                 logging_utility.warning("Vector store with ID %s not found.", vector_store_id)
-                raise HTTPException(status_code=404, detail=f"Vector store with id {vector_store_id} not found")
+                raise HTTPException(
+                    status_code=404, detail=f"Vector store with id {vector_store_id} not found"
+                )
 
             # Ensure the vector store is actually linked to the assistant
             if vector_store not in assistant.vector_stores:
-                logging_utility.info("Vector store ID %s is not attached to assistant ID %s", vector_store_id,
-                                     assistant_id)
+                logging_utility.info(
+                    "Vector store ID %s is not attached to assistant ID %s",
+                    vector_store_id,
+                    assistant_id,
+                )
                 return False  # Nothing was changed
 
             # Remove the vector store from the assistant
             assistant.vector_stores.remove(vector_store)
             session.commit()
-            logging_utility.info("Successfully detached vector store ID %s from assistant ID %s", vector_store_id,
-                                 assistant_id)
+            logging_utility.info(
+                "Successfully detached vector store ID %s from assistant ID %s",
+                vector_store_id,
+                assistant_id,
+            )
             return True
-
 
     def get_vector_stores_for_assistant(self, assistant_id: str) -> List[validator.VectorStoreRead]:
         """
@@ -495,9 +510,12 @@ class VectorStoreService:
         """
         with self.SessionLocal() as session:
             # Eagerly load the vector_stores relationship.
-            assistant = session.query(Assistant).options(
-                joinedload(Assistant.vector_stores)
-            ).filter(Assistant.id == assistant_id).first()
+            assistant = (
+                session.query(Assistant)
+                .options(joinedload(Assistant.vector_stores))
+                .filter(Assistant.id == assistant_id)
+                .first()
+            )
 
             if not assistant:
                 raise HTTPException(status_code=404, detail="Assistant not found")
@@ -526,7 +544,6 @@ class VectorStoreService:
             logging_utility.error(f"Error retrieving stores for user {user_id}: {str(e)}")
             raise
 
-
     def health_check(self, deep_check: bool = False) -> Dict[str, Any]:
         """System health check with optional deep validation"""
         status = {
@@ -535,7 +552,7 @@ class VectorStoreService:
             "storage_types": [],
             "collection_counts": {},
             "version": None,
-            "metrics": {}
+            "metrics": {},
         }
 
         try:
@@ -550,17 +567,21 @@ class VectorStoreService:
             # Deep diagnostics
             if deep_check:
                 # Version info
-                status["version"] = self.vector_manager.client._client.openapi_client.models_api.get_version()
+                status["version"] = (
+                    self.vector_manager.client._client.openapi_client.models_api.get_version()
+                )
 
                 # Storage metrics
-                metrics = self.vector_manager.client._client.openapi_client.metrics_api.get_metrics()
+                metrics = (
+                    self.vector_manager.client._client.openapi_client.metrics_api.get_metrics()
+                )
                 status["metrics"] = metrics.dict()
 
                 # Collection stats
                 collections = self.vector_manager.client.get_collections()
                 status["collection_counts"] = {
                     "total": len(collections.collections),
-                    "active": sum(1 for c in collections.collections if c.status == "green")
+                    "active": sum(1 for c in collections.collections if c.status == "green"),
                 }
 
                 # File storage check
@@ -593,8 +614,8 @@ class VectorStoreService:
                 "status": message.status,
                 "run_id": message.run_id,
                 "assistant_id": message.assistant_id,
-                "meta_data": message.meta_data
-            }
+                "meta_data": message.meta_data,
+            },
         }
 
     def store_message_in_vector_store(self, message, vector_store_id, role="user"):
@@ -606,20 +627,17 @@ class VectorStoreService:
             if role not in ["user", "assistant"]:
                 raise ValueError(f"Invalid message role: {role}")
 
-
             formatted_message = self.format_message_for_storage(message=message, role=role)
             logging_utility.debug("Formatted message: %s", formatted_message)
 
-            embedding = self.file_processor.embedding_model.encode(
-                formatted_message["text"]
-            )
+            embedding = self.file_processor.embedding_model.encode(formatted_message["text"])
             vector_as_floats = [float(val) for val in embedding]
 
             self.add_to_store(
                 store_name=vector_store_id,
                 texts=[formatted_message["text"]],
                 vectors=[vector_as_floats],
-                metadata=[formatted_message["metadata"]]
+                metadata=[formatted_message["metadata"]],
             )
             logging_utility.info("Message stored successfully")
 

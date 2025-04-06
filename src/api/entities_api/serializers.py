@@ -2,24 +2,30 @@
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional, Dict, Any
 
+
 class UserBase(BaseModel):
     id: str
     name: str
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class UserCreate(BaseModel):
     name: Optional[str] = "Anonymous User"
+
 
 class UserRead(UserBase):
     pass
 
+
 class UserUpdate(BaseModel):
     name: Optional[str] = None
+
 
 class ThreadCreate(BaseModel):
     participant_ids: List[str]
     metadata: Optional[Dict[str, Any]] = {}
+
 
 class ThreadRead(BaseModel):
     id: str
@@ -30,8 +36,10 @@ class ThreadRead(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class ThreadParticipant(UserBase):
     pass
+
 
 class ThreadReadDetailed(ThreadRead):
     participants: List[UserBase]  # This is only for detailed views if needed

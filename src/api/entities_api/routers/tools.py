@@ -31,38 +31,55 @@ def create_tool(tool: validation.ToolCreate, db: Session = Depends(get_db)):
 
 @router.post("/assistants/{assistant_id}/tools/{tool_id}")
 def associate_tool_with_assistant(assistant_id: str, tool_id: str, db: Session = Depends(get_db)):
-    logging_utility.info(f"Received request to associate tool ID: {tool_id} with assistant ID: {assistant_id}")
+    logging_utility.info(
+        f"Received request to associate tool ID: {tool_id} with assistant ID: {assistant_id}"
+    )
     tool_service = ToolService(db)
     try:
         tool_service.associate_tool_with_assistant(tool_id, assistant_id)
-        logging_utility.info(f"Tool ID: {tool_id} associated successfully with assistant ID: {assistant_id}")
+        logging_utility.info(
+            f"Tool ID: {tool_id} associated successfully with assistant ID: {assistant_id}"
+        )
         return {"message": "Tool associated with assistant successfully"}
     except HTTPException as e:
-        logging_utility.error(f"HTTP error occurred while associating tool {tool_id} with assistant {assistant_id}: {str(e)}")
+        logging_utility.error(
+            f"HTTP error occurred while associating tool {tool_id} with assistant {assistant_id}: {str(e)}"
+        )
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while associating tool {tool_id} with assistant {assistant_id}: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while associating tool {tool_id} with assistant {assistant_id}: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
 @router.delete("/assistants/{assistant_id}/tools/{tool_id}", status_code=204)
-def disassociate_tool_from_assistant(assistant_id: str, tool_id: str, db: Session = Depends(get_db)):
+def disassociate_tool_from_assistant(
+    assistant_id: str, tool_id: str, db: Session = Depends(get_db)
+):
     """
     Endpoint to disassociate a tool from an assistant.
     """
-    logging_utility.info(f"Received request to disassociate tool ID: {tool_id} from assistant ID: {assistant_id}")
+    logging_utility.info(
+        f"Received request to disassociate tool ID: {tool_id} from assistant ID: {assistant_id}"
+    )
     tool_service = ToolService(db)
     try:
         tool_service.disassociate_tool_from_assistant(tool_id, assistant_id)
-        logging_utility.info(f"Tool ID: {tool_id} disassociated successfully from assistant ID: {assistant_id}")
+        logging_utility.info(
+            f"Tool ID: {tool_id} disassociated successfully from assistant ID: {assistant_id}"
+        )
         return {"message": "Tool disassociated from assistant successfully"}
     except HTTPException as e:
-        logging_utility.error(f"HTTP error occurred while disassociating tool {tool_id} from assistant {assistant_id}: {str(e)}")
+        logging_utility.error(
+            f"HTTP error occurred while disassociating tool {tool_id} from assistant {assistant_id}: {str(e)}"
+        )
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while disassociating tool {tool_id} from assistant {assistant_id}: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while disassociating tool {tool_id} from assistant {assistant_id}: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
-
 
 
 @router.get("/tools/{tool_id}", response_model=validation.ToolRead)
@@ -77,7 +94,9 @@ def get_tool(tool_id: str, db: Session = Depends(get_db)):
         logging_utility.error(f"HTTP error occurred while retrieving tool {tool_id}: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while retrieving tool {tool_id}: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while retrieving tool {tool_id}: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
@@ -93,7 +112,9 @@ def get_tool_by_name(name: str, db: Session = Depends(get_db)):
         logging_utility.error(f"HTTP error occurred while retrieving tool by name {name}: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while retrieving tool by name {name}: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while retrieving tool by name {name}: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
@@ -109,7 +130,9 @@ def update_tool(tool_id: str, tool_update: validation.ToolUpdate, db: Session = 
         logging_utility.error(f"HTTP error occurred while updating tool {tool_id}: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while updating tool {tool_id}: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while updating tool {tool_id}: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
@@ -125,7 +148,9 @@ def delete_tool(tool_id: str, db: Session = Depends(get_db)):
         logging_utility.error(f"HTTP error occurred while deleting tool {tool_id}: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while deleting tool {tool_id}: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while deleting tool {tool_id}: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 

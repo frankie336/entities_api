@@ -2,10 +2,9 @@ from entities_api.platform_tools.computer.shell_command_interface import run_she
 
 # List of commands to execute on the remote shell.
 commands_list = [
-                  # Identify current user
-                     # Print working directory
-                  # List files in detail
-
+    # Identify current user
+    # Print working directory
+    # List files in detail
     "telnet host.docker.internal 9001"
 ]
 
@@ -16,7 +15,7 @@ result = run_shell_commands(
     commands_list,
     thread_id="your_explicit_test_thread_room",
     idle_timeout=3000,  # This value is logged only; explicit completion signals are used.
-    elevated=False
+    elevated=False,
 )
 
 print("\nCommand results:")

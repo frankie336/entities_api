@@ -11,14 +11,12 @@ validation = ValidationInterface()
 logging_utility = LoggingUtility()
 
 
-
 class UserClient:
     def __init__(self, base_url=os.getenv("ASSISTANTS_BASE_URL"), api_key=None):
         self.base_url = base_url
         self.api_key = api_key
         self.client = httpx.Client(
-            base_url=base_url,
-            headers={"Authorization": f"Bearer {api_key}"}
+            base_url=base_url, headers={"Authorization": f"Bearer {api_key}"}
         )
         logging_utility.info("UserClient initialized with base_url: %s", self.base_url)
 
@@ -56,8 +54,7 @@ class UserClient:
 
             validated_data = validation.UserUpdate(**user_data)
             response = self.client.put(
-                f"/v1/users/{user_id}",
-                json=validated_data.model_dump(exclude_unset=True)
+                f"/v1/users/{user_id}", json=validated_data.model_dump(exclude_unset=True)
             )
             response.raise_for_status()
             validated_response = validation.UserRead.model_validate(response.json())

@@ -3,6 +3,7 @@ from fastapi import WebSocket
 import asyncio
 import json
 
+
 class RoomManager:
     def __init__(self):
         self.connections: Dict[str, Set[WebSocket]] = {}
@@ -25,6 +26,8 @@ class RoomManager:
         async with self.lock:
             websockets = self.connections.get(room, set()).copy()
 
-        send_coros = [ws.send_json(message) for ws in websockets if ws.client_state.name == "CONNECTED"]
+        send_coros = [
+            ws.send_json(message) for ws in websockets if ws.client_state.name == "CONNECTED"
+        ]
 
         await asyncio.gather(*send_coros, return_exceptions=True)

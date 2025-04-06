@@ -38,7 +38,9 @@ class SSEManager:
         """
         logger.info(f"SSEManager: Adding subscriber queue for run_id: {run_id}")
         sse_subscribers[run_id].append(queue)
-        logger.debug(f"SSEManager: Current subscribers for {run_id}: {len(sse_subscribers[run_id])}")
+        logger.debug(
+            f"SSEManager: Current subscribers for {run_id}: {len(sse_subscribers[run_id])}"
+        )
 
     async def remove_subscriber(self, run_id: str, queue: asyncio.Queue):
         """
@@ -52,19 +54,25 @@ class SSEManager:
         try:
             # Find and remove the specific queue for this client
             sse_subscribers[run_id].remove(queue)
-            logger.debug(f"SSEManager: Removed subscriber for {run_id}. Remaining: {len(sse_subscribers[run_id])}")
+            logger.debug(
+                f"SSEManager: Removed subscriber for {run_id}. Remaining: {len(sse_subscribers[run_id])}"
+            )
 
             # If no clients are left listening for this run_id, clean up the entry
             if not sse_subscribers[run_id]:
                 del sse_subscribers[run_id]
                 logger.info(f"SSEManager: No subscribers remaining for {run_id}. Removed entry.")
 
-        except (KeyError):
+        except KeyError:
             # This can happen if the run_id entry was already removed (e.g., race condition on disconnect)
-            logger.warning(f"SSEManager: Attempted to remove subscriber for non-existent run_id entry: {run_id}")
-        except (ValueError):
+            logger.warning(
+                f"SSEManager: Attempted to remove subscriber for non-existent run_id entry: {run_id}"
+            )
+        except ValueError:
             # This can happen if the specific queue was already removed
-            logger.warning(f"SSEManager: Attempted to remove a queue instance not found for run_id: {run_id}")
+            logger.warning(
+                f"SSEManager: Attempted to remove a queue instance not found for run_id: {run_id}"
+            )
 
     async def broadcast_event(self, run_id: str, event_type: str, event_data: Dict[str, Any]):
         """
@@ -77,22 +85,30 @@ class SSEManager:
         """
         if run_id not in sse_subscribers:
             # No clients are currently listening for this run, so do nothing.
-            logger.debug(f"SSEManager: No active subscribers for run_id {run_id} to broadcast event '{event_type}'.")
+            logger.debug(
+                f"SSEManager: No active subscribers for run_id {run_id} to broadcast event '{event_type}'."
+            )
             return
 
         subscribers = sse_subscribers[run_id]
         if not subscribers:
-             logger.debug(f"SSEManager: Subscriber list for run_id {run_id} is empty (should have been cleaned up).")
-             return # Should not happen if cleanup is correct, but safe check
+            logger.debug(
+                f"SSEManager: Subscriber list for run_id {run_id} is empty (should have been cleaned up)."
+            )
+            return  # Should not happen if cleanup is correct, but safe check
 
-        logger.info(f"SSEManager: Broadcasting event '{event_type}' to {len(subscribers)} subscriber(s) for run_id: {run_id}")
+        logger.info(
+            f"SSEManager: Broadcasting event '{event_type}' to {len(subscribers)} subscriber(s) for run_id: {run_id}"
+        )
 
         try:
             # Ensure data is JSON serializable before broadcasting
             json_data = json.dumps(event_data)
         except TypeError as e:
-            logger.error(f"SSEManager: Failed to serialize event data to JSON for run_id {run_id}. Event: {event_type}. Data: {event_data}. Error: {e}")
-            return # Cannot send unserializable data
+            logger.error(
+                f"SSEManager: Failed to serialize event data to JSON for run_id {run_id}. Event: {event_type}. Data: {event_data}. Error: {e}"
+            )
+            return  # Cannot send unserializable data
 
         # Format the message according to the Server-Sent Events specification.
         # Each message block ends with two newlines (\n\n).
@@ -100,7 +116,7 @@ class SSEManager:
 
         # Iterate through a copy of the list in case the list is modified concurrently
         # although adding/removing subscribers should happen in separate tasks.
-        for queue in list(subscribers): # Iterate over a copy
+        for queue in list(subscribers):  # Iterate over a copy
             try:
                 # Put the pre-formatted message string into the client's queue.
                 # The corresponding SSE endpoint task will read from this queue.
@@ -108,5 +124,7 @@ class SSEManager:
             except Exception as e:
                 # Log if putting into a specific client's queue fails
                 # (This usually shouldn't happen with asyncio.Queue unless it's full, which needs handling)
-                logger.error(f"SSEManager: Error putting message into a subscriber queue for run_id {run_id}. Error: {e}")
+                logger.error(
+                    f"SSEManager: Error putting message into a subscriber queue for run_id {run_id}. Error: {e}"
+                )
                 # Decide if you need to remove this subscriber if putting fails repeatedly.

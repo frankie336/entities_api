@@ -10,14 +10,22 @@ from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 
+
 class ActionsClient:
     def __init__(self, base_url="http://localhost:9000/", api_key=None):
         """Initialize with base URL and API key for authentication."""
-        self.client = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"})
+        self.client = httpx.Client(
+            base_url=base_url, headers={"Authorization": f"Bearer {api_key}"}
+        )
         logging_utility.info("ActionsClient initialized with base_url: %s", base_url)
 
-    def create_action(self, tool_name: str, run_id: str, function_args: Optional[Dict[str, Any]] = None,
-                      expires_at: Optional[datetime] = None) -> validation.ActionRead:
+    def create_action(
+        self,
+        tool_name: str,
+        run_id: str,
+        function_args: Optional[Dict[str, Any]] = None,
+        expires_at: Optional[datetime] = None,
+    ) -> validation.ActionRead:
         """Create a new action using the provided tool_name, run_id, and function_args."""
         try:
             action_id = UtilsInterface.IdentifierService.generate_action_id()
@@ -31,7 +39,7 @@ class ActionsClient:
                 run_id=run_id,
                 function_args=function_args or {},
                 expires_at=None,
-                status='pending'  # Ensure status is a string value
+                status="pending",  # Ensure status is a string value
             ).dict()
 
             logging_utility.debug("Payload for action creation: %s", payload)
@@ -84,8 +92,7 @@ class ActionsClient:
             # Log success and debug details
             logging_utility.info("Action retrieved successfully with ID: %s", action_id)
             logging_utility.debug(
-                "Validated action data: %s",
-                validated_action.model_dump(mode="json")
+                "Validated action data: %s", validated_action.model_dump(mode="json")
             )
 
             return validated_action  # Return the validated Pydantic model
@@ -112,8 +119,12 @@ class ActionsClient:
             logging_utility.error("Unexpected error: %s", str(e))
             raise ValueError(f"Unexpected error: {str(e)}")
 
-    def update_action(self, action_id: str, status: validation.ActionStatus,
-                      result: Optional[Dict[str, Any]] = None) -> validation.ActionRead:
+    def update_action(
+        self,
+        action_id: str,
+        status: validation.ActionStatus,
+        result: Optional[Dict[str, Any]] = None,
+    ) -> validation.ActionRead:
         """Update an action's status and result."""
         try:
             # Create the payload using the ActionUpdate schema
@@ -137,30 +148,40 @@ class ActionsClient:
     def get_actions_by_status(self, run_id: str, status: str = "pending") -> List[Dict[str, Any]]:
         """Retrieve actions by run_id and status."""
         try:
-            logging_utility.debug(f"Retrieving actions for run_id: {run_id} with status: {status or 'not specified'}")
+            logging_utility.debug(
+                f"Retrieving actions for run_id: {run_id} with status: {status or 'not specified'}"
+            )
 
             # Make a GET request with run_id and optional status query parameter
-            response = self.client.get(f"/v1/runs/{run_id}/actions/status", params={"status": status})
+            response = self.client.get(
+                f"/v1/runs/{run_id}/actions/status", params={"status": status}
+            )
             response.raise_for_status()  # Raises an HTTPStatusError for bad responses
 
             # Optional safety check to ensure response is JSON
             if response.headers.get("Content-Type") == "application/json":
                 response_data = response.json()
             else:
-                logging_utility.error(f"Unexpected content type: {response.headers.get('Content-Type')}")
+                logging_utility.error(
+                    f"Unexpected content type: {response.headers.get('Content-Type')}"
+                )
                 raise ValueError(f"Unexpected content type: {response.headers.get('Content-Type')}")
 
-            logging_utility.info(f"Actions retrieved successfully for run_id: {run_id} with status: {status}")
+            logging_utility.info(
+                f"Actions retrieved successfully for run_id: {run_id} with status: {status}"
+            )
             return response_data  # Return raw JSON data
 
         except httpx.RequestError as e:
-            logging_utility.error(f"An error occurred while requesting actions for run_id {run_id}: {str(e)}")
+            logging_utility.error(
+                f"An error occurred while requesting actions for run_id {run_id}: {str(e)}"
+            )
             raise ValueError(f"Request error: {str(e)}")
         except httpx.HTTPStatusError as e:
             logging_utility.error(
-                f"HTTP error during actions retrieval for run_id {run_id} with status {status}: {str(e)}")
+                f"HTTP error during actions retrieval for run_id {run_id} with status {status}: {str(e)}"
+            )
             raise ValueError(f"HTTP error during actions retrieval: {str(e)}")
-
 
     def get_pending_actions(self, run_id: str) -> List[Dict[str, Any]]:
         """

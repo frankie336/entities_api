@@ -30,6 +30,7 @@ def create_thread(thread: ThreadCreate, db: Session = Depends(get_db)):
         logging_utility.error(f"An unexpected error occurred while creating thread: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
+
 @router.get("/threads/{thread_id}", response_model=validation.ThreadRead)
 def get_thread(thread_id: str, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to get thread with ID: {thread_id}")
@@ -42,7 +43,9 @@ def get_thread(thread_id: str, db: Session = Depends(get_db)):
         logging_utility.error(f"HTTP error occurred while retrieving thread {thread_id}: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while retrieving thread {thread_id}: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while retrieving thread {thread_id}: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
@@ -58,7 +61,9 @@ def delete_thread(thread_id: str, db: Session = Depends(get_db)):
         logging_utility.error(f"HTTP error occurred while deleting thread {thread_id}: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while deleting thread {thread_id}: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while deleting thread {thread_id}: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
@@ -71,8 +76,12 @@ def list_threads_by_user(user_id: str, db: Session = Depends(get_db)):
         logging_utility.info(f"Successfully retrieved threads for user ID: {user_id}")
         return {"thread_ids": thread_ids}
     except HTTPException as e:
-        logging_utility.error(f"HTTP error occurred while listing threads for user {user_id}: {str(e)}")
+        logging_utility.error(
+            f"HTTP error occurred while listing threads for user {user_id}: {str(e)}"
+        )
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while listing threads for user {user_id}: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while listing threads for user {user_id}: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")

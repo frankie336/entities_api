@@ -8,15 +8,17 @@ from entities_api.constants.platform import WEB_SEARCH_BASE_URL
 # Initialize the logging utility
 logging_utility = LoggingUtility()
 
+
 def extract_skip_to_content_url(markdown):
     """
     Extract the 'Skip to content' URL from markdown content.
     Uses regex to find the pattern [Skip to content](URL).
     """
-    match = re.search(r'\[Skip to content\]\((https?://[^\s\)]+)\)', markdown)
+    match = re.search(r"\[Skip to content\]\((https?://[^\s\)]+)\)", markdown)
     if match:
         return match.group(1)  # Return the captured URL
     return None  # Return None if no match is found
+
 
 class FirecrawlService:
     def __init__(self, firecrawl_url="http://localhost:3002/v1/crawl"):
@@ -27,7 +29,7 @@ class FirecrawlService:
         self.firecrawl_url = firecrawl_url
         self.max_retries = 10  # Maximum number of retries
         self.retry_delay = 2  # Delay between retries in seconds
-        self.token_count  = []
+        self.token_count = []
 
     def crawl_url(self, url: str) -> str:
         """
@@ -40,7 +42,9 @@ class FirecrawlService:
             job_id = response.json().get("id")
             logging_utility.info(f"Crawl job submitted successfully. Job ID: {job_id}")
             return job_id
-        logging_utility.error(f"Failed to submit crawl request. Status code: {response.status_code}")
+        logging_utility.error(
+            f"Failed to submit crawl request. Status code: {response.status_code}"
+        )
         return None
 
     def get_results(self, job_id: str) -> dict:
@@ -72,7 +76,9 @@ class FirecrawlService:
                     logging_utility.info(f"Crawl job completed. Job ID: {job_id}")
                     return results
                 elif results.get("status") == "scraping":
-                    logging_utility.info(f"Job still in progress. Retrying in {self.retry_delay} seconds...")
+                    logging_utility.info(
+                        f"Job still in progress. Retrying in {self.retry_delay} seconds..."
+                    )
                     time.sleep(self.retry_delay)
                     retries += 1
                 else:
@@ -81,7 +87,9 @@ class FirecrawlService:
             else:
                 logging_utility.error("Failed to retrieve job status.")
                 break
-        logging_utility.warning(f"Max retries ({self.max_retries}) reached. Job may still be in progress.")
+        logging_utility.warning(
+            f"Max retries ({self.max_retries}) reached. Job may still be in progress."
+        )
         return None
 
     def search_orchestrator(self, query, max_pages):
@@ -111,11 +119,8 @@ class FirecrawlService:
                     time.sleep(0.1)
 
 
-
-
 # Example usage
 if __name__ == "__main__":
     service = FirecrawlService()
     query = "war"
     service.search_orchestrator(query=query, max_pages=50)
-

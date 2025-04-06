@@ -24,11 +24,13 @@ class DeepSeekR1Local(BaseInference):
         logging_utility.info("Creating tool filtering messages")
         logging_utility.debug("Original messages: %s", messages)
 
-        system_message = next((msg for msg in messages if msg['role'] == 'system'), None)
-        last_user_message = next((msg for msg in reversed(messages) if msg['role'] == 'user'), None)
+        system_message = next((msg for msg in messages if msg["role"] == "system"), None)
+        last_user_message = next((msg for msg in reversed(messages) if msg["role"] == "user"), None)
 
         if not system_message or not last_user_message:
-            logging_utility.warning("Could not find necessary messages for filtering. Using original messages.")
+            logging_utility.warning(
+                "Could not find necessary messages for filtering. Using original messages."
+            )
             return messages  # Return original if we can't find necessary messages
 
         filtered_messages = [system_message, last_user_message]
@@ -42,10 +44,12 @@ class DeepSeekR1Local(BaseInference):
         tool_results = []
         try:
             for tool in tool_calls:
-                function_name = tool['function']['name']
-                function_args = tool['function']['arguments']
+                function_name = tool["function"]["name"]
+                function_args = tool["function"]["arguments"]
 
-                logging_utility.info(f"Function call triggered for run_id: {run_id}, function_name: {function_name}")
+                logging_utility.info(
+                    f"Function call triggered for run_id: {run_id}, function_name: {function_name}"
+                )
 
                 # Look up tool by name
                 tool_record = self.tool_service.get_tool_by_name(function_name)
@@ -56,9 +60,7 @@ class DeepSeekR1Local(BaseInference):
 
                 # Create the action for the tool call
                 action_response = self.action_service.create_action(
-                    tool_name=function_name,
-                    run_id=run_id,
-                    function_args=function_args
+                    tool_name=function_name, run_id=run_id, function_args=function_args
                 )
 
                 logging_utility.info(f"Created action for function call: {action_response.id}")
@@ -76,10 +78,15 @@ class DeepSeekR1Local(BaseInference):
 
                         tool_results.append(parsed_response)  # Collect successful results
                     except Exception as func_e:
-                        logging_utility.error(f"Error executing function '{function_name}': {str(func_e)}", exc_info=True)
+                        logging_utility.error(
+                            f"Error executing function '{function_name}': {str(func_e)}",
+                            exc_info=True,
+                        )
                         # Do not append the result to tool_results if there's an error
                 else:
-                    raise ValueError(f"Function '{function_name}' is not available in available_functions")
+                    raise ValueError(
+                        f"Function '{function_name}' is not available in available_functions"
+                    )
 
         except Exception as e:
             logging_utility.error(f"Error in _process_tool_calls: {str(e)}", exc_info=True)
@@ -90,21 +97,18 @@ class DeepSeekR1Local(BaseInference):
         logging_utility.info(f"Generating final response for run_id: {run_id}")
 
         if tool_results:
-            messages.extend({'role': 'tool', 'content': json.dumps(r)} for r in tool_results)
+            messages.extend({"role": "tool", "content": json.dumps(r)} for r in tool_results)
 
         full_response = ""
         run_cancelled = False  # Cancellation state tracker
 
         try:
             streaming_response = self.ollama_client.chat(
-                model=model,
-                messages=messages,
-                options={'num_ctx': 8000},
-                stream=True
+                model=model, messages=messages, options={"num_ctx": 8000}, stream=True
             )
 
             for chunk in streaming_response:
-                content = chunk.get('message', {}).get('content', '')
+                content = chunk.get("message", {}).get("content", "")
                 full_response += content
 
                 # Stream content to client
@@ -115,10 +119,10 @@ class DeepSeekR1Local(BaseInference):
                 if current_status in ["cancelling", "cancelled"]:
                     # Immediate partial save
                     self.message_service.save_assistant_message_chunk(
-                        role='assistant',
+                        role="assistant",
                         thread_id=thread_id,
                         content=full_response,
-                        is_last_chunk=True
+                        is_last_chunk=True,
                     )
                     self.run_service.update_run_status(run_id, "cancelled")
                     run_cancelled = True
@@ -130,10 +134,7 @@ class DeepSeekR1Local(BaseInference):
             # Final completion handling
             if not run_cancelled:
                 self.message_service.save_assistant_message_chunk(
-                    role='assistant',
-                    thread_id=thread_id,
-                    content=full_response,
-                    is_last_chunk=True
+                    role="assistant", thread_id=thread_id, content=full_response, is_last_chunk=True
                 )
                 self.run_service.update_run_status(run_id, "completed")
                 logging_utility.info(f"Completed response for {run_id}")
@@ -143,25 +144,25 @@ class DeepSeekR1Local(BaseInference):
             # Emergency save of partial response
             if full_response:
                 self.message_service.save_assistant_message_chunk(
-                    role='assistant',
-                    thread_id=thread_id,
-                    content=full_response,
-                    is_last_chunk=True
+                    role="assistant", thread_id=thread_id, content=full_response, is_last_chunk=True
                 )
             self.run_service.update_run_status(run_id, "failed")
             yield f"[ERROR] Response generation failed: {str(e)}"
 
-
-    def process_conversation(self, thread_id, message_id, run_id, assistant_id, model='llama3.1'):
+    def process_conversation(self, thread_id, message_id, run_id, assistant_id, model="llama3.1"):
         logging_utility.info(
             "Processing conversation for thread_id: %s, run_id: %s, model: %s",
-            thread_id, run_id, model
+            thread_id,
+            run_id,
+            model,
         )
 
         assistant = self.assistant_service.retrieve_assistant(assistant_id=assistant_id)
         logging_utility.info(
             "Retrieved assistant: id=%s, name=%s, model=%s",
-            assistant.id, assistant.name, assistant.model
+            assistant.id,
+            assistant.name,
+            assistant.model,
         )
 
         messages = self.message_service.get_formatted_messages(
@@ -176,15 +177,15 @@ class DeepSeekR1Local(BaseInference):
         response = self.ollama_client.chat(
             model=model,
             messages=tool_filtering_messages,
-            options={'num_ctx': 8000},
-            #DeepSeekR1Local does not support tools
+            options={"num_ctx": 8000},
+            # DeepSeekR1Local does not support tools
         )
 
         logging_utility.debug("Initial chat response: %s", response)
 
-        if response['message'].get('tool_calls'):
+        if response["message"].get("tool_calls"):
             tool_results = self._process_tool_calls(
-                run_id, response['message']['tool_calls'], message_id, thread_id
+                run_id, response["message"]["tool_calls"], message_id, thread_id
             )
 
         # Generate and stream the final response

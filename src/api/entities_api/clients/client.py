@@ -23,22 +23,24 @@ logging_utility = LoggingUtility()
 
 class EntitiesInternalInterface:
     def __init__(
-            self,
-            base_url: Optional[str] = None,
-            api_key: Optional[str] = None,
-            available_functions: Optional[Dict[str, Any]] = None
+        self,
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
+        available_functions: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize the main client with configuration.
         Optionally, a configuration object could be injected here
         to decouple from environment variables for better testability.
         """
-        self.base_url = base_url or os.getenv('ASSISTANTS_BASE_URL', 'http://localhost:9000/')
-        self.api_key = api_key or os.getenv('API_KEY', 'your_api_key')
+        self.base_url = base_url or os.getenv("ASSISTANTS_BASE_URL", "http://localhost:9000/")
+        self.api_key = api_key or os.getenv("API_KEY", "your_api_key")
 
         self._session_factory = SessionLocal
 
-        logging_utility.info("CommonEntitiesInternalInterface initialized with base_url: %s", self.base_url)
+        logging_utility.info(
+            "CommonEntitiesInternalInterface initialized with base_url: %s", self.base_url
+        )
 
         # Lazy initialization caches for service instances
         self._user_service: Optional[UserClient] = None
@@ -117,7 +119,6 @@ class EntitiesInternalInterface:
             raise
         finally:
             session.close()
-
 
     def close(self):
         """Clean up resources explicitly"""

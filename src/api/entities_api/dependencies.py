@@ -5,7 +5,6 @@ from entities_api.services.vector_store_manager import VectorStoreManager as Qdr
 from entities_api.db.database import SessionLocal  # Adjust import based on your project structure
 
 
-
 def get_db() -> Session:
     """Dependency to provide a database session"""
     db = SessionLocal()
@@ -13,6 +12,7 @@ def get_db() -> Session:
         yield db
     finally:
         db.close()
+
 
 def get_qdrant_client() -> QdrantVectorStore:
     """Dependency to provide a Qdrant client"""

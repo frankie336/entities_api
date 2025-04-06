@@ -41,12 +41,16 @@ def get_action(action_id: str, db: Session = Depends(get_db)):
         logging_utility.error(f"HTTP error occurred while retrieving action {action_id}: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while retrieving action {action_id}: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while retrieving action {action_id}: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
 @router.put("/actions/{action_id}", response_model=ActionRead)
-def update_action_status(action_id: str, action_update: ActionUpdate, db: Session = Depends(get_db)):
+def update_action_status(
+    action_id: str, action_update: ActionUpdate, db: Session = Depends(get_db)
+):
     logging_utility.info(f"Received request to update status of action ID: {action_id}")
     action_service = ActionService(db)
     try:
@@ -54,33 +58,46 @@ def update_action_status(action_id: str, action_update: ActionUpdate, db: Sessio
         logging_utility.info(f"Action status updated successfully for action ID: {action_id}")
         return updated_action
     except HTTPException as e:
-        logging_utility.error(f"HTTP error occurred while updating action status {action_id}: {str(e)}")
+        logging_utility.error(
+            f"HTTP error occurred while updating action status {action_id}: {str(e)}"
+        )
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while updating action status {action_id}: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while updating action status {action_id}: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
 @router.get("/runs/{run_id}/actions/status", response_model=List[ActionRead])
-def get_actions_by_status(run_id: str, status: Optional[str] = "pending", db: Session = Depends(get_db)):
-    logging_utility.info(f"Received request to get actions for run ID: {run_id} with status: {status}")
+def get_actions_by_status(
+    run_id: str, status: Optional[str] = "pending", db: Session = Depends(get_db)
+):
+    logging_utility.info(
+        f"Received request to get actions for run ID: {run_id} with status: {status}"
+    )
     action_service = ActionService(db)
     try:
         actions = action_service.get_actions_by_status(run_id, status)
-        logging_utility.info(f"Actions retrieved successfully for run ID: {run_id} with status: {status}")
+        logging_utility.info(
+            f"Actions retrieved successfully for run ID: {run_id} with status: {status}"
+        )
         return actions
     except HTTPException as e:
-        logging_utility.error(f"HTTP error occurred while retrieving actions for run {run_id} with status {status}: {str(e)}")
+        logging_utility.error(
+            f"HTTP error occurred while retrieving actions for run {run_id} with status {status}: {str(e)}"
+        )
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while retrieving actions for run {run_id} with status {status}: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while retrieving actions for run {run_id} with status {status}: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
 @router.get("/actions/pending/{run_id}", response_model=List[Dict[str, Any]])
 def get_pending_actions(
-    run_id: str,  # Accept run_id as part of the URL path
-    db: Session = Depends(get_db)
+    run_id: str, db: Session = Depends(get_db)  # Accept run_id as part of the URL path
 ):
     """
     Retrieve all pending actions with their function arguments, tool names,
@@ -91,13 +108,17 @@ def get_pending_actions(
     try:
         # Assuming `get_pending_actions` only uses the `run_id` parameter
         pending_actions = action_service.get_pending_actions(run_id)
-        logging_utility.info(f"Successfully retrieved {len(pending_actions)} pending action(s) for run_id: {run_id}.")
+        logging_utility.info(
+            f"Successfully retrieved {len(pending_actions)} pending action(s) for run_id: {run_id}."
+        )
         return pending_actions
     except HTTPException as e:
         logging_utility.error(f"HTTP error occurred while listing pending actions: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while listing pending actions: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while listing pending actions: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
@@ -113,5 +134,7 @@ def delete_action(action_id: str, db: Session = Depends(get_db)):
         logging_utility.error(f"HTTP error occurred while deleting action {action_id}: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while deleting action {action_id}: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while deleting action {action_id}: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")

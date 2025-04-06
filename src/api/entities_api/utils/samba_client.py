@@ -14,9 +14,17 @@ from smb.SMBConnection import SMBConnection
 
 
 class SambaClient:
-    def __init__(self, server: str, share: str, username: str, password: str,
-                 domain: Optional[str] = None, port: int = 445,
-                 max_retries: int = 5, retry_delay: int = 2):
+    def __init__(
+        self,
+        server: str,
+        share: str,
+        username: str,
+        password: str,
+        domain: Optional[str] = None,
+        port: int = 445,
+        max_retries: int = 5,
+        retry_delay: int = 2,
+    ):
         self.server = server
         self.share = share
         self.username = username
@@ -32,7 +40,9 @@ class SambaClient:
 
         for retry in range(self.max_retries):
             try:
-                print(f"Attempting to connect to SMB server (attempt {retry + 1}/{self.max_retries})...")
+                print(
+                    f"Attempting to connect to SMB server (attempt {retry + 1}/{self.max_retries})..."
+                )
                 self._connect()
                 print(f"Successfully connected to SMB server on attempt {retry + 1}")
                 break
@@ -43,14 +53,15 @@ class SambaClient:
                     time.sleep(self.retry_delay)
                 else:
                     raise Exception(
-                        f"Failed to connect to SMB server after {self.max_retries} attempts. Last error: {str(e)}")
+                        f"Failed to connect to SMB server after {self.max_retries} attempts. Last error: {str(e)}"
+                    )
 
     def _connect(self):
         connection_params: List[Dict[str, Any]] = [
             {"use_ntlm_v2": True, "is_direct_tcp": True},
             {"use_ntlm_v2": True, "is_direct_tcp": False},
             {"use_ntlm_v2": False, "is_direct_tcp": True},
-            {"use_ntlm_v2": False, "is_direct_tcp": False}
+            {"use_ntlm_v2": False, "is_direct_tcp": False},
         ]
 
         errors = []
@@ -63,7 +74,7 @@ class SambaClient:
                     self.client_name,
                     self.server_name,
                     domain=self.domain,
-                    **params
+                    **params,
                 )
 
                 try:
@@ -157,9 +168,7 @@ class SambaClient:
         expiration_timestamp = int(expiration_time.timestamp())
         data = f"{file_id}:{expiration_timestamp}"
         signature = hmac.new(
-            key=secret_key.encode(),
-            msg=data.encode(),
-            digestmod=hashlib.sha256
+            key=secret_key.encode(), msg=data.encode(), digestmod=hashlib.sha256
         ).hexdigest()
 
         query_params = {
@@ -239,7 +248,7 @@ class SambaClient:
         try:
             file_bytes = self.download_file_to_bytes(target_file)
             # Remove the file id and the underscore to obtain the original filename.
-            original_filename = target_file[len(expected_prefix):]
+            original_filename = target_file[len(expected_prefix) :]
             return original_filename, file_bytes
         except Exception as e:
             raise Exception(f"Failed to retrieve file by ID {file_id}: {str(e)}")
@@ -290,6 +299,7 @@ class SambaClient:
 
         # Ensure that the save directory exists.
         import os
+
         os.makedirs(save_dir, exist_ok=True)
 
         # Build the full path for saving the file.
@@ -302,6 +312,3 @@ class SambaClient:
             f.write(file_io.read())
 
         return save_path
-
-
-

@@ -3,6 +3,7 @@
 --prefer-binary
 
 # Core sandbox packages
+fastapi
 uvicorn[standard]
 websockets
 python-multipart
@@ -21,4 +22,5 @@ scikit-learn
 
 # Test PyPI-scoped packages (intentionally placed last)
 entities
-entities-common==0.1.0
+entities-common
+

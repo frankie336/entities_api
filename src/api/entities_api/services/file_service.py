@@ -21,6 +21,7 @@ logging_utility = LoggingUtility()
 
 validator = ValidationInterface()
 
+
 class FileService:
     def __init__(self, db: Session):
         """
@@ -42,8 +43,10 @@ class FileService:
         """
         mime_type = get_mime_type(filename)
         if not mime_type:
-            raise HTTPException(status_code=400,
-                                detail=f"Unsupported file type: {os.path.splitext(filename)[1].lower()}. Supported types: {list(SUPPORTED_MIME_TYPES.keys())}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type: {os.path.splitext(filename)[1].lower()}. Supported types: {list(SUPPORTED_MIME_TYPES.keys())}",
+            )
 
         if content_type and content_type != mime_type:
             raise HTTPException(
@@ -100,7 +103,7 @@ class FileService:
                 storage_system="samba",
                 storage_path=unique_filename,
                 is_primary=True,
-                created_at=datetime.now()
+                created_at=datetime.now(),
             )
 
             self.db.add(file_storage)
@@ -127,7 +130,9 @@ class FileService:
                 logging_utility.warning(f"File with ID {file_id} not found in database")
                 return False
 
-            storage_locations = self.db.query(FileStorage).filter(FileStorage.file_id == file_id).all()
+            storage_locations = (
+                self.db.query(FileStorage).filter(FileStorage.file_id == file_id).all()
+            )
 
             for storage_location in storage_locations:
                 if storage_location.storage_system == "samba":
@@ -181,7 +186,9 @@ class FileService:
             logging_utility.error(f"Error retrieving file object for ID {file_id}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")
 
-    def get_file_as_signed_url(self, file_id: str, expires_in: int = 3600, label: str = None) -> str:
+    def get_file_as_signed_url(
+        self, file_id: str, expires_in: int = 3600, label: str = None
+    ) -> str:
         """
         Generate a signed Markdown-safe URL for downloading or rendering the file.
 
@@ -203,9 +210,7 @@ class FileService:
 
         data = f"{file_id}:{expiration_timestamp}"
         signature = hmac.new(
-            key=secret_key.encode(),
-            msg=data.encode(),
-            digestmod=hashlib.sha256
+            key=secret_key.encode(), msg=data.encode(), digestmod=hashlib.sha256
         ).hexdigest()
 
         query_params = {
@@ -233,7 +238,7 @@ class FileService:
 
         try:
             file_bytes = self.samba_client.download_file_to_bytes(file_storage.storage_path)
-            return base64.b64encode(file_bytes).decode('utf-8')
+            return base64.b64encode(file_bytes).decode("utf-8")
         except Exception as e:
             logging_utility.error(f"Error retrieving BASE64 for file ID {file_id}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")

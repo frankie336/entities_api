@@ -15,11 +15,18 @@ class RunsClient:
     def __init__(self, base_url="http://localhost:9000/", api_key=None):
         self.base_url = base_url
         self.api_key = api_key
-        self.client = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"})
+        self.client = httpx.Client(
+            base_url=base_url, headers={"Authorization": f"Bearer {api_key}"}
+        )
         logging_utility.info("RunsClient initialized with base_url: %s", self.base_url)
 
-    def create_run(self, assistant_id: str, thread_id: str, instructions: Optional[str] = "",
-                   meta_data: Optional[Dict[str, Any]] = {}) -> validation.Run:  # Return type is now RunReadDetailed
+    def create_run(
+        self,
+        assistant_id: str,
+        thread_id: str,
+        instructions: Optional[str] = "",
+        meta_data: Optional[Dict[str, Any]] = {},
+    ) -> validation.Run:  # Return type is now RunReadDetailed
         run_data = validation.Run(  # Use Pydantic model for creation
             id=UtilsInterface.IdentifierService.generate_run_id(),
             assistant_id=assistant_id,
@@ -48,10 +55,12 @@ class RunsClient:
             usage=None,
             temperature=0.7,
             top_p=0.9,
-            tool_resources={}
+            tool_resources={},
         )
 
-        logging_utility.info("Creating run for assistant_id: %s, thread_id: %s", assistant_id, thread_id)
+        logging_utility.info(
+            "Creating run for assistant_id: %s, thread_id: %s", assistant_id, thread_id
+        )
         logging_utility.debug("Run data: %s", run_data.dict())
 
         try:
@@ -91,7 +100,9 @@ class RunsClient:
 
             # Parsing and validating the response JSON into a Pydantic RunReadDetailed model
             run_data = response.json()
-            validated_run = validation.RunReadDetailed(**run_data)  # Validate data using Pydantic model
+            validated_run = validation.RunReadDetailed(
+                **run_data
+            )  # Validate data using Pydantic model
 
             logging_utility.info("Run with id %s retrieved and validated successfully", run_id)
             return validated_run
@@ -112,9 +123,7 @@ class RunsClient:
         logging_utility.info("Updating run status for run_id: %s to %s", run_id, new_status)
 
         # Prepare the update data for validation
-        update_data = {
-            "status": new_status
-        }
+        update_data = {"status": new_status}
 
         try:
             # Validate the update data using your RunStatusUpdate model
@@ -126,7 +135,9 @@ class RunsClient:
 
             # Parse the updated run from the response JSON
             updated_run = response.json()
-            validated_run = validation.Run(**updated_run)  # Validate/parse using your Run Pydantic model
+            validated_run = validation.Run(
+                **updated_run
+            )  # Validate/parse using your Run Pydantic model
 
             logging_utility.info("Run status updated successfully")
             return validated_run
@@ -143,15 +154,14 @@ class RunsClient:
 
     def list_runs(self, limit: int = 20, order: str = "asc") -> List[validation.Run]:
         logging_utility.info("Listing runs with limit: %d, order: %s", limit, order)
-        params = {
-            "limit": limit,
-            "order": order
-        }
+        params = {"limit": limit, "order": order}
         try:
             response = self.client.get("/routers/runs", params=params)
             response.raise_for_status()
             runs = response.json()
-            validated_runs = [validation.Run(**run) for run in runs]  # Validate data using Pydantic model
+            validated_runs = [
+                validation.Run(**run) for run in runs
+            ]  # Validate data using Pydantic model
             logging_utility.info("Retrieved %d runs", len(validated_runs))
             return validated_runs
         except ValidationError as e:
@@ -179,7 +189,9 @@ class RunsClient:
             logging_utility.error("An error occurred while deleting run: %s", str(e))
             raise
 
-    def generate(self, run_id: str, model: str, prompt: str, stream: bool = False) -> Dict[str, Any]:
+    def generate(
+        self, run_id: str, model: str, prompt: str, stream: bool = False
+    ) -> Dict[str, Any]:
         logging_utility.info("Generating content for run_id: %s, model: %s", run_id, model)
         try:
             run = self.retrieve_run(run_id)
@@ -191,8 +203,8 @@ class RunsClient:
                     "stream": stream,
                     "context": run.meta_data.get("context", []),
                     "temperature": run.temperature,
-                    "top_p": run.top_p
-                }
+                    "top_p": run.top_p,
+                },
             )
             response.raise_for_status()
             result = response.json()
@@ -205,7 +217,9 @@ class RunsClient:
             logging_utility.error("An error occurred while generating content: %s", str(e))
             raise
 
-    def chat(self, run_id: str, model: str, messages: List[Dict[str, Any]], stream: bool = False) -> Dict[str, Any]:
+    def chat(
+        self, run_id: str, model: str, messages: List[Dict[str, Any]], stream: bool = False
+    ) -> Dict[str, Any]:
         logging_utility.info("Chatting for run_id: %s, model: %s", run_id, model)
         try:
             run = self.retrieve_run(run_id)
@@ -217,8 +231,8 @@ class RunsClient:
                     "stream": stream,
                     "context": run.meta_data.get("context", []),
                     "temperature": run.temperature,
-                    "top_p": run.top_p
-                }
+                    "top_p": run.top_p,
+                },
             )
             response.raise_for_status()
             result = response.json()

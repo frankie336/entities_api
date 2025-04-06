@@ -16,7 +16,9 @@ class ThreadsClient:
     def __init__(self, base_url: str, api_key: str):
         self.base_url = base_url
         self.api_key = api_key
-        self.client = httpx.Client(base_url=base_url, headers={"Authorization": f"Bearer {api_key}"})
+        self.client = httpx.Client(
+            base_url=base_url, headers={"Authorization": f"Bearer {api_key}"}
+        )
         logging_utility.info("ThreadsClient initialized with base_url: %s", self.base_url)
 
     def create_user(self, name: str) -> validation.UserRead:
@@ -26,7 +28,9 @@ class ThreadsClient:
             response = self.client.post("/v1/users", json=user_data)
             response.raise_for_status()
             created_user = response.json()
-            validated_user = validation.UserRead(**created_user)  # Validate data using Pydantic model
+            validated_user = validation.UserRead(
+                **created_user
+            )  # Validate data using Pydantic model
             logging_utility.info("User created successfully with id: %s", validated_user.id)
             return validated_user
         except ValidationError as e:
@@ -39,17 +43,23 @@ class ThreadsClient:
             logging_utility.error("An error occurred while creating user: %s", str(e))
             raise
 
-    def create_thread(self, participant_ids: List[str], meta_data: Optional[Dict[str, Any]] = None) -> validation.ThreadRead:
+    def create_thread(
+        self, participant_ids: List[str], meta_data: Optional[Dict[str, Any]] = None
+    ) -> validation.ThreadRead:
         if meta_data is None:
             meta_data = {}
 
-        thread_data = validation.ThreadCreate(participant_ids=participant_ids, meta_data=meta_data).model_dump()
+        thread_data = validation.ThreadCreate(
+            participant_ids=participant_ids, meta_data=meta_data
+        ).model_dump()
         logging_utility.info("Creating thread with %d participants", len(participant_ids))
         try:
             response = self.client.post("/v1/threads", json=thread_data)
             response.raise_for_status()
             created_thread = response.json()
-            validated_thread = validation.ThreadRead(**created_thread)  # Validate data using Pydantic model
+            validated_thread = validation.ThreadRead(
+                **created_thread
+            )  # Validate data using Pydantic model
             logging_utility.info("Thread created successfully with id: %s", validated_thread.id)
             return validated_thread
         except ValidationError as e:
@@ -57,7 +67,9 @@ class ThreadsClient:
             raise ValueError(f"Validation error: {e}")
         except httpx.HTTPStatusError as e:
             logging_utility.error("HTTP error occurred while creating thread: %s", str(e))
-            logging_utility.error("Status code: %d, Response text: %s", e.response.status_code, e.response.text)
+            logging_utility.error(
+                "Status code: %d, Response text: %s", e.response.status_code, e.response.text
+            )
             raise
         except Exception as e:
             logging_utility.error("An error occurred while creating thread: %s", str(e))
@@ -88,7 +100,9 @@ class ThreadsClient:
 
         try:
             validated_updates = validation.ThreadUpdate(**updates)
-            response = self.client.post(f"/v1/threads/{thread_id}", json=validated_updates.model_dump())
+            response = self.client.post(
+                f"/v1/threads/{thread_id}", json=validated_updates.model_dump()
+            )
             response.raise_for_status()
             updated_thread = response.json()
             return validation.ThreadReadDetailed(**updated_thread)
@@ -100,7 +114,9 @@ class ThreadsClient:
             logging_utility.error(f"An error occurred while updating thread: {e}")
             raise
 
-    def update_thread_metadata(self, thread_id: str, new_metadata: Dict[str, Any]) -> validation.ThreadRead:
+    def update_thread_metadata(
+        self, thread_id: str, new_metadata: Dict[str, Any]
+    ) -> validation.ThreadRead:
         """
         Updates the metadata for a specific thread by its ID.
         """
@@ -131,7 +147,9 @@ class ThreadsClient:
             response = self.client.get(f"/v1/users/{user_id}/threads")
             response.raise_for_status()
             thread_ids = response.json()
-            validated_thread_ids = validation.ThreadIds(**thread_ids)  # Validate data using Pydantic model
+            validated_thread_ids = validation.ThreadIds(
+                **thread_ids
+            )  # Validate data using Pydantic model
             logging_utility.info("Retrieved %d thread ids", len(validated_thread_ids.thread_ids))
             return validated_thread_ids.thread_ids
         except ValidationError as e:
@@ -178,7 +196,9 @@ if __name__ == "__main__":
         user2_id = user2.id
 
         # Create a thread
-        new_thread = thread_service.create_thread(participant_ids=[user1_id, user2_id], meta_data={"topic": "Test Thread"})
+        new_thread = thread_service.create_thread(
+            participant_ids=[user1_id, user2_id], meta_data={"topic": "Test Thread"}
+        )
 
         # Retrieve the thread ID from the response
         thread_id = new_thread.id
@@ -190,7 +210,9 @@ if __name__ == "__main__":
         logging_utility.info("Retrieved thread: %s", retrieved_thread)
 
         # Update the thread metadata
-        updated_thread = thread_service.update_thread_metadata(thread_id, new_metadata={"topic": "Updated Topic"})
+        updated_thread = thread_service.update_thread_metadata(
+            thread_id, new_metadata={"topic": "Updated Topic"}
+        )
 
         logging_utility.info("Updated thread metadata: %s", updated_thread.meta_data)
 

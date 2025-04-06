@@ -5,10 +5,9 @@ from sqlalchemy import create_engine, text
 
 from entities_api.models.models import Base
 from entities_api.routers import api_router  # This central router includes all decoupled routers
-from entities_api.services.logging_service import LoggingUtility
-
+from entities_common import UtilsInterface
 # Initialize the logging utility
-logging_utility = LoggingUtility()
+logging_utility = UtilsInterface.LoggingUtility()
 
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -17,15 +16,16 @@ engine = create_engine(DATABASE_URL, echo=True)
 SPECIAL_DB_URL = os.getenv("SPECIAL_DB_URL")
 special_engine = create_engine(SPECIAL_DB_URL, echo=True) if SPECIAL_DB_URL else None
 
+
 def create_app(init_db=True):
     logging_utility.info("Creating FastAPI app")
     app = FastAPI(
         title="Entities",
         description="API for AI inference",
         version="1.0.0",
-        docs_url="/mydocs",       # Change Swagger UI URL
-        redoc_url="/altredoc",    # Change ReDoc URL
-        openapi_url="/openapi.json"  # Change OpenAPI JSON URL
+        docs_url="/mydocs",  # Change Swagger UI URL
+        redoc_url="/altredoc",  # Change ReDoc URL
+        openapi_url="/openapi.json",  # Change OpenAPI JSON URL
     )
 
     # Include the central API router with all decoupled routers under the /v1 prefix
@@ -44,5 +44,6 @@ def create_app(init_db=True):
             connection.execute(text("ALTER TABLE messages MODIFY COLUMN content TEXT"))
 
     return app
+
 
 app = create_app()

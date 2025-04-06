@@ -2,13 +2,16 @@ import re
 import json
 import unittest
 
+
 # Dummy logging utility for testing purposes.
 class DummyLogger:
     @staticmethod
     def debug(msg, *args):
         pass
 
+
 logging_utility = DummyLogger()
+
 
 # Dummy class with the extract_tool_invocations method.
 class ToolInvocationExtractor:
@@ -18,14 +21,14 @@ class ToolInvocationExtractor:
         Handles multi-line JSON and schema validation without recursive patterns.
         """
         # Remove markdown code fences (e.g., ```json ... ```)
-        text = re.sub(r'```(?:json)?(.*?)```', r'\1', text, flags=re.DOTALL)
+        text = re.sub(r"```(?:json)?(.*?)```", r"\1", text, flags=re.DOTALL)
 
         # Normalization phase
-        text = re.sub(r'[“”]', '"', text)
-        text = re.sub(r'(\s|\\n)+', ' ', text)
+        text = re.sub(r"[“”]", '"', text)
+        text = re.sub(r"(\s|\\n)+", " ", text)
 
         # Simplified pattern without recursion
-        pattern = r'''
+        pattern = r"""
             \{         # Opening curly brace
             .*?        # Any characters
             "name"\s*:\s*"(?P<name>[^"]+)" 
@@ -33,7 +36,7 @@ class ToolInvocationExtractor:
             "arguments"\s*:\s*\{(?P<args>.*?)\}
             .*?        # Any characters
             \}         # Closing curly brace
-        '''
+        """
 
         tool_matches = []
         for match in re.finditer(pattern, text, re.DOTALL | re.VERBOSE):
@@ -43,9 +46,9 @@ class ToolInvocationExtractor:
                 parsed = json.loads(raw_json)
 
                 # Schema validation
-                if not all(key in parsed for key in ['name', 'arguments']):
+                if not all(key in parsed for key in ["name", "arguments"]):
                     continue
-                if not isinstance(parsed['arguments'], dict):
+                if not isinstance(parsed["arguments"], dict):
                     continue
 
                 tool_matches.append(parsed)
@@ -70,25 +73,25 @@ class TestExtractToolInvocations(unittest.TestCase):
         text = '{"name": "toolA", "arguments": {"param": "value"}}'
         result = self.extractor.extract_tool_invocations(text)
         self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]['name'], 'toolA')
-        self.assertEqual(result[0]['arguments'], {"param": "value"})
+        self.assertEqual(result[0]["name"], "toolA")
+        self.assertEqual(result[0]["arguments"], {"param": "value"})
 
     def test_tool_invocation_in_markdown(self):
         # Test with a tool invocation inside markdown code fences.
-        text = "Some text before. ```json {\"name\": \"toolB\", \"arguments\": {\"foo\": \"bar\"}} ``` Some text after."
+        text = 'Some text before. ```json {"name": "toolB", "arguments": {"foo": "bar"}} ``` Some text after.'
         result = self.extractor.extract_tool_invocations(text)
         self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]['name'], 'toolB')
-        self.assertEqual(result[0]['arguments'], {"foo": "bar"})
+        self.assertEqual(result[0]["name"], "toolB")
+        self.assertEqual(result[0]["arguments"], {"foo": "bar"})
 
     def test_multiple_tool_invocations(self):
         # Test input with multiple valid JSON tool invocations.
-        text = '''
+        text = """
             Some random text.
             {"name": "toolC", "arguments": {"a": 1}}Some random text.
             Some random text.
             Some random text.{"name": "toolD", "arguments": {"b": 2}}
-        '''
+        """
         result = self.extractor.extract_tool_invocations(text)
         self.assertEqual(len(result), 2)
         names = {item["name"] for item in result}
@@ -107,6 +110,7 @@ class TestExtractToolInvocations(unittest.TestCase):
         text = '{"name": "toolF"}'
         result = self.extractor.extract_tool_invocations(text)
         self.assertEqual(result, [])
+
 
 if __name__ == "__main__":
     unittest.main()

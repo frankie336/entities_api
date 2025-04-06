@@ -12,7 +12,6 @@ class ProcessOutput(BaseModel):
     chunks_processed: int
 
 
-
 class StreamRequest(BaseModel):
     provider: validator.ProviderEnum = Field(..., description="The inference provider")
     model: str = Field(..., description="The model to use for inference")
@@ -21,4 +20,3 @@ class StreamRequest(BaseModel):
     message_id: str = Field(..., description="Message identifier")
     run_id: str = Field(..., description="Run identifier")
     assistant_id: str = Field(..., description="Assistant identifier")
-

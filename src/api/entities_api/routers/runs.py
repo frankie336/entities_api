@@ -39,13 +39,17 @@ def get_run(run_id: str, db: Session = Depends(get_db)):
         logging_utility.error(f"HTTP error occurred while retrieving run {run_id}: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while retrieving run {run_id}: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while retrieving run {run_id}: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
 @router.put("/runs/{run_id}/status", response_model=RunSchema)
 def update_run_status(run_id: str, status_update: RunStatusUpdate, db: Session = Depends(get_db)):
-    logging_utility.info(f"Received request to update status of run ID: {run_id} to {status_update.status}")
+    logging_utility.info(
+        f"Received request to update status of run ID: {run_id} to {status_update.status}"
+    )
 
     run_service = RunService(db)
 
@@ -60,11 +64,15 @@ def update_run_status(run_id: str, status_update: RunStatusUpdate, db: Session =
         raise HTTPException(status_code=422, detail=f"Validation error: {e.errors()}")
 
     except HTTPException as e:
-        logging_utility.error(f"HTTP error occurred while updating run status for run ID: {run_id}: {str(e)}")
+        logging_utility.error(
+            f"HTTP error occurred while updating run status for run ID: {run_id}: {str(e)}"
+        )
         raise e
 
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while updating run status for run ID: {run_id}: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while updating run status for run ID: {run_id}: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
@@ -80,5 +88,7 @@ def cancel_run(run_id: str, db: Session = Depends(get_db)):
         logging_utility.error(f"HTTP error occurred while cancelling run {run_id}: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while cancelling run {run_id}: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while cancelling run {run_id}: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")

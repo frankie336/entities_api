@@ -11,7 +11,8 @@ logging.basicConfig(level=logging.INFO)
 logging_utility = logging.getLogger("ShellClient")
 
 # Update the endpoint to match the server-side router
-SHELL_SERVER_URL = os.getenv('SHELL_SERVER_URL', 'ws://localhost:8000/ws/computer')
+SHELL_SERVER_URL = os.getenv("SHELL_SERVER_URL", "ws://localhost:8000/ws/computer")
+
 
 class ShellClient:
     def __init__(self, endpoint: str, room: str, elevated: bool = False, timeout: int = 30):
@@ -69,7 +70,9 @@ class ShellClient:
                         logging_utility.info(f"Received output chunk: {content.strip()}")
                     elif msg_type == "command_complete":
                         completions_received += 1
-                        logging_utility.info(f"Received command complete signal ({completions_received}/{expected_completions}).")
+                        logging_utility.info(
+                            f"Received command complete signal ({completions_received}/{expected_completions})."
+                        )
                     else:
                         logging_utility.info(f"Received unrecognized message: {data}")
             except (websockets.exceptions.ConnectionClosed, Exception) as e:
@@ -90,10 +93,12 @@ class ShellClient:
         logging_utility.info("Command execution completed.")
         return buffer
 
+
 async def run_commands(commands: List[str], room: str, elevated: bool = False) -> str:
     async with ShellClient(SHELL_SERVER_URL, room, elevated) as client:
         result = await client.execute(commands)
         return result
+
 
 def run_commands_sync(commands: List[str], room: str, elevated: bool = False) -> str:
     return asyncio.run(run_commands(commands, room, elevated))

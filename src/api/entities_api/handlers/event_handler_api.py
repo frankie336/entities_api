@@ -4,9 +4,6 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 
-
-
-
 from entities_api.services.event_handler import EntitiesEventHandler
 from common.services.logging_service import LoggingUtility
 
@@ -24,12 +21,11 @@ def handle_event(event_type: str, event_data: Any):
     # Additional event handling logic can be added here.
 
 
-
 # Initialize the event handler with the client services and callback.
 event_handler = EntitiesEventHandler(
     run_service=client.run_service,
     action_service=client.action_service,
-    event_callback=handle_event
+    event_callback=handle_event,
 )
 
 

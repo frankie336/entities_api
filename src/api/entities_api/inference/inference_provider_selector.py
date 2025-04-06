@@ -40,21 +40,16 @@ class InferenceProviderSelector:
             "azure": {
                 "default": self.arbiter.get_azure_r1,
             },
-
             "hyperbolic": {
                 "hyperbolic/deepseek-ai/deepseek-r1": self.arbiter.get_hyperbolic_r1,
                 "hyperbolic/deepseek-ai/deepseek-v3": self.arbiter.get_hyperbolic_v3,
                 "hyperbolic/meta-llama/llama-3.3-70b-instruct": self.arbiter.get_hyperbolic_llama3,
-
-
             },
             "togetherai": {
                 "r1": self.arbiter.get_together_r1,
                 "v3": self.arbiter.get_together_v3,
                 "together-ai/meta-llama/llama-2-70b-hf": self.arbiter.get_together_llama2,
             },
-
-
             "local": {
                 "default": self.arbiter.get_local,
             },

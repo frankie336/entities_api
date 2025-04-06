@@ -17,7 +17,7 @@ class PlatformToolService:
         "code_interpreter": None,
         "web_search": None,
         "vector_store_search": None,
-        "computer": None
+        "computer": None,
     }
 
     def __init__(self, base_url=None, api_key=None, assistant_id=None, thread_id=None):
@@ -43,15 +43,11 @@ class PlatformToolService:
 
     def _get_vector__search_handler(self):
         if self._vector_search_handler is None:
-            self._vector_search_handler = VectorSearchHandler(
-                assistant_id=self.assistant_id
-            )
+            self._vector_search_handler = VectorSearchHandler(assistant_id=self.assistant_id)
         return self._vector_search_handler
 
     def call_function(
-            self,
-            function_name: str,
-            arguments: Dict[str, Any]
+        self, function_name: str, arguments: Dict[str, Any]
     ) -> Union[Dict, Generator[str, None, None]]:
         """
         Enhanced function executor with streaming support.

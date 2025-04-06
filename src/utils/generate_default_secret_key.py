@@ -1,6 +1,7 @@
 import os
 import base64
 
+
 def generate_default_secret_key(length: int = 32) -> str:
     """
     Generate a default secret key for signing purposes.
@@ -15,8 +16,9 @@ def generate_default_secret_key(length: int = 32) -> str:
         str: The generated secret key.
     """
     random_bytes = os.urandom(length)
-    secret_key = base64.urlsafe_b64encode(random_bytes).decode('utf-8').rstrip('=')
+    secret_key = base64.urlsafe_b64encode(random_bytes).decode("utf-8").rstrip("=")
     return secret_key
+
 
 # Example usage:
 if __name__ == "__main__":

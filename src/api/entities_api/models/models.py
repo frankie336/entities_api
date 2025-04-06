@@ -5,7 +5,17 @@ from enum import Enum as PyEnum
 from entities_common import ValidationInterface
 
 from sqlalchemy import (
-    Column, String, Integer, Boolean, JSON, DateTime, ForeignKey, Table, BigInteger, Index, Enum as SAEnum
+    Column,
+    String,
+    Integer,
+    Boolean,
+    JSON,
+    DateTime,
+    ForeignKey,
+    Table,
+    BigInteger,
+    Index,
+    Enum as SAEnum,
 )
 from sqlalchemy import Text
 from sqlalchemy.orm import relationship, declarative_base, joinedload
@@ -20,39 +30,44 @@ validation = ValidationInterface
 
 # Association tables
 thread_participants = Table(
-    'thread_participants', Base.metadata,
-    Column('thread_id', String(64), ForeignKey('threads.id'), primary_key=True),
-    Column('user_id', String(64), ForeignKey('users.id'), primary_key=True)
+    "thread_participants",
+    Base.metadata,
+    Column("thread_id", String(64), ForeignKey("threads.id"), primary_key=True),
+    Column("user_id", String(64), ForeignKey("users.id"), primary_key=True),
 )
 
 assistant_tools = Table(
-    'assistant_tools', Base.metadata,
-    Column('assistant_id', String(64), ForeignKey('assistants.id')),
-    Column('tool_id', String(64), ForeignKey('tools.id'))
+    "assistant_tools",
+    Base.metadata,
+    Column("assistant_id", String(64), ForeignKey("assistants.id")),
+    Column("tool_id", String(64), ForeignKey("tools.id")),
 )
 
 user_assistants = Table(
-    'user_assistants', Base.metadata,
-    Column('user_id', String(64), ForeignKey('users.id'), primary_key=True),
-    Column('assistant_id', String(64), ForeignKey('assistants.id'), primary_key=True)
+    "user_assistants",
+    Base.metadata,
+    Column("user_id", String(64), ForeignKey("users.id"), primary_key=True),
+    Column("assistant_id", String(64), ForeignKey("assistants.id"), primary_key=True),
 )
 
 vector_store_assistants = Table(
-    'vector_store_assistants', Base.metadata,
-    Column('vector_store_id', String(64), ForeignKey('vector_stores.id'), primary_key=True),
-    Column('assistant_id', String(64), ForeignKey('assistants.id'), primary_key=True)
+    "vector_store_assistants",
+    Base.metadata,
+    Column("vector_store_id", String(64), ForeignKey("vector_stores.id"), primary_key=True),
+    Column("assistant_id", String(64), ForeignKey("assistants.id"), primary_key=True),
 )
 
 thread_vector_stores = Table(
-    'thread_vector_stores', Base.metadata,
-    Column('thread_id', String(64), ForeignKey('threads.id'), primary_key=True),
-    Column('vector_store_id', String(64), ForeignKey('vector_stores.id'), primary_key=True)
+    "thread_vector_stores",
+    Base.metadata,
+    Column("thread_id", String(64), ForeignKey("threads.id"), primary_key=True),
+    Column("vector_store_id", String(64), ForeignKey("vector_stores.id"), primary_key=True),
 )
 
 
 class StatusEnum(PyEnum):
     deleted = "deleted"
-    active = "active"               # Added this member
+    active = "active"  # Added this member
     queued = "queued"
     in_progress = "in_progress"
     pending_action = "action_required"
@@ -65,6 +80,7 @@ class StatusEnum(PyEnum):
     expired = "expired"
     retrying = "retrying"
 
+
 # -----------------------------------------------------------------------------
 # Models
 # -----------------------------------------------------------------------------
@@ -74,31 +90,11 @@ class User(Base):
     id = Column(String(64), primary_key=True, index=True)
     name = Column(String(128), index=True)
     # Reintroduce the threads relationship
-    threads = relationship(
-        'Thread',
-        secondary=thread_participants,
-        back_populates='participants'
-    )
-    assistants = relationship(
-        'Assistant',
-        secondary=user_assistants,
-        back_populates='users'
-    )
-    sandboxes = relationship(
-        'Sandbox',
-        back_populates='user',
-        cascade="all, delete-orphan"
-    )
-    vector_stores = relationship(
-        "VectorStore",
-        back_populates="user",
-        lazy="select"
-    )
-    files = relationship(
-        "File",
-        back_populates="user",
-        cascade="all, delete-orphan"
-    )
+    threads = relationship("Thread", secondary=thread_participants, back_populates="participants")
+    assistants = relationship("Assistant", secondary=user_assistants, back_populates="users")
+    sandboxes = relationship("Sandbox", back_populates="user", cascade="all, delete-orphan")
+    vector_stores = relationship("VectorStore", back_populates="user", lazy="select")
+    files = relationship("File", back_populates="user", cascade="all, delete-orphan")
 
 
 class Thread(Base):
@@ -110,16 +106,9 @@ class Thread(Base):
     object = Column(String(64), nullable=False)
     tool_resources = Column(JSON, nullable=False, default={})
     # Reintroduce the participants relationship
-    participants = relationship(
-        'User',
-        secondary=thread_participants,
-        back_populates='threads'
-    )
+    participants = relationship("User", secondary=thread_participants, back_populates="threads")
     vector_stores = relationship(
-        "VectorStore",
-        secondary=thread_vector_stores,
-        back_populates="threads",
-        lazy="select"
+        "VectorStore", secondary=thread_vector_stores, back_populates="threads", lazy="select"
     )
 
 
@@ -196,23 +185,17 @@ class Assistant(Base):
     response_format = Column(String(64), nullable=True)
 
     tools = relationship(
-        "Tool",
-        secondary=assistant_tools,
-        back_populates="assistants",
-        lazy="joined"
+        "Tool", secondary=assistant_tools, back_populates="assistants", lazy="joined"
     )
     users = relationship(
-        "User",
-        secondary=user_assistants,
-        back_populates="assistants",
-        lazy="select"
+        "User", secondary=user_assistants, back_populates="assistants", lazy="select"
     )
     vector_stores = relationship(
         "VectorStore",
         secondary="vector_store_assistants",
         back_populates="assistants",
         lazy="select",
-        passive_deletes=True
+        passive_deletes=True,
     )
 
 
@@ -224,11 +207,7 @@ class Tool(Base):
     type = Column(String(64), nullable=False)
     function = Column(JSON, nullable=True)
 
-    assistants = relationship(
-        "Assistant",
-        secondary=assistant_tools,
-        back_populates="tools"
-    )
+    assistants = relationship("Assistant", secondary=assistant_tools, back_populates="tools")
     actions = relationship("Action", back_populates="tool")
 
 
@@ -236,8 +215,8 @@ class Action(Base):
     __tablename__ = "actions"
 
     id = Column(String(64), primary_key=True, index=True)
-    run_id = Column(String(64), ForeignKey('runs.id'), nullable=True)
-    tool_id = Column(String(64), ForeignKey('tools.id'), nullable=True)
+    run_id = Column(String(64), ForeignKey("runs.id"), nullable=True)
+    tool_id = Column(String(64), ForeignKey("tools.id"), nullable=True)
     triggered_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=True)
     is_processed = Column(Boolean, default=False)
@@ -251,17 +230,14 @@ class Action(Base):
 
     @staticmethod
     def get_full_action_query(session):
-        return session.query(Action).options(
-            joinedload(Action.run),
-            joinedload(Action.tool)
-        )
+        return session.query(Action).options(joinedload(Action.run), joinedload(Action.tool))
 
 
 class Sandbox(Base):
     __tablename__ = "sandboxes"
 
     id = Column(String(64), primary_key=True, index=True)
-    user_id = Column(String(64), ForeignKey('users.id'), nullable=False)
+    user_id = Column(String(64), ForeignKey("users.id"), nullable=False)
     name = Column(String(128), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     status = Column(String(32), nullable=False, default="active")
@@ -280,29 +256,37 @@ class File(Base):
     filename = Column(String(256), nullable=False)
     purpose = Column(String(64), nullable=False)
     mime_type = Column(String(255))
-    user_id = Column(String(64), ForeignKey('users.id'), nullable=False)
+    user_id = Column(String(64), ForeignKey("users.id"), nullable=False)
     user = relationship("User", back_populates="files")
-    storage_locations = relationship("FileStorage", back_populates="file", cascade="all, delete-orphan")
+    storage_locations = relationship(
+        "FileStorage", back_populates="file", cascade="all, delete-orphan"
+    )
 
 
 class FileStorage(Base):
     __tablename__ = "file_storage"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    file_id = Column(String(64), ForeignKey('files.id', ondelete="CASCADE"), nullable=False)
-    storage_system = Column(String(64), nullable=False, default="samba",
-                            comment="Storage system type (samba, s3, etc.)")
-    storage_path = Column(String(512), nullable=False,
-                          comment="Path to file in storage system (relative to share root)")
-    is_primary = Column(Boolean, default=True,
-                        comment="Indicates if this is the primary storage location")
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow,
-                        comment="When this storage entry was created")
-    file = relationship("File", back_populates="storage_locations")
-    __table_args__ = (
-        Index('idx_file_storage_file_id', 'file_id'),
+    file_id = Column(String(64), ForeignKey("files.id", ondelete="CASCADE"), nullable=False)
+    storage_system = Column(
+        String(64), nullable=False, default="samba", comment="Storage system type (samba, s3, etc.)"
     )
-
+    storage_path = Column(
+        String(512),
+        nullable=False,
+        comment="Path to file in storage system (relative to share root)",
+    )
+    is_primary = Column(
+        Boolean, default=True, comment="Indicates if this is the primary storage location"
+    )
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        comment="When this storage entry was created",
+    )
+    file = relationship("File", back_populates="storage_locations")
+    __table_args__ = (Index("idx_file_storage_file_id", "file_id"),)
 
 
 class VectorStore(Base):
@@ -310,7 +294,7 @@ class VectorStore(Base):
 
     id = Column(String(64), primary_key=True, index=True)
     name = Column(String(128), nullable=False, unique=False)
-    user_id = Column(String(64), ForeignKey('users.id'), nullable=False)
+    user_id = Column(String(64), ForeignKey("users.id"), nullable=False)
     collection_name = Column(String(128), nullable=False, unique=True)
     vector_size = Column(Integer, nullable=False)
     distance_metric = Column(String(32), nullable=False)
@@ -321,23 +305,20 @@ class VectorStore(Base):
     file_count = Column(Integer, default=0, nullable=False)  # Added field
     user = relationship("User", back_populates="vector_stores", lazy="select")
     threads = relationship(
-        "Thread",
-        secondary="thread_vector_stores",
-        back_populates="vector_stores",
-        lazy="select"
+        "Thread", secondary="thread_vector_stores", back_populates="vector_stores", lazy="select"
     )
     assistants = relationship(
         "Assistant",
         secondary="vector_store_assistants",
         back_populates="vector_stores",
         lazy="select",
-        passive_deletes=True
+        passive_deletes=True,
     )
     files = relationship(
         "VectorStoreFile",
         back_populates="vector_store",
         cascade="all, delete-orphan",
-        lazy="dynamic"
+        lazy="dynamic",
     )
 
 
@@ -345,7 +326,7 @@ class VectorStoreFile(Base):
     __tablename__ = "vector_store_files"
 
     id = Column(String(64), primary_key=True, index=True)
-    vector_store_id = Column(String(64), ForeignKey('vector_stores.id'), nullable=False)
+    vector_store_id = Column(String(64), ForeignKey("vector_stores.id"), nullable=False)
     file_name = Column(String(256), nullable=False)
     file_path = Column(String(1024), nullable=False)
     processed_at = Column(Integer, nullable=True)

@@ -28,8 +28,6 @@ class TogetherV3Inference(BaseInference, ABC):
         self.tool_response = None
         self.function_call = None
 
-
-
     # state
     def set_tool_response_state(self, value):
         self.tool_response = value
@@ -82,20 +80,18 @@ class TogetherV3Inference(BaseInference, ABC):
     def _process_platform_tool_calls(self, thread_id, assistant_id, content, run_id):
         return super()._process_platform_tool_calls(thread_id, assistant_id, content, run_id)
 
-    def _process_tool_calls(self, thread_id,
-                            assistant_id, content,
-                            run_id):
+    def _process_tool_calls(self, thread_id, assistant_id, content, run_id):
         return super()._process_tool_calls(thread_id, assistant_id, content, run_id)
 
-    def stream_function_call_output(self, thread_id, run_id, assistant_id,
-                                    model, stream_reasoning=False):
-
+    def stream_function_call_output(
+        self, thread_id, run_id, assistant_id, model, stream_reasoning=False
+    ):
 
         # TODO: experimenting with R1 function calling.
         model = "deepseek-ai/DeepSeek-R1"
 
-        #if self._get_model_map(value=model):
-            #model = self._get_model_map(value=model)
+        # if self._get_model_map(value=model):
+        # model = self._get_model_map(value=model)
 
         self.start_cancellation_listener(run_id)
 
@@ -104,11 +100,13 @@ class TogetherV3Inference(BaseInference, ABC):
         self.message_service.create_message(
             thread_id=thread_id,
             assistant_id=assistant_id,
-            content='give the user the output from tool as advised in system message',
-            role='user',
+            content="give the user the output from tool as advised in system message",
+            role="user",
         )
 
-        logging_utility.info("Sent the assistant a reminder message: %s", )
+        logging_utility.info(
+            "Sent the assistant a reminder message: %s",
+        )
 
         request_payload = {
             "model": model,
@@ -119,7 +117,7 @@ class TogetherV3Inference(BaseInference, ABC):
             "top_k": 50,
             "repetition_penalty": 1,
             "stop": ["<｜end▁of▁sentence｜>"],
-            "stream": True
+            "stream": True,
         }
 
         assistant_reply = ""
@@ -132,7 +130,7 @@ class TogetherV3Inference(BaseInference, ABC):
             for token in response:
                 if self.check_cancellation_flag():
                     logging_utility.warning(f"Run {run_id} cancelled mid-stream")
-                    yield json.dumps({'type': 'error', 'content': 'Run cancelled'})
+                    yield json.dumps({"type": "error", "content": "Run cancelled"})
                     break
 
                 if not hasattr(token, "choices") or not token.choices:
@@ -156,21 +154,21 @@ class TogetherV3Inference(BaseInference, ABC):
                         in_reasoning = True
                         reasoning_content += seg
                         logging_utility.debug("Yielding reasoning tag: %s", seg)
-                        yield json.dumps({'type': 'reasoning', 'content': seg})
+                        yield json.dumps({"type": "reasoning", "content": seg})
                     elif seg == "</think>":
                         in_reasoning = False
                         reasoning_content += seg
                         logging_utility.debug("Yielding reasoning tag: %s", seg)
-                        yield json.dumps({'type': 'reasoning', 'content': seg})
+                        yield json.dumps({"type": "reasoning", "content": seg})
                     else:
                         if in_reasoning:
                             reasoning_content += seg
                             logging_utility.debug("Yielding reasoning segment: %s", seg)
-                            yield json.dumps({'type': 'reasoning', 'content': seg})
+                            yield json.dumps({"type": "reasoning", "content": seg})
                         else:
                             assistant_reply += seg
                             logging_utility.debug("Yielding content segment: %s", seg)
-                            yield json.dumps({'type': 'content', 'content': seg})
+                            yield json.dumps({"type": "content", "content": seg})
                 # Optional: slight pause to allow incremental delivery
                 time.sleep(0.05)
 
@@ -179,7 +177,7 @@ class TogetherV3Inference(BaseInference, ABC):
             logging_utility.error(error_msg, exc_info=True)
             combined = reasoning_content + assistant_reply
             self.handle_error(combined, thread_id, assistant_id, run_id)
-            yield json.dumps({'type': 'error', 'content': error_msg})
+            yield json.dumps({"type": "error", "content": error_msg})
             return
 
         # Finalize conversation if there's any assistant reply content
@@ -187,190 +185,190 @@ class TogetherV3Inference(BaseInference, ABC):
             combined = reasoning_content + assistant_reply
             self.finalize_conversation(combined, thread_id, assistant_id, run_id)
 
+    def stream_response(
+        self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=False
+    ):
+        """
+        Streams tool responses in real time using the TogetherAI SDK.
+        - Yields each token chunk immediately, split by reasoning tags.
+        - Accumulates the full response for final validation.
+        - Supports mid-stream cancellation.
+        - Strips markdown triple backticks from the final accumulated content.
+        - Excludes all characters prior to (and including) the partial code-interpreter match.
+        """
+        request_payload = {
+            "model": model,
+            "messages": self._set_up_context_window(assistant_id, thread_id, trunk=True),
+            "max_tokens": None,
+            "temperature": 0.5,
+            "top_p": 0.95,
+            "top_k": 50,
+            "repetition_penalty": 1,
+            "stop": [""],
+            "stream": True,
+        }
 
-    def stream_response(self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=False):
-            """
-            Streams tool responses in real time using the TogetherAI SDK.
-            - Yields each token chunk immediately, split by reasoning tags.
-            - Accumulates the full response for final validation.
-            - Supports mid-stream cancellation.
-            - Strips markdown triple backticks from the final accumulated content.
-            - Excludes all characters prior to (and including) the partial code-interpreter match.
-            """
-            request_payload = {
-                "model": model,
-                "messages": self._set_up_context_window(assistant_id, thread_id, trunk=True),
-                "max_tokens": None,
-                "temperature": 0.5,
-                "top_p": 0.95,
-                "top_k": 50,
-                "repetition_penalty": 1,
-                "stop": [""],
-                "stream": True
-            }
+        assistant_reply = ""
+        accumulated_content = ""
+        # Flags for code-mode
+        code_mode = False
+        code_buffer = ""
+        # Flag for reasoning tag processing
+        in_reasoning = False
+        reasoning_content = ""
 
-            assistant_reply = ""
-            accumulated_content = ""
-            # Flags for code-mode
-            code_mode = False
-            code_buffer = ""
-            # Flag for reasoning tag processing
-            in_reasoning = False
-            reasoning_content = ""
+        try:
+            response = self.client.chat.completions.create(**request_payload)
 
-            try:
-                response = self.client.chat.completions.create(**request_payload)
+            for token in response:
+                if self.check_cancellation_flag():
+                    logging_utility.warning("Run %s cancelled mid-stream", run_id)
+                    yield json.dumps({"type": "error", "content": "Run cancelled"})
+                    break
 
-                for token in response:
-                    if self.check_cancellation_flag():
-                        logging_utility.warning("Run %s cancelled mid-stream", run_id)
-                        yield json.dumps({'type': 'error', 'content': 'Run cancelled'})
+                if not hasattr(token, "choices") or not token.choices:
+                    continue
+
+                delta = token.choices[0].delta
+                content = getattr(delta, "content", "")
+                if not content:
+                    continue
+
+                # Write raw content for debugging
+                sys.stdout.write(content)
+                sys.stdout.flush()
+
+                # Accumulate the full content
+                accumulated_content += content
+
+                # ---------------------------------------------------
+                # 1) Check for partial code-interpreter match and exclude prior characters
+                # ---------------------------------------------------
+                if not code_mode:
+                    partial_match = self.parse_code_interpreter_partial(accumulated_content)
+                    if partial_match:
+                        full_match = partial_match.get("full_match")
+                        if full_match:
+                            match_index = accumulated_content.find(full_match)
+                            if match_index != -1:
+                                # Remove everything up to and including the full_match.
+                                accumulated_content = accumulated_content[
+                                    match_index + len(full_match) :
+                                ]
+                        # Enter code mode and initialize the code buffer with any remaining partial code.
+                        code_mode = True
+                        code_buffer = partial_match.get("code", "")
+                        # Emit the start-of-code block marker.
+                        yield json.dumps({"type": "hot_code", "content": "```python\n"})
+                        # Do NOT yield code_buffer from the partial match.
+                        continue
+
+                # ---------------------------------------------------
+                # 2) Already in code mode -> simply accumulate and yield token chunks
+                # ---------------------------------------------------
+                if code_mode:
+                    code_buffer += content
+
+                    # Split into lines while preserving order
+                    while "\n" in code_buffer:
+                        newline_pos = code_buffer.find("\n") + 1
+                        line_chunk = code_buffer[:newline_pos]
+                        code_buffer = code_buffer[newline_pos:]
+                        yield json.dumps({"type": "hot_code", "content": line_chunk})
                         break
 
-                    if not hasattr(token, "choices") or not token.choices:
+                    # Send remaining buffer if it exceeds threshold (100 chars)
+                    if len(code_buffer) > 100:
+                        yield json.dumps({"type": "hot_code", "content": code_buffer})
+                        code_buffer = ""
+                    continue
+
+                # ---------------------------------------------------
+                # 3) Process content using thinking tags (<think> and </think>)
+                # ---------------------------------------------------
+                segments = self.REASONING_PATTERN.split(content)
+                for seg in segments:
+                    if not seg:
                         continue
-
-                    delta = token.choices[0].delta
-                    content = getattr(delta, "content", "")
-                    if not content:
-                        continue
-
-                    # Write raw content for debugging
-                    sys.stdout.write(content)
-                    sys.stdout.flush()
-
-                    # Accumulate the full content
-                    accumulated_content += content
-
-                    # ---------------------------------------------------
-                    # 1) Check for partial code-interpreter match and exclude prior characters
-                    # ---------------------------------------------------
-                    if not code_mode:
-                        partial_match = self.parse_code_interpreter_partial(accumulated_content)
-                        if partial_match:
-                            full_match = partial_match.get('full_match')
-                            if full_match:
-                                match_index = accumulated_content.find(full_match)
-                                if match_index != -1:
-                                    # Remove everything up to and including the full_match.
-                                    accumulated_content = accumulated_content[match_index + len(full_match):]
-                            # Enter code mode and initialize the code buffer with any remaining partial code.
-                            code_mode = True
-                            code_buffer = partial_match.get('code', '')
-                            # Emit the start-of-code block marker.
-                            yield json.dumps({'type': 'hot_code', 'content': '```python\n'})
-                            # Do NOT yield code_buffer from the partial match.
-                            continue
-
-                    # ---------------------------------------------------
-                    # 2) Already in code mode -> simply accumulate and yield token chunks
-                    # ---------------------------------------------------
-                    if code_mode:
-                        code_buffer += content
-
-                        # Split into lines while preserving order
-                        while '\n' in code_buffer:
-                            newline_pos = code_buffer.find('\n') + 1
-                            line_chunk = code_buffer[:newline_pos]
-                            code_buffer = code_buffer[newline_pos:]
-                            yield json.dumps({'type': 'hot_code', 'content': line_chunk})
-                            break
-
-                        # Send remaining buffer if it exceeds threshold (100 chars)
-                        if len(code_buffer) > 100:
-                            yield json.dumps({'type': 'hot_code', 'content': code_buffer})
-                            code_buffer = ""
-                        continue
-
-                    # ---------------------------------------------------
-                    # 3) Process content using thinking tags (<think> and </think>)
-                    # ---------------------------------------------------
-                    segments = self.REASONING_PATTERN.split(content)
-                    for seg in segments:
-                        if not seg:
-                            continue
-                        if seg == "<think>":
-                            in_reasoning = True
+                    if seg == "<think>":
+                        in_reasoning = True
+                        reasoning_content += seg
+                        logging_utility.debug("Yielding reasoning tag: %s", seg)
+                        yield json.dumps({"type": "reasoning", "content": seg})
+                    elif seg == "</think>":
+                        in_reasoning = False
+                        reasoning_content += seg
+                        logging_utility.debug("Yielding reasoning tag: %s", seg)
+                        yield json.dumps({"type": "reasoning", "content": seg})
+                    else:
+                        if in_reasoning:
                             reasoning_content += seg
-                            logging_utility.debug("Yielding reasoning tag: %s", seg)
-                            yield json.dumps({'type': 'reasoning', 'content': seg})
-                        elif seg == "</think>":
-                            in_reasoning = False
-                            reasoning_content += seg
-                            logging_utility.debug("Yielding reasoning tag: %s", seg)
-                            yield json.dumps({'type': 'reasoning', 'content': seg})
+                            logging_utility.debug("Yielding reasoning segment: %s", seg)
+                            yield json.dumps({"type": "reasoning", "content": seg})
                         else:
-                            if in_reasoning:
-                                reasoning_content += seg
-                                logging_utility.debug("Yielding reasoning segment: %s", seg)
-                                yield json.dumps({'type': 'reasoning', 'content': seg})
-                            else:
-                                assistant_reply += seg
-                                logging_utility.debug("Yielding content segment: %s", seg)
-                                yield json.dumps({'type': 'content', 'content': seg})
-                    # Optional: slight pause to allow incremental delivery
-                    time.sleep(0.01)
+                            assistant_reply += seg
+                            logging_utility.debug("Yielding content segment: %s", seg)
+                            yield json.dumps({"type": "content", "content": seg})
+                # Optional: slight pause to allow incremental delivery
+                time.sleep(0.01)
 
-                # ---------------------------------------------------
-                # 4) Validate if the accumulated response is a properly formed tool response.
-                # ---------------------------------------------------
-                json_accumulated_content = self.ensure_valid_json(text=accumulated_content)
-                function_call = self.is_valid_function_call_response(json_data=json_accumulated_content)
-                complex_vector_search = self.is_complex_vector_search(data=json_accumulated_content)
+            # ---------------------------------------------------
+            # 4) Validate if the accumulated response is a properly formed tool response.
+            # ---------------------------------------------------
+            json_accumulated_content = self.ensure_valid_json(text=accumulated_content)
+            function_call = self.is_valid_function_call_response(json_data=json_accumulated_content)
+            complex_vector_search = self.is_complex_vector_search(data=json_accumulated_content)
 
-                if function_call or complex_vector_search:
-                    self.set_tool_response_state(True)
-                    self.set_function_call_state(json_accumulated_content)
+            if function_call or complex_vector_search:
+                self.set_tool_response_state(True)
+                self.set_function_call_state(json_accumulated_content)
 
-                # ---------------------------------------------------
-                # Deals with tool calls with preambles and or within
-                # multi line text.
-                # If a tool invocation is parsed from surrounding text,
-                # and it has not already been dealt with.
-                # ---------------------------------------------------
-                tool_invocation_in_multi_line_text = self.extract_tool_invocations(text=accumulated_content)
-                if tool_invocation_in_multi_line_text and not self.get_tool_response_state():
-                    self.set_tool_response_state(True)
-                    self.set_function_call_state(tool_invocation_in_multi_line_text[0])
+            # ---------------------------------------------------
+            # Deals with tool calls with preambles and or within
+            # multi line text.
+            # If a tool invocation is parsed from surrounding text,
+            # and it has not already been dealt with.
+            # ---------------------------------------------------
+            tool_invocation_in_multi_line_text = self.extract_tool_invocations(
+                text=accumulated_content
+            )
+            if tool_invocation_in_multi_line_text and not self.get_tool_response_state():
+                self.set_tool_response_state(True)
+                self.set_function_call_state(tool_invocation_in_multi_line_text[0])
 
-
-
-                # Saves assistant's reply
-                assistant_message = self.finalize_conversation(
-                    assistant_reply=str(accumulated_content),
-                    thread_id=thread_id,
-                    assistant_id=assistant_id,
-                    run_id=run_id
-                )
-                logging_utility.info("Final accumulated content: %s", accumulated_content)
-                # ---------------------------------------------------
-                # Handle saving to vector store!
-                # ---------------------------------------------------
-                vector_store_id = self.get_vector_store_id_for_assistant(assistant_id=assistant_id)
-                user_message = self.message_service.retrieve_message(message_id=message_id)
+            # Saves assistant's reply
+            assistant_message = self.finalize_conversation(
+                assistant_reply=str(accumulated_content),
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                run_id=run_id,
+            )
+            logging_utility.info("Final accumulated content: %s", accumulated_content)
+            # ---------------------------------------------------
+            # Handle saving to vector store!
+            # ---------------------------------------------------
+            vector_store_id = self.get_vector_store_id_for_assistant(assistant_id=assistant_id)
+            user_message = self.message_service.retrieve_message(message_id=message_id)
+            self.vector_store_service.store_message_in_vector_store(
+                message=user_message, vector_store_id=vector_store_id, role="user"
+            )
+            # ---------------------------------------------------
+            # Avoid saving function call responses to the vector store
+            # ---------------------------------------------------
+            if not self.get_tool_response_state():
                 self.vector_store_service.store_message_in_vector_store(
-                    message=user_message,
-                    vector_store_id=vector_store_id,
-                    role="user"
+                    message=assistant_message, vector_store_id=vector_store_id, role="assistant"
                 )
-                # ---------------------------------------------------
-                #Avoid saving function call responses to the vector store
-                # ---------------------------------------------------
-                if not self.get_tool_response_state():
-                    self.vector_store_service.store_message_in_vector_store(
-                        message=assistant_message,
-                        vector_store_id=vector_store_id,
-                        role="assistant"
-                    )
 
-            except Exception as e:
-                error_msg = f"Together SDK error: {str(e)}"
-                logging_utility.error(error_msg, exc_info=True)
-                self.handle_error(assistant_reply, thread_id, assistant_id, run_id)
-                yield json.dumps({'type': 'error', 'content': error_msg})
+        except Exception as e:
+            error_msg = f"Together SDK error: {str(e)}"
+            logging_utility.error(error_msg, exc_info=True)
+            self.handle_error(assistant_reply, thread_id, assistant_id, run_id)
+            yield json.dumps({"type": "error", "content": error_msg})
 
-    def process_conversation(self, thread_id, message_id, run_id, assistant_id,
-                             model, stream_reasoning=False):
+    def process_conversation(
+        self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=False
+    ):
 
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)
@@ -378,12 +376,14 @@ class TogetherV3Inference(BaseInference, ABC):
         # ---------------------------------------------
         # Stream the response and yield each chunk.
         # --------------------------------------------
-        for chunk in self.stream_response(thread_id, message_id, run_id, assistant_id, model, stream_reasoning):
+        for chunk in self.stream_response(
+            thread_id, message_id, run_id, assistant_id, model, stream_reasoning
+        ):
             yield chunk
 
-        #print("The Tool response state is:")
-        #print(self.get_tool_response_state())
-        #print(self.get_function_call_state())
+        # print("The Tool response state is:")
+        # print(self.get_tool_response_state())
+        # print(self.get_function_call_state())
         if self.get_function_call_state():
             if self.get_function_call_state():
                 if self.get_function_call_state().get("name") in PLATFORM_TOOLS:
@@ -392,16 +392,13 @@ class TogetherV3Inference(BaseInference, ABC):
                         thread_id=thread_id,
                         assistant_id=assistant_id,
                         content=self.get_function_call_state(),
-                        run_id=run_id
-
+                        run_id=run_id,
                     )
 
                     # Stream the output to the response:
-                    for chunk in self.stream_function_call_output(thread_id=thread_id,
-                                                                  model=model,
-                                                                  run_id=run_id,
-                                                                  assistant_id=assistant_id
-                                                                  ):
+                    for chunk in self.stream_function_call_output(
+                        thread_id=thread_id, model=model, run_id=run_id, assistant_id=assistant_id
+                    ):
                         yield chunk
 
         # Deal with user side function calls
@@ -412,16 +409,15 @@ class TogetherV3Inference(BaseInference, ABC):
                         thread_id=thread_id,
                         assistant_id=assistant_id,
                         content=self.get_function_call_state(),
-                        run_id=run_id
+                        run_id=run_id,
                     )
                     # Stream the output to the response:
-                    for chunk in self.stream_function_call_output(thread_id=thread_id,
-                                                                  run_id=run_id,
-                                                                  assistant_id=assistant_id
-                                                                  ):
+                    for chunk in self.stream_function_call_output(
+                        thread_id=thread_id, run_id=run_id, assistant_id=assistant_id
+                    ):
                         yield chunk
 
 
 def __del__(self):
-        """Cleanup resources."""
-        super().__del__()
+    """Cleanup resources."""
+    super().__del__()

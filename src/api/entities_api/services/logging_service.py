@@ -9,9 +9,9 @@ class LoggingUtility:
         self.logger = logging.getLogger(__name__)
 
         # Configure formatter based on caller info requirement
-        log_format = '%(asctime)s - %(levelname)s - %(message)s'
+        log_format = "%(asctime)s - %(levelname)s - %(message)s"
         if self.include_caller_info:
-            log_format = '%(asctime)s - %(levelname)s - %(pathname)s:%(lineno)d - %(message)s'
+            log_format = "%(asctime)s - %(levelname)s - %(pathname)s:%(lineno)d - %(message)s"
 
         self.formatter = logging.Formatter(log_format)
 
@@ -34,7 +34,7 @@ class LoggingUtility:
     def _get_log_args(self):
         """Helper to add stacklevel when caller info is enabled"""
         if self.include_caller_info:
-            return {'stacklevel': 3} if sys.version_info >= (3, 8) else {}
+            return {"stacklevel": 3} if sys.version_info >= (3, 8) else {}
         return {}
 
     def debug(self, message, *args, **kwargs):
@@ -67,4 +67,3 @@ class LoggingUtility:
         # Perform actions or send notifications for critical logs
         print("Intercepted Critical Log:")
         print(message % args)
-

@@ -22,13 +22,13 @@ class FileClient:
         self.base_url = base_url
         self.api_key = api_key
         self.client = httpx.Client(
-            base_url=base_url,
-            headers={"Authorization": f"Bearer {api_key}"}
+            base_url=base_url, headers={"Authorization": f"Bearer {api_key}"}
         )
         logging_utility.info("FileClient initialized with base_url: %s", self.base_url)
 
-    def upload_file(self, file_path: str, user_id: str, purpose: str,
-                    metadata: Optional[Dict[str, Any]] = None) -> validation.FileResponse:
+    def upload_file(
+        self, file_path: str, user_id: str, purpose: str, metadata: Optional[Dict[str, Any]] = None
+    ) -> validation.FileResponse:
         """
         Upload a file to the server, following the OpenAI files endpoint style.
 
@@ -43,26 +43,27 @@ class FileClient:
         """
         filename = os.path.basename(file_path)
         mime_type, _ = mimetypes.guess_type(file_path)
-        mime_type = mime_type or 'application/octet-stream'
+        mime_type = mime_type or "application/octet-stream"
 
-        logging_utility.info("Uploading file: %s with purpose: %s for user: %s", file_path, purpose, user_id)
+        logging_utility.info(
+            "Uploading file: %s with purpose: %s for user: %s", file_path, purpose, user_id
+        )
 
         try:
-            with open(file_path, 'rb') as file_object:
+            with open(file_path, "rb") as file_object:
                 # Simplified: Only send the required fields as specified in the FileUploadRequest schema
-                form_data = {
-                    "purpose": purpose,
-                    "user_id": user_id
-                }
+                form_data = {"purpose": purpose, "user_id": user_id}
 
-                files = {'file': (filename, file_object, mime_type)}
+                files = {"file": (filename, file_object, mime_type)}
 
                 response = self.client.post("/v1/uploads", data=form_data, files=files)
                 response.raise_for_status()
 
                 file_data = response.json()
                 validated_response = validation.FileResponse.model_validate(file_data)
-                logging_utility.info("File uploaded successfully with id: %s", validated_response.id)
+                logging_utility.info(
+                    "File uploaded successfully with id: %s", validated_response.id
+                )
                 return validated_response
 
         except ValidationError as e:
@@ -75,8 +76,14 @@ class FileClient:
             logging_utility.error("An error occurred while uploading file: %s", str(e))
             raise
 
-    def upload_file_object(self, file_object: BinaryIO, file_name: str, user_id: str, purpose: str,
-                           metadata: Optional[Dict[str, Any]] = None) -> validation.FileResponse:
+    def upload_file_object(
+        self,
+        file_object: BinaryIO,
+        file_name: str,
+        user_id: str,
+        purpose: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> validation.FileResponse:
         """
         Upload a file-like object to the server.
 
@@ -91,18 +98,17 @@ class FileClient:
             FileResponse: The response from the server with file metadata.
         """
         mime_type, _ = mimetypes.guess_type(file_name)
-        mime_type = mime_type or 'application/octet-stream'
+        mime_type = mime_type or "application/octet-stream"
 
-        logging_utility.info("Uploading file object: %s with purpose: %s for user: %s", file_name, purpose, user_id)
+        logging_utility.info(
+            "Uploading file object: %s with purpose: %s for user: %s", file_name, purpose, user_id
+        )
 
         try:
             # Simplified: Only send the required fields as specified in the FileUploadRequest schema
-            form_data = {
-                "purpose": purpose,
-                "user_id": user_id
-            }
+            form_data = {"purpose": purpose, "user_id": user_id}
 
-            files = {'file': (file_name, file_object, mime_type)}
+            files = {"file": (file_name, file_object, mime_type)}
 
             response = self.client.post("/v1/uploads", data=form_data, files=files)
             response.raise_for_status()
@@ -202,7 +208,9 @@ class FileClient:
             logging_utility.error("Unexpected error in download_file_as_object: %s", str(e))
             raise
 
-    def get_signed_url(self, file_id: str, label: str = None, markdown: bool = False, expires_in: int = 600) -> str:
+    def get_signed_url(
+        self, file_id: str, label: str = None, markdown: bool = False, expires_in: int = 600
+    ) -> str:
         """
         Retrieve a signed URL for the file from the server.
 

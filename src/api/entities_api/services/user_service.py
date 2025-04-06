@@ -19,10 +19,7 @@ class UserService:
         if user is None:
             user = validator.UserCreate()
 
-        new_user = User(
-            id=UtilsInterface.IdentifierService.generate_user_id(),
-            name=user.name
-        )
+        new_user = User(id=UtilsInterface.IdentifierService.generate_user_id(), name=user.name)
         self.db.add(new_user)
         self.db.commit()
         self.db.refresh(new_user)

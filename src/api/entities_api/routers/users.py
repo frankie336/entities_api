@@ -42,7 +42,9 @@ def get_user(user_id: str, db: Session = Depends(get_db)):
         logging_utility.error(f"HTTP error occurred while retrieving user {user_id}: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while retrieving user {user_id}: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while retrieving user {user_id}: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
@@ -58,7 +60,9 @@ def update_user(user_id: str, user_update: UserUpdate, db: Session = Depends(get
         logging_utility.error(f"HTTP error occurred while updating user {user_id}: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while updating user {user_id}: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while updating user {user_id}: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
@@ -74,6 +78,7 @@ def delete_user(user_id: str, db: Session = Depends(get_db)):
         logging_utility.error(f"HTTP error occurred while deleting user {user_id}: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while deleting user {user_id}: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while deleting user {user_id}: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
-

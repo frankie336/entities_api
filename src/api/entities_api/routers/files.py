@@ -19,14 +19,19 @@ router = APIRouter()
 logging_utility = LoggingUtility()
 load_dotenv()
 
+
 # --- Signature Verification ---
-def verify_signature(file_id: str, expires: int, signature: str, use_real_filename: bool = False) -> bool:
+def verify_signature(
+    file_id: str, expires: int, signature: str, use_real_filename: bool = False
+) -> bool:
     secret_key = os.getenv("SIGNED_URL_SECRET", "default_secret_key")
     data = f"{file_id}:{expires}:{use_real_filename}"
     computed_signature = hmac.new(secret_key.encode(), data.encode(), hashlib.sha256).hexdigest()
     return hmac.compare_digest(computed_signature, signature)
 
+
 # --- Download Endpoint ---
+
 
 @router.get("/v1/files/download", response_class=StreamingResponse)
 def download_file(
@@ -34,7 +39,7 @@ def download_file(
     expires: int,
     signature: str,
     use_real_filename: bool = Query(False),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     if datetime.utcnow().timestamp() > expires:
         raise HTTPException(status_code=400, detail="Signed URL has expired")
@@ -51,11 +56,10 @@ def download_file(
 
     headers = {
         "Content-Disposition": f'{disposition_type}; filename="{filename if use_real_filename else file_id}"',
-        "X-Content-Type-Options": "nosniff"
+        "X-Content-Type-Options": "nosniff",
     }
 
     return StreamingResponse(file_stream, media_type=mime_type, headers=headers)
-
 
 
 # --- Signed URL Endpoint ---
@@ -64,7 +68,7 @@ def generate_signed_url(
     file_id: str,
     expires_in: int = Query(600),
     use_real_filename: bool = Query(False),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     logging_utility.info(f"Generating signed URL for file: {file_id} with TTL: {expires_in}s")
 
@@ -83,20 +87,16 @@ def generate_signed_url(
         "file_id": file_id,
         "expires": expires,
         "signature": signature,
-        "use_real_filename": str(use_real_filename).lower()
+        "use_real_filename": str(use_real_filename).lower(),
     }
 
     signed_url = f"{base_url}/v1/files/download?{urlencode(query_params)}"
     return {"signed_url": signed_url}
 
 
-
 # --- Base64 Endpoint ---
 @router.get("/v1/uploads/{file_id}/base64")
-def get_file_as_base64(
-    file_id: str,
-    db: Session = Depends(get_db)
-):
+def get_file_as_base64(file_id: str, db: Session = Depends(get_db)):
     """
     Returns a BASE64-encoded version of the file content.
     """

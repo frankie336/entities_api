@@ -29,7 +29,7 @@ class StreamRequest(BaseModel):
 
 class StatusEnum(PyEnum):
     deleted = "deleted"
-    active = "active"               # Added this member
+    active = "active"  # Added this member
     queued = "queued"
     in_progress = "in_progress"
     pending_action = "action_required"
@@ -68,7 +68,7 @@ class UserDeleteResponse(BaseModel):
 
 
 class ThreadCreate(BaseModel):
-    participant_ids: Optional[List[str]] = Field(..., description="List of participant IDs"),
+    participant_ids: Optional[List[str]] = (Field(..., description="List of participant IDs"),)
     meta_data: Optional[Dict[str, Any]] = {}
 
 
@@ -113,6 +113,7 @@ class MessageRole(str, Enum):
     SYSTEM = "system"
     TOOL = "tool"
 
+
 # Add role validation to MessageCreate
 
 
@@ -126,7 +127,7 @@ class MessageCreate(BaseModel):
     meta_data: Optional[Dict[str, Any]] = None
     is_last_chunk: bool = False
 
-    @validator('role', pre=True)
+    @validator("role", pre=True)
     def validate_role(cls, v):
         valid_roles = {"platform", "assistant", "user", "system", "tool"}
         if isinstance(v, str):
@@ -142,11 +143,10 @@ class MessageCreate(BaseModel):
                 "thread_id": "example_thread_id",
                 "assistant_id": "example_assistant_id",
                 "meta_data": {"key": "value"},
-                "role": "user"
+                "role": "user",
             }
         }
     )
-
 
 
 class MessageRead(BaseModel):
@@ -176,7 +176,7 @@ class MessageUpdate(BaseModel):
     status: Optional[str]
     role: Optional[str]  # Now a plain string instead of Enum
 
-    @validator('role', pre=True)
+    @validator("role", pre=True)
     def validate_role(cls, v):
         if v is None:
             return v
@@ -189,30 +189,24 @@ class MessageUpdate(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-
-
 # New schema for creating tool messages
 class ToolMessageCreate(BaseModel):
     content: str
 
     model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "content": "This is the content of the tool message."
-            }
-        }
+        json_schema_extra={"example": {"content": "This is the content of the tool message."}}
     )
 
 
 class ToolFunction(BaseModel):
     function: Optional[dict]  # Handle the nested 'function' structure
 
-    @validator('function', pre=True, always=True)
+    @validator("function", pre=True, always=True)
     def parse_function(cls, v):
-        if isinstance(v, dict) and 'name' in v and 'description' in v:
+        if isinstance(v, dict) and "name" in v and "description" in v:
             return v  # Valid structure
-        elif isinstance(v, dict) and 'function' in v:
-            return v['function']  # Extract nested function dict
+        elif isinstance(v, dict) and "function" in v:
+            return v["function"]  # Extract nested function dict
         raise ValueError("Invalid function format")
 
 
@@ -230,17 +224,17 @@ class ToolCreate(BaseModel):
     type: str
     function: Optional[ToolFunction]
 
-    @validator('function', pre=True, always=True)
+    @validator("function", pre=True, always=True)
     def parse_function(cls, v):
         if isinstance(v, ToolFunction):
             return v
-        if isinstance(v, dict) and 'function' in v:
-            return ToolFunction(function=v['function'])
+        if isinstance(v, dict) and "function" in v:
+            return ToolFunction(function=v["function"])
         return ToolFunction(**v)
 
 
 class ToolRead(Tool):
-    @validator('function', pre=True, always=True)
+    @validator("function", pre=True, always=True)
     def parse_function(cls, v):
         if isinstance(v, dict):
             return ToolFunction(**v)
@@ -330,7 +324,6 @@ class Run(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-
 class ActionStatus(str, Enum):
     pending = "pending"
     processing = "processing"
@@ -340,6 +333,7 @@ class ActionStatus(str, Enum):
     cancelled = "cancelled"
     retrying = "retrying"
 
+
 class ActionCreate(BaseModel):
     id: Optional[str] = None
     tool_name: Optional[str] = None
@@ -348,10 +342,10 @@ class ActionCreate(BaseModel):
     expires_at: Optional[datetime] = None
     status: Optional[str] = "pending"  # Default to pending
 
-    @validator('tool_name', pre=True, always=True)
+    @validator("tool_name", pre=True, always=True)
     def validate_tool_fields(cls, v):
         if not v:
-            raise ValueError('Tool name must be provided.')
+            raise ValueError("Tool name must be provided.")
         return v
 
     model_config = ConfigDict(
@@ -361,10 +355,11 @@ class ActionCreate(BaseModel):
                 "run_id": "example_run_id",
                 "function_args": {"arg1": "value1", "arg2": "value2"},
                 "expires_at": "2024-09-10T12:00:00Z",
-                "status": "pending"
+                "status": "pending",
             }
         }
     )
+
 
 # ------------------------
 # Action Schemas (Corrected)
@@ -383,10 +378,7 @@ class ActionRead(BaseModel):
     result: Optional[dict] = None
 
     # Add configuration to strictly forbid extra fields
-    model_config = ConfigDict(
-        extra='forbid',
-        validate_assignment=True
-    )
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
 
 class RunReadDetailed(BaseModel):
@@ -447,6 +439,7 @@ class VectorStoreStatus(str, Enum):
     processing = "processing"
     error = "error"
 
+
 class VectorStoreCreate(BaseModel):
     name: str = Field(..., min_length=3, max_length=128, description="Human-friendly store name")
     user_id: str = Field(..., min_length=3, description="Owner user ID (should be valid)")
@@ -477,15 +470,18 @@ class VectorStoreRead(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class VectorStoreUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=3, max_length=128)
     status: Optional[VectorStoreStatus] = None
     config: Optional[Dict[str, Any]] = None
 
+
 class VectorStoreFileCreate(BaseModel):
     file_name: str = Field(..., max_length=256)
     file_path: str = Field(..., max_length=1024)
     metadata: Optional[Dict[str, Any]] = None
+
 
 class VectorStoreFileRead(BaseModel):
     id: str
@@ -498,23 +494,27 @@ class VectorStoreFileRead(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class VectorStoreFileUpdate(BaseModel):
     status: Optional[entities_api.models.models.StatusEnum] = None
     error_message: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
+
 class VectorStoreList(BaseModel):
     vector_stores: List[VectorStoreRead]
+
 
 class VectorStoreFileList(BaseModel):
     files: List[VectorStoreFileRead]
 
+
 class VectorStoreLinkAssistant(BaseModel):
     assistant_ids: List[str] = Field(..., min_items=1, description="List of assistant IDs to link")
 
+
 class VectorStoreUnlinkAssistant(BaseModel):
     assistant_id: str = Field(..., description="Assistant ID to unlink")
-
 
 
 class VectorStoreSearchResult(BaseModel):
@@ -522,9 +522,8 @@ class VectorStoreSearchResult(BaseModel):
     metadata: Optional[dict] = None
     score: float
     vector_id: Optional[str] = ""  # Made optional with default empty string
-    store_id: Optional[str] = ""   # Made optional with default empty string
+    store_id: Optional[str] = ""  # Made optional with default empty string
     retrieved_at: int = int(time.time())
-
 
 
 class ProcessOutput(BaseModel):
@@ -602,7 +601,6 @@ class ActionUpdate(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-
 class SandboxBase(BaseModel):
     id: str
     user_id: str
@@ -645,13 +643,15 @@ class CodeExecutionResponse(BaseModel):
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 
+
 class SearchExplanation(BaseModel):
     """Provides transparency into search scoring and filtering"""
+
     base_score: float
     filters_passed: List[str]
     boosts_applied: Dict[str, float]
     final_score: float
 
+
 class EnhancedVectorSearchResult(VectorStoreSearchResult):
     explanation: Optional[SearchExplanation] = None
-

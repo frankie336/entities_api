@@ -11,6 +11,7 @@ from entities_api.services.logging_service import LoggingUtility
 load_dotenv()
 logging_utility = LoggingUtility()
 
+
 class DeepSeekV3Cloud(BaseInference):
     def setup_services(self):
         """
@@ -18,10 +19,9 @@ class DeepSeekV3Cloud(BaseInference):
         """
         self.deepseek_client = OpenAI(
             api_key="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJwcmltZS50aGFub3MzMzZAZ21haWwuY29tIiwiaWF0IjoxNzM4NDc2MzgyfQ.4V27eTb-TRwPKcA5zit4pJckoEUEa7kxmHwFEn9kwTQ",
-            base_url="https://api.hyperbolic.xyz/v1"
+            base_url="https://api.hyperbolic.xyz/v1",
         )
         logging_utility.info("DeepSeekV3Cloud specific setup completed.")
-
 
     # state
     def set_tool_response_state(self, value):
@@ -45,26 +45,26 @@ class DeepSeekV3Cloud(BaseInference):
     def _process_platform_tool_calls(self, thread_id, assistant_id, content, run_id):
         return super()._process_platform_tool_calls(thread_id, assistant_id, content, run_id)
 
-    def _process_tool_calls(self, thread_id,
-                            assistant_id, content,
-                            run_id):
+    def _process_tool_calls(self, thread_id, assistant_id, content, run_id):
         return super()._process_tool_calls(thread_id, assistant_id, content, run_id)
 
-    def stream_function_call_output(self, thread_id, run_id, assistant_id,
-                                    model, stream_reasoning=False):
+    def stream_function_call_output(
+        self, thread_id, run_id, assistant_id, model, stream_reasoning=False
+    ):
 
         logging_utility.info(
             "Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
-            thread_id, run_id, assistant_id
+            thread_id,
+            run_id,
+            assistant_id,
         )
-
 
         try:
             stream_response = self.deepseek_client.chat.completions.create(
                 model=model,
                 messages=self._set_up_context_window(assistant_id, thread_id, trunk=True),
                 stream=True,
-                temperature=0.6
+                temperature=0.6,
             )
 
             assistant_reply = ""
@@ -73,30 +73,24 @@ class DeepSeekV3Cloud(BaseInference):
 
             for chunk in stream_response:
                 logging_utility.debug("Raw chunk received: %s", chunk)
-                reasoning_chunk = getattr(chunk.choices[0].delta, 'reasoning_content', '')
+                reasoning_chunk = getattr(chunk.choices[0].delta, "reasoning_content", "")
 
                 if reasoning_chunk:
                     reasoning_content += reasoning_chunk
-                    yield json.dumps({
-                        'type': 'reasoning',
-                        'content': reasoning_chunk
-                    })
+                    yield json.dumps({"type": "reasoning", "content": reasoning_chunk})
 
-                content_chunk = getattr(chunk.choices[0].delta, 'content', '')
+                content_chunk = getattr(chunk.choices[0].delta, "content", "")
                 if content_chunk:
                     assistant_reply += content_chunk
                     accumulated_content += content_chunk
-                    yield json.dumps({'type': 'content', 'content': content_chunk}) + '\n'
+                    yield json.dumps({"type": "content", "content": content_chunk}) + "\n"
 
                 time.sleep(0.01)
 
         except Exception as e:
             error_msg = "[ERROR] DeepSeek API streaming error"
             logging_utility.error(f"{error_msg}: {str(e)}", exc_info=True)
-            yield json.dumps({
-                'type': 'error',
-                'content': error_msg
-            })
+            yield json.dumps({"type": "error", "content": error_msg})
             return
 
         if assistant_reply:
@@ -104,7 +98,7 @@ class DeepSeekV3Cloud(BaseInference):
                 assistant_reply=assistant_reply,
                 thread_id=thread_id,
                 assistant_id=assistant_id,
-                run_id=run_id
+                run_id=run_id,
             )
             logging_utility.info("Assistant response stored successfully.")
 
@@ -112,12 +106,9 @@ class DeepSeekV3Cloud(BaseInference):
         if reasoning_content:
             logging_utility.info("Final reasoning content: %s", reasoning_content)
 
-
-
-    def stream_response(self, thread_id, message_id, run_id, assistant_id,
-                        model, stream_reasoning=True):
-
-
+    def stream_response(
+        self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=True
+    ):
         """
         Process conversation with dual streaming (content + reasoning). If a tool call trigger
         is detected, update run status to 'action_required', then wait for the status to change,
@@ -125,7 +116,9 @@ class DeepSeekV3Cloud(BaseInference):
         """
         logging_utility.info(
             "Processing conversation for thread_id: %s, run_id: %s, assistant_id: %s",
-            thread_id, run_id, assistant_id
+            thread_id,
+            run_id,
+            assistant_id,
         )
 
         model = "deepseek-ai/DeepSeek-R1"
@@ -149,16 +142,13 @@ class DeepSeekV3Cloud(BaseInference):
                 logging_utility.debug("Raw chunk received: %s", chunk)
 
                 # Process reasoning tokens as before.
-                reasoning_chunk = getattr(chunk.choices[0].delta, 'reasoning_content', '')
+                reasoning_chunk = getattr(chunk.choices[0].delta, "reasoning_content", "")
                 if reasoning_chunk:
                     reasoning_content += reasoning_chunk
-                    yield json.dumps({
-                        'type': 'reasoning',
-                        'content': reasoning_chunk
-                    })
+                    yield json.dumps({"type": "reasoning", "content": reasoning_chunk})
 
                 # Process content tokens with code-mode logic.
-                content_chunk = getattr(chunk.choices[0].delta, 'content', '')
+                content_chunk = getattr(chunk.choices[0].delta, "content", "")
                 if content_chunk:
                     # Always accumulate the full content.
                     assistant_reply += content_chunk
@@ -170,17 +160,19 @@ class DeepSeekV3Cloud(BaseInference):
                     if not code_mode:
                         partial_match = self.parse_code_interpreter_partial(accumulated_content)
                         if partial_match:
-                            full_match = partial_match.get('full_match')
+                            full_match = partial_match.get("full_match")
                             if full_match:
                                 match_index = accumulated_content.find(full_match)
                                 if match_index != -1:
                                     # Remove everything up to and including the full_match.
-                                    accumulated_content = accumulated_content[match_index + len(full_match):]
+                                    accumulated_content = accumulated_content[
+                                        match_index + len(full_match) :
+                                    ]
                             # Enter code mode and initialize the code buffer with any remaining partial code.
                             code_mode = True
-                            code_buffer = partial_match.get('code', '')
+                            code_buffer = partial_match.get("code", "")
                             # Emit the start-of-code block marker.
-                            yield json.dumps({'type': 'hot_code', 'content': '```python\n'})
+                            yield json.dumps({"type": "hot_code", "content": "```python\n"})
                             # Do NOT yield the code_buffer from the partial match.
                             continue
 
@@ -193,25 +185,22 @@ class DeepSeekV3Cloud(BaseInference):
                             newline_pos = code_buffer.find("\n") + 1
                             line_chunk = code_buffer[:newline_pos]
                             code_buffer = code_buffer[newline_pos:]
-                            yield json.dumps({'type': 'hot_code', 'content': line_chunk})
+                            yield json.dumps({"type": "hot_code", "content": line_chunk})
                             break
                         if len(code_buffer) > 100:
-                            yield json.dumps({'type': 'hot_code', 'content': code_buffer})
+                            yield json.dumps({"type": "hot_code", "content": code_buffer})
                             code_buffer = ""
                         continue
 
                     # If not in code mode, yield content as normal.
-                    yield json.dumps({'type': 'content', 'content': content_chunk}) + '\n'
+                    yield json.dumps({"type": "content", "content": content_chunk}) + "\n"
 
                 time.sleep(0.01)
 
         except Exception as e:
             error_msg = "[ERROR] DeepSeek API streaming error"
             logging_utility.error(f"{error_msg}: {str(e)}", exc_info=True)
-            yield json.dumps({
-                'type': 'error',
-                'content': error_msg
-            })
+            yield json.dumps({"type": "error", "content": error_msg})
             return
 
         if assistant_reply:
@@ -220,7 +209,7 @@ class DeepSeekV3Cloud(BaseInference):
                 assistant_reply=assistant_reply,
                 thread_id=thread_id,
                 assistant_id=assistant_id,
-                run_id=run_id
+                run_id=run_id,
             )
             logging_utility.info("Assistant response stored successfully.")
 
@@ -230,9 +219,7 @@ class DeepSeekV3Cloud(BaseInference):
             vector_store_id = self.get_vector_store_id_for_assistant(assistant_id=assistant_id)
             user_message = self.message_service.retrieve_message(message_id=message_id)
             self.vector_store_service.store_message_in_vector_store(
-                message=user_message,
-                vector_store_id=vector_store_id,
-                role="user"
+                message=user_message, vector_store_id=vector_store_id, role="user"
             )
 
             # ---------------------------------------------------
@@ -240,9 +227,7 @@ class DeepSeekV3Cloud(BaseInference):
             # ---------------------------------------------------
             if not self.get_tool_response_state():
                 self.vector_store_service.store_message_in_vector_store(
-                    message=assistant_message,
-                    vector_store_id=vector_store_id,
-                    role="assistant"
+                    message=assistant_message, vector_store_id=vector_store_id, role="assistant"
                 )
 
         # ---------------------------------------------------
@@ -261,8 +246,9 @@ class DeepSeekV3Cloud(BaseInference):
         if reasoning_content:
             logging_utility.info("Final reasoning content: %s", reasoning_content)
 
-    def process_conversation(self, thread_id, message_id, run_id, assistant_id,
-                             model, stream_reasoning=False):
+    def process_conversation(
+        self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=False
+    ):
 
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)
@@ -270,12 +256,14 @@ class DeepSeekV3Cloud(BaseInference):
         # ---------------------------------------------
         # Stream the response and yield each chunk.
         # --------------------------------------------
-        for chunk in self.stream_response(thread_id, message_id, run_id, assistant_id, model, stream_reasoning):
+        for chunk in self.stream_response(
+            thread_id, message_id, run_id, assistant_id, model, stream_reasoning
+        ):
             yield chunk
 
-        #print("The Tool response state is:")
-        #print(self.get_tool_response_state())
-        #print(self.get_function_call_state())
+        # print("The Tool response state is:")
+        # print(self.get_tool_response_state())
+        # print(self.get_function_call_state())
 
         if self.get_function_call_state():
             if self.get_function_call_state():
@@ -285,16 +273,13 @@ class DeepSeekV3Cloud(BaseInference):
                         thread_id=thread_id,
                         assistant_id=assistant_id,
                         content=self.get_function_call_state(),
-                        run_id=run_id
-
+                        run_id=run_id,
                     )
 
                     # Stream the output to the response:
-                    for chunk in self.stream_function_call_output(thread_id=thread_id,
-                                                                  run_id=run_id,
-                                                                  model=model,
-                                                                  assistant_id=assistant_id
-                                                                  ):
+                    for chunk in self.stream_function_call_output(
+                        thread_id=thread_id, run_id=run_id, model=model, assistant_id=assistant_id
+                    ):
                         yield chunk
 
         # Deal with user side function calls
@@ -305,21 +290,15 @@ class DeepSeekV3Cloud(BaseInference):
                         thread_id=thread_id,
                         assistant_id=assistant_id,
                         content=self.get_function_call_state(),
-                        run_id=run_id
+                        run_id=run_id,
                     )
                     # Stream the output to the response:
-                    for chunk in self.stream_function_call_output(thread_id=thread_id,
-                                                                  run_id=run_id,
-                                                                  assistant_id=assistant_id
-                                                                  ):
+                    for chunk in self.stream_function_call_output(
+                        thread_id=thread_id, run_id=run_id, assistant_id=assistant_id
+                    ):
                         yield chunk
 
 
-
-
-
-
-
 def __del__(self):
-        """Cleanup resources."""
-        super().__del__()
+    """Cleanup resources."""
+    super().__del__()

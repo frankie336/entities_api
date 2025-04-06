@@ -14,18 +14,20 @@ def extract_skip_to_content_url(markdown):
     Extract the 'Skip to content' URL from markdown content.
     Uses regex to find the pattern [Skip to content](URL).
     """
-    match = re.search(r'\[Skip to content\]\((https?://[^\s\)]+)\)', markdown)
+    match = re.search(r"\[Skip to content\]\((https?://[^\s\)]+)\)", markdown)
     if match:
         return match.group(1)  # Return the captured URL
     return None  # Return None if no match is found
 
 
 class FirecrawlService:
-    def __init__(self, firecrawl_url="http://localhost:3002/v1/crawl",
-                 max_retries: int = 10, initial_delay: float = 1.0,
-                 backoff_factor: float = 2.0
-                 ):
-
+    def __init__(
+        self,
+        firecrawl_url="http://localhost:3002/v1/crawl",
+        max_retries: int = 10,
+        initial_delay: float = 1.0,
+        backoff_factor: float = 2.0,
+    ):
         """
         Initialize the FirecrawlService with the Firecrawl API URL.
         Set retry parameters for job completion checks.
@@ -55,10 +57,12 @@ class FirecrawlService:
             try:
                 error_detail = response.json()
                 logging_utility.error(
-                    f"Failed to submit crawl request. Status code: {response.status_code}, Details: {error_detail}")
+                    f"Failed to submit crawl request. Status code: {response.status_code}, Details: {error_detail}"
+                )
             except Exception as e:
                 logging_utility.error(
-                    f"Failed to submit crawl request. Status code: {response.status_code}, Response: {response.text}")
+                    f"Failed to submit crawl request. Status code: {response.status_code}, Response: {response.text}"
+                )
             return None
 
         job_id = response.json().get("id")
@@ -94,7 +98,9 @@ class FirecrawlService:
                     logging_utility.info(f"Crawl job completed. Job ID: {job_id}")
                     return results
                 elif results.get("status") == "scraping":
-                    logging_utility.info(f"Job still in progress. Retrying in {self.retry_delay} seconds...")
+                    logging_utility.info(
+                        f"Job still in progress. Retrying in {self.retry_delay} seconds..."
+                    )
                     time.sleep(self.retry_delay)
                     retries += 1
                 else:
@@ -103,7 +109,9 @@ class FirecrawlService:
             else:
                 logging_utility.error("Failed to retrieve job status.")
                 break
-        logging_utility.warning(f"Max retries ({self.max_retries}) reached. Job may still be in progress.")
+        logging_utility.warning(
+            f"Max retries ({self.max_retries}) reached. Job may still be in progress."
+        )
         return None
 
     def search_orchestrator(self, query, max_pages=7):
@@ -117,7 +125,9 @@ class FirecrawlService:
         Returns:
             list: A list of results in markdown format.
         """
-        logging_utility.info("Starting search_orchestrator with query='%s' and max_pages=%d", query, max_pages)
+        logging_utility.info(
+            "Starting search_orchestrator with query='%s' and max_pages=%d", query, max_pages
+        )
 
         results_data_list = []
         for i in range(max_pages):
@@ -139,7 +149,9 @@ class FirecrawlService:
                     results = self.wait_for_completion(job_id)
 
                     if results:
-                        logging_utility.info("Crawl results retrieved successfully for job ID %s.", job_id)
+                        logging_utility.info(
+                            "Crawl results retrieved successfully for job ID %s.", job_id
+                        )
                         results_data = results.get("data", [])
 
                         if results_data:
@@ -147,17 +159,23 @@ class FirecrawlService:
                             results_data_list.append(results_markdown_dict)
                             logging_utility.debug("Added results data: %s", results_markdown_dict)
                         else:
-                            logging_utility.warning("No data found in results for job ID %s.", job_id)
+                            logging_utility.warning(
+                                "No data found in results for job ID %s.", job_id
+                            )
                     else:
                         logging_utility.warning("No results retrieved for job ID %s.", job_id)
                 else:
                     logging_utility.error("Failed to create job ID for URL: %s", url_to_crawl)
 
             except Exception as e:
-                logging_utility.exception("An error occurred in search_orchestrator at iteration %d: %s", i, str(e))
+                logging_utility.exception(
+                    "An error occurred in search_orchestrator at iteration %d: %s", i, str(e)
+                )
 
         if results_data_list:
-            logging_utility.info("Search completed successfully, returning %d results.", len(results_data_list))
+            logging_utility.info(
+                "Search completed successfully, returning %d results.", len(results_data_list)
+            )
         else:
             logging_utility.warning("Search completed but no results were found.")
 

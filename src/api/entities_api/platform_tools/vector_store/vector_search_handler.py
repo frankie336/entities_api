@@ -40,20 +40,22 @@ class VectorSearchHandler:
             return handler(kwargs)
         except Exception as e:
             logging.error(f"Search failed: {str(e)}")
-            return [VectorStoreSearchResult(
-                text=f"Search Error: {str(e)}",
-                metadata={"error": True, "type": type(e).__name__},
-                score=0.0,
-                vector_id="",  # Return empty string
-                store_id=""  # Return empty string
-            )]
+            return [
+                VectorStoreSearchResult(
+                    text=f"Search Error: {str(e)}",
+                    metadata={"error": True, "type": type(e).__name__},
+                    score=0.0,
+                    vector_id="",  # Return empty string
+                    store_id="",  # Return empty string
+                )
+            ]
 
     def handle_basic_semantic(self, params: Dict) -> List[VectorStoreSearchResult]:
         """Basic vector similarity search"""
         return self.vector_store_service.search_vector_store(
             store_name=self._get_collection_name(params["source_type"]),
             query_text=params["query"],
-            top_k=params.get("top_k", 5)
+            top_k=params.get("top_k", 5),
         )
 
     def handle_filtered(self, params: Dict) -> List[VectorStoreSearchResult]:
@@ -62,7 +64,7 @@ class VectorSearchHandler:
             store_name=self._get_collection_name(params["source_type"]),
             query_text=params["query"],
             filters=params.get("filters", {}),
-            score_threshold=params.get("score_threshold", 0.4)
+            score_threshold=params.get("score_threshold", 0.4),
         )
 
     def handle_complex_filters(self, params: Dict) -> List[VectorStoreSearchResult]:
@@ -75,7 +77,7 @@ class VectorSearchHandler:
             search_type="complex_filters",  # ✅ Explicit type
             top_k=params.get("top_k", 5),  # ✅ Default top_k
             score_threshold=params.get("score_threshold", 0.5),  # ✅ Default threshold
-            explain=params.get("explain", False)  # ✅ Optional explain
+            explain=params.get("explain", False),  # ✅ Optional explain
         )
 
     def _validate_search_params(self, params: Dict):
@@ -85,8 +87,12 @@ class VectorSearchHandler:
             raise ValueError(f"Missing required params: {missing}")
 
         if params["search_type"] not in [
-            "basic_semantic", "filtered", "complex_filters",
-            "temporal", "explainable", "hybrid"
+            "basic_semantic",
+            "filtered",
+            "complex_filters",
+            "temporal",
+            "explainable",
+            "hybrid",
         ]:
             raise ValueError(f"Invalid search_type: {params['search_type']}")
 
@@ -122,16 +128,15 @@ class VectorSearchHandler:
             search_type="temporal",  # ✅ Explicit type
             filters=params.get("filters", {}),
             score_boosts=params.get("score_boosts", {"created_at": 1.05}),
-            explain=params.get("explain", False)
+            explain=params.get("explain", False),
         )
-
 
     def handle_explainable(self, params: Dict) -> List[VectorStoreSearchResult]:
         """Search with scoring explanations"""
         return self.vector_store_service.search_vector_store(
             store_name=self._get_collection_name(params["source_type"]),
             query_text=params["query"],
-            explain=True
+            explain=True,
         )
 
     def handle_hybrid(self, params: Dict) -> List[VectorStoreSearchResult]:
@@ -141,7 +146,7 @@ class VectorSearchHandler:
             search_type="hybrid",
             filters=params.get("filters", {}),
             score_boosts=params.get("score_boosts", {}),  # ✅ Added
-            explain=params.get("explain", False)
+            explain=params.get("explain", False),
         )
 
     def _get_collection_name(self, source_type: str) -> str:
@@ -150,16 +155,16 @@ class VectorSearchHandler:
         if not collection_name:
             available = list(self.source_mapping.keys())
             raise ValueError(
-                f"No store found for source_type '{source_type}'. "
-                f"Available types: {available}"
+                f"No store found for source_type '{source_type}'. " f"Available types: {available}"
             )
         return collection_name
 
     def _parse_complex_filters(self, filters: Dict) -> models.Filter:
         return self.vector_store_service._parse_advanced_filters(filters)
 
-
-    def _recursive_filter_builder(self, condition: Union[Dict, List]) -> Union[models.Filter, models.FieldCondition]:
+    def _recursive_filter_builder(
+        self, condition: Union[Dict, List]
+    ) -> Union[models.Filter, models.FieldCondition]:
         """Recursively build Qdrant filter conditions"""
         if isinstance(condition, dict):
             for operator in ["$and", "$or", "$not"]:
@@ -187,8 +192,7 @@ class VectorSearchHandler:
             if isinstance(condition, dict):
                 return self._parse_comparison_operators(field, condition)
             return models.FieldCondition(
-                key=f"metadata.{field}",
-                match=models.MatchValue(value=condition)
+                key=f"metadata.{field}", match=models.MatchValue(value=condition)
             )
 
     def _parse_comparison_operators(self, field: str, operators: Dict) -> models.FieldCondition:
@@ -213,18 +217,14 @@ class VectorSearchHandler:
 
         if range_params:
             return models.FieldCondition(
-                key=f"metadata.{field}",
-                range=models.Range(**range_params)
+                key=f"metadata.{field}", range=models.Range(**range_params)
             )
         elif match_params:
             if "except" in match_params:
                 return models.FieldCondition(
-                    key=f"metadata.{field}",
-                    match=models.MatchExcept(**match_params)
+                    key=f"metadata.{field}", match=models.MatchExcept(**match_params)
                 )
             return models.FieldCondition(
-                key=f"metadata.{field}",
-                match=models.MatchAny(**match_params)
+                key=f"metadata.{field}", match=models.MatchAny(**match_params)
             )
         raise ValueError("No valid operators found")
-

@@ -15,27 +15,34 @@ load_dotenv()
 
 logging_utility = LoggingUtility()
 
+
 @dataclass
 class ExecutionClientConfig:
-    endpoint: str = os.getenv('CODE_EXECUTION_URL')
+    endpoint: str = os.getenv("CODE_EXECUTION_URL")
     timeout: float = 15.0
     retries: int = 3
     retry_delay: float = 2.0
 
+
 class CodeExecutionClientError(Exception):
     pass
+
 
 class ExecutionTimeoutError(CodeExecutionClientError):
     pass
 
+
 class ExecutionSecurityViolation(CodeExecutionClientError):
     pass
+
 
 class CodeExecutionClient:
     def __init__(self, config: Optional[ExecutionClientConfig] = None):
         self.config = config or ExecutionClientConfig()
         self._connection: Optional[WebSocketCommonProtocol] = None
-        logging_utility.info("CodeExecutionClient initialized with endpoint: %s", self.config.endpoint)
+        logging_utility.info(
+            "CodeExecutionClient initialized with endpoint: %s", self.config.endpoint
+        )
 
     async def __aenter__(self):
         await self.connect()
@@ -51,10 +58,12 @@ class CodeExecutionClient:
     )
     async def connect(self):
         try:
-            logging_utility.info("Attempting to connect to WebSocket endpoint: %s", self.config.endpoint)
+            logging_utility.info(
+                "Attempting to connect to WebSocket endpoint: %s", self.config.endpoint
+            )
             self._connection = await asyncio.wait_for(
                 websockets.connect(self.config.endpoint, ping_interval=None),
-                timeout=self.config.timeout
+                timeout=self.config.timeout,
             )
             logging_utility.info("Successfully connected to WebSocket endpoint.")
         except asyncio.TimeoutError as e:
@@ -67,7 +76,9 @@ class CodeExecutionClient:
             await self._connection.close()
             self._connection = None
 
-    async def execute_code(self, code: str, **metadata: Dict[str, Any]) -> AsyncGenerator[str, None]:
+    async def execute_code(
+        self, code: str, **metadata: Dict[str, Any]
+    ) -> AsyncGenerator[str, None]:
         if not self._connection:
             logging_utility.error("Execution attempt without active connection.")
             raise CodeExecutionClientError("Not connected to execution endpoint")
@@ -85,34 +96,36 @@ class CodeExecutionClient:
                     data = json.loads(message)
 
                     if isinstance(data, dict):
-                        if 'error' in data:
-                            logging_utility.error("ExecutionSecurityViolation: %s", data['error'])
-                            raise ExecutionSecurityViolation(data['error'])
+                        if "error" in data:
+                            logging_utility.error("ExecutionSecurityViolation: %s", data["error"])
+                            raise ExecutionSecurityViolation(data["error"])
 
-                        if 'status' in data and 'uploaded_files' in data:
+                        if "status" in data and "uploaded_files" in data:
                             # Final message with files
-                            yield json.dumps({
-                                'type': 'status',
-                                'content': data['status'],
-                                'execution_id': data.get('execution_id'),
-                                'uploaded_files': data.get('uploaded_files', [])
-                            })
+                            yield json.dumps(
+                                {
+                                    "type": "status",
+                                    "content": data["status"],
+                                    "execution_id": data.get("execution_id"),
+                                    "uploaded_files": data.get("uploaded_files", []),
+                                }
+                            )
                             break
-                        elif 'status' in data:
+                        elif "status" in data:
                             # Intermediate status message
-                            yield json.dumps({'type': 'status', 'content': data['status']})
+                            yield json.dumps({"type": "status", "content": data["status"]})
                             # Do NOT break — we may not be done yet
-                        elif 'output' in data:
-                            yield json.dumps({'type': 'output', 'content': data['output']})
+                        elif "output" in data:
+                            yield json.dumps({"type": "output", "content": data["output"]})
                         else:
                             # Unrecognized dict – treat as raw
-                            yield json.dumps({'type': 'hot_code_output', 'content': str(data)})
+                            yield json.dumps({"type": "hot_code_output", "content": str(data)})
                     else:
-                        yield json.dumps({'type': 'hot_code_output', 'content': str(data)})
+                        yield json.dumps({"type": "hot_code_output", "content": str(data)})
 
                 except json.JSONDecodeError:
                     logging_utility.warning("Received non-JSON output: %s", message)
-                    yield json.dumps({'type': 'hot_code_output', 'content': message})
+                    yield json.dumps({"type": "hot_code_output", "content": message})
 
         except websockets.exceptions.ConnectionClosed:
             logging_utility.error("WebSocket connection closed unexpectedly.")
@@ -141,7 +154,7 @@ class StreamOutput:
             pass
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     logging_utility.info("Starting code execution.")
     output = StreamOutput()
 

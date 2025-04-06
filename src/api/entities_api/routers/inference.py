@@ -14,7 +14,7 @@ logging_utility = LoggingUtility()
 @router.post(
     "/completions",
     summary="Asynchronous completions streaming endpoint",
-    response_description="A stream of JSON-formatted completions chunks"
+    response_description="A stream of JSON-formatted completions chunks",
 )
 async def completions(request: StreamRequest):
     """
@@ -29,11 +29,11 @@ async def completions(request: StreamRequest):
     try:
         logging_utility.info(
             "Selecting provider with provider=%s and model=%s",
-            request.provider.value, request.model
+            request.provider.value,
+            request.model,
         )
         provider_instance = selector.select_provider(
-            provider=request.provider.value,
-            model=request.model
+            provider=request.provider.value, model=request.model
         )
         logging_utility.info("Provider selected successfully: %s", provider_instance)
     except ValueError as ve:
@@ -55,7 +55,7 @@ async def completions(request: StreamRequest):
                 run_id=request.run_id,
                 assistant_id=request.assistant_id,
                 model=request.model,
-                stream_reasoning=False
+                stream_reasoning=False,
             )
 
             first_chunk_sent = False
@@ -100,17 +100,13 @@ async def completions(request: StreamRequest):
 
                 except Exception as inner_exc:
                     logging_utility.error("Chunk processing error: %s", str(inner_exc))
-                    yield "data: " + json.dumps({
-                        "error": "chunk_processing_failed",
-                        "message": str(inner_exc)
-                    }) + "\n\n"
+                    yield "data: " + json.dumps(
+                        {"error": "chunk_processing_failed", "message": str(inner_exc)}
+                    ) + "\n\n"
 
         except Exception as e:
             logging_utility.error("Stream generator error: %s", str(e))
-            yield "data: " + json.dumps({
-                "error": "stream_failure",
-                "message": str(e)
-            }) + "\n\n"
+            yield "data: " + json.dumps({"error": "stream_failure", "message": str(e)}) + "\n\n"
         finally:
             logging_utility.info("Stream completed for thread_id=%s", request.thread_id)
             yield "data: [DONE]\n\n"
@@ -119,10 +115,7 @@ async def completions(request: StreamRequest):
         return StreamingResponse(
             stream_chunks(),
             media_type="text/event-stream",
-            headers={
-                "X-Stream-Init": "true",
-                "Cache-Control": "no-cache, no-transform"
-            }
+            headers={"X-Stream-Init": "true", "Cache-Control": "no-cache, no-transform"},
         )
     except Exception as e:
         logging_utility.error("Stream setup failed: %s", str(e))

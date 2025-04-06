@@ -12,6 +12,7 @@ from sse_starlette.sse import EventSourceResponse  # For SSE endpoint
 # --- Core Entities Imports (Adjust paths as needed) ---
 # Assuming EventMonitoringService is correctly implemented as discussed previously
 from entities_api.services.event_handler_service import EventMonitoringService
+
 # --- SSE Manager Import (Adjust path as needed) ---
 # Assuming sse_manager.py is in the same directory or accessible via path
 from entities_api.services.sse_manager import SSEManager
@@ -22,7 +23,7 @@ from entities_api.services.sse_manager import SSEManager
 logging_utility = UtilsInterface.LoggingUtility()
 
 # Configure logging elsewhere in your app setup if needed (level, handler, format)
-logging.basicConfig(level=logging.INFO) # Basic config for demonstration
+logging.basicConfig(level=logging.INFO)  # Basic config for demonstration
 
 # Create a single, shared instance of the SSE Manager
 sse_manager = SSEManager()
@@ -38,8 +39,9 @@ class MonitorRequest(BaseModel):
 
 # --- API Endpoints ---
 
+
 # 1. Endpoint to REGISTER monitoring (Client calls this first)
-@router.post("/monitor", status_code=200) # Use specific status code
+@router.post("/monitor", status_code=200)  # Use specific status code
 async def register_run_monitoring(payload: MonitorRequest):
     """
     Registers a run_id for server-side event monitoring.
@@ -59,7 +61,9 @@ async def register_run_monitoring(payload: MonitorRequest):
         # Assuming start() is synchronous for now, but endpoint is async for best practice.
         monitor_service.start(run_id=run_id)
 
-        logging_utility.info(f"Successfully registered and started internal monitoring for run_id: {run_id}")
+        logging_utility.info(
+            f"Successfully registered and started internal monitoring for run_id: {run_id}"
+        )
         # Return a simple success confirmation
         return {"status": "monitoring_registered", "run_id": run_id}
 
@@ -71,7 +75,9 @@ async def register_run_monitoring(payload: MonitorRequest):
     except Exception as e:
         # Catch any other unexpected errors during registration/start
         logging_utility.error(f"Error registering run monitor for {run_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal server error registering monitor: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Internal server error registering monitor: {str(e)}"
+        )
 
 
 # 2. Endpoint to SUBSCRIBE to events (Client connects here AFTER registering)
@@ -98,25 +104,27 @@ async def subscribe_to_run_events(run_id: str, request: Request):
             while True:
                 # Crucial: Check if the client has disconnected
                 if await request.is_disconnected():
-                    logging_utility.info(f"SSE: Client disconnected for run_id: {run_id}. Closing generator.")
-                    break # Exit the loop if client is gone
+                    logging_utility.info(
+                        f"SSE: Client disconnected for run_id: {run_id}. Closing generator."
+                    )
+                    break  # Exit the loop if client is gone
 
                 # Wait for a message from the SSEManager's broadcast
                 try:
                     # Use a timeout to periodically check for disconnection
                     # and potentially send keep-alives
                     message = await asyncio.wait_for(subscriber_queue.get(), timeout=30.0)
-                    yield message # Send the pre-formatted message from the manager
-                    subscriber_queue.task_done() # Acknowledge processing
+                    yield message  # Send the pre-formatted message from the manager
+                    subscriber_queue.task_done()  # Acknowledge processing
                 except asyncio.TimeoutError:
                     # No message received in timeout window, send a keep-alive comment
                     # This helps prevent proxies/clients from closing the connection
                     yield ": keep-alive\n\n"
-                    continue # Continue the loop to wait again
+                    continue  # Continue the loop to wait again
 
         except asyncio.CancelledError:
-             logging_utility.info(f"SSE: Event generator task cancelled for run_id: {run_id}")
-             # This happens if the server shuts down or the task is force-cancelled
+            logging_utility.info(f"SSE: Event generator task cancelled for run_id: {run_id}")
+            # This happens if the server shuts down or the task is force-cancelled
         finally:
             # CRITICAL Clean-up: Remove the subscriber queue from the manager
             # This happens when the client disconnects or the generator exits for any reason

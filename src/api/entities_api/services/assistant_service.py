@@ -13,12 +13,13 @@ logging_utility = LoggingUtility()
 
 validator = ValidationInterface()
 
+
 class AssistantService:
     def __init__(self, db: Session):
         self.db = db
         self.client = Entities()
 
-    def create_assistant(self, assistant: validator.AssistantCreate) ->validator.AssistantRead:
+    def create_assistant(self, assistant: validator.AssistantCreate) -> validator.AssistantRead:
         # Use provided ID or generate new
         assistant_id = assistant.id or UtilsInterface.IdentifierService.generate_assistant_id()
 
@@ -27,8 +28,7 @@ class AssistantService:
             existing = self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
             if existing:
                 raise HTTPException(
-                    status_code=400,
-                    detail=f"Assistant with ID '{assistant_id}' already exists"
+                    status_code=400, detail=f"Assistant with ID '{assistant_id}' already exists"
                 )
 
         # Map tools (from the Pydantic model) to tool_configs (for the DB)
@@ -44,7 +44,7 @@ class AssistantService:
             meta_data=assistant.meta_data,
             top_p=assistant.top_p,
             temperature=assistant.temperature,
-            response_format=assistant.response_format
+            response_format=assistant.response_format,
         )
 
         self.db.add(db_assistant)
@@ -66,8 +66,9 @@ class AssistantService:
         # Use the updated mapping helper that correctly renames tool_configs to tools.
         return self.map_to_read_model(db_assistant)
 
-
-    def update_assistant(self, assistant_id: str, assistant_update: validator.AssistantUpdate) -> validator.AssistantRead:
+    def update_assistant(
+        self, assistant_id: str, assistant_update: validator.AssistantUpdate
+    ) -> validator.AssistantRead:
         db_assistant = self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
         if not db_assistant:
             raise HTTPException(status_code=404, detail="Assistant not found")
@@ -109,7 +110,9 @@ class AssistantService:
         if assistant in user.assistants:
             user.assistants.remove(assistant)
             self.db.commit()
-            logging_utility.info(f"Assistant ID: {assistant_id} disassociated from user ID: {user_id}")
+            logging_utility.info(
+                f"Assistant ID: {assistant_id} disassociated from user ID: {user_id}"
+            )
         else:
             raise HTTPException(status_code=400, detail="Assistant not associated with the user")
 
@@ -119,10 +122,7 @@ class AssistantService:
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        return [
-            self.map_to_read_model(assistant)
-            for assistant in user.assistants
-        ]
+        return [self.map_to_read_model(assistant) for assistant in user.assistants]
 
     def map_to_read_model(self, db_assistant: Assistant) -> validator.AssistantRead:
         """
@@ -133,7 +133,7 @@ class AssistantService:
         # Get a dict copy of the SQLAlchemy model.
         assistant_data = db_assistant.__dict__.copy()
         # Remove any SQLAlchemy internal attribute.
-        assistant_data.pop('_sa_instance_state', None)
+        assistant_data.pop("_sa_instance_state", None)
         # Rename the key from 'tool_configs' to 'tools'.
-        assistant_data['tools'] = assistant_data.pop('tool_configs', None)
+        assistant_data["tools"] = assistant_data.pop("tool_configs", None)
         return validator.AssistantRead.model_validate(assistant_data)

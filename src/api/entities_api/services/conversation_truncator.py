@@ -40,12 +40,14 @@ class ConversationTruncator:
             list: The truncated and merged conversation.
         """
         # Separate system messages (always kept) and other messages.
-        system_messages = [msg for msg in conversation if msg.get('role') == 'system']
-        other_messages = [msg for msg in conversation if msg.get('role') != 'system']
+        system_messages = [msg for msg in conversation if msg.get("role") == "system"]
+        other_messages = [msg for msg in conversation if msg.get("role") != "system"]
 
         # Count tokens for system and non-system messages.
-        system_token_count = sum(self.count_tokens(msg.get('content', '')) for msg in system_messages)
-        other_token_count = sum(self.count_tokens(msg.get('content', '')) for msg in other_messages)
+        system_token_count = sum(
+            self.count_tokens(msg.get("content", "")) for msg in system_messages
+        )
+        other_token_count = sum(self.count_tokens(msg.get("content", "")) for msg in other_messages)
         total_tokens = system_token_count + other_token_count
 
         # Determine the threshold token count.
@@ -62,7 +64,7 @@ class ConversationTruncator:
         truncated_other_messages = other_messages.copy()
         while truncated_other_messages and other_token_count > optimal_other_tokens:
             removed_msg = truncated_other_messages.pop(0)
-            other_token_count -= self.count_tokens(removed_msg.get('content', ''))
+            other_token_count -= self.count_tokens(removed_msg.get("content", ""))
 
         # Recombine system messages and the truncated non-system messages,
         # preserving their original order.
@@ -89,9 +91,9 @@ class ConversationTruncator:
         merged = [conversation[0]]
         for msg in conversation[1:]:
             last_msg = merged[-1]
-            if msg.get('role') == last_msg.get('role'):
+            if msg.get("role") == last_msg.get("role"):
                 # Merge by concatenating content with a newline separator.
-                last_msg['content'] = f"{last_msg.get('content', '')}\n{msg.get('content', '')}"
+                last_msg["content"] = f"{last_msg.get('content', '')}\n{msg.get('content', '')}"
             else:
                 merged.append(msg)
         return merged

@@ -57,12 +57,8 @@ class InferenceArbiter:
     def get_hyperbolic_v3(self):
         return self._get_provider(HyperbolicV3Inference)
 
-
     def get_hyperbolic_llama3(self):
         return self._get_provider(HyperbolicLlama3Inference)
-
-
-
 
     def get_together_llama2(self):
         return self._get_provider(TogetherLlama2Inference)
@@ -72,9 +68,6 @@ class InferenceArbiter:
 
     def get_together_v3(self):
         return self._get_provider(TogetherV3Inference)
-
-
-
 
     # Provider access method for local inference:
     def get_local(self):
@@ -100,10 +93,10 @@ class InferenceArbiter:
     def cache_stats(self):
         info = self._create_provider.cache_info()
         return {
-            'current_size': len(self._provider_cache),
-            'hits': info.hits,
-            'misses': info.misses,
-            'max_size': info.max_size
+            "current_size": len(self._provider_cache),
+            "hits": info.hits,
+            "misses": info.misses,
+            "max_size": info.max_size,
         }
 
     @property

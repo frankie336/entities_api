@@ -17,7 +17,7 @@ logging_utility = LoggingUtility()
 
 class TogetherR1Inference(BaseInference):
     # Use <think> tags for reasoning content
-    REASONING_PATTERN = re.compile(r'(<think>|</think>)')
+    REASONING_PATTERN = re.compile(r"(<think>|</think>)")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -49,14 +49,14 @@ class TogetherR1Inference(BaseInference):
     def _set_up_context_window(self, assistant_id, thread_id, trunk=True):
         return super()._set_up_context_window(assistant_id, thread_id, trunk=True)
 
-
-    def stream_function_call_output(self, thread_id, run_id, assistant_id,
-                                    model, stream_reasoning=False):
+    def stream_function_call_output(
+        self, thread_id, run_id, assistant_id, model, stream_reasoning=False
+    ):
         return
 
-    def stream_response(self, thread_id, message_id, run_id, assistant_id,
-                             model, stream_reasoning=True):
-
+    def stream_response(
+        self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=True
+    ):
 
         self.start_cancellation_listener(run_id)
 
@@ -64,17 +64,16 @@ class TogetherR1Inference(BaseInference):
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)
 
-
         request_payload = {
             "model": model,
-            "messages": self._set_up_context_window(assistant_id, thread_id, trunk=True) ,
+            "messages": self._set_up_context_window(assistant_id, thread_id, trunk=True),
             "max_tokens": None,
             "temperature": 0.6,
             "top_p": 0.95,
             "top_k": 50,
             "repetition_penalty": 1,
             "stop": ["<｜end▁of▁sentence｜>"],
-            "stream": True
+            "stream": True,
         }
 
         assistant_reply = ""
@@ -87,7 +86,7 @@ class TogetherR1Inference(BaseInference):
             for token in response:
                 if self.check_cancellation_flag():
                     logging_utility.warning(f"Run {run_id} cancelled mid-stream")
-                    yield json.dumps({'type': 'error', 'content': 'Run cancelled'})
+                    yield json.dumps({"type": "error", "content": "Run cancelled"})
                     break
 
                 if not hasattr(token, "choices") or not token.choices:
@@ -111,21 +110,21 @@ class TogetherR1Inference(BaseInference):
                         in_reasoning = True
                         reasoning_content += seg
                         logging_utility.debug("Yielding reasoning tag: %s", seg)
-                        yield json.dumps({'type': 'reasoning', 'content': seg})
+                        yield json.dumps({"type": "reasoning", "content": seg})
                     elif seg == "</think>":
                         in_reasoning = False
                         reasoning_content += seg
                         logging_utility.debug("Yielding reasoning tag: %s", seg)
-                        yield json.dumps({'type': 'reasoning', 'content': seg})
+                        yield json.dumps({"type": "reasoning", "content": seg})
                     else:
                         if in_reasoning:
                             reasoning_content += seg
                             logging_utility.debug("Yielding reasoning segment: %s", seg)
-                            yield json.dumps({'type': 'reasoning', 'content': seg})
+                            yield json.dumps({"type": "reasoning", "content": seg})
                         else:
                             assistant_reply += seg
                             logging_utility.debug("Yielding content segment: %s", seg)
-                            yield json.dumps({'type': 'content', 'content': seg})
+                            yield json.dumps({"type": "content", "content": seg})
                 # Optional: slight pause to allow incremental delivery
                 time.sleep(0.01)
 
@@ -134,7 +133,7 @@ class TogetherR1Inference(BaseInference):
             logging_utility.error(error_msg, exc_info=True)
             combined = reasoning_content + assistant_reply
             self.handle_error(combined, thread_id, assistant_id, run_id)
-            yield json.dumps({'type': 'error', 'content': error_msg})
+            yield json.dumps({"type": "error", "content": error_msg})
             return
 
         # Finalize conversation if there's any assistant reply content
@@ -142,9 +141,9 @@ class TogetherR1Inference(BaseInference):
             combined = reasoning_content + assistant_reply
             self.finalize_conversation(combined, thread_id, assistant_id, run_id)
 
-    def process_conversation(self, thread_id, message_id, run_id, assistant_id,
-                             model, stream_reasoning=False):
-
+    def process_conversation(
+        self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=False
+    ):
 
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)
@@ -152,9 +151,10 @@ class TogetherR1Inference(BaseInference):
         # ---------------------------------------------
         # Stream the response and yield each chunk.
         # --------------------------------------------
-        for chunk in self.stream_response(thread_id, message_id, run_id, assistant_id, model, stream_reasoning):
+        for chunk in self.stream_response(
+            thread_id, message_id, run_id, assistant_id, model, stream_reasoning
+        ):
             yield chunk
-
 
     def __del__(self):
         """Cleanup resources."""
