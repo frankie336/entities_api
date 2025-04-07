@@ -93,8 +93,8 @@ Example dialogue array:
 
 - Python ≥3.8
 - Docker
-- `entities_common` package ([install here](https://github.com/frankie336/entities_common))
-- Environment variables set (`HYPERBOLIC_API_KEY`, etc.)
+- `entities_sdk`: pip install https://github.com/frankie336/entitites_sdk.git
+or clone.
 
 ```python
 from dotenv import load_dotenv
@@ -128,7 +128,7 @@ completion = client.inference.stream_inference_response(
     message_id=message.id,
     run_id=run.id,
     assistant_id=assistant.id,
-    api_key=os.getenv('HYPERBOLIC_API_KEY')
+    api_key='your-api-key-from-hyperbolic'
 )
 
 pprint.pprint(completion)
