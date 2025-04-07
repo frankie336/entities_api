@@ -57,9 +57,11 @@ class DockerManager:
         self._ensure_dockerignore()
 
     # --- Core Docker/System Command Execution ---
-    def _run_command(self, cmd_list, check=True, capture_output=False, text=True, suppress_logs=False, **kwargs):
+    def _run_command(self, cmd_list, check=True, capture_output=False, text=True,
+                     suppress_logs=False, **kwargs):
         processed_cmd_list = list(cmd_list)
-        if processed_cmd_list[0] == "docker" and len(processed_cmd_list) > 1 and processed_cmd_list[1] == "compose":
+        if processed_cmd_list[0] == "docker" and len(processed_cmd_list) > 1 and processed_cmd_list[
+            1] == "compose":
             if "-f" not in processed_cmd_list:
                 compose_subcommand_index = 2
                 processed_cmd_list.insert(compose_subcommand_index, "-f")
@@ -69,7 +71,8 @@ class DockerManager:
         if not suppress_logs:
             self.log.info("Running command: %s", cmd_str)
         try:
-            result = subprocess.run(processed_cmd_list, check=check, capture_output=capture_output, text=text, shell=self.is_windows, **kwargs)
+            result = subprocess.run(processed_cmd_list, check=check, capture_output=capture_output,
+                                    text=text, shell=self.is_windows, **kwargs)
             if not suppress_logs:
                 self.log.debug("Command finished: %s", cmd_str)
                 if result.stdout:
@@ -94,7 +97,8 @@ class DockerManager:
     def _ensure_dockerignore(self):
         dockerignore = Path(".dockerignore")
         runtime_ignore_line = self._RUNTIME_COMPOSE_FILE
-        ignore_content_base = ["__pycache__/", ".venv/", "*.pyc", ".git/", ".env*", "!.env.example", "*.sqlite", "dist/", "build/", ".idea/", ".vscode/"]
+        ignore_content_base = ["__pycache__/", ".venv/", "*.pyc", ".git/", ".env*", "!.env.example",
+                               "*.sqlite", "dist/", "build/", ".idea/", ".vscode/"]
         if not dockerignore.exists():
             self.log.warning(".dockerignore not found. Generating default...")
             full_ignore_content = ignore_content_base + [runtime_ignore_line]
@@ -257,7 +261,8 @@ SAMBA_TZ="UTC"
         if not self.env_values:
             self.log.critical(f"Failed load/generate env vars from '{self._ENV_FILE}'.")
             sys.exit(1)
-        required = ["MYSQL_ROOT_PASSWORD", "MYSQL_USER", "MYSQL_PASSWORD", "DATABASE_URL", "SHARED_PATH"]
+        required = ["MYSQL_ROOT_PASSWORD", "MYSQL_USER", "MYSQL_PASSWORD", "DATABASE_URL",
+                    "SHARED_PATH"]
         missing = [k for k in required if k not in self.env_values or not self.env_values[k]]
         if missing:
             self.log.warning(f"!!! Check .env: Missing/empty required keys: {', '.join(missing)}")
@@ -277,11 +282,14 @@ SAMBA_TZ="UTC"
             source = "OS default"
             default_base = os.path.expanduser("~")
             if system == 'windows':
-                shared_path = path_join(os.environ.get('LOCALAPPDATA', path_join(default_base, 'AppData', 'Local')), "EntitiesApi", "Share")
+                shared_path = path_join(
+                    os.environ.get('LOCALAPPDATA', path_join(default_base, 'AppData', 'Local')),
+                    "EntitiesApi", "Share")
             elif system == 'linux':
                 shared_path = path_join(default_base, ".local", "share", "entities_api_share")
             elif system == 'darwin':
-                shared_path = path_join(default_base, "Library", "Application Support", "entities_api_share")
+                shared_path = path_join(default_base, "Library", "Application Support",
+                                        "entities_api_share")
             else:
                 raise RuntimeError(f"Unsupported OS: {system}")
             self.log.info("Defaulting SHARED_PATH to: %s", shared_path)
@@ -321,7 +329,8 @@ SAMBA_TZ="UTC"
                 if sub_value is not None:
                     value = value[:start_index] + str(sub_value) + value[end_index + 1:]
                 else:
-                    self.log.warning(f"Var '{var_name}' not found for '{original_value}'. Removing.")
+                    self.log.warning(
+                        f"Var '{var_name}' not found for '{original_value}'. Removing.")
                     value = value[:start_index] + value[end_index + 1:]
                 count += 1
             if count == max_substitutions:
@@ -338,81 +347,168 @@ SAMBA_TZ="UTC"
         self.log.info(f"Generating runtime compose file: {self._RUNTIME_COMPOSE_FILE}")
         template_path = Path(self._TEMPLATE_COMPOSE_FILE)
         runtime_path = Path(self._RUNTIME_COMPOSE_FILE)
+
+        # Create default template if it doesn't exist
         if not template_path.exists():
-            self.log.critical(f"Template file not found: {template_path}.")
-            sys.exit(1)
+            self.log.info(f"Creating default template at {template_path}")
+            default_template = {
+                'version': '3.8',
+                'services': {
+                    'db': {
+                        'image': 'mysql:8.0',
+                        'container_name': 'my_mysql_cosmic_catalyst',
+                        'restart': 'always',
+                        'environment': {
+                            'MYSQL_ROOT_PASSWORD': '${MYSQL_ROOT_PASSWORD}',
+                            'MYSQL_DATABASE': '${MYSQL_DATABASE}',
+                            'MYSQL_USER': '${MYSQL_USER}',
+                            'MYSQL_PASSWORD': '${MYSQL_PASSWORD}'
+                        },
+                        'volumes': ['mysql_data:/var/lib/mysql'],
+                        'ports': ["${MYSQL_EXTERNAL_PORT}:3306"],
+                        'healthcheck': {
+                            'test': ["CMD", "mysqladmin", "ping", "-h", "localhost"],
+                            'interval': '10s',
+                            'timeout': '5s',
+                            'retries': 5
+                        },
+                        'networks': ['my_custom_network']
+                    },
+                    'qdrant': {
+                        'image': 'qdrant/qdrant:latest',
+                        'container_name': 'qdrant_server',
+                        'restart': 'always',
+                        'ports': [
+                            "6333:6333",  # API port
+                            "6334:6334"  # gRPC port
+                        ],
+                        'volumes': ['qdrant_storage:/qdrant/storage'],
+                        'environment': {
+                            'QDRANT__STORAGE__STORAGE_PATH': '/qdrant/storage',
+                            'QDRANT__SERVICE__GRPC_PORT': '6334',
+                            'QDRANT__LOG_LEVEL': 'INFO'
+                        },
+                        'networks': ['my_custom_network']
+                    },
+                    'api': {
+                        'build': {
+                            'context': '.',
+                            'dockerfile': 'docker/api/Dockerfile'
+                        },
+                        'container_name': 'fastapi_cosmic_catalyst',
+                        'restart': 'always',
+                        'env_file': ['.env'],
+                        'environment': {
+                            'DATABASE_URL': '${DATABASE_URL}',
+                            'SANDBOX_SERVER_URL': '${SANDBOX_SERVER_URL}',
+                            'QDRANT_URL': '${QDRANT_URL}',
+                            'DEFAULT_SECRET_KEY': '${DEFAULT_SECRET_KEY}'
+                        },
+                        'ports': ["9000:9000"],
+                        'depends_on': {
+                            'db': {'condition': 'service_healthy'},
+                            'sandbox': {'condition': 'service_started'},
+                            'qdrant': {'condition': 'service_started'}
+                        },
+                        'command': [
+                            "./wait-for-it.sh",
+                            "db:3306",
+                            "--",
+                            "uvicorn",
+                            "entities_api.app:app",
+                            "--host", "0.0.0.0",
+                            "--port", "9000"
+                        ],
+                        'networks': ['my_custom_network']
+                    },
+                    'sandbox': {
+                        'build': {
+                            'context': '.',
+                            'dockerfile': 'docker/sandbox/Dockerfile'
+                        },
+                        'container_name': 'sandbox_api',
+                        'restart': 'always',
+                        'cap_add': ['SYS_ADMIN'],
+                        'security_opt': ['seccomp:unconfined'],
+                        'devices': ['/dev/fuse'],
+                        'ports': ["8000:8000"],
+                        'depends_on': {
+                            'db': {'condition': 'service_healthy'}
+                        },
+                        'volumes': ['/tmp/sandbox_logs:/app/logs'],
+                        'networks': ['my_custom_network']
+                    },
+                    'samba': {
+                        'image': 'dperson/samba',
+                        'container_name': 'samba_server',
+                        'restart': 'unless-stopped',
+                        'environment': {
+                            'USERID': '${SAMBA_USERID}',
+                            'GROUPID': '${SAMBA_GROUPID}',
+                            'TZ': '${SAMBA_TZ}',
+                            'USER': '${SMBCLIENT_USERNAME};${SMBCLIENT_PASSWORD}',
+                            'SHARE': '${SMBCLIENT_SHARE};/samba/share;yes;no;no;${SMBCLIENT_USERNAME}',
+                            'GLOBAL': 'server min protocol = NT1\nserver max protocol = SMB3'
+                        },
+                        'ports': [
+                            "139:139",
+                            "1445:445"  # Custom host port mapping
+                        ],
+                        'volumes': ['${SHARED_PATH}:/samba/share'],
+                        'networks': ['my_custom_network']
+                    }
+                },
+                'volumes': {
+                    'mysql_data': {'driver': 'local'},
+                    'qdrant_storage': {'driver': 'local'}
+                },
+                'networks': {
+                    'my_custom_network': {'driver': 'bridge'}
+                }
+            }
+
+            try:
+                with open(template_path, 'w', encoding='utf-8') as f:
+                    yaml.dump(default_template, f, default_flow_style=False, sort_keys=False,
+                              indent=2, allow_unicode=True)
+            except Exception as e:
+                self.log.critical(f"Failed to create template file: {e}")
+                sys.exit(1)
+
         try:
+            # Load the template
             with open(template_path, 'r', encoding='utf-8') as f_template:
                 compose_data = yaml.load(f_template, Loader=yaml.FullLoader)
+
             if not compose_data or 'services' not in compose_data:
                 self.log.error(f"Invalid template: {template_path}.")
                 sys.exit(1)
+
+            # Perform variable substitution
             compose_data = self._substitute_variables(compose_data)
             self.log.debug("Completed ${VAR} substitutions.")
-            services_to_inject = {
-                "api": ["DATABASE_URL", "SANDBOX_SERVER_URL", "QDRANT_URL", "DEFAULT_SECRET_KEY"],
-                "db": ["MYSQL_ROOT_PASSWORD", "MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD"],
-                "qdrant": ["QDRANT__STORAGE__STORAGE_PATH", "QDRANT__SERVICE__GRPC_PORT", "QDRANT__LOG_LEVEL"],
-                "samba": ["USER", "SHARE", "GLOBAL", "TZ", "USERID", "GROUPID"]
-            }
-            for service_name, env_vars_to_inject in services_to_inject.items():
-                if service_name in compose_data.get('services', {}):
-                    service_config = compose_data['services'][service_name]
-                    if 'environment' not in service_config:
-                        service_config['environment'] = []
-                    if isinstance(service_config['environment'], dict):
-                        service_config['environment'] = [f"{k}={v}" for k, v in service_config['environment'].items()]
-                    existing_env_keys = {item.split("=", 1)[0].lower(): i for i, item in enumerate(service_config['environment']) if isinstance(item, str) and "=" in item}
-                    for var_name in env_vars_to_inject:
-                        value_to_set = None
-                        if service_name == "samba":
-                            if var_name == "USER":
-                                value_to_set = f"{self.env_values.get('SMBCLIENT_USERNAME', 'samba_user')};{self.env_values.get('SMBCLIENT_PASSWORD', 'default')}"
-                            elif var_name == "SHARE":
-                                value_to_set = f"{self.env_values.get('SMBCLIENT_SHARE', 'cosmic_share')};/samba/share;yes;no;no;{self.env_values.get('SMBCLIENT_USERNAME', 'samba_user')}"
-                            elif var_name == "GLOBAL":
-                                value_to_set = self.env_values.get(var_name, "server min protocol = NT1\\nserver max protocol = SMB3")
-                            elif var_name == "TZ":
-                                value_to_set = self.env_values.get('SAMBA_TZ', 'UTC')
-                            elif var_name == "USERID":
-                                value_to_set = self.env_values.get('SAMBA_USERID', '1000')
-                            elif var_name == "GROUPID":
-                                value_to_set = self.env_values.get('SAMBA_GROUPID', '1000')
-                            else:
-                                value_to_set = self.env_values.get(var_name)
-                        elif service_name == "qdrant":
-                            static_values = {"QDRANT__STORAGE__STORAGE_PATH": "/qdrant/storage", "QDRANT__SERVICE__GRPC_PORT": "6334"}
-                            value_to_set = self.env_values.get(var_name, static_values.get(var_name))
-                        else:
-                            value_to_set = self.env_values.get(var_name)
-                        if value_to_set is not None:
-                            env_string = f"{var_name}={value_to_set}"
-                            if service_name == "samba" and var_name == "GLOBAL" and '\\n' in value_to_set:
-                                value_to_set = value_to_set.replace('\\n', '\n')
-                                env_string = f"{var_name}={value_to_set}"
-                            var_name_lower = var_name.lower()
-                            if var_name_lower in existing_env_keys:
-                                idx = existing_env_keys[var_name_lower]
-                                service_config['environment'][idx] = env_string
-                                self.log.debug(f"Overriding '{var_name}' in '{service_name}'.")
-                            else:
-                                service_config['environment'].append(env_string)
-                                existing_env_keys[var_name_lower] = len(service_config['environment']) - 1
-                                self.log.debug(f"Injecting '{var_name}' into '{service_name}'.")
-                        else:
-                            self.log.warning(f"Var '{var_name}' for injection into '{service_name}' not found.")
-            if 'sandbox' in compose_data.get('services', {}):
-                if 'environment' in compose_data['services']['sandbox']:
-                    log.debug("Removing 'environment' from 'sandbox'.")
-                    del compose_data['services']['sandbox']['environment']
+
+            # Special handling for Samba GLOBAL environment variable
+            if 'samba' in compose_data.get('services', {}):
+                samba_service = compose_data['services']['samba']
+                if 'environment' in samba_service and 'GLOBAL' in samba_service['environment']:
+                    if isinstance(samba_service['environment']['GLOBAL'], str):
+                        samba_service['environment']['GLOBAL'] = samba_service['environment'][
+                            'GLOBAL'].replace('\\n', '\n')
+
+            # Write the final compose file
             class MultilineLiteralDumper(yaml.Dumper):
                 def represent_scalar(self, tag, value, style=None):
                     if isinstance(value, str) and '\n' in value:
-                        return super().represent_scalar(tag, value, style='|')  # Check type first
+                        return super().represent_scalar(tag, value, style='|')
                     return super().represent_scalar(tag, value, style=style)
+
             with open(runtime_path, 'w', encoding='utf-8') as f_runtime:
-                yaml.dump(compose_data, f_runtime, Dumper=MultilineLiteralDumper, default_flow_style=False, sort_keys=False, indent=2, allow_unicode=True)
+                yaml.dump(compose_data, f_runtime, Dumper=MultilineLiteralDumper,
+                          default_flow_style=False, sort_keys=False, indent=2, allow_unicode=True)
+
             self.log.info(f"Successfully generated {runtime_path}")
+
         except Exception as e:
             self.log.critical(f"Error generating runtime file: {e}", exc_info=self.args.verbose)
             sys.exit(1)
@@ -423,7 +519,9 @@ SAMBA_TZ="UTC"
 
     def _is_container_running(self, container_name):
         try:
-            result = self._run_command(["docker", "ps", "--filter", f"name=^{container_name}$", "--quiet"], capture_output=True, text=True, check=False, suppress_logs=True)
+            result = self._run_command(
+                ["docker", "ps", "--filter", f"name=^{container_name}$", "--quiet"],
+                capture_output=True, text=True, check=False, suppress_logs=True)
             return bool(result.stdout.strip())
         except Exception as e:
             self.log.warning(f"Check container '{container_name}' failed: {e}")
@@ -431,7 +529,9 @@ SAMBA_TZ="UTC"
 
     def _is_image_present(self, image_name):
         try:
-            result = self._run_command(["docker", "images", image_name, "--quiet"], capture_output=True, text=True, check=False, suppress_logs=True)
+            result = self._run_command(["docker", "images", image_name, "--quiet"],
+                                       capture_output=True, text=True, check=False,
+                                       suppress_logs=True)
             return bool(result.stdout.strip())
         except Exception as e:
             self.log.warning(f"Check image '{image_name}' failed: {e}")
@@ -467,7 +567,8 @@ SAMBA_TZ="UTC"
                 self.log.error(f"❌ Pull failed: {e}")
                 return False
         self.log.info(f"🚀 Starting Ollama container '{c_name}'...")
-        cmd = ["docker", "run", "-d", "--rm", "-v", "ollama:/root/.ollama", "-p", f"{port}:{port}", "--name", c_name]
+        cmd = ["docker", "run", "-d", "--rm", "-v", "ollama:/root/.ollama", "-p", f"{port}:{port}",
+               "--name", c_name]
         if not cpu_only and self._has_nvidia_support():
             cmd.insert(2, "--gpus=all")
         elif not cpu_only:
@@ -482,10 +583,12 @@ SAMBA_TZ="UTC"
                 return True
             else:
                 # Container failed to stay running
-                self.log.error(f"❌ Ollama container '{c_name}' failed to start/stay running. Checking logs...")
+                self.log.error(
+                    f"❌ Ollama container '{c_name}' failed to start/stay running. Checking logs...")
                 try:
                     # Try to get logs
-                    self._run_command(["docker", "logs", "--tail", "50", c_name], check=False, suppress_logs=True)
+                    self._run_command(["docker", "logs", "--tail", "50", c_name], check=False,
+                                      suppress_logs=True)
                 except Exception as le:
                     self.log.error(f"   Log retrieval failed: {le}")
                 return False  # Indicate overall failure
@@ -521,7 +624,8 @@ SAMBA_TZ="UTC"
         if dockerignore_path.exists():
             try:
                 patterns = dockerignore_path.read_text(encoding='utf-8').splitlines()
-                ignore_patterns = {p.strip() for p in patterns if p.strip() and not p.startswith('#')}
+                ignore_patterns = {p.strip() for p in patterns if
+                                   p.strip() and not p.startswith('#')}
                 log.debug(f"Read {len(ignore_patterns)} patterns from .dockerignore")
             except Exception as e:
                 log.warning(f"Could not read or parse .dockerignore: {e}")
@@ -534,15 +638,18 @@ SAMBA_TZ="UTC"
                 for i, dirname in enumerate(dirnames):
                     dir_rel_path = current_rel_path / dirname
                     if (dirname in ignore_patterns or f"{dirname}/" in ignore_patterns or
-                        any(p.name in ignore_patterns or f"{p.name}/" in ignore_patterns for p in dir_rel_path.parents)):
+                        any(p.name in ignore_patterns or f"{p.name}/" in ignore_patterns for p in
+                            dir_rel_path.parents)):
                         dirs_to_remove.append(dirname)
                 for d in reversed(dirs_to_remove):
                     dirnames.remove(d)
                 for filename in filenames:
                     file_rel_path = current_rel_path / filename
                     if (filename in ignore_patterns or
-                        (Path(filename).suffix and f"*{Path(filename).suffix}" in ignore_patterns) or
-                        any(p.name in ignore_patterns or f"{p.name}/" in ignore_patterns for p in file_rel_path.parents)):
+                        (Path(
+                            filename).suffix and f"*{Path(filename).suffix}" in ignore_patterns) or
+                        any(p.name in ignore_patterns or f"{p.name}/" in ignore_patterns for p in
+                            file_rel_path.parents)):
                         continue
                     try:
                         fp = Path(dirpath) / filename
@@ -561,7 +668,9 @@ SAMBA_TZ="UTC"
             self.log.info(f"Context size: {context_size_mb:.2f} MB")
             if context_size_mb > 500:
                 self.log.warning("Context > 500MB. Check .dockerignore.")
-            ps_config = self._run_command(["docker", "compose", "config", "--services"], capture_output=True, text=True, check=False, suppress_logs=True)
+            ps_config = self._run_command(["docker", "compose", "config", "--services"],
+                                          capture_output=True, text=True, check=False,
+                                          suppress_logs=True)
             services = ps_config.stdout.strip().splitlines() if ps_config.returncode == 0 and ps_config.stdout else []
             image_names = {}
             if services:
@@ -571,9 +680,12 @@ SAMBA_TZ="UTC"
                 return  # Exit diagnostic if no services
 
             try:
-                config_json = self._run_command(["docker", "compose", "config", "--format", "json"], capture_output=True, text=True, check=True, suppress_logs=True).stdout
+                config_json = self._run_command(["docker", "compose", "config", "--format", "json"],
+                                                capture_output=True, text=True, check=True,
+                                                suppress_logs=True).stdout
                 config_data = json.loads(config_json)
-                image_names = {s_name: s_cfg.get("image") for s_name, s_cfg in config_data.get("services", {}).items() if s_cfg.get("image")}
+                image_names = {s_name: s_cfg.get("image") for s_name, s_cfg in
+                               config_data.get("services", {}).items() if s_cfg.get("image")}
             except Exception as e:
                 log.warning(f"Could not parse config for image names: {e}")
 
@@ -584,7 +696,10 @@ SAMBA_TZ="UTC"
 
                 self.log.info(f"--- History for '{image_name}' ({service_name}) ---")
                 try:
-                    history = self._run_command(["docker", "history", image_name, "--no-trunc", "--format", "{{.ID}} | {{.Size}} | {{.CreatedBy}}"], check=False, capture_output=True, text=True, suppress_logs=True)
+                    history = self._run_command(
+                        ["docker", "history", image_name, "--no-trunc", "--format",
+                         "{{.ID}} | {{.Size}} | {{.CreatedBy}}"], check=False, capture_output=True,
+                        text=True, suppress_logs=True)
                     if history.returncode == 0:
                         output = history.stdout.strip() if history.stdout else "No history found."
                         self.log.info(f"History:\n{output}")
@@ -612,8 +727,11 @@ SAMBA_TZ="UTC"
             sys.exit(0)
         self.log.info("Nuking Docker...")
         try:
-            self._run_command(["docker", "compose", "down", "--volumes", "--remove-orphans", "--timeout", "10"], check=False)
-            self._run_command(["docker", "system", "prune", "-a", "--volumes", "--force"], check=True)
+            self._run_command(
+                ["docker", "compose", "down", "--volumes", "--remove-orphans", "--timeout", "10"],
+                check=False)
+            self._run_command(["docker", "system", "prune", "-a", "--volumes", "--force"],
+                              check=True)
             self.log.info("✅ Nuke complete.")
         except Exception as e:
             self.log.critical(f"Nuke failed: {e}")
@@ -673,7 +791,9 @@ SAMBA_TZ="UTC"
             return
         self.log.info(f"Tagging images with '{tag}'...")
         try:
-            config_json = self._run_command(["docker", "compose", "config", "--format", "json"], capture_output=True, check=True, suppress_logs=True).stdout
+            config_json = self._run_command(["docker", "compose", "config", "--format", "json"],
+                                            capture_output=True, check=True,
+                                            suppress_logs=True).stdout
             config_data = json.loads(config_json)
             services = config_data.get("services", {})
             count = 0
@@ -687,7 +807,8 @@ SAMBA_TZ="UTC"
                 new_ref = f"{base_img}:{tag}"
                 self.log.info(f"  Tagging {img} -> {new_ref} ({s_name})")
                 try:
-                    self._run_command(["docker", "tag", img, new_ref], check=True, suppress_logs=not self.args.verbose)
+                    self._run_command(["docker", "tag", img, new_ref], check=True,
+                                      suppress_logs=not self.args.verbose)
                     count += 1
                 except Exception as e:
                     self.log.error(f"    Failed tag: {e}")
@@ -708,12 +829,14 @@ SAMBA_TZ="UTC"
             up_cmd.append("--force-recreate")
         if target_services:
             up_cmd.extend(target_services)
-        self.log.info(f"Starting containers ({' '.join(target_services) or 'all'}) in {mode} mode...")
+        self.log.info(
+            f"Starting containers ({' '.join(target_services) or 'all'}) in {mode} mode...")
         try:
             self._run_command(up_cmd, check=True)
             self.log.info("✅ Containers started.")
             if not self.args.attached:
-                log_cmd_display = ["docker", "compose", "-f", self._RUNTIME_COMPOSE_FILE, "logs", "-f", "--tail", "50"]
+                log_cmd_display = ["docker", "compose", "-f", self._RUNTIME_COMPOSE_FILE, "logs",
+                                   "-f", "--tail", "50"]
                 if target_services:
                     log_cmd_display.extend(target_services)
                 self.log.info(f"👀 View logs: {' '.join(log_cmd_display)}")
@@ -753,7 +876,8 @@ SAMBA_TZ="UTC"
     # --- Argument Parsing ---
     @staticmethod
     def parse_args():
-        parser = argparse.ArgumentParser(description="Manage stack via runtime compose file.", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+        parser = argparse.ArgumentParser(description="Manage stack via runtime compose file.",
+                                         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
         parser.add_argument("--mode", choices=["up", "build", "both", "down_only"], default="up")
         parser.add_argument("--no-cache", action="store_true")
         parser.add_argument("--pull", action="store_true")
@@ -771,7 +895,8 @@ SAMBA_TZ="UTC"
         parser.add_argument("--verbose", "-v", action="store_true")
         args = parser.parse_args()
         if (args.down or args.clear_volumes) and args.mode == 'up':
-            log.warning("--down/--clear-volumes with mode=up runs first only if mode=both/down_only.")
+            log.warning(
+                "--down/--clear-volumes with mode=up runs first only if mode=both/down_only.")
         if args.build_before_up and args.mode not in ['up', 'both']:
             log.warning("--build-before-up ignored.")
         if args.tag and args.mode not in ['build', 'both']:
