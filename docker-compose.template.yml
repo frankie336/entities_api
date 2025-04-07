@@ -8,10 +8,10 @@ services:
     env_file:
       - .env
     environment:
-      MYSQL_ROOT_PASSWORD: e687aedd41e592bbdb4cd637ff9d1fcb
-      MYSQL_DATABASE: cosmic_catalyst
-      MYSQL_USER: ollama
-      MYSQL_PASSWORD: c6f5b80d165b115596ffeb676558395f
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     volumes:
       - mysql_data:/var/lib/mysql
     ports:
