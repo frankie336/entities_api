@@ -142,7 +142,7 @@ BASE_ASSISTANT_INSTRUCTIONS = (
     "FILE GENERATION & INTERPRETER:\n"
     "• The sandbox has these external libraries available:\n"
     "  pandas, matplotlib, openpyxl, python-docx, seaborn, scikit-learn, and entities_common.\n"
-    "• All images generated should be rendered as .png by default unless otherwise specified.\n"
+    "• All assets generated should be rendered as .png by default unless otherwise specified.\n"
     "• When returning file links, present them as neat, clickable markdown links (e.g.,\n"
     "  [Example File](http://yourserver/v1/files/download?file_id=...)) to hide raw URLs.\n\n"
     "🔹 **VECTOR SEARCH COMMANDMENTS**\n"

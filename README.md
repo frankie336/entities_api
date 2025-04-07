@@ -8,7 +8,7 @@ This enables rapid and flexible deployment of advanced features such as conversa
 
 ---
 
-![Network Diagram](./images/docker_containers.png)
+![Network Diagram](assets/docker_containers.png)
 
 
 
@@ -134,6 +134,9 @@ completion = client.inference.stream_inference_response(
 pprint.pprint(completion)
 ```
 
+![Network Diagram](assets/quik_start-work_flow.png)
+
+
 ---
 
 ## Documentation
@@ -209,7 +212,10 @@ python start.py --with-ollama --ollama-gpu
 
 #### Build specific servies
 
-- `python start.py --mode build --services entities_api`
-- `python start.py --mode build --services sandbox`
+- **Build the main api**:`python start.py --mode build --services api`
+- **Build the main db**:`python start.py --mode build --services db`
+- **Build the vector db**:`python start.py --mode build --services qdrant`
+- **Build the sandbox**:`python start.py --mode build --services sandbox`
+- **Build the file server**:`python start.py --mode build --services samba`
 ---
 

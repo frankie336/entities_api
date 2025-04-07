@@ -6,6 +6,7 @@ from sqlalchemy import create_engine, text
 from entities_api.models.models import Base
 from entities_api.routers import api_router  # This central router includes all decoupled routers
 from entities_common import UtilsInterface
+
 # Initialize the logging utility
 logging_utility = UtilsInterface.LoggingUtility()
 

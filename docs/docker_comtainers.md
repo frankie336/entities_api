@@ -19,4 +19,4 @@ All these containers are networked through a custom Docker bridge network, ensur
 
 
 
-![Network Diagram](../images/docker_containers.png)
+![Network Diagram](../assets/docker_containers.png)

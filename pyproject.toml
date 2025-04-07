@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "entities"
+version = "1.0.16"
+description = "Python SDK for interacting with the Entities Assistant API."
+readme = "README.md"
+authors = [
+    { name = "Francis Neequaye Armah", email = "francis.neequaye@projectdavid.co.uk" }
+]
+license = { text = "MIT" }
+keywords = ["AI", "SDK", "Entities", "LLM", "Assistant"]
+requires-python = ">=3.9"
+
+
+dependencies = [
+    "httpx>=0.24.1",
+    "pydantic>=2.0",
+    "python-dotenv>=1.0",
+    "aiofiles>=23.2.1",
+    "ollama>=0.3.0",
+    "entities_common>=0.1.10",
+    "qdrant-client",
+    "pdfplumber",
+    "validators",
+    "sentence-transformers"
+]
+
+optional-dependencies.dev = [
+    "black>=23.3",
+    "isort>=5.12",
+    "pytest>=7.2",
+    "mypy>=1.0",
+    "build",
+    "twine",
+
+]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent"
+]
+
+[project.urls]
+Homepage = "https://github.com/frankie336/entitites_sdk"
+Documentation = "https://github.com/frankie336/entitites_sdk/tree/master/docs"
+Changelog = "https://github.com/frankie336/entitites_sdk/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["tests", "docs"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+
+[tool.black]
+line-length = 100
+target-version = ["py38"]
+skip-string-normalization = true
+
+[tool.flake8]
+max-line-length = 200
+extend-ignore = ["E203"]
+exclude = [".venv", ".git", "__pycache__", "build", "dist"]
+
+# Optional: If you ever switch to python-semantic-release
+[tool.semantic_release]
+version_source = "tag"
+upload_to_pypi = false

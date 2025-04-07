@@ -1192,7 +1192,6 @@ class BaseInference(ABC):
                 "ENTITIES_BASE_URL", "http://fastapi_cosmic_catalyst:9000"
             )
 
-
             for file_meta in uploaded_files:  # Use file_meta again
                 file_id = file_meta.get("id")
                 filename = file_meta.get("filename")

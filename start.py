@@ -3,7 +3,6 @@ import argparse
 import logging
 import os
 import platform
-import secrets
 import shutil
 import subprocess
 import sys
@@ -26,10 +25,11 @@ class DockerManager:
     """Manages Docker Compose stack operations, env setup, and optional Ollama integration."""
 
     # --- Class Attributes ---
-    _TEMPLATE_FILES = {
-        ".env.dev": ".env.dev.example",
-        ".env.docker": ".env.docker.example",
-    }
+    # Define the SINGLE example file we want to ensure exists
+    _ENV_EXAMPLE_FILE = ".env.example"
+    # Define the SINGLE actual .env file needed by compose commands
+    _ENV_FILE = ".env"
+
     _OLLAMA_IMAGE = "ollama/ollama"
     _OLLAMA_CONTAINER = "ollama"
     _OLLAMA_PORT = "11434"
@@ -51,156 +51,145 @@ class DockerManager:
         self.log.debug("DockerManager initialized with args: %s", args)
 
         # Initial setup steps
-        self._ensure_env_files() # Ensures .env files exist using templates
+        self._ensure_env_example_file() # <<< UPDATED
         self._configure_shared_path() # Configure and create SHARED_PATH
         self._ensure_dockerignore()
+        # Add a check for the actual .env file needed later
+        self._check_for_required_env_file() # <<< UPDATED
 
     # --- Core Docker/System Command Execution ---
+    # _run_command remains the same...
     def _run_command(self, cmd_list, check=True, capture_output=False, text=True, suppress_logs=False, **kwargs):
-        """
-        Helper method to run shell commands using subprocess.
-
-        Args:
-            cmd_list (list): The command and its arguments as a list.
-            check (bool): If True, raise CalledProcessError on non-zero exit code.
-            capture_output (bool): If True, capture stdout and stderr.
-            text (bool): If True, decode stdout/stderr as text.
-            suppress_logs (bool): If True, don't log command execution/output unless error.
-            **kwargs: Additional arguments passed to subprocess.run.
-
-        Returns:
-            subprocess.CompletedProcess: The result object from subprocess.run.
-
-        Raises:
-            subprocess.CalledProcessError: If the command fails and check is True.
-            Exception: For other execution errors.
-        """
+        """Helper method to run shell commands using subprocess."""
         if not suppress_logs:
             self.log.info("Running command: %s", " ".join(cmd_list))
         try:
             result = subprocess.run(
-                cmd_list,
-                check=check,
-                capture_output=capture_output,
-                text=text,
-                shell=self.is_windows,
-                **kwargs
+                cmd_list, check=check, capture_output=capture_output, text=text,
+                shell=self.is_windows, **kwargs
             )
             if not suppress_logs:
                 self.log.debug("Command finished: %s", " ".join(cmd_list))
-                if result.stdout:
-                    self.log.debug("Command stdout:\n%s", result.stdout.strip())
-                if result.stderr:
-                     # Log stderr even on success if captured and not empty
-                     if result.stderr.strip():
-                         self.log.debug("Command stderr:\n%s", result.stderr.strip())
+                if result.stdout: self.log.debug("Command stdout:\n%s", result.stdout.strip())
+                if result.stderr and result.stderr.strip():
+                    self.log.debug("Command stderr:\n%s", result.stderr.strip())
             return result
         except subprocess.CalledProcessError as e:
             self.log.error(f"Command failed: {' '.join(cmd_list)}")
             self.log.error(f"Return Code: {e.returncode}")
-            # Ensure output is logged even if suppress_logs was True on error
-            if e.stdout:
-                self.log.error("STDOUT:\n%s", e.stdout.strip())
-            if e.stderr:
-                self.log.error("STDERR:\n%s", e.stderr.strip())
-            if check:
-                raise
-            return e # Return error object if check=False
+            if e.stdout: self.log.error("STDOUT:\n%s", e.stdout.strip())
+            if e.stderr: self.log.error("STDERR:\n%s", e.stderr.strip())
+            if check: raise
+            return e
         except Exception as e:
             self.log.error(f"Error running command {' '.join(cmd_list)}: {e}", exc_info=self.args.verbose)
             raise
 
     # --- .dockerignore Generation ---
+    # _ensure_dockerignore remains the same...
     def _ensure_dockerignore(self):
         """Generates a default .dockerignore file if it doesn't exist."""
         dockerignore = Path(".dockerignore")
         if not dockerignore.exists():
-            self.log.warning(".dockerignore not found. Generating default to improve cache efficiency...")
-            dockerignore.write_text("""__pycache__/
-.venv/
-node_modules/
-*.log
-*.pyc
-.git/
-.env*
-*.sqlite
-dist/
-build/
-coverage/
-tmp/
-*.egg-info/
-""")
+            self.log.warning(".dockerignore not found. Generating default...")
+            # Added .env to the ignore list explicitly
+            dockerignore.write_text("""__pycache__/\n.venv/\nnode_modules/\n*.log\n*.pyc\n.git/\n.env*\n.env\n*.sqlite\ndist/\nbuild/\ncoverage/\ntmp/\n*.egg-info/\n""")
             self.log.info("Generated default .dockerignore.")
 
-    # --- Environment File Generation ---
-    def _generate_secret(self, length=32):
-        """Generates a URL-safe secret token."""
-        return secrets.token_urlsafe(length)[:length]
+    # --- Environment File Generation (EXAMPLE FILE ONLY) ---
+    # UPDATED: Simplified function name and removed loop/differentiation logic
+    def _generate_dot_env_example_file(self):
+        """Generates the .env.example file with default placeholder content."""
+        target_example_file = self._ENV_EXAMPLE_FILE
+        self.log.info(f"Generating default example environment file: {target_example_file}...")
 
-    def _generate_env_file_templates(self):
-        """Generates .env files from .env.example templates with secrets."""
-        self.log.info("Generating environment file templates...")
-        # Shared values across all .env.* files
-        mysql_root_password = self._generate_secret(16)
-        mysql_password = self._generate_secret(16)
-        mysql_database = "cosmic_catalyst"  # Example name, adjust if needed
+        # Define default content WITH PLACEHOLDERS, suitable for Docker by default
+        default_content = """# .env - Environment variables for Entities API Docker setup
+# Copy this file to .env and replace placeholder values (__PLACEHOLDER__)
 
-        generated_values = {
-            "__MYSQL_ROOT_PASSWORD__": mysql_root_password,
-            "__MYSQL_DATABASE__": mysql_database,
-            "__MYSQL_PASSWORD__": mysql_password,
-            "__DEFAULT_SECRET_KEY__": self._generate_secret(48),
-            "__SIGNED_URL_SECRET__": self._generate_secret(48),
-            "__DEFAULT_API_KEY__": self._generate_secret(40),
-            "__TOOL_CODE_INTERPRETER__": f"tool_{self._generate_secret(22)}",
-            "__TOOL_WEB_SEARCH__": f"tool_{self._generate_secret(22)}",
-            "__TOOL_COMPUTER__": f"tool_{self._generate_secret(22)}",
-            "__TOOL_VECTOR_STORE_SEARCH__": f"tool_{self._generate_secret(22)}",
-            "__SMBCLIENT_SERVER__": "samba_server",
-            "__SMBCLIENT_SHARE__": "cosmic_share",
-            "__SMBCLIENT_USERNAME__": "samba_user",
-            "__SMBCLIENT_PASSWORD__": "default",
-            "__SMBCLIENT_PORT__": "445",
-        }
+# --- Database ---
+MYSQL_HOST=db
+MYSQL_PORT=3306
+MYSQL_USER=root
+# !! IMPORTANT: Replace __MYSQL_ROOT_PASSWORD__ with a strong password !!
+MYSQL_ROOT_PASSWORD=__MYSQL_ROOT_PASSWORD__
+MYSQL_DATABASE=__MYSQL_DATABASE__
+# !! IMPORTANT: Replace __MYSQL_PASSWORD__ with a strong password for the app user !!
+MYSQL_USER_APP=app_user
+MYSQL_PASSWORD=__MYSQL_PASSWORD__
 
-        for output_file, template_file in self._TEMPLATE_FILES.items():
-            if not os.path.exists(output_file):
-                if not os.path.exists(template_file):
-                    self.log.warning(f"[ENV] Template file {template_file} not found. Cannot generate {output_file}.")
-                    continue
-                try:
-                    with open(template_file, "r", encoding="utf-8") as f:
-                        content = f.read()
-                    for placeholder, value in generated_values.items():
-                        content = content.replace(placeholder, value)
-                    if "__DEFAULT_API_KEY__" not in content and output_file == ".env.docker":
-                        self.log.warning(f"Placeholder '__DEFAULT_API_KEY__' not found in template '{template_file}'. "
-                                         f"The generated '{output_file}' might be missing this value.")
+# --- Application Settings ---
+# !! IMPORTANT: Replace __DEFAULT_SECRET_KEY__ with a long random string (e.g., openssl rand -hex 32) !!
+SECRET_KEY=__DEFAULT_SECRET_KEY__
+# !! IMPORTANT: Replace __SIGNED_URL_SECRET__ with a different long random string !!
+SIGNED_URL_SECRET=__SIGNED_URL_SECRET__
+# !! IMPORTANT: Replace __DEFAULT_API_KEY__ with the key clients will use !!
+API_KEY=__DEFAULT_API_KEY__
+API_BASE_URL=http://localhost:9000 # External URL clients might use, adjust if needed
+# Or internal if services talk to each other via Docker network:
+# API_BASE_URL_INTERNAL=http://fastapi_cosmic_catalyst:9000 # Check service name
 
-                    with open(output_file, "w", encoding="utf-8") as f:
-                        f.write(content)
-                    self.log.info(f"[ENV] Generated {output_file} from {template_file}")
-                except IOError as e:
-                    self.log.error(f"[ENV] Failed to read/write file during generation of {output_file}: {e}")
-                except Exception as e:
-                    self.log.error(f"[ENV] Unexpected error generating {output_file}: {e}")
-            else:
-                self.log.debug(f"[ENV] {output_file} already exists. Skipping generation.")
+# --- External Services (Docker Service Names) ---
+QDRANT_HOST=qdrant_server
+QDRANT_PORT=6333
+OLLAMA_HOST=ollama # If ollama service exists in docker-compose.yml
+OLLAMA_PORT=11434
 
-    def _ensure_env_files(self):
-        """Checks for required .env files and generates them if missing."""
-        missing = []
-        for file in self._TEMPLATE_FILES.keys():
-            if not os.path.exists(file):
-                missing.append(file)
+# --- File Storage (Samba Example) ---
+# Set SHARED_PATH environment variable externally or configure here if static
+# SHARED_PATH=/path/to/your/host/share # Example: Needs to be set appropriately for your OS
+SMBCLIENT_SERVER=samba_server
+SMBCLIENT_SHARE=cosmic_share
+SMBCLIENT_USERNAME=samba_user
+# Consider using a more secure default or placeholder for password
+SMBCLIENT_PASSWORD=default
+SMBCLIENT_PORT=445 # Default internal Samba port
 
-        if missing:
-            self.log.info("[ENV SCAN] Missing env files: %s. Generating defaults...", missing)
-            self._generate_env_file_templates()
+# --- Tool IDs (Generated placeholders, replace if needed) ---
+TOOL_CODE_INTERPRETER=tool___TOOL_CODE_INTERPRETER__
+TOOL_WEB_SEARCH=tool___TOOL_WEB_SEARCH__
+TOOL_COMPUTER=tool___TOOL_COMPUTER__
+TOOL_VECTOR_STORE_SEARCH=tool___TOOL_VECTOR_STORE_SEARCH__
+
+# --- Other ---
+LOG_LEVEL=INFO
+PYTHONUNBUFFERED=1
+"""
+        try:
+            with open(target_example_file, "w", encoding="utf-8") as f:
+                f.write(default_content)
+            self.log.info(f"[ENV] Generated default {target_example_file}")
+        except IOError as e:
+            self.log.error(f"[ENV] Failed to write file {target_example_file}: {e}")
+        except Exception as e:
+            self.log.error(f"[ENV] Unexpected error generating {target_example_file}: {e}")
+
+    # UPDATED: Ensure only .env.example exists
+    def _ensure_env_example_file(self):
+        """Checks for the required .env.example file and generates it if missing."""
+        self.log.info(f"[ENV SCAN] Checking for example environment file: {self._ENV_EXAMPLE_FILE}...")
+        if not os.path.exists(self._ENV_EXAMPLE_FILE):
+            self.log.warning(f"[ENV SCAN] Missing example env file: {self._ENV_EXAMPLE_FILE}.")
+            self._generate_dot_env_example_file() # Generate the missing .example file
+            self.log.info("[ENV SCAN] Generated missing example file. "
+                          f"Please copy '{self._ENV_EXAMPLE_FILE}' to '{self._ENV_FILE}' "
+                          "and fill in the necessary values.")
         else:
-            self.log.info("[ENV SCAN] All required environment files already present.")
+            self.log.info(f"[ENV SCAN] Example environment file {self._ENV_EXAMPLE_FILE} is present.")
+
+    # UPDATED: Check only for .env
+    def _check_for_required_env_file(self):
+        """Checks if the actual .env file needed for compose exists."""
+        self.log.debug(f"[ENV SCAN] Checking for required '{self._ENV_FILE}' file for compose...")
+        if not os.path.exists(self._ENV_FILE):
+            self.log.warning(f"[ENV SCAN] Required environment file '{self._ENV_FILE}' is missing.")
+            self.log.warning(f"           Please create it, potentially by copying and editing '{self._ENV_EXAMPLE_FILE}'.")
+            # Decide if this should be fatal later (e.g., before build/up)
+        else:
+            self.log.debug(f"[ENV SCAN] Required environment file '{self._ENV_FILE}' seems present.")
 
     # --- Shared Path Configuration ---
+    # _configure_shared_path remains the same...
     def _configure_shared_path(self):
         """Configures the SHARED_PATH environment variable based on OS and creates the directory."""
         system = platform.system().lower()
@@ -210,573 +199,294 @@ tmp/
              self.log.info("Using existing SHARED_PATH from environment: %s", shared_path)
         else:
             default_base = os.path.expanduser("~")
-            if system == 'windows':
-                shared_path = os.path.join(default_base, "entities_share")
-            elif system == 'linux':
-                 shared_path = os.path.join(default_base, ".local", "share", "entities_share")
-            elif system == 'darwin': # macOS
-                shared_path = os.path.join(default_base, "Library", "Application Support", "entities_share")
+            if system == 'windows': shared_path = os.path.join(default_base, "entities_share")
+            elif system == 'linux': shared_path = os.path.join(default_base, ".local", "share", "entities_share")
+            elif system == 'darwin': shared_path = os.path.join(default_base, "Library", "Application Support", "entities_share")
             else:
-                self.log.error("Unsupported OS detected: %s. Cannot determine default shared path.", system)
-                raise RuntimeError("Unsupported OS detected.")
+                self.log.error("Unsupported OS: %s. Cannot set default SHARED_PATH.", system); raise RuntimeError("Unsupported OS")
             self.log.info("Defaulting SHARED_PATH to: %s", shared_path)
             os.environ['SHARED_PATH'] = shared_path
-
         try:
-            if not os.path.exists(shared_path):
-                os.makedirs(shared_path, exist_ok=True)
-                self.log.info("Created shared directory: %s", shared_path)
-            else:
-                self.log.info("Shared directory already exists: %s", shared_path)
+            Path(shared_path).mkdir(parents=True, exist_ok=True)
+            self.log.info("Ensured shared directory exists: %s", shared_path)
         except OSError as e:
             self.log.error(f"Failed to create shared directory {shared_path}: {e}. Check permissions.")
 
     # --- Ollama Integration ---
+    # Ollama methods remain the same...
     def _has_docker(self):
-        """Checks if the 'docker' command is available in the system PATH."""
         return shutil.which("docker") is not None
 
     def _is_container_running(self, container_name):
-        """Checks if a Docker container with the given name is currently running."""
         try:
-            result = self._run_command(
-                ["docker", "ps", "--filter", f"name=^{container_name}$", "--quiet"],
-                capture_output=True, text=True, check=False, suppress_logs=True
-            )
+            result = self._run_command(["docker", "ps", "--filter", f"name=^{container_name}$", "--quiet"], capture_output=True, text=True, check=False, suppress_logs=True)
             return bool(result.stdout.strip())
-        except Exception as e:
-            self.log.warning(f"Could not check if container '{container_name}' is running: {e}")
-            return False
+        except Exception as e: self.log.warning(f"Could not check container '{container_name}' status: {e}"); return False
 
     def _is_image_present(self, image_name):
-        """Checks if a Docker image with the given name exists locally."""
         try:
-             result = self._run_command(
-                 ["docker", "images", image_name, "--quiet"],
-                 capture_output=True, text=True, check=False, suppress_logs=True
-             )
+             result = self._run_command(["docker", "images", image_name, "--quiet"], capture_output=True, text=True, check=False, suppress_logs=True)
              return bool(result.stdout.strip())
-        except Exception as e:
-            self.log.warning(f"Could not check if image '{image_name}' is present: {e}")
-            return False
+        except Exception as e: self.log.warning(f"Could not check image '{image_name}' presence: {e}"); return False
 
     def _has_nvidia_support(self):
-        """Checks if 'nvidia-smi' command is available, indicating NVIDIA drivers."""
         has_smi = shutil.which("nvidia-smi") is not None
         if has_smi:
-            try:
-                self._run_command(["nvidia-smi"], check=True, capture_output=True, suppress_logs=True)
-                return True
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                 self.log.warning("nvidia-smi found but failed to execute. Assuming no GPU support.")
-                 return False
+            try: self._run_command(["nvidia-smi"], check=True, capture_output=True, suppress_logs=True); return True
+            except (subprocess.CalledProcessError, FileNotFoundError): self.log.warning("nvidia-smi failed. Assuming no GPU."); return False
         return False
 
     def _start_ollama(self, cpu_only=True):
-        """Pulls the Ollama image if needed and starts the Ollama container."""
-        if not self._has_docker():
-            self.log.error("❌ Docker command not found in PATH. Cannot start Ollama.")
-            return False
-
+        if not self._has_docker(): self.log.error("❌ Docker not found."); return False
         container_name = self._OLLAMA_CONTAINER
-        if self._is_container_running(container_name):
-            self.log.info(f"✅ Ollama container '{container_name}' is already running.")
-            return True
-
+        if self._is_container_running(container_name): self.log.info(f"✅ Ollama '{container_name}' running."); return True
         image_name = self._OLLAMA_IMAGE
         if not self._is_image_present(image_name):
-            self.log.info(f"📦 Pulling Ollama image '{image_name}'...")
-            try:
-                self._run_command(["docker", "pull", image_name], check=True)
-            except (subprocess.CalledProcessError, Exception) as e:
-                 self.log.error(f"❌ Failed to pull Ollama image: {e}")
-                 return False
-
+            self.log.info(f"📦 Pulling Ollama image '{image_name}'...");
+            try: self._run_command(["docker", "pull", image_name], check=True)
+            except Exception as e: self.log.error(f"❌ Failed to pull Ollama image: {e}"); return False
         self.log.info(f"🚀 Starting Ollama container '{container_name}'...")
-        cmd = [
-            "docker", "run", "-d",
-            "--rm",
-            "-v", "ollama:/root/.ollama",
-            "-p", f"{self._OLLAMA_PORT}:{self._OLLAMA_PORT}",
-            "--name", container_name
-        ]
-        if not cpu_only:
-             if self._has_nvidia_support():
-                 self.log.info("   Adding --gpus=all flag.")
-                 cmd.insert(2, "--gpus=all")
-             else:
-                 self.log.warning("   GPU requested, but nvidia-smi check failed just before launch. Starting in CPU mode.")
-
+        cmd = ["docker", "run", "-d", "--rm", "-v", "ollama:/root/.ollama", "-p", f"{self._OLLAMA_PORT}:{self._OLLAMA_PORT}", "--name", container_name]
+        if not cpu_only and self._has_nvidia_support(): self.log.info("   Adding --gpus=all flag."); cmd.insert(2, "--gpus=all")
+        elif not cpu_only: self.log.warning("   GPU requested but support check failed. CPU mode.")
         cmd.append(image_name)
-
         try:
-            self._run_command(cmd, check=True)
-            time.sleep(3)
-            if self._is_container_running(container_name):
-                self.log.info(f"✅ Ollama container '{container_name}' started successfully.")
-                return True
+            self._run_command(cmd, check=True); time.sleep(3)
+            if self._is_container_running(container_name): self.log.info(f"✅ Ollama '{container_name}' started."); return True
             else:
-                self.log.error(f"❌ Ollama container '{container_name}' failed to start. Check Docker logs: docker logs {container_name}")
-                try:
-                    self._run_command(["docker", "logs", container_name], check=False, suppress_logs=False)
-                except Exception:
-                    pass
+                self.log.error(f"❌ Ollama '{container_name}' failed to start. Logs:");
+                try: self._run_command(["docker", "logs", container_name], check=False, suppress_logs=False)
+                except Exception: pass
                 return False
-        except (subprocess.CalledProcessError, Exception) as e:
-            self.log.error(f"❌ Failed to start Ollama container: {e}")
-            return False
+        except Exception as e: self.log.error(f"❌ Failed to start Ollama container: {e}"); return False
 
     def _ensure_ollama(self, opt_in=False, use_gpu=False):
-        """Ensures Ollama is set up based on user flags and system capabilities."""
-        if not opt_in:
-            self.log.info("ℹ️ Ollama integration is opt-in. Skipping setup.")
-            return True
-
+        if not opt_in: self.log.info("ℹ️ Ollama opt-in. Skipping."); return True
         self.log.info("--- Ollama Setup ---")
-        system = platform.system()
-
-        if os.path.exists("/.dockerenv") or os.environ.get("DOCKER_HOST"):
-             self.log.warning("🛰 Detected running inside a container. Skipping external Ollama setup.")
-             self.log.warning("   If you need Ollama, include it in your docker-compose.yml file.")
-             self.log.info("--- End Ollama Setup ---")
-             return True
-
-        if system == "Darwin": # macOS
-            self.log.warning("⚠️ macOS detected. Docker containers do not support GPU acceleration on Mac.")
-            self.log.warning("👉 For best performance, please install and run the native Ollama app: https://ollama.com/download")
-            self.log.info("   Skipping Docker-based Ollama setup on macOS.")
-            self.log.info("--- End Ollama Setup ---")
-            return True
-
-        gpu_mode_possible = False
-        if use_gpu:
-            if self._has_nvidia_support():
-                self.log.info("✅ NVIDIA GPU support detected via nvidia-smi.")
-                gpu_mode_possible = True
-            else:
-                self.log.warning("⚠️ GPU mode requested (--ollama-gpu), but NVIDIA support ('nvidia-smi') not found or not working.")
-                self.log.warning("   Falling back to CPU mode for Ollama.")
-        else:
-             self.log.info("💡 Ollama GPU mode not requested (--ollama-gpu not used). Using CPU mode.")
-
-        mode_string = "GPU" if gpu_mode_possible else "CPU"
-        self.log.info(f"Attempting to start Ollama in {mode_string} mode...")
-
-        success = self._start_ollama(cpu_only=not gpu_mode_possible)
-
-        self.log.info("--- End Ollama Setup ---")
-        return success
+        if os.path.exists("/.dockerenv") or os.environ.get("DOCKER_HOST"): self.log.warning("🛰 Running inside container? Skipping external Ollama."); return True
+        if platform.system() == "Darwin": self.log.warning("⚠️ macOS: Docker GPU unsupported. Install native Ollama app."); return True
+        gpu_mode = use_gpu and self._has_nvidia_support()
+        if use_gpu and not gpu_mode: self.log.warning("⚠️ GPU requested, but support not found. CPU mode.")
+        mode_str = "GPU" if gpu_mode else "CPU"; self.log.info(f"Attempting to start Ollama in {mode_str} mode...")
+        success = self._start_ollama(cpu_only=not gpu_mode); self.log.info("--- End Ollama Setup ---"); return success
 
     # --- Docker Cache Diagnostics ---
+    # Diagnostics methods remain the same...
     def _get_directory_size(self, path="."):
-        """Calculates the total size of files in a directory (MB)."""
-        total_size = 0
-        for dirpath, dirnames, filenames in os.walk(path):
+        total_size = 0;
+        for dirpath, _, filenames in os.walk(path):
             for f in filenames:
                 try:
-                    fp = os.path.join(dirpath, f)
-                    if not islink(fp):
-                        total_size += getsize(fp)
-                except OSError as e:
-                    self.log.debug("Could not get size of file %s: %s", fp, e)
-                    continue
-                except Exception as e:
-                    self.log.warning("Unexpected error getting size of file %s: %s", fp, e)
-                    continue
+                    fp = os.path.join(dirpath, f);
+                    if not islink(fp): total_size += getsize(fp)
+                except OSError as e: self.log.debug("Skip size check for %s: %s", fp, e)
+                except Exception as e: self.log.warning("Skip size check for %s: %s", fp, e)
         return total_size / (1024 * 1024)
 
     def _run_docker_cache_diagnostics(self):
-        """Runs diagnostics to understand Docker build cache usage."""
-        self.log.info("--- Docker Cache Diagnostics ---")
+        self.log.info("--- Docker Cache Diagnostics ---");
         try:
-            context_size_mb = self._get_directory_size()
-            self.log.info("Approximate Docker build context size: %.2f MB", context_size_mb)
-
-            ps_config = self._run_command(
-                ["docker", "compose", "config", "--services"],
-                capture_output=True, text=True, check=False
-            )
-            if ps_config.returncode != 0:
-                self.log.warning("Could not get services from docker-compose config. Is docker-compose.yml valid?")
-                services = []
-            else:
-                services = ps_config.stdout.strip().splitlines()
-                self.log.info("Services defined in docker-compose config: %s", ", ".join(services))
-
+            self.log.info("Approx context size: %.2f MB", self._get_directory_size());
+            ps_config = self._run_command(["docker", "compose", "config", "--services"], capture_output=True, text=True, check=False);
+            services = ps_config.stdout.strip().splitlines() if ps_config.returncode == 0 else []
+            if not services: self.log.warning("Could not get services from docker-compose config."); return
+            self.log.info("Services: %s", ", ".join(services));
             for service in services:
-                image_name = service
-                self.log.info(f"Inspecting image history for potential image '{image_name}':")
+                self.log.info(f"History for potential image '{service}':");
                 try:
-                    history_result = self._run_command(
-                        ["docker", "history", image_name, "--no-trunc", "--format", "{{.ID}}: {{.CreatedBy}}"],
-                        check=False, capture_output=True, text=True
-                    )
-                    if history_result.returncode == 0:
-                         if history_result.stdout.strip():
-                            self.log.info("History:\n%s", history_result.stdout.strip())
-                         else:
-                             self.log.info("No history found (image might not be built or uses a different name).")
-                    else:
-                        self.log.warning(f"Could not get history for image '{image_name}'. Error:\n{history_result.stderr.strip()}")
-                except Exception as e:
-                     self.log.warning(f"Unexpected error getting history for image '{image_name}': {e}")
-
-        except Exception as e:
-            self.log.error("Failed during Docker diagnostics: %s", e)
-        self.log.info("--- End Docker Cache Diagnostics ---")
+                    history = self._run_command(["docker", "history", service, "--no-trunc", "--format", "{{.ID}}: {{.CreatedBy}}"], check=False, capture_output=True, text=True);
+                    if history.returncode == 0 and history.stdout.strip(): self.log.info("History:\n%s", history.stdout.strip())
+                    elif history.returncode == 0: self.log.info("No history found.")
+                    else: self.log.warning(f"Could not get history. Error:\n{history.stderr.strip()}");
+                except Exception as e: self.log.warning(f"Error getting history: {e}");
+        except Exception as e: self.log.error("Failed during Docker diagnostics: %s", e);
+        self.log.info("--- End Docker Cache Diagnostics ---");
 
     # --- Docker Compose Actions ---
+    # _handle_nuke, _handle_down remain the same...
     def _handle_nuke(self):
-        """Handles the --nuke operation (full Docker prune)."""
-        self.log.warning("!!! NUKE MODE: ALL DOCKER DATA WILL BE WIPED (containers, volumes, networks, images) !!!")
+        self.log.warning("!!! NUKE MODE: ALL DOCKER DATA WIPED (containers, volumes, networks, images) !!!");
+        try: confirm = input("Are you absolutely sure? (yes/no): ").lower()
+        except EOFError: self.log.error("Nuke needs interactive confirm."); sys.exit(1)
+        if confirm != "yes": self.log.info("Nuke cancelled."); sys.exit(0)
+        self.log.info("Proceeding with Docker nuke...");
         try:
-            confirm = input("Are you absolutely sure you want to nuke the Docker environment? (yes/no): ").lower()
-        except EOFError:
-             self.log.error("Nuke requires interactive confirmation. Aborting.")
-             sys.exit(1)
-
-        if confirm != "yes":
-            self.log.info("Nuke cancelled.")
-            sys.exit(0)
-
-        self.log.info("Proceeding with Docker nuke...")
-        try:
-            self.log.info("Stopping and removing compose services and volumes...")
-            self._run_command(["docker", "compose", "down", "--volumes", "--remove-orphans"], check=False)
-
-            self.log.info("Pruning all Docker resources (images, containers, volumes, networks)...")
-            self._run_command(["docker", "system", "prune", "-a", "--volumes", "--force"], check=True)
-
-            self.log.info("Docker environment nuked successfully.")
-        except (subprocess.CalledProcessError, Exception) as e:
-            self.log.critical("Nuke operation failed: %s", e)
-            sys.exit(1)
+            self._run_command(["docker", "compose", "down", "--volumes", "--remove-orphans"], check=False);
+            self._run_command(["docker", "system", "prune", "-a", "--volumes", "--force"], check=True);
+            self.log.info("Docker environment nuked successfully.");
+        except Exception as e: self.log.critical("Nuke failed: %s", e); sys.exit(1)
 
     def _handle_down(self):
-        """Handles --down and --clear-volumes operations."""
         target_services = self.args.services or []
         target_desc = f" for services: {', '.join(target_services)}" if target_services else ""
-        action = "Stopping containers and removing volumes" if self.args.clear_volumes else "Stopping containers"
+        action = "Stopping containers & removing volumes" if self.args.clear_volumes else "Stopping containers"
         self.log.info(f"{action}{target_desc}...")
-
-        if self.args.clear_volumes and not target_services: # Only prompt for full volume clear
-            try:
-                confirm = input("This will delete ALL Docker volumes associated with this project. Proceed? (yes/no): ").lower()
-            except EOFError:
-                self.log.error("Volume clearing requires interactive confirmation. Aborting.")
-                sys.exit(1)
-            if confirm != "yes":
-                self.log.info("Volume deletion cancelled.")
-                sys.exit(0)
-        elif self.args.clear_volumes and target_services:
-             self.log.warning("Note: '--clear-volumes' with specific services might not remove all related volumes if they are shared or defined externally.")
-
-
+        if self.args.clear_volumes and not target_services:
+            try: confirm = input("Delete ALL project volumes? (yes/no): ").lower()
+            except EOFError: self.log.error("Confirm needed."); sys.exit(1)
+            if confirm != "yes": self.log.info("Volume delete cancelled."); sys.exit(0)
+        elif self.args.clear_volumes and target_services: self.log.warning("Note: --clear-volumes + services might not remove shared volumes.")
         down_cmd = ["docker", "compose", "down", "--remove-orphans"]
-        if self.args.clear_volumes:
-            down_cmd.append("--volumes")
+        if self.args.clear_volumes: down_cmd.append("--volumes")
+        if target_services: down_cmd.extend(target_services)
+        try: self._run_command(down_cmd, check=False); self.log.info(f"{action} complete.")
+        except Exception as e: self.log.error(f"docker-compose down failed: {e}"); sys.exit(1)
 
-        # Add specific services to the command if provided
-        if target_services:
-            down_cmd.extend(target_services)
-
-        try:
-            self._run_command(down_cmd, check=False)
-            self.log.info(f"{action} complete.")
-        except Exception as e:
-            self.log.error(f"Failed during docker-compose down: {e}")
-            sys.exit(1)
-
-
+    # UPDATED: Check for .env and load from .env
     def _handle_build(self):
         """Handles building the Docker images using docker-compose build."""
+        # --- Check for required .env file ---
+        env_file = self._ENV_FILE
+        if not os.path.exists(env_file):
+             self.log.error(f"Required environment file '{env_file}' is missing.")
+             self.log.error(f"Please create it (e.g., copy '{self._ENV_EXAMPLE_FILE}') and fill in values.")
+             sys.exit(1) # Exit if essential env file is missing
 
-        load_dotenv(dotenv_path=".env.docker")
-        env_values = dotenv_values(dotenv_path=".env.docker")
-        self.log.info(f".env.docker loaded with %d variables: %s", len(env_values), ', '.join(env_values.keys()))
+        # Load environment variables from .env
+        load_dotenv(dotenv_path=env_file) # Explicitly load from .env
+        # You can still use dotenv_values if needed, but load_dotenv is enough for compose
+        # env_values = dotenv_values(dotenv_path=env_file)
+        # self.log.info(f"Loaded '{env_file}' with %d variables.", len(env_values))
+        self.log.info(f"Loaded environment variables from '{env_file}'.")
+        # --- End Check ---
 
         target_services = self.args.services or []
-        target_desc = f" for services: {', '.join(target_services)}" if target_services else ""
+        target_desc = f" for services: {', '.join(target_services)}" if target_services else " all services"
         cache_desc = " (no cache)" if self.args.no_cache else ""
-        self.log.info(f"Building containers{target_desc}{cache_desc}...")
+        self.log.info(f"Building images{target_desc}{cache_desc}...") # Changed containers->images
 
         build_cmd = ["docker", "compose", "build"]
-        if self.args.no_cache:
-            build_cmd.append("--no-cache")
-
-        # Add specific services to the command if provided
-        if target_services:
-            build_cmd.extend(target_services)
+        if self.args.no_cache: build_cmd.append("--no-cache")
+        if target_services: build_cmd.extend(target_services)
 
         t_start = time.time()
         try:
             self._run_command(build_cmd, check=True)
             t_end = time.time()
             self.log.info("Build completed in %.2f seconds.", t_end - t_start)
-
             if self.args.tag:
-                self.log.info(f"Applying tag: {self.args.tag} to built images (target services: {target_services if target_services else 'all'})")
-                # Pass the targeted services to the tagging function
+                self.log.info(f"Applying tag: {self.args.tag} (targets: {target_services if target_services else 'all'})")
                 self._tag_images(self.args.tag, targeted_services=target_services)
+        except Exception as e: self.log.critical(f"Docker build failed: {e}"); sys.exit(1)
 
-        except (subprocess.CalledProcessError, Exception) as e:
-            self.log.critical(f"Docker build failed: {e}")
-            sys.exit(1)
-
-    # --- Updated _tag_images to respect targeted services ---
+    # _tag_images remains the same...
     def _tag_images(self, tag, targeted_services=None):
-        """
-        Tags built images from docker-compose with the given tag.
-
-        Args:
-            tag (str): The tag to apply.
-            targeted_services (list, optional): List of service names that were built.
-                                                If None or empty, attempts to tag all services.
-        """
+        """Tags built images from docker-compose with the given tag."""
         try:
-            self.log.info("Inspecting docker-compose config to determine service image mappings...")
-
-            service_config_json = self._run_command(
-                ["docker", "compose", "config", "--format", "json"],
-                capture_output=True, check=True
-            ).stdout
-
-            parsed = json.loads(service_config_json)
-            services = parsed.get("services", {})
-
-            if not services:
-                self.log.warning("No services found in docker-compose config.")
-                return
-
+            self.log.info("Inspecting compose config for image mappings...")
+            service_config_json = self._run_command(["docker", "compose", "config", "--format", "json"], capture_output=True, check=True).stdout
+            services = json.loads(service_config_json).get("services", {})
+            if not services: self.log.warning("No services found in compose config."); return
             tagged_count = 0
             for service_name, config in services.items():
-                 # --- Logic to only tag specified services if provided ---
-                if targeted_services and service_name not in targeted_services:
-                    self.log.debug(f"Skipping tagging for service '{service_name}' as it was not in the build target list.")
-                    continue
-                # --- End targeting logic ---
-
+                if targeted_services and service_name not in targeted_services: continue
                 image_name = config.get("image")
-
-                # Only tag images we likely built locally (adjust prefix if needed)
-                if not image_name or not image_name.startswith("entities_api/") and not image_name.startswith("entities_"): # Adjust prefix if your naming is different
-                    self.log.debug(f"Skipping external or potentially unnamed image for service '{service_name}': {image_name}")
-                    continue
-
-                # Assuming the built image defaults to :latest if no tag specified in compose
+                # Adjust prefix check if your image names differ
+                if not image_name or not image_name.startswith("entities_api/") and not image_name.startswith("entities_"): continue
                 base_image_parts = image_name.split(":")
-                base_image = base_image_parts[0]
-                original_image_ref = f"{base_image}:latest" # Assume latest if tag unspecified
-
-                # Check if the assumed 'latest' image actually exists before tagging
-                check_image_cmd = ["docker", "image", "inspect", original_image_ref]
-                inspect_result = self._run_command(check_image_cmd, check=False, capture_output=True, suppress_logs=True)
-
-                if inspect_result.returncode != 0:
-                    self.log.warning(f"Could not find image '{original_image_ref}' to tag for service '{service_name}'. Skipping.")
-                    # Maybe the image name in compose already has a tag? Try that.
-                    if len(base_image_parts) > 1:
-                         original_image_ref = image_name # Use the full name from compose
-                         inspect_result_alt = self._run_command(["docker", "image", "inspect", original_image_ref], check=False, capture_output=True, suppress_logs=True)
-                         if inspect_result_alt.returncode != 0:
-                              self.log.warning(f"Also could not find image '{original_image_ref}' specified in compose file for service '{service_name}'. Definitely skipping tagging.")
-                              continue
-                         else:
-                              self.log.info(f"Found image '{original_image_ref}' (from compose file) for service '{service_name}'.")
-                    else:
-                         continue # Skip if latest wasn't found and no tag in compose
-
-                new_tag = f"{base_image}:{tag}"
-
-                self.log.info(f"Tagging {original_image_ref} -> {new_tag}")
-                try:
-                    self._run_command(["docker", "tag", original_image_ref, new_tag], check=True)
-                    tagged_count += 1
-                except (subprocess.CalledProcessError, Exception) as tag_e:
-                     self.log.error(f"Failed to tag {original_image_ref} for service {service_name}: {tag_e}")
-
-
+                base_image = base_image_parts[0]; original_ref = f"{base_image}:latest"
+                inspect_res = self._run_command(["docker", "image", "inspect", original_ref], check=False, capture_output=True, suppress_logs=True)
+                if inspect_res.returncode != 0:
+                    self.log.debug(f"Image '{original_ref}' not found for '{service_name}'. Trying full name from compose...")
+                    if len(base_image_parts) > 1: original_ref = image_name
+                    else: self.log.warning(f"Skipping tag for '{service_name}': base image '{original_ref}' not found."); continue
+                    inspect_res_alt = self._run_command(["docker", "image", "inspect", original_ref], check=False, capture_output=True, suppress_logs=True)
+                    if inspect_res_alt.returncode != 0: self.log.warning(f"Skipping tag for '{service_name}': compose image '{original_ref}' not found."); continue
+                    else: self.log.debug(f"Found image '{original_ref}' (from compose).")
+                new_tag = f"{base_image}:{tag}"; self.log.info(f"Tagging {original_ref} -> {new_tag}")
+                try: self._run_command(["docker", "tag", original_ref, new_tag], check=True); tagged_count += 1
+                except Exception as tag_e: self.log.error(f"Failed to tag {original_ref}: {tag_e}")
             self.log.info(f"Tagging complete. {tagged_count} images tagged.")
-
-        except json.JSONDecodeError as e:
-            self.log.error("Failed to parse docker-compose config as JSON: %s", e)
-        except subprocess.CalledProcessError as e:
-            self.log.error("Failed to run 'docker compose config --format json': %s", e)
-        except Exception as e:
-            self.log.error(f"Image tagging failed: {e}", exc_info=self.args.verbose)
+        except json.JSONDecodeError as e: self.log.error("Failed to parse compose config: %s", e)
+        except subprocess.CalledProcessError as e: self.log.error("Failed to run 'docker compose config': %s", e)
+        except Exception as e: self.log.error(f"Image tagging failed: {e}", exc_info=self.args.verbose)
 
 
+    # UPDATED: Check for .env
     def _handle_up(self):
         """Handles starting the Docker containers using docker-compose up."""
+         # --- Check for required .env file ---
+        env_file = self._ENV_FILE
+        if not os.path.exists(env_file):
+             self.log.error(f"Required environment file '{env_file}' is missing for 'up' command.")
+             self.log.error(f"Please create it (e.g., copy '{self._ENV_EXAMPLE_FILE}') and fill in values.")
+             sys.exit(1) # Exit if essential env file is missing
+        # Load just in case compose doesn't pick it up automatically (usually does)
+        load_dotenv(dotenv_path=env_file)
+        self.log.debug(f"Ensured environment variables loaded from '{env_file}'.")
+        # --- End Check ---
+
         mode = "attached" if self.args.attached else "detached"
         target_services = self.args.services or []
         target_desc = f" for services: {', '.join(target_services)}" if target_services else ""
-
         self.log.info(f"Starting containers{target_desc} ({mode} mode)...")
         up_cmd = ["docker", "compose", "up"]
-        if not self.args.attached:
-            up_cmd.append("-d")
-
-        # Add specific services to the command if provided
-        if target_services:
-            up_cmd.extend(target_services)
-
+        if not self.args.attached: up_cmd.append("-d")
+        if target_services: up_cmd.extend(target_services)
         try:
             self._run_command(up_cmd, check=True)
             self.log.info("Containers started successfully.")
             if not self.args.attached:
-                 logs_cmd = ["docker", "compose", "logs", "-f"]
-                 if target_services:
-                     logs_cmd.extend(target_services)
+                 logs_cmd = ["docker", "compose", "logs", "-f"];
+                 if target_services: logs_cmd.extend(target_services)
                  self.log.info(f"View logs with: {' '.join(logs_cmd)}")
-        except (subprocess.CalledProcessError, Exception) as e:
+        except Exception as e:
             self.log.critical(f"Docker up failed: {e}")
             if not self.args.attached:
                 self.log.info("Attempting to show logs from failed startup...")
                 try:
-                    # Show logs only from the targeted services if specified
                     logs_cmd = ["docker", "compose", "logs", "--tail=100"]
-                    if target_services:
-                        logs_cmd.extend(target_services)
+                    if target_services: logs_cmd.extend(target_services)
                     self._run_command(logs_cmd, check=False)
-                except Exception as log_e:
-                    self.log.error(f"Could not fetch logs: {log_e}")
+                except Exception as log_e: self.log.error(f"Could not fetch logs: {log_e}")
             sys.exit(1)
 
     # --- Main Execution Logic ---
+    # run method remains the same...
     def run(self):
         """Main execution logic based on parsed arguments."""
-
-        if self.args.debug_cache:
-            self._run_docker_cache_diagnostics()
-            sys.exit(0)
-
-        if self.args.nuke:
-            self._handle_nuke()
-            sys.exit(0)
+        if self.args.debug_cache: self._run_docker_cache_diagnostics(); sys.exit(0)
+        if self.args.nuke: self._handle_nuke(); sys.exit(0)
 
         ollama_ok = self._ensure_ollama(opt_in=self.args.with_ollama, use_gpu=self.args.ollama_gpu)
-        if not ollama_ok and self.args.with_ollama:
-             self.log.error("Ollama setup failed. Check logs above.")
-             # sys.exit(1) # Decide if fatal
+        if not ollama_ok and self.args.with_ollama: self.log.error("Ollama setup failed.")
 
-        # --- Handle down/clear-volumes first ---
-        # Combine down and clear_volumes flags for the condition
-        # Execute if --down or --clear-volumes is specified
         if self.args.down or self.args.clear_volumes:
             self._handle_down()
-            # If *only* down/clear was requested (mode is not build/both), exit.
-            if self.args.mode not in ["build", "both"]:
-                sys.exit(0)
+            if self.args.mode == 'down_only': sys.exit(0)
 
-        # --- Handle Build and Up ---
         if self.args.mode in ["build", "both"]:
-            # Check for invalid flag combination
-            if self.args.no_cache and self.args.mode == "up":
-               self.log.critical("Invalid flag combination: --no-cache requires --mode 'build' or 'both'.")
-               sys.exit(1)
-            # Check if --no-cache or --tag used without specifying services (could be slow/unintended)
+            if self.args.no_cache and self.args.mode not in ["build", "both"]:
+               self.log.critical("--no-cache requires --mode 'build' or 'both'."); sys.exit(1)
             if (self.args.no_cache or self.args.tag) and not self.args.services:
-                 self.log.warning("Using --no-cache or --tag without --services will affect ALL services defined in compose file.")
-                 # Optional: Add confirmation prompt here if desired
-                 # try:
-                 #     confirm = input("Proceed? (yes/no): ").lower()
-                 #     if confirm != 'yes': sys.exit(0)
-                 # except EOFError: sys.exit(1)
-
-            self._handle_build()
+                 self.log.warning("Using --no-cache or --tag without --services affects ALL services.")
+            self._handle_build() # Checks for .env inside
 
         if self.args.mode in ["up", "both"]:
-            self._handle_up()
+            self._handle_up() # Checks for .env inside
 
         self.log.info("Docker management script finished.")
 
-
     # --- Argument Parsing (Static Method) ---
+    # parse_args remains the same...
     @staticmethod
     def parse_args():
         """Parses command-line arguments."""
-        parser = argparse.ArgumentParser(
-            description="Manage Docker Compose stack, environment setup, and optional Ollama.",
-            formatter_class=argparse.ArgumentDefaultsHelpFormatter
-        )
-        # Docker Compose Actions
-        parser.add_argument(
-            "--mode",
-            choices=["up", "build", "both", "down_only"], # Added down_only for clarity if needed
-            default="up",
-            help="Compose action: 'build' images, 'up' containers, 'both' build then up, or 'down_only'."
-        )
-        parser.add_argument(
-            "--down",
-            action="store_true",
-            help="Stop and remove containers defined in the compose file (can be combined with --mode or run standalone)."
-        )
-        parser.add_argument(
-            "--clear-volumes",
-            action="store_true",
-            help="When running 'down', also remove associated named volumes (prompts for confirmation unless --services specified)."
-        )
-        parser.add_argument(
-            "--no-cache",
-            action="store_true",
-            help="Build images without using the Docker cache (requires --mode build or both)."
-        )
-        parser.add_argument(
-            "--attached",
-            action="store_true",
-            help="Run 'docker compose up' in attached mode (foreground, streaming logs)."
-        )
-        # --- NEW ARGUMENT ---
-        parser.add_argument(
-            "--services",
-            nargs='+', # Expect one or more service names
-            metavar='SERVICE_NAME',
-            help="Target specific service(s) for build, up, or down actions."
-        )
-        # --- END NEW ARGUMENT ---
-
-
-        # Ollama Options
-        parser.add_argument(
-            "--with-ollama",
-            action="store_true",
-            help="Ensure an external Ollama service is running (pulls/starts Docker container if needed, outside compose)."
-        )
-        parser.add_argument(
-            "--ollama-gpu",
-            action="store_true",
-            help="Attempt to run the external Ollama container with GPU acceleration (if --with-ollama is used and NVIDIA GPU is detected)."
-        )
-
-        # Maintenance & Debugging
-        parser.add_argument(
-            "--nuke",
-            action="store_true",
-            help="DANGER: Stop all containers, remove all volumes, networks, and images on the system! Requires confirmation."
-        )
-        parser.add_argument(
-            "--verbose", "-v",
-            action="store_true",
-            help="Enable debug logging for this script."
-        )
-        parser.add_argument(
-            "--debug-cache",
-            action="store_true",
-            help="Show Docker build context size and image history diagnostics, then exit."
-        )
-
-        parser.add_argument(
-            "--tag",
-            type=str,
-            help="Optional tag to apply to built image(s) (e.g. '0.3.0-alpha.1'). Applied to services specified by --services, or all if --services not used."
-        )
-
-        # Small logic adjustment for clarity on standalone --down / --clear-volumes
+        parser = argparse.ArgumentParser(description="Manage Docker Compose stack, env setup, Ollama.", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+        parser.add_argument("--mode", choices=["up", "build", "both", "down_only"], default="up", help="Action: 'build' images, 'up' containers, 'both', or 'down_only'.")
+        parser.add_argument("--down", action="store_true", help="Stop and remove containers.")
+        parser.add_argument("--clear-volumes", action="store_true", help="With --down, also remove volumes (prompts unless --services used).")
+        parser.add_argument("--no-cache", action="store_true", help="Build without cache (needs --mode build/both).")
+        parser.add_argument("--attached", action="store_true", help="Run 'up' in attached mode.")
+        parser.add_argument("--services", nargs='+', metavar='SERVICE', help="Target specific service(s) for build/up/down.")
+        parser.add_argument("--tag", type=str, help="Tag built image(s) (use with --mode build/both).")
+        parser.add_argument("--with-ollama", action="store_true", help="Ensure external Ollama container runs.")
+        parser.add_argument("--ollama-gpu", action="store_true", help="Attempt GPU for external Ollama.")
+        parser.add_argument("--nuke", action="store_true", help="DANGER: Prune ALL Docker resources!")
+        parser.add_argument("--verbose", "-v", action="store_true", help="Enable debug logging.")
+        parser.add_argument("--debug-cache", action="store_true", help="Run cache diagnostics and exit.")
         args = parser.parse_args()
-        if (args.down or args.clear_volumes) and args.mode not in ['build', 'both']:
-             args.mode = 'down_only' # Set mode explicitly if down/clear is the primary action
-
+        if (args.down or args.clear_volumes) and args.mode not in ['build', 'both']: args.mode = 'down_only'
         return args
 
 
@@ -786,12 +496,6 @@ if __name__ == "__main__":
         arguments = DockerManager.parse_args()
         manager = DockerManager(arguments)
         manager.run()
-    except KeyboardInterrupt:
-        log.info("\nOperation cancelled by user.")
-        sys.exit(130) # Standard exit code for Ctrl+C
-    except subprocess.CalledProcessError:
-        log.critical("A critical command failed. See logs above.")
-        sys.exit(1)
-    except Exception as e:
-        log.critical("An unexpected error occurred: %s", e, exc_info=log.level == logging.DEBUG)
-        sys.exit(1)
+    except KeyboardInterrupt: log.info("\nOperation cancelled."); sys.exit(130)
+    except subprocess.CalledProcessError: log.critical("Command failed."); sys.exit(1)
+    except Exception as e: log.critical("Unexpected error: %s", e, exc_info=log.level == logging.DEBUG); sys.exit(1)
