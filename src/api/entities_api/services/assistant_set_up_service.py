@@ -1,18 +1,14 @@
 # entities_api/services/assistant_setup_service.py
 
 from entities_common import ValidationInterface
-
 from entities import Entities
-
 
 from entities_api.constants.assistant import DEFAULT_MODEL, BASE_ASSISTANT_INSTRUCTIONS, BASE_TOOLS
 from entities_api.services.logging_service import LoggingUtility
-
-validate = ValidationInterface()
-
-
 from entities_api.services.vector_store_service import VectorStoreService
 from entities_api.services.vector_waves import AssistantVectorWaves
+
+validate = ValidationInterface()
 
 
 class AssistantSetupService:
@@ -30,29 +26,36 @@ class AssistantSetupService:
         return self._vector_waves
 
     def create_and_associate_tools(self, function_definitions, assistant_id):
-        """Batch-friendly tool creation with error handling"""
+        """Creates tools if they do not already exist and associates them with the assistant."""
         for func_def in function_definitions:
+            tool_name = func_def["function"]["name"]
             try:
-                tool_name = func_def["function"]["name"]
+                # Attempt to retrieve an existing tool for this assistant
+                existing_tool = self.client.tools.get_tool_by_name(tool_name)
+                if existing_tool:
+                    self.logging_utility.info("Tool already exists: %s (ID: %s)", tool_name,
+                                              existing_tool.id)
+                    continue  # Skip creation if tool exists
+            except Exception as retrieval_error:
+                self.logging_utility.debug("No existing tool found for %s: %s", tool_name,
+                                           str(retrieval_error))
 
+            try:
                 tool_function = validate.ToolFunction(function=func_def)
-
                 new_tool = self.client.tools.create_tool(
                     name=tool_name,
                     type="function",
                     function=tool_function.model_dump(),
                     assistant_id=assistant_id,
                 )
-
                 self.client.tools.associate_tool_with_assistant(
                     tool_id=new_tool.id, assistant_id=assistant_id
                 )
-
                 self.logging_utility.info("Created tool: %s (ID: %s)", tool_name, new_tool.id)
-
             except Exception as e:
-                self.logging_utility.error("Tool creation failed for %s: %s", new_tool.name, str(e))
-                raise
+                self.logging_utility.error("Tool creation failed for %s: %s", tool_name, str(e))
+                # Optionally, continue to the next tool instead of raising the exception.
+                continue
 
     def setup_assistant_with_tools(
         self,
@@ -63,37 +66,41 @@ class AssistantSetupService:
         instructions,
         function_definitions,
     ):
-        """Streamlined setup with pre-validated user ID"""
+        """Gets an existing default assistant if it exists; otherwise, creates one, then sets up tools."""
         try:
+            # Attempt to retrieve the default assistant
+            assistant = self.client.assistants.retrieve_assistant("default")
+            self.logging_utility.info("Default assistant already exists: %s", assistant.id)
+        except Exception:
+            # If retrieval fails (assistant not found), create a new one.
+            try:
+                assistant = self.client.assistants.create_assistant(
+                    name=assistant_name,
+                    description=assistant_description,
+                    model=model,
+                    instructions=instructions,
+                    assistant_id="default",
+                )
+                self.logging_utility.info("Created new default assistant: %s (ID: %s)",
+                                          assistant_name, assistant.id)
+            except Exception as e:
+                self.logging_utility.error("Assistant creation failed: %s", str(e))
+                raise
 
-            assistant = self.client.assistants.create_assistant(
-                name=assistant_name,
-                description=assistant_description,
-                model=model,
-                instructions=instructions,
-                assistant_id="default",
-                # tools=[{"type": "code_interpreter"}],
-            )
-
-            self.logging_utility.info(
-                "Created assistant: %s (ID: %s)", assistant_name, assistant.id
-            )
-
-            self.create_and_associate_tools(function_definitions, assistant.id)
-
-            return assistant
-
-        except Exception as e:
-            self.logging_utility.error("Assistant setup failed: %s", str(e))
-            raise
+        # Now, create and associate tools (existing tools will be skipped)
+        self.create_and_associate_tools(function_definitions, assistant.id)
+        return assistant
 
     def orchestrate_default_assistant(self):
-        """Optimized main flow with single user creation"""
+        """Main orchestration flow for setting up the default assistant for a user."""
         try:
-            # Get or create pattern prevents duplicate users
-            user = self.client.users.create_user(name="default")
-
-            self.logging_utility.debug("Using existing user: ID %s", user.id)
+            # Use a get-or-create approach for the default user
+            try:
+                user = self.client.users.retrieve_user("default")
+                self.logging_utility.debug("Using existing user: ID %s", user.id)
+            except Exception:
+                user = self.client.users.create_user(name="default")
+                self.logging_utility.info("Created default user: ID %s", user.id)
 
             assistant = self.setup_assistant_with_tools(
                 user_id=user.id,
@@ -103,11 +110,6 @@ class AssistantSetupService:
                 instructions=BASE_ASSISTANT_INSTRUCTIONS,
                 function_definitions=BASE_TOOLS,
             )
-
-            # Deferred initialization of vector waves
-            # Vector waves needs re architecting
-            #
-            # self.vector_waves._initialize_core_waves(user_id=user.id, assistant_id=assistant.id)
 
             self.logging_utility.info("Setup completed. Assistant ID: %s", assistant.id)
             return assistant
@@ -120,5 +122,4 @@ class AssistantSetupService:
 # Example usage remains unchanged
 if __name__ == "__main__":
     service = AssistantSetupService()
-    # service.create_and_associate_tools(function_definitions=BASE_TOOLS,assistant_id='default')
     service.orchestrate_default_assistant()

@@ -1,6 +1,7 @@
 # entities_api/routers/__init__.py
 
 from fastapi import APIRouter
+
 # Import routers with a clear suffix alias
 from .routers import router as main_router
 from .events import router as events_router

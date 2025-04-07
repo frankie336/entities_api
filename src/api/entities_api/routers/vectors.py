@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Path as FastApiPat
 from sqlalchemy.orm import Session
 
 from entities_api.dependencies import get_db
+
 # Import specific exceptions from the service layer
 from entities_api.services.vectors import (
     VectorStoreDBService,
@@ -105,7 +106,7 @@ def delete_vector_store_endpoint(
         )
     except Exception as e:
         logging_utility.exception(
-            f"Unexpected error deleting " f"vector store '{vector_store_id}': {str(e)}"
+            f"Unexpected error deleting vector store '{vector_store_id}': {str(e)}"
         )
         raise HTTPException(status_code=500, detail="An unexpected internal server error occurred.")
 
@@ -135,16 +136,14 @@ def get_vector_store_endpoint(
 )
 def retrieve_vector_store_by_collection_endpoint(
     name: str = Query(
-        ..., description="The unique collection name " "(usually the vector store ID) to look up."
+        ..., description="The unique collection name (usually the vector store ID) to look up."
     ),
     db: Session = Depends(get_db),
 ):
     vector_service = VectorStoreDBService(db)
     store = vector_service.get_vector_store_by_collection_name(name)
     if not store:
-        raise HTTPException(
-            status_code=404, detail=f"Vector store with collection name '{name}' not found."
-        )
+        raise HTTPException(status_code=404, detail=f"Vector store with collection name '{name}' not found.")
     return store
 
 
@@ -169,6 +168,7 @@ def get_stores_by_user_endpoint(
 
 # --- Vector Store File Endpoints ---
 
+
 @router.post(
     "/vector-stores/{vector_store_id}/files",
     response_model=ValidationInterface.VectorStoreFileRead,  # Use imported model
@@ -176,27 +176,16 @@ def get_stores_by_user_endpoint(
     summary="Add File Record to Vector Store",
     description="Registers a file's metadata associated with a specific vector store.",
 )
-
-
-@router.post(
-    "/vector-stores/{vector_store_id}/files",
-    response_model=ValidationInterface.VectorStoreFileRead,
-    status_code=201,
-    summary="Add File Record to Vector Store",
-    description="Registers a file's metadata associated with a specific vector store.",
-)
 def add_file_to_vector_store_endpoint(
     file_data: ValidationInterface.VectorStoreFileCreate,  # Body (No default) - comes first
     vector_store_id: str = FastApiPath(
-        ..., description="The ID of the vector store to add the file " "record to."
-    ),  # Path (Default)
+        ..., description="The ID of the vector store to add the file record to."
+    ),
     db: Session = Depends(get_db),
 ):
     vector_service = VectorStoreDBService(db)
-    # Access file_data attributes here - type checker should now be happy
     logging_utility.info(
-        f"Request to add file record "
-        f"'{file_data.file_name}' (ID: {file_data.file_id}, "
+        f"Request to add file record '{file_data.file_name}' (ID: {file_data.file_id}, "
         f"Path: {file_data.file_path}) to store {vector_store_id}"
     )
     try:
@@ -206,10 +195,10 @@ def add_file_to_vector_store_endpoint(
             file_name=file_data.file_name,
             file_path=file_data.file_path,
             status=file_data.status or ValidationInterface.StatusEnum.completed,
-            meta_data=file_data.metadata,
+            meta_data=file_data.meta_data,  # FIX: Use the correct field name from the model.
         )
         logging_utility.info(
-            f"Successfully created file record {file_record.id} " f"for store {vector_store_id}"
+            f"Successfully created file record {file_record.id} for store {vector_store_id}"
         )
         return file_record
     except VectorStoreNotFoundError as e:
@@ -223,7 +212,7 @@ def add_file_to_vector_store_endpoint(
         raise HTTPException(status_code=500, detail=f"Failed to create file record: {str(e)}")
     except Exception as e:
         logging_utility.exception(
-            f"Unexpected error creating file record for store " f"'{vector_store_id}': {str(e)}"
+            f"Unexpected error creating file record for store '{vector_store_id}': {str(e)}"
         )
         raise HTTPException(status_code=500, detail="An unexpected internal server error occurred.")
 
@@ -235,9 +224,7 @@ def add_file_to_vector_store_endpoint(
     description="Retrieves metadata for all non-deleted files associated with a vector store.",
 )
 def list_files_in_vector_store_endpoint(
-    vector_store_id: str = FastApiPath(
-        ..., description="The ID of the vector " "store whose files to list."
-    ),
+    vector_store_id: str = FastApiPath(..., description="The ID of the vector store whose files to list."),
     db: Session = Depends(get_db),
 ):
     vector_service = VectorStoreDBService(db)
@@ -253,27 +240,21 @@ def list_files_in_vector_store_endpoint(
     "/vector-stores/{vector_store_id}/files",
     status_code=204,
     summary="Delete File Record from Vector Store",
-    description="Deletes a file's metadata record associated with a "
-    "vector store, identified by file path.",
+    description="Deletes a file's metadata record associated with a vector store, identified by file path.",
 )
 def delete_file_from_vector_store_endpoint(
-    vector_store_id: str = FastApiPath(
-        ..., description="The ID of the vector store " "containing the file " "record."
-    ),
-    file_path: str = Query(
-        ..., description="The file path identifier " "used when adding the file."
-    ),
+    vector_store_id: str = FastApiPath(..., description="The ID of the vector store containing the file record."),
+    file_path: str = Query(..., description="The file path identifier used when adding the file."),
     db: Session = Depends(get_db),
 ):
     vector_service = VectorStoreDBService(db)
     logging_utility.info(
-        f"Request to delete file record with path " f"'{file_path}' from store {vector_store_id}"
+        f"Request to delete file record with path '{file_path}' from store {vector_store_id}"
     )
     try:
         _ = vector_service.delete_vector_store_file_by_path(vector_store_id, file_path)
         logging_utility.info(
-            f"Successfully deleted file record with path '{file_path}' "
-            f"from store {vector_store_id}"
+            f"Successfully deleted file record with path '{file_path}' from store {vector_store_id}"
         )
         return None
     except (VectorStoreNotFoundError, VectorStoreFileNotFoundError) as e:
@@ -281,13 +262,12 @@ def delete_file_from_vector_store_endpoint(
         raise HTTPException(status_code=404, detail=str(e))
     except VectorStoreDBError as e:
         logging_utility.error(
-            f"Error deleting file record '{file_path}' " f"from store '{vector_store_id}': {str(e)}"
+            f"Error deleting file record '{file_path}' from store '{vector_store_id}': {str(e)}"
         )
         raise HTTPException(status_code=500, detail=f"Failed to delete file record: {str(e)}")
     except Exception as e:
         logging_utility.exception(
-            f"Unexpected error deleting file record "
-            f"'{file_path}' from store '{vector_store_id}': {str(e)}"
+            f"Unexpected error deleting file record '{file_path}' from store '{vector_store_id}': {str(e)}"
         )
         raise HTTPException(status_code=500, detail="An unexpected internal server error occurred.")
 
@@ -298,6 +278,29 @@ def delete_file_from_vector_store_endpoint(
     summary="Update Vector Store File Status",
     description="Updates the processing status and optionally the error message for a file record.",
 )
+def update_vector_store_file_status_endpoint(
+    file_id: str = FastApiPath(..., description="The ID of the file record to update."),
+    vector_store_id: str = FastApiPath(..., description="The ID of the vector store owning the file record."),
+    file_status: ValidationInterface.VectorStoreFileUpdateStatus = ...,
+    db: Session = Depends(get_db),
+):
+    vector_service = VectorStoreDBService(db)
+    try:
+        updated_file = vector_service.update_vector_store_file_status(
+            file_id, file_status.status, file_status.error_message
+        )
+        return updated_file
+    except VectorStoreFileNotFoundError as e:
+        logging_utility.warning(f"Update file status failed: {e}")
+        raise HTTPException(status_code=404, detail=str(e))
+    except VectorStoreDBError as e:
+        logging_utility.error(f"Error updating file status for file '{file_id}': {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update file status: {str(e)}")
+    except Exception as e:
+        logging_utility.exception(f"Unexpected error updating file status for file '{file_id}': {str(e)}")
+        raise HTTPException(status_code=500, detail="An unexpected internal server error occurred.")
+
+
 @router.post(
     "/assistants/{assistant_id}/vector-stores/{vector_store_id}/attach",
     status_code=200,
@@ -312,12 +315,12 @@ def attach_vector_store_to_assistant_endpoint(
 ):
     vector_service = VectorStoreDBService(db)
     logging_utility.info(
-        f"Request to attach vector store " f"'{vector_store_id}' to assistant '{assistant_id}'."
+        f"Request to attach vector store '{vector_store_id}' to assistant '{assistant_id}'."
     )
     try:
         _ = vector_service.attach_vector_store_to_assistant(vector_store_id, assistant_id)
         logging_utility.info(
-            f"Attach successful for store " f"'{vector_store_id}' to assistant '{assistant_id}'."
+            f"Attach successful for store '{vector_store_id}' to assistant '{assistant_id}'."
         )
         return {"success": True}
     except (VectorStoreNotFoundError, AssistantNotFoundError) as e:
@@ -325,17 +328,14 @@ def attach_vector_store_to_assistant_endpoint(
         raise HTTPException(status_code=404, detail=str(e))
     except VectorStoreDBError as e:
         logging_utility.error(
-            f"Error attaching store '{vector_store_id}' to assistant " f"'{assistant_id}': {str(e)}"
+            f"Error attaching store '{vector_store_id}' to assistant '{assistant_id}': {str(e)}"
         )
         raise HTTPException(status_code=500, detail=f"Failed to attach vector store: {str(e)}")
     except Exception as e:
         logging_utility.exception(
-            f"Unexpected error attaching store "
-            f"'{vector_store_id}' to assistant '{assistant_id}': {str(e)}"
+            f"Unexpected error attaching store '{vector_store_id}' to assistant '{assistant_id}': {str(e)}"
         )
-        raise HTTPException(
-            status_code=500, detail="An unexpected internal " "server error occurred."
-        )
+        raise HTTPException(status_code=500, detail="An unexpected internal server error occurred.")
 
 
 @router.delete(
@@ -382,9 +382,7 @@ def detach_vector_store_from_assistant_endpoint(
     description="Retrieves a list of vector stores currently attached to an assistant.",
 )
 def get_vector_stores_for_assistant_endpoint(
-    assistant_id: str = FastApiPath(
-        ..., description="The ID of the assistant whose stores to list."
-    ),
+    assistant_id: str = FastApiPath(..., description="The ID of the assistant whose stores to list."),
     db: Session = Depends(get_db),
 ):
     vector_service = VectorStoreDBService(db)
