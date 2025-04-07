@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "entities_sandbox"
+version = "0.0.1"
+description = "Core sandbox environment for AI and data analysis"
+readme = "README.md"
+authors = [
+  { name = "Francis Neequaye Armah", email = "francis.neequaye@projectdavid.co.uk" }
+]
+license = { text = "Polyform Shield License 1.0.0" }
+keywords = ["AI", "sandbox", "data", "analysis"]
+requires-python = ">=3.9"
+
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "websockets",
+  "python-multipart",
+  "python-dotenv",
+  "aiofiles",
+  "python-socketio[asyncio]",
+  "redis",
+  "httpx",
+  "pydantic",
+  "pandas",
+  "matplotlib",
+  "openpyxl",
+  "python-docx",
+  "seaborn",
+  "scikit-learn",
+  "entities>=1.0.17",
+  "entities-common>=0.1.14"
+]
+
+[project.optional-dependencies]
+dev = [
+  "black",
+  "isort",
+  "pytest",
+  "mypy"
+]
+
+[project.urls]
+Homepage = "https://github.com/frankie336/entities_sandbox"
+Documentation = "https://github.com/frankie336/entities_sandbox/tree/master/docs"
+Changelog = "https://github.com/frankie336/entities_sandbox/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["tests", "docs"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+
+[tool.black]
+line-length = 100
+target-version = ["py38"]
+skip-string-normalization = true
+
+[tool.flake8]
+max-line-length = 200
+extend-ignore = ["E203"]
+exclude = [".venv", ".git", "__pycache__", "build", "dist"]
+
+[tool.semantic_release]
+version_source = "tag"
+upload_to_pypi = false

@@ -1,8 +1,9 @@
 import os
 from dotenv import load_dotenv
+
 load_dotenv()
 
-from entities.utils.samba_client import SambaClient
+from entities_api.utils.samba_client import SambaClient
 
 
 def check_file_exists(expected_filename: str) -> bool:
@@ -40,7 +41,7 @@ def check_file_exists(expected_filename: str) -> bool:
         return False
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     file_to_check = "test_file.txt"  # Adjust if needed (e.g., your generated file id)
     exists = check_file_exists(file_to_check)
     print(f"File '{file_to_check}' exists: {exists}")

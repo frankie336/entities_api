@@ -1,13 +1,15 @@
+version: "3.8"
+
 services:
   db:
     image: mysql:8.0
     container_name: my_mysql_cosmic_catalyst
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: v5C9UurE3wmqix2C
-      MYSQL_DATABASE: cosmic_catalyst
-      MYSQL_USER: ollama
-      MYSQL_PASSWORD: 3e4Qv5uo2Cg31zC1
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     volumes:
       - mysql_data:/var/lib/mysql
     ports:
@@ -25,8 +27,8 @@ services:
     container_name: qdrant_server
     restart: always
     ports:
-      - "6333:6333"  # API port
-      - "6334:6334"  # gRPC port
+      - "6333:6333"
+      - "6334:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
     environment:
@@ -44,11 +46,6 @@ services:
     restart: always
     env_file:
       - .env
-    environment:
-      - DATABASE_URL=mysql+pymysql://ollama:3e4Qv5uo2Cg31zC1@db:3306/cosmic_catalyst
-      - SANDBOX_SERVER_URL=http://sandbox:8000
-      - QDRANT_URL=http://qdrant:6333
-      - DEFAULT_SECRET_KEY=k-WBnsS54HZrM8ZVzYiQ-MLPOV53TuuhzEJOdG8kHcM
     ports:
       - "9000:9000"
     depends_on:
@@ -58,7 +55,16 @@ services:
         condition: service_started
       qdrant:
         condition: service_started
-    command: ["./wait-for-it.sh", "db:3306", "--", "uvicorn", "entities.app:app", "--host", "0.0.0.0", "--port", "9000"]
+    command:
+      - ./wait-for-it.sh
+      - db:3306
+      - --
+      - uvicorn
+      - entities_api.app:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "9000"
     networks:
       - my_custom_network
 
@@ -81,11 +87,8 @@ services:
         condition: service_healthy
     volumes:
       - /tmp/sandbox_logs:/app/logs
-
     env_file:
-
       - .env
-
     networks:
       - my_custom_network
 
@@ -97,26 +100,20 @@ services:
       USERID: 1000
       GROUPID: 1000
       TZ: UTC
-      # Add user with password
-      USER: "samba_user;default"
-      # Create share
-      SHARE: "cosmic_share;/samba/share;yes;no;no;samba_user"
-      # Fixed protocol configuration
+      USER: "${SMBCLIENT_USERNAME};${SMBCLIENT_PASSWORD}"
+      SHARE: "${SMBCLIENT_SHARE};/samba/share;yes;no;no;${SMBCLIENT_USERNAME}"
       GLOBAL: "server min protocol = NT1\nserver max protocol = SMB3"
     ports:
       - "139:139"
-      - "1445:445"  # Custom host port mapping
+      - "${SMBCLIENT_PORT}:445"
     volumes:
-      - ${SHARED_PATH}:/samba/share
+      - ${SHARED_PATH:-./shared}:/samba/share
     networks:
       - my_custom_network
 
 volumes:
   mysql_data:
-    driver: local
   qdrant_storage:
-    driver: local
 
 networks:
   my_custom_network:
-    driver: bridge

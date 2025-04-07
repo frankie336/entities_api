@@ -33,9 +33,9 @@ python start.py
 ```python
 import json
 import logging
-from entities import Entities
-from entities import EventsInterface
-from entities.clients.actions import ActionsClient
+from entities_api import Entities
+from entities_api import EventsInterface
+from entities_api.clients.actions import ActionsClient
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("inference")
@@ -102,6 +102,7 @@ run = client.runs.create_run(
     assistant_id=assistant.id
 )
 
+
 # ------------------------------
 # Function Call handler Class
 # Can be scaled to handle and manage additional calls 
@@ -122,6 +123,7 @@ class FunctionCallService:
         query = parsed_args.get("query")
         logger.info(f"Executing SQL: {query}")
         return {"rows": [{"title": "Oblivion", "year": 2013, "rating": 7.1}]}
+
 
 # ------------------------------
 # ✅ NEW: Asynchronous Monitor using MonitorLauncher
@@ -153,6 +155,7 @@ def my_custom_tool_handler(run_id, run_data, pending_actions):
         )
 
         logger.info("✅ Tool output submitted and action marked complete.")
+
 
 # 🔄 Launch the monitor in the background
 monitor = EventsInterface.MonitorLauncher(

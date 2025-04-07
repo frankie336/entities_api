@@ -13,8 +13,8 @@ The code interpreter is enabled by default, so no additional coding is required.
 **Turning on Code Interpreter**
 
 ```python
-from src.api.entities import CommonEntitiesInternalInterface
-from src.api.entities import code_interpreter
+from src.api.entities_api import CommonEntitiesInternalInterface
+from src.api.entities_api import code_interpreter
 
 available_functions = {
     'code_interpreter': code_interpreter

@@ -13,4 +13,4 @@ python -m entities.services.assistant_set_up_service
 
 # Start the FastAPI server using uvicorn
 echo "Starting API server..."
-exec uvicorn entities.app:app --host 0.0.0.0 --port 9000 --workers 1
+exec uvicorn entities_api.app:app --host 0.0.0.0 --port 9000 --workers 1

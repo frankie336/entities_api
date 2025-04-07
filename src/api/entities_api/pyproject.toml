@@ -1,0 +1,73 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "entities_api"
+version = "0.0.1"
+description = "Unified multi vendor AI inference API"
+readme = "README.md"
+authors = [
+  { name = "Francis Neequaye Armah", email = "francis.neequaye@projectdavid.co.uk" }
+]
+license = { text = "Polyform Shield License 1.0.0" }
+keywords = ["AI", "API", "Assistants", "LLM", "RAG", "Vector"]
+requires-python = ">=3.9"
+
+dependencies = [
+  "fastapi~=0.110.0",
+  "SQLAlchemy",
+  "pydantic>=2.10.3",
+  "httpx>=0.24.1",
+  "python-dotenv>=1.0",
+  "aiofiles>=23.2.1",
+  "entities_common>=0.1.14",
+  "qdrant-client~=1.13.3",
+  "pdfplumber~=0.11.6",
+  "validators~=0.34.0",
+  "sentence-transformers~=4.0.1",
+  "uvicorn[standard]",
+  "ollama>=0.3.0",
+  "groq",
+  "pysmb"
+]
+
+[project.optional-dependencies]
+dev = [
+  "black>=23.3",
+  "isort>=5.12",
+  "pytest>=7.2",
+  "mypy>=1.0",
+  "build",
+  "twine"
+]
+
+[project.urls]
+Homepage = "https://github.com/frankie336/entities_api"
+Documentation = "https://github.com/frankie336/entities_api/tree/master/docs"
+Changelog = "https://github.com/frankie336/entities_api/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["tests", "docs"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+
+[tool.black]
+line-length = 100
+target-version = ["py38"]
+skip-string-normalization = true
+
+[tool.flake8]
+max-line-length = 200
+extend-ignore = ["E203"]
+exclude = [".venv", ".git", "__pycache__", "build", "dist"]
+
+[tool.semantic_release]
+version_source = "tag"
+upload_to_pypi = false

@@ -1,10 +1,10 @@
-# Use a minimal Python base image (Reverting to Python 3.8 for compatibility with Pydantic V1)
-FROM python:3.8-slim
+# Use a minimal Python base image (Python 3.8 for Pydantic V1 compatibility)
+FROM python:3.11-slim
 
-# Set up environment variables to avoid Python buffering issues
+# Set up environment variables
 ENV PYTHONUNBUFFERED=1
 
-# Install necessary system dependencies
+# Install OS-level dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     firejail \
     supervisor \
@@ -18,30 +18,37 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set the working directory
 WORKDIR /app
 
-# Copy the requirements file and install Python dependencies
+# Copy Python requirements and install them
 COPY requirements.txt /app/
-RUN pip install --upgrade pip setuptools wheel
-RUN pip install --no-cache-dir --default-timeout=100 -r requirements.txt
 
-# Copy the API source into /app/api
+# Upgrade core tools
+RUN pip install --upgrade pip setuptools wheel
+
+# Install requirements, using Test PyPI as an extra index for entities_common
+RUN pip install --no-cache-dir --default-timeout=100 \
+    --index-url https://pypi.org/simple \
+    --extra-index-url https://test.pypi.org/simple \
+    -r /app/requirements.txt
+
+# Copy API source code
 COPY src/api /app/api
 
-# Set PYTHONPATH so that modules under /app/api are importable (e.g. entities)
+# Set PYTHONPATH so FastAPI services work
 ENV PYTHONPATH=/app/api
 
-# Copy the wait-for-it.sh script and ensure it is executable
+# Wait-for-it script
 COPY docker/common/wait-for-it.sh /app/wait-for-it.sh
 RUN chmod +x /app/wait-for-it.sh
 
-# Copy the unified startup script and ensure it is executable
+# API bootstrap script
 COPY docker/api/init_and_run_api.sh /app/init_and_run_api.sh
 RUN chmod +x /app/init_and_run_api.sh
 
-# Copy the Supervisor configuration
+# Supervisor config
 COPY docker/api/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# Expose the FastAPI port (9000)
+# Expose FastAPI port
 EXPOSE 9000
 
-# Start Supervisor in the foreground
+# Run Supervisor
 CMD ["/usr/bin/supervisord", "-n"]

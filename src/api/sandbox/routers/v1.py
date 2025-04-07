@@ -7,7 +7,6 @@ from sandbox.services.shell_session import PersistentShellSession
 from sandbox.services.room_manager import RoomManager
 
 
-
 logging_utility = LoggingUtility()
 v1_router = APIRouter()  # No prefix here
 room_manager = RoomManager()
@@ -32,7 +31,7 @@ async def websocket_execute(websocket: WebSocket):
         await handler.execute_code_streaming(
             websocket=websocket,
             code=parsed_data["code"],
-            user_id=parsed_data.get("user_id", "anonymous")
+            user_id=parsed_data.get("user_id", "anonymous"),
         )
 
     except json.JSONDecodeError:
@@ -51,9 +50,7 @@ async def websocket_execute(websocket: WebSocket):
 
 @v1_router.websocket("/computer")
 async def websocket_endpoint(
-    websocket: WebSocket,
-    room: str = Query("default"),
-    elevated: bool = Query(False)
+    websocket: WebSocket, room: str = Query("default"), elevated: bool = Query(False)
 ):
     """
     WebSocket endpoint for interactive computer sessions.

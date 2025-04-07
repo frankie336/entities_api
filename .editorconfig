@@ -1,0 +1,31 @@
+# .editorconfig — PEP8-aligned with Black (line length 100), Flake8 (max 200)
+
+# top-most EditorConfig file
+root = true
+
+# Apply settings to all Python files
+[*.py]
+charset = utf-8
+indent_style = space
+indent_size = 4
+tab_width = 4
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+max_line_length = 100  # Black enforced
+continuation_indent_size = 4
+
+# PyCharm-specific formatting (supported via IDE)
+ij_python_wrap_on_typing = true
+ij_python_use_tab_character = false
+ij_python_keep_indents_on_empty_lines = true
+
+# Let flake8 still warn up to 200 if needed (non-blocking formatting)
+[flake8]
+max-line-length = 200
+extend-ignore = E203
+
+# Apply to JSON, TOML, etc.
+[*.{json,toml,yml,yaml}]
+indent_style = space
+indent_size = 2

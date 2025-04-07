@@ -2,4 +2,4 @@
 
 
 
-![Network Diagram](../images/database.png)
+![Network Diagram](../assets/database.png)
