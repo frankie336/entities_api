@@ -5,11 +5,13 @@ services:
     image: mysql:8.0
     container_name: my_mysql_cosmic_catalyst
     restart: always
+    env_file:
+      - .env
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: e687aedd41e592bbdb4cd637ff9d1fcb
+      MYSQL_DATABASE: cosmic_catalyst
+      MYSQL_USER: ollama
+      MYSQL_PASSWORD: c6f5b80d165b115596ffeb676558395f
     volumes:
       - mysql_data:/var/lib/mysql
     ports:
@@ -104,8 +106,8 @@ services:
       SHARE: "${SMBCLIENT_SHARE};/samba/share;yes;no;no;${SMBCLIENT_USERNAME}"
       GLOBAL: "server min protocol = NT1\nserver max protocol = SMB3"
     ports:
-      - "139:139"
-      - "${SMBCLIENT_PORT}:445"
+      - "1139:139"
+      - "1445:445"
     volumes:
       - ${SHARED_PATH:-./shared}:/samba/share
     networks:
