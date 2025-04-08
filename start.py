@@ -1,18 +1,19 @@
 #!/usr/bin/env python
+#! start.py
 import argparse
 import json
 import logging
 import os
 import platform
+import secrets
 import shutil
 import subprocess
 import sys
 import time
-from os.path import getsize, islink, join as path_join
+from os.path import join as path_join
 from pathlib import Path
-import secrets
-import yaml  # Needs: pip install PyYAML
 
+import yaml  # Needs: pip install PyYAML
 from dotenv import load_dotenv, dotenv_values
 
 # Standard Python logging setup
@@ -348,132 +349,9 @@ SAMBA_TZ="UTC"
         template_path = Path(self._TEMPLATE_COMPOSE_FILE)
         runtime_path = Path(self._RUNTIME_COMPOSE_FILE)
 
-        # Create default template if it doesn't exist
         if not template_path.exists():
-            self.log.info(f"Creating default template at {template_path}")
-            default_template = {
-                'version': '3.8',
-                'services': {
-                    'db': {
-                        'image': 'mysql:8.0',
-                        'container_name': 'my_mysql_cosmic_catalyst',
-                        'restart': 'always',
-                        'environment': {
-                            'MYSQL_ROOT_PASSWORD': '${MYSQL_ROOT_PASSWORD}',
-                            'MYSQL_DATABASE': '${MYSQL_DATABASE}',
-                            'MYSQL_USER': '${MYSQL_USER}',
-                            'MYSQL_PASSWORD': '${MYSQL_PASSWORD}'
-                        },
-                        'volumes': ['mysql_data:/var/lib/mysql'],
-                        'ports': ["${MYSQL_EXTERNAL_PORT}:3306"],
-                        'healthcheck': {
-                            'test': ["CMD", "mysqladmin", "ping", "-h", "localhost"],
-                            'interval': '10s',
-                            'timeout': '5s',
-                            'retries': 5
-                        },
-                        'networks': ['my_custom_network']
-                    },
-                    'qdrant': {
-                        'image': 'qdrant/qdrant:latest',
-                        'container_name': 'qdrant_server',
-                        'restart': 'always',
-                        'ports': [
-                            "6333:6333",  # API port
-                            "6334:6334"  # gRPC port
-                        ],
-                        'volumes': ['qdrant_storage:/qdrant/storage'],
-                        'environment': {
-                            'QDRANT__STORAGE__STORAGE_PATH': '/qdrant/storage',
-                            'QDRANT__SERVICE__GRPC_PORT': '6334',
-                            'QDRANT__LOG_LEVEL': 'INFO'
-                        },
-                        'networks': ['my_custom_network']
-                    },
-                    'api': {
-                        'build': {
-                            'context': '.',
-                            'dockerfile': 'docker/api/Dockerfile'
-                        },
-                        'container_name': 'fastapi_cosmic_catalyst',
-                        'restart': 'always',
-                        'env_file': ['.env'],
-                        'environment': {
-                            'DATABASE_URL': '${DATABASE_URL}',
-                            'SANDBOX_SERVER_URL': '${SANDBOX_SERVER_URL}',
-                            'QDRANT_URL': '${QDRANT_URL}',
-                            'DEFAULT_SECRET_KEY': '${DEFAULT_SECRET_KEY}'
-                        },
-                        'ports': ["9000:9000"],
-                        'depends_on': {
-                            'db': {'condition': 'service_healthy'},
-                            'sandbox': {'condition': 'service_started'},
-                            'qdrant': {'condition': 'service_started'}
-                        },
-                        'command': [
-                            "./wait-for-it.sh",
-                            "db:3306",
-                            "--",
-                            "uvicorn",
-                            "entities_api.app:app",
-                            "--host", "0.0.0.0",
-                            "--port", "9000"
-                        ],
-                        'networks': ['my_custom_network']
-                    },
-                    'sandbox': {
-                        'build': {
-                            'context': '.',
-                            'dockerfile': 'docker/sandbox/Dockerfile'
-                        },
-                        'container_name': 'sandbox_api',
-                        'restart': 'always',
-                        'cap_add': ['SYS_ADMIN'],
-                        'security_opt': ['seccomp:unconfined'],
-                        'devices': ['/dev/fuse'],
-                        'ports': ["8000:8000"],
-                        'depends_on': {
-                            'db': {'condition': 'service_healthy'}
-                        },
-                        'volumes': ['/tmp/sandbox_logs:/app/logs'],
-                        'networks': ['my_custom_network']
-                    },
-                    'samba': {
-                        'image': 'dperson/samba',
-                        'container_name': 'samba_server',
-                        'restart': 'unless-stopped',
-                        'environment': {
-                            'USERID': '${SAMBA_USERID}',
-                            'GROUPID': '${SAMBA_GROUPID}',
-                            'TZ': '${SAMBA_TZ}',
-                            'USER': '${SMBCLIENT_USERNAME};${SMBCLIENT_PASSWORD}',
-                            'SHARE': '${SMBCLIENT_SHARE};/samba/share;yes;no;no;${SMBCLIENT_USERNAME}',
-                            'GLOBAL': 'server min protocol = NT1\nserver max protocol = SMB3'
-                        },
-                        'ports': [
-                            "139:139",
-                            "1445:445"  # Custom host port mapping
-                        ],
-                        'volumes': ['${SHARED_PATH}:/samba/share'],
-                        'networks': ['my_custom_network']
-                    }
-                },
-                'volumes': {
-                    'mysql_data': {'driver': 'local'},
-                    'qdrant_storage': {'driver': 'local'}
-                },
-                'networks': {
-                    'my_custom_network': {'driver': 'bridge'}
-                }
-            }
-
-            try:
-                with open(template_path, 'w', encoding='utf-8') as f:
-                    yaml.dump(default_template, f, default_flow_style=False, sort_keys=False,
-                              indent=2, allow_unicode=True)
-            except Exception as e:
-                self.log.critical(f"Failed to create template file: {e}")
-                sys.exit(1)
+            self.log.error(f"Template file not found at {template_path}. Exiting.")
+            sys.exit(1)
 
         try:
             # Load the template
@@ -488,26 +366,23 @@ SAMBA_TZ="UTC"
             compose_data = self._substitute_variables(compose_data)
             self.log.debug("Completed ${VAR} substitutions.")
 
-            # Special handling for Samba GLOBAL environment variable
-            if 'samba' in compose_data.get('services', {}):
-                samba_service = compose_data['services']['samba']
-                if 'environment' in samba_service and 'GLOBAL' in samba_service['environment']:
-                    if isinstance(samba_service['environment']['GLOBAL'], str):
-                        samba_service['environment']['GLOBAL'] = samba_service['environment'][
-                            'GLOBAL'].replace('\\n', '\n')
-
-            # Write the final compose file
-            class MultilineLiteralDumper(yaml.Dumper):
+            # Custom Dumper guaranteeing block-style YAML sequences and multiline literals
+            class CustomDumper(yaml.Dumper):
                 def represent_scalar(self, tag, value, style=None):
                     if isinstance(value, str) and '\n' in value:
                         return super().represent_scalar(tag, value, style='|')
                     return super().represent_scalar(tag, value, style=style)
 
+                def represent_sequence(self, tag, sequence, flow_style=None):
+                    # Guarantee block-style for all lists
+                    return super().represent_sequence(tag, sequence, flow_style=False)
+
+            # Write the final runtime compose file using CustomDumper
             with open(runtime_path, 'w', encoding='utf-8') as f_runtime:
-                yaml.dump(compose_data, f_runtime, Dumper=MultilineLiteralDumper,
+                yaml.dump(compose_data, f_runtime, Dumper=CustomDumper,
                           default_flow_style=False, sort_keys=False, indent=2, allow_unicode=True)
 
-            self.log.info(f"Successfully generated {runtime_path}")
+            self.log.info(f"✅ Successfully generated {runtime_path}")
 
         except Exception as e:
             self.log.critical(f"Error generating runtime file: {e}", exc_info=self.args.verbose)
