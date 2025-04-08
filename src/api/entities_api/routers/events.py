@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging  # Using standard logging
 
-from entities_common import UtilsInterface
+from projectdavid_common import UtilsInterface
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse  # For SSE endpoint

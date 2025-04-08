@@ -20,11 +20,11 @@ from projectdavid.clients.files import FileClient
 from projectdavid.clients.messages import MessagesClient
 from projectdavid.clients.runs import RunsClient
 from projectdavid.clients.tools import ToolsClient
-from entities_common import ValidationInterface
+from projectdavid_common import ValidationInterface
 from openai import OpenAI
 from together import Together
+from projectdavid.clients.threads import ThreadsClient
 
-from entities_api.clients.threads import ThreadsClient
 from entities_api.constants.assistant import (
     CODE_ANALYSIS_TOOL_MESSAGE, CODE_INTERPRETER_MESSAGE,
     DEFAULT_REMINDER_MESSAGE, PLATFORM_TOOLS,

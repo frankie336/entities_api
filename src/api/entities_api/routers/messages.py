@@ -1,10 +1,10 @@
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
+from projectdavid_common import ValidationInterface
 from sqlalchemy.orm import Session
 
 from entities_api.dependencies import get_db
-from entities_api.schemas.messages import MessageCreate, MessageRead
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.message_service import MessageService
 
@@ -12,8 +12,8 @@ router = APIRouter()
 logging_utility = LoggingUtility()
 
 
-@router.post("/messages", response_model=MessageRead)
-def create_message(message: MessageCreate, db: Session = Depends(get_db)):
+@router.post("/messages", response_model=ValidationInterface.MessageRead)
+def create_message(message: ValidationInterface.MessageCreate, db: Session = Depends(get_db)):
     logging_utility.info(
         f"Received request to create a new message in thread ID: {message.thread_id}"
     )
@@ -32,8 +32,8 @@ def create_message(message: MessageCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-@router.post("/messages/tools", response_model=MessageRead)
-async def submit_tool_response(message: MessageCreate, db: Session = Depends(get_db)):
+@router.post("/messages/tools", response_model=ValidationInterface.MessageRead)
+async def submit_tool_response(message: ValidationInterface.MessageCreate, db: Session = Depends(get_db)):
     logging_utility.info(
         f"Received request to create a new message in thread ID: {message.thread_id}"
     )
@@ -47,7 +47,7 @@ async def submit_tool_response(message: MessageCreate, db: Session = Depends(get
 
     message_service = MessageService(db)
     try:
-        new_message = message_service.submit_tool_output(MessageCreate(**message_data))
+        new_message = message_service.submit_tool_output(ValidationInterface.MessageCreate(**message_data))
         logging_utility.info(f"Message created successfully with ID: {new_message.id}")
         return new_message
     except HTTPException as e:
@@ -60,7 +60,7 @@ async def submit_tool_response(message: MessageCreate, db: Session = Depends(get
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-@router.get("/messages/{message_id}", response_model=MessageRead)
+@router.get("/messages/{message_id}", response_model=ValidationInterface.MessageRead)
 def get_message(message_id: str, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to get message with ID: {message_id}")
     message_service = MessageService(db)
@@ -80,7 +80,7 @@ def get_message(message_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-@router.get("/threads/{thread_id}/messages", response_model=List[MessageRead])
+@router.get("/threads/{thread_id}/messages", response_model=List[ValidationInterface.MessageRead])
 def list_messages(
     thread_id: str, limit: int = 20, order: str = "asc", db: Session = Depends(get_db)
 ):
@@ -134,8 +134,8 @@ def get_formatted_messages(thread_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-@router.post("/messages/assistant", response_model=MessageRead)
-def save_assistant_message(message: MessageCreate, db: Session = Depends(get_db)):
+@router.post("/messages/assistant", response_model=ValidationInterface.MessageRead)
+def save_assistant_message(message: ValidationInterface.MessageCreate, db: Session = Depends(get_db)):
     logging_utility.info(
         "Received assistant message payload: %s. Source: %s",
         message.dict(),  # Log the entire payload

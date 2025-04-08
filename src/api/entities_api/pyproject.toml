@@ -21,7 +21,6 @@ dependencies = [
   "httpx>=0.24.1",
   "python-dotenv>=1.0",
   "aiofiles>=23.2.1",
-  "entities_common>=0.1.14",
   "qdrant-client~=1.13.3",
   "pdfplumber~=0.11.6",
   "validators~=0.34.0",

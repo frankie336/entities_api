@@ -67,7 +67,7 @@ groq
 pysmb
 
 projectdavid>=1.0.25
-projectdavid-common>=1.0.16
+projectdavid-common
 
 # From Test PyPI (only these should resolve there)
 

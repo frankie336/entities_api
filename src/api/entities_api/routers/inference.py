@@ -3,11 +3,11 @@ import time
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
+from projectdavid_common import ValidationInterface
 
 from entities_api.inference.inference_arbiter import InferenceArbiter
 from entities_api.inference.inference_provider_selector import \
     InferenceProviderSelector
-from entities_api.schemas.inference import StreamRequest
 from entities_api.services.logging_service import LoggingUtility
 
 router = APIRouter()
@@ -19,7 +19,7 @@ logging_utility = LoggingUtility()
     summary="Asynchronous completions streaming endpoint",
     response_description="A stream of JSON-formatted completions chunks",
 )
-async def completions(request: StreamRequest):
+async def completions(request: ValidationInterface.StreamRequest):
     """
     Enhanced streaming endpoint with first-chunk stabilization and robust error handling
     """

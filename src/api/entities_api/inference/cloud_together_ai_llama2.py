@@ -1,7 +1,7 @@
 from abc import ABC
 
 from dotenv import load_dotenv
-from entities_common import UtilsInterface
+from projectdavid_common import UtilsInterface
 
 from entities_api.inference.base_inference import BaseInference
 

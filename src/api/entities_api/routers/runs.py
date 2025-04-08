@@ -3,8 +3,9 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from entities_api.dependencies import get_db
-from entities_api.schemas.runs import Run as RunSchema
-from entities_api.schemas.runs import RunCreate, RunStatusUpdate
+
+from projectdavid_common import V, ValidationInterface
+
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.run_service import RunService
 
@@ -12,8 +13,8 @@ router = APIRouter()
 logging_utility = LoggingUtility()
 
 
-@router.post("/runs", response_model=RunSchema)
-def create_run(run: RunCreate, db: Session = Depends(get_db)):
+@router.post("/runs", response_model=ValidationInterface.RunCreate)
+def create_run(run: ValidationInterface.RunCreate, db: Session = Depends(get_db)):
     logging_utility.info(
         f"Received request to create a new run for thread ID: {run.thread_id}"
     )
