@@ -5,12 +5,13 @@ This file includes the complete code for the vector store service, API endpoints
 and validation models with the fixes applied to update the file count correctly.
 """
 
-import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
+
+from projectdavid_common import UtilsInterface, ValidationInterface
 
 # Import common validation models and StatusEnum
-from entities_common import UtilsInterface, ValidationInterface
+
 
 StatusEnum = ValidationInterface.StatusEnum  # Use the one from ValidationInterface
 

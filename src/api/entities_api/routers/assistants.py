@@ -1,13 +1,12 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 from projectdavid.clients.users import UsersClient
-from entities_api.dependencies import get_db
-
 from projectdavid_common import ValidationInterface
+from sqlalchemy.orm import Session
 
-from entities_api.services.assistant_service import AssistantService
+from entities_api.dependencies import get_db
+from entities_api.services.assistants import AssistantService
 from entities_api.services.logging_service import LoggingUtility
 
 router = APIRouter()
@@ -15,7 +14,7 @@ logging_utility = LoggingUtility()
 
 
 @router.post("/assistants", response_model=ValidationInterface.AssistantRead)
-def create_assistant(assistant: AssistantCreate, db: Session = Depends(get_db)):
+def create_assistant(assistant: ValidationInterface.AssistantCreate, db: Session = Depends(get_db)):
     logging_utility.info(
         f"Creating assistant with ID: {assistant.id or 'auto-generated'}"
     )
@@ -54,7 +53,7 @@ def get_assistant(assistant_id: str, db: Session = Depends(get_db)):
 
 @router.put("/assistants/{assistant_id}", response_model=ValidationInterface.AssistantRead)
 def update_assistant(
-    assistant_id: str, assistant_update: AssistantUpdate, db: Session = Depends(get_db)
+    assistant_id: str, assistant_update: ValidationInterface.AssistantUpdate, db: Session = Depends(get_db)
 ):
     logging_utility.info(
         f"Received request to update assistant with ID: {assistant_id}"
@@ -84,7 +83,7 @@ def list_assistants_by_user(user_id: str, db: Session = Depends(get_db)):
     Endpoint to list all assistants associated with a given user.
     """
     logging_utility.info(f"Received request to list assistants for user ID: {user_id}")
-    user_service = UserClient(db)
+    user_service = UsersClient(db)
     try:
         assistants = user_service.list_assistants_by_user(user_id)
         logging_utility.info(f"Assistants retrieved for user ID: {user_id}")

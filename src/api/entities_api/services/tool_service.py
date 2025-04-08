@@ -1,7 +1,7 @@
 from typing import List, Optional
 
-from entities_common import UtilsInterface, ValidationInterface
 from fastapi import HTTPException
+from projectdavid_common import UtilsInterface, ValidationInterface
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 

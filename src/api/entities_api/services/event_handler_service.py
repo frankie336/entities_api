@@ -2,8 +2,7 @@
 
 import logging  # Use standard logging
 
-from entities import Entities
-
+from projectdavid import Entity
 # Assuming this is correctly implemented and handles async callbacks potentially
 from entities_api.services.event_handler import EntitiesEventHandler
 # Import the SSE Manager (adjust path as needed)
@@ -38,7 +37,7 @@ class EventMonitoringService:
                 "SSEManager instance must be provided to EventMonitoringService"
             )
 
-        self.client = Entities()  # Internal client for data access
+        self.client = Entity()  # Internal client for data access
         self._sse_manager = sse_manager  # Store the SSE manager instance
         self._external_callback = event_callback  # Optional external hook
 

@@ -14,16 +14,17 @@ from functools import lru_cache
 from typing import Any
 
 import httpx
+from openai import OpenAI
 from projectdavid.clients.actions import ActionsClient
 from projectdavid.clients.assistants import AssistantsClient
 from projectdavid.clients.files import FileClient
 from projectdavid.clients.messages import MessagesClient
 from projectdavid.clients.runs import RunsClient
-from projectdavid.clients.tools import ToolsClient
-from projectdavid_common import ValidationInterface
-from openai import OpenAI
-from together import Together
 from projectdavid.clients.threads import ThreadsClient
+from projectdavid.clients.tools import ToolsClient
+from projectdavid.clients.vectors import VectorStoreClient
+from projectdavid_common import ValidationInterface
+from together import Together
 
 from entities_api.constants.assistant import (
     CODE_ANALYSIS_TOOL_MESSAGE, CODE_INTERPRETER_MESSAGE,
@@ -38,7 +39,6 @@ from entities_api.platform_tools.platform_tool_service import \
 from entities_api.services.conversation_truncator import ConversationTruncator
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.user_service import UserService
-from entities_api.services.vector_store_service import VectorStoreService
 
 logging_utility = LoggingUtility()
 validator = ValidationInterface()
@@ -221,7 +221,7 @@ class BaseInference(ABC):
 
     @property
     def vector_store_service(self):
-        return self._get_service(VectorStoreService)
+        return self._get_service(VectorStoreClient)
 
     @property
     def files(self):

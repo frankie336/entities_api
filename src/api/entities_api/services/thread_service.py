@@ -1,9 +1,8 @@
-from entities_common import UtilsInterface, ValidationInterface
 from fastapi import HTTPException
+from projectdavid_common import UtilsInterface, ValidationInterface
 from sqlalchemy.orm import Session
 
 from entities_api.models.models import Message, Thread, User
-from entities_api.schemas.users import UserBase
 
 validator = ValidationInterface()
 
@@ -109,7 +108,7 @@ class ThreadService:
     def _create_thread_read_detailed(
         self, db_thread: Thread
     ) -> validator.ThreadReadDetailed:
-        participants = [UserBase.from_orm(user) for user in db_thread.participants]
+        participants = [ValidationInterface.UserBase.from_orm(user) for user in db_thread.participants]
         return validator.ThreadReadDetailed(
             id=db_thread.id,
             created_at=db_thread.created_at,

@@ -1,9 +1,9 @@
 import time
 from typing import List
 
-from entities import Entities
-from entities_common import UtilsInterface, ValidationInterface
 from fastapi import HTTPException
+from projectdavid import Entity
+from projectdavid_common import ValidationInterface, UtilsInterface
 from sqlalchemy.orm import Session
 
 from entities_api.models.models import Assistant, User
@@ -17,7 +17,7 @@ validator = ValidationInterface()
 class AssistantService:
     def __init__(self, db: Session):
         self.db = db
-        self.client = Entities()
+        self.client = Entity()
 
     def create_assistant(
         self, assistant: validator.AssistantCreate

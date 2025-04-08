@@ -1,11 +1,10 @@
 #! entities_api/routers/vectors.py
 from typing import Dict, List
 
-# Import the main interface and specific models/enums needed
-from entities_common import UtilsInterface, ValidationInterface
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi import Path as FastApiPath
 from fastapi import Query
+from projectdavid_common import UtilsInterface, ValidationInterface
 from sqlalchemy.orm import Session
 
 from entities_api.dependencies import get_db
@@ -16,6 +15,8 @@ from entities_api.services.vectors import (AssistantNotFoundError,
                                            VectorStoreDBService,
                                            VectorStoreFileNotFoundError,
                                            VectorStoreNotFoundError)
+
+# Import the main interface and specific models/enums needed
 
 router = APIRouter()
 logging_utility = UtilsInterface.LoggingUtility()

@@ -1,8 +1,8 @@
 import time
 from typing import List
 
-from entities_common import UtilsInterface, ValidationInterface
 from fastapi import HTTPException
+from projectdavid_common import UtilsInterface, ValidationInterface
 from pydantic import parse_obj_as
 from sqlalchemy.orm import Session
 

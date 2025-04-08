@@ -2,12 +2,11 @@ import json
 import time
 from typing import Any, Dict, List
 
-from entities_common import UtilsInterface, ValidationInterface
 from fastapi import HTTPException
+from projectdavid_common import UtilsInterface, ValidationInterface
 from sqlalchemy.orm import Session
 
 from entities_api.models.models import Message, Thread
-from entities_api.schemas.messages import MessageRead
 
 validator = ValidationInterface()
 from entities_api.services.logging_service import LoggingUtility
@@ -76,7 +75,7 @@ class MessageService:
             )
             raise HTTPException(status_code=500, detail="Failed to create message")
 
-        return MessageRead(
+        return ValidationInterface.MessageRead(
             id=db_message.id,
             assistant_id=db_message.assistant_id,
             attachments=db_message.attachments,
@@ -94,7 +93,7 @@ class MessageService:
             sender_id=db_message.sender_id,
         )
 
-    def retrieve_message(self, message_id: str) -> MessageRead:
+    def retrieve_message(self, message_id: str) -> ValidationInterface.MessageRead:
         """
         Retrieve a message by its ID.
         """
@@ -112,7 +111,7 @@ class MessageService:
         logging_utility.info(
             f"Message retrieved successfully: id={db_message.id}. Source: {__file__}"
         )
-        return MessageRead(
+        return ValidationInterface.MessageRead(
             id=db_message.id,
             assistant_id=db_message.assistant_id,
             attachments=db_message.attachments,
@@ -132,7 +131,7 @@ class MessageService:
 
     def list_messages(
         self, thread_id: str, limit: int = 20, order: str = "asc"
-    ) -> List[MessageRead]:
+    ) -> List[ValidationInterface.MessageRead]:
         """
         List messages for a thread, ordered by creation time.
         """
@@ -157,7 +156,7 @@ class MessageService:
         )
 
         return [
-            MessageRead(
+            ValidationInterface.MessageRead(
                 id=db_message.id,
                 assistant_id=db_message.assistant_id,
                 attachments=db_message.attachments,
@@ -185,7 +184,7 @@ class MessageService:
         assistant_id: str,
         sender_id: str,
         is_last_chunk: bool = False,
-    ) -> MessageRead:
+    ) -> ValidationInterface.MessageRead:
         """
         Save a message chunk from the assistant, with support for streaming and dynamic roles.
         Returns the saved message as a Pydantic object.
@@ -242,7 +241,7 @@ class MessageService:
             raise HTTPException(status_code=500, detail="Failed to save message")
 
         # Return the saved message as a Pydantic object
-        return MessageRead(
+        return ValidationInterface.MessageRead(
             id=db_message.id,
             assistant_id=db_message.assistant_id,
             attachments=db_message.attachments,
@@ -303,7 +302,7 @@ class MessageService:
         )
         return formatted_messages
 
-    def submit_tool_output(self, message: validator.MessageCreate) -> MessageRead:
+    def submit_tool_output(self, message: validator.MessageCreate) -> ValidationInterface.MessageRead:
         """
         Create a new message in the database.
         """
@@ -353,7 +352,7 @@ class MessageService:
             )
             raise HTTPException(status_code=500, detail="Failed to create message")
 
-        return MessageRead(
+        return ValidationInterface.MessageRead(
             id=db_message.id,
             assistant_id=db_message.assistant_id,
             attachments=db_message.attachments,

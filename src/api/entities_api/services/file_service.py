@@ -7,8 +7,8 @@ from datetime import datetime, timedelta
 from typing import Tuple
 from urllib.parse import urlencode
 
-from entities_common import UtilsInterface, ValidationInterface
 from fastapi import HTTPException
+from projectdavid_common import UtilsInterface, ValidationInterface
 from sqlalchemy.orm import Session
 
 from entities_api.constants.platform import SUPPORTED_MIME_TYPES, get_mime_type

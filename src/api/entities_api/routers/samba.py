@@ -5,10 +5,10 @@ from datetime import datetime
 
 from fastapi import (APIRouter, Depends, File, Form, HTTPException, Response,
                      UploadFile)
+from projectdavid_common import ValidationInterface
 from sqlalchemy.orm import Session
 
 from entities_api.dependencies import get_db
-from entities_api.schemas.files import FileResponse, FileUploadRequest
 from entities_api.services.file_service import FileService
 from entities_api.services.logging_service import LoggingUtility
 
@@ -16,7 +16,7 @@ router = APIRouter()
 logging_utility = LoggingUtility()
 
 
-@router.post("/uploads", response_model=FileResponse, status_code=201)
+@router.post("/uploads", response_model=ValidationInterface.FileResponse, status_code=201)
 def upload_file(
     file: UploadFile = File(...),
     purpose: str = Form(...),  # This extracts the string value from form data
@@ -27,7 +27,7 @@ def upload_file(
     Upload a file and store its metadata.
     """
     # Create a request object manually
-    request = FileUploadRequest(purpose=purpose, user_id=user_id)
+    request = ValidationInterface.FileUploadRequest(purpose=purpose, user_id=user_id)
 
     logging_utility.info(
         f"Received file upload request: {file.filename} from user {request.user_id}"
@@ -39,7 +39,7 @@ def upload_file(
         file_metadata = file_service.upload_file(file, request)
 
         # Validate and return as Pydantic object (FileResponse)
-        file_response = FileResponse.model_validate(file_metadata)
+        file_response = ValidationInterface.FileResponse.model_validate(file_metadata)
         logging_utility.info(
             f"File uploaded successfully: {file.filename} for user {request.user_id}"
         )
@@ -59,7 +59,7 @@ def upload_file(
         )
 
 
-@router.get("/uploads/{file_id}", response_model=FileResponse, status_code=200)
+@router.get("/uploads/{file_id}", response_model=ValidationInterface.FileResponse, status_code=200)
 def get_file_by_id(file_id: str, db: Session = Depends(get_db)):
     """
     Retrieve file metadata by ID.
@@ -78,7 +78,7 @@ def get_file_by_id(file_id: str, db: Session = Depends(get_db)):
             )
 
         # Validate and return as Pydantic object (FileResponse)
-        file_response = FileResponse.model_validate(file_metadata)
+        file_response = ValidationInterface.FileResponse.model_validate(file_metadata)
         logging_utility.info(f"File metadata retrieved successfully for ID: {file_id}")
         return file_response
 
