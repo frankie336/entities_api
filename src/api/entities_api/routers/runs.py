@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+
 # Import validators and utilities from your common package.
 from projectdavid_common import UtilsInterface, ValidationInterface
 from pydantic import ValidationError
@@ -13,7 +14,6 @@ logging_utility = UtilsInterface.LoggingUtility()
 
 # Initialize the FastAPI router.
 router = APIRouter()
-
 
 
 @router.post("/runs", response_model=ValidationInterface.Run)
@@ -58,7 +58,9 @@ def get_run(run_id: str, db: Session = Depends(get_db)):
 
 @router.put("/runs/{run_id}/status", response_model=ValidationInterface.Run)
 def update_run_status(
-    run_id: str, status_update: ValidationInterface.RunStatusUpdate, db: Session = Depends(get_db)
+    run_id: str,
+    status_update: ValidationInterface.RunStatusUpdate,
+    db: Session = Depends(get_db),
 ):
     logging_utility.info(
         f"Received request to update status of run ID: {run_id} to {status_update.status}"

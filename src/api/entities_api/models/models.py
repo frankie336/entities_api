@@ -4,9 +4,9 @@ from datetime import datetime
 from enum import Enum as PyEnum
 
 from projectdavid_common import ValidationInterface
+from sqlalchemy import JSON, BigInteger, Boolean, Column, DateTime
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy import ForeignKey, Index, Integer, String, Table, Text
-from sqlalchemy import JSON, BigInteger, Boolean, Column, DateTime
 from sqlalchemy.orm import declarative_base, joinedload, relationship
 
 # Configure logging

@@ -3,11 +3,14 @@
 import logging  # Use standard logging
 
 from projectdavid import Entity
+
 # Assuming this is correctly implemented and handles async callbacks potentially
 from entities_api.services.event_handler import EntitiesEventHandler
+
 # Import the SSE Manager (adjust path as needed)
-from entities_api.services.sse_manager import \
-    SSEManager  # Assuming sse_manager.py is accessible
+from entities_api.services.sse_manager import (  # Assuming sse_manager.py is accessible
+    SSEManager,
+)
 
 # Assuming entities_sdk.src.entities_api.services.logging_service defines LoggingUtility
 # If not, adjust or use standard logging directly

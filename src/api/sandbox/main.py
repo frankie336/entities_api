@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-
 from sandbox.routers.v1 import v1_router
 from sandbox.services.logging_service import LoggingUtility
 

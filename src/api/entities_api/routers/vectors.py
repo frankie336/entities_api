@@ -8,13 +8,16 @@ from projectdavid_common import UtilsInterface, ValidationInterface
 from sqlalchemy.orm import Session
 
 from entities_api.dependencies import get_db
+
 # Import specific exceptions from the service layer
-from entities_api.services.vectors import (AssistantNotFoundError,
-                                           DatabaseConflictError,
-                                           VectorStoreDBError,
-                                           VectorStoreDBService,
-                                           VectorStoreFileNotFoundError,
-                                           VectorStoreNotFoundError)
+from entities_api.services.vectors import (
+    AssistantNotFoundError,
+    DatabaseConflictError,
+    VectorStoreDBError,
+    VectorStoreDBService,
+    VectorStoreFileNotFoundError,
+    VectorStoreNotFoundError,
+)
 
 # Import the main interface and specific models/enums needed
 

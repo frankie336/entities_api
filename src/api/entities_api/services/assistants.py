@@ -3,7 +3,7 @@ from typing import List
 
 from fastapi import HTTPException
 from projectdavid import Entity
-from projectdavid_common import ValidationInterface, UtilsInterface
+from projectdavid_common import UtilsInterface, ValidationInterface
 from sqlalchemy.orm import Session
 
 from entities_api.models.models import Assistant, User

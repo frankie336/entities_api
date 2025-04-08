@@ -1,5 +1,5 @@
-from projectdavid_common import ValidationInterface
 from fastapi import APIRouter, Depends, HTTPException
+from projectdavid_common import ValidationInterface
 from sqlalchemy.orm import Session
 
 from entities_api.dependencies import get_db

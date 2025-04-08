@@ -302,7 +302,9 @@ class MessageService:
         )
         return formatted_messages
 
-    def submit_tool_output(self, message: validator.MessageCreate) -> ValidationInterface.MessageRead:
+    def submit_tool_output(
+        self, message: validator.MessageCreate
+    ) -> ValidationInterface.MessageRead:
         """
         Create a new message in the database.
         """

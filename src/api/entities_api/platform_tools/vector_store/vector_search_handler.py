@@ -10,7 +10,6 @@ class VectorSearchHandler:
     def __init__(self, assistant_id: str):
         self.assistant_id = assistant_id
 
-
         self.vector_store_client = VectorStoreClient()
 
         self.source_mapping = self._build_dynamic_source_mapping()
@@ -34,7 +33,9 @@ class VectorSearchHandler:
         return mapping
 
     # Add to VectorSearchHandler
-    def execute_search(self, **kwargs) -> List[ValidationInterface.VectorStoreSearchResult]:
+    def execute_search(
+        self, **kwargs
+    ) -> List[ValidationInterface.VectorStoreSearchResult]:
         try:
             self._validate_search_params(kwargs)
             handler = getattr(self, f"handle_{kwargs['search_type']}", None)
@@ -53,28 +54,33 @@ class VectorSearchHandler:
                 )
             ]
 
-    def handle_basic_semantic(self, params: Dict) -> List[ValidationInterface.VectorStoreSearchResult]:
+    def handle_basic_semantic(
+        self, params: Dict
+    ) -> List[ValidationInterface.VectorStoreSearchResult]:
         """Basic vector similarity search"""
         return self.vector_store_client.search_vector_store(
             query_text=params["query"],
             top_k=params.get("top_k", 5),
         )
 
-    def handle_filtered(self, params: Dict) -> List[ValidationInterface.VectorStoreSearchResult]:
+    def handle_filtered(
+        self, params: Dict
+    ) -> List[ValidationInterface.VectorStoreSearchResult]:
         """Metadata-filtered search"""
         return self.vector_store_client.search_vector_store(
             query_text=params["query"],
             filters=params.get("filters", {}),
         )
 
-    def handle_complex_filters(self, params: Dict) -> List[ValidationInterface.VectorStoreSearchResult]:
+    def handle_complex_filters(
+        self, params: Dict
+    ) -> List[ValidationInterface.VectorStoreSearchResult]:
         """Handle complex filters search with all required parameters"""
         return self.vector_store_client.search_vector_store(
-
             query_text=params["query"],
             vector_store_id="placeholder",
             filters=params.get("filters", {}),
-            top_k=params.get("top_k", 5)
+            top_k=params.get("top_k", 5),
         )
 
     def _validate_search_params(self, params: Dict):
@@ -114,24 +120,29 @@ class VectorSearchHandler:
 
         check_value(filters)
 
-    def handle_temporal(self, params: Dict) -> List[ValidationInterface.VectorStoreSearchResult]:
+    def handle_temporal(
+        self, params: Dict
+    ) -> List[ValidationInterface.VectorStoreSearchResult]:
         """Time-weighted search with validation"""
 
         self._validate_search_params(params)  # ✅ New validation
 
         return self.vector_store_client.search_vector_store(
             query_text=params["query"],
-
             filters=params.get("filters", {}),
         )
 
-    def handle_explainable(self, params: Dict) -> List[ValidationInterface.VectorStoreSearchResult]:
+    def handle_explainable(
+        self, params: Dict
+    ) -> List[ValidationInterface.VectorStoreSearchResult]:
         """Search with scoring explanations"""
         return self.vector_store_client.search_vector_store(
             query_text=params["query"],
         )
 
-    def handle_hybrid(self, params: Dict) -> List[ValidationInterface.VectorStoreSearchResult]:
+    def handle_hybrid(
+        self, params: Dict
+    ) -> List[ValidationInterface.VectorStoreSearchResult]:
         return self.vector_store_service.search_vector_store(
             store_name=self._get_collection_name(params["source_type"]),
             query_text=params["query"],

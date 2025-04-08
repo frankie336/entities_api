@@ -108,7 +108,10 @@ class ThreadService:
     def _create_thread_read_detailed(
         self, db_thread: Thread
     ) -> validator.ThreadReadDetailed:
-        participants = [ValidationInterface.UserBase.from_orm(user) for user in db_thread.participants]
+        participants = [
+            ValidationInterface.UserBase.from_orm(user)
+            for user in db_thread.participants
+        ]
         return validator.ThreadReadDetailed(
             id=db_thread.id,
             created_at=db_thread.created_at,

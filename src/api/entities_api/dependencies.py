@@ -1,8 +1,7 @@
 # entities_api/dependencies.py
 from sqlalchemy.orm import Session
 
-from entities_api.db.database import \
-    SessionLocal
+from entities_api.db.database import SessionLocal
 
 
 def get_db() -> Session:
@@ -12,5 +11,3 @@ def get_db() -> Session:
         yield db
     finally:
         db.close()
-
-

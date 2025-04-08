@@ -3,8 +3,7 @@ import hmac
 import os
 from datetime import datetime
 
-from fastapi import (APIRouter, Depends, File, Form, HTTPException, Response,
-                     UploadFile)
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from projectdavid_common import ValidationInterface
 from sqlalchemy.orm import Session
 
@@ -16,7 +15,9 @@ router = APIRouter()
 logging_utility = LoggingUtility()
 
 
-@router.post("/uploads", response_model=ValidationInterface.FileResponse, status_code=201)
+@router.post(
+    "/uploads", response_model=ValidationInterface.FileResponse, status_code=201
+)
 def upload_file(
     file: UploadFile = File(...),
     purpose: str = Form(...),  # This extracts the string value from form data
@@ -59,7 +60,11 @@ def upload_file(
         )
 
 
-@router.get("/uploads/{file_id}", response_model=ValidationInterface.FileResponse, status_code=200)
+@router.get(
+    "/uploads/{file_id}",
+    response_model=ValidationInterface.FileResponse,
+    status_code=200,
+)
 def get_file_by_id(file_id: str, db: Session = Depends(get_db)):
     """
     Retrieve file metadata by ID.

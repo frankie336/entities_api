@@ -1,8 +1,7 @@
-
 from typing import List
 
 from fastapi import HTTPException
-from projectdavid_common import ValidationInterface, UtilsInterface
+from projectdavid_common import UtilsInterface, ValidationInterface
 from sqlalchemy.orm import Session
 
 from entities_api.models.models import User
@@ -12,7 +11,9 @@ class UserService:
     def __init__(self, db: Session):
         self.db = db
 
-    def create_user(self, user: ValidationInterface.UserCreate = None) -> ValidationInterface.UserRead:
+    def create_user(
+        self, user: ValidationInterface.UserCreate = None
+    ) -> ValidationInterface.UserRead:
         if user is None:
             user = ValidationInterface.UserCreate()
 
@@ -66,7 +67,9 @@ class UserService:
 
         return self.create_user()
 
-    def list_assistants_by_user(self, user_id: str) -> List[ValidationInterface.AssistantRead]:
+    def list_assistants_by_user(
+        self, user_id: str
+    ) -> List[ValidationInterface.AssistantRead]:
         """
         Retrieve the list of assistants associated with a specific user.
         """
@@ -74,4 +77,7 @@ class UserService:
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
-        return [ValidationInterface.AssistantRead.from_orm(assistant) for assistant in user.assistants]
+        return [
+            ValidationInterface.AssistantRead.from_orm(assistant)
+            for assistant in user.assistants
+        ]

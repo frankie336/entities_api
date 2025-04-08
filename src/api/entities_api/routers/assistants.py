@@ -14,7 +14,9 @@ logging_utility = LoggingUtility()
 
 
 @router.post("/assistants", response_model=ValidationInterface.AssistantRead)
-def create_assistant(assistant: ValidationInterface.AssistantCreate, db: Session = Depends(get_db)):
+def create_assistant(
+    assistant: ValidationInterface.AssistantCreate, db: Session = Depends(get_db)
+):
     logging_utility.info(
         f"Creating assistant with ID: {assistant.id or 'auto-generated'}"
     )
@@ -29,7 +31,9 @@ def create_assistant(assistant: ValidationInterface.AssistantCreate, db: Session
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@router.get("/assistants/{assistant_id}", response_model=ValidationInterface.AssistantRead)
+@router.get(
+    "/assistants/{assistant_id}", response_model=ValidationInterface.AssistantRead
+)
 def get_assistant(assistant_id: str, db: Session = Depends(get_db)):
     logging_utility.info(f"Received request to get assistant with ID: {assistant_id}")
     assistant_service = AssistantService(db)
@@ -51,9 +55,13 @@ def get_assistant(assistant_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-@router.put("/assistants/{assistant_id}", response_model=ValidationInterface.AssistantRead)
+@router.put(
+    "/assistants/{assistant_id}", response_model=ValidationInterface.AssistantRead
+)
 def update_assistant(
-    assistant_id: str, assistant_update: ValidationInterface.AssistantUpdate, db: Session = Depends(get_db)
+    assistant_id: str,
+    assistant_update: ValidationInterface.AssistantUpdate,
+    db: Session = Depends(get_db),
 ):
     logging_utility.info(
         f"Received request to update assistant with ID: {assistant_id}"
@@ -77,7 +85,10 @@ def update_assistant(
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-@router.get("/users/{user_id}/assistants", response_model=List[ValidationInterface.AssistantRead])
+@router.get(
+    "/users/{user_id}/assistants",
+    response_model=List[ValidationInterface.AssistantRead],
+)
 def list_assistants_by_user(user_id: str, db: Session = Depends(get_db)):
     """
     Endpoint to list all assistants associated with a given user.

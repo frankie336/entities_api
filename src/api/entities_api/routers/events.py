@@ -4,14 +4,15 @@ import asyncio
 import json
 import logging  # Using standard logging
 
-from projectdavid_common import UtilsInterface
 from fastapi import APIRouter, HTTPException, Request
+from projectdavid_common import UtilsInterface
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse  # For SSE endpoint
 
 # --- Core Entities Imports (Adjust paths as needed) ---
 # Assuming EventMonitoringService is correctly implemented as discussed previously
 from entities_api.services.event_handler_service import EventMonitoringService
+
 # --- SSE Manager Import (Adjust path as needed) ---
 # Assuming sse_manager.py is in the same directory or accessible via path
 from entities_api.services.sse_manager import SSEManager

@@ -3,8 +3,7 @@ import time
 
 import pytest
 from fastapi import HTTPException
-from sandbox.services.signed_url_service import (SignedUrlRequest,
-                                                 SignedUrlService)
+from sandbox.services.signed_url_service import SignedUrlRequest, SignedUrlService
 
 
 @pytest.fixture

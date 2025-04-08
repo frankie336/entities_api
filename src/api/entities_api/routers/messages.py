@@ -13,7 +13,9 @@ logging_utility = LoggingUtility()
 
 
 @router.post("/messages", response_model=ValidationInterface.MessageRead)
-def create_message(message: ValidationInterface.MessageCreate, db: Session = Depends(get_db)):
+def create_message(
+    message: ValidationInterface.MessageCreate, db: Session = Depends(get_db)
+):
     logging_utility.info(
         f"Received request to create a new message in thread ID: {message.thread_id}"
     )
@@ -33,7 +35,9 @@ def create_message(message: ValidationInterface.MessageCreate, db: Session = Dep
 
 
 @router.post("/messages/tools", response_model=ValidationInterface.MessageRead)
-async def submit_tool_response(message: ValidationInterface.MessageCreate, db: Session = Depends(get_db)):
+async def submit_tool_response(
+    message: ValidationInterface.MessageCreate, db: Session = Depends(get_db)
+):
     logging_utility.info(
         f"Received request to create a new message in thread ID: {message.thread_id}"
     )
@@ -47,7 +51,9 @@ async def submit_tool_response(message: ValidationInterface.MessageCreate, db: S
 
     message_service = MessageService(db)
     try:
-        new_message = message_service.submit_tool_output(ValidationInterface.MessageCreate(**message_data))
+        new_message = message_service.submit_tool_output(
+            ValidationInterface.MessageCreate(**message_data)
+        )
         logging_utility.info(f"Message created successfully with ID: {new_message.id}")
         return new_message
     except HTTPException as e:
@@ -80,7 +86,10 @@ def get_message(message_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-@router.get("/threads/{thread_id}/messages", response_model=List[ValidationInterface.MessageRead])
+@router.get(
+    "/threads/{thread_id}/messages",
+    response_model=List[ValidationInterface.MessageRead],
+)
 def list_messages(
     thread_id: str, limit: int = 20, order: str = "asc", db: Session = Depends(get_db)
 ):
@@ -135,7 +144,9 @@ def get_formatted_messages(thread_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/messages/assistant", response_model=ValidationInterface.MessageRead)
-def save_assistant_message(message: ValidationInterface.MessageCreate, db: Session = Depends(get_db)):
+def save_assistant_message(
+    message: ValidationInterface.MessageCreate, db: Session = Depends(get_db)
+):
     logging_utility.info(
         "Received assistant message payload: %s. Source: %s",
         message.dict(),  # Log the entire payload

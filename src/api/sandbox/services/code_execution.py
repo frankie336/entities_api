@@ -8,8 +8,8 @@ import traceback
 from typing import Tuple
 
 from dotenv import load_dotenv
-from projectdavid import Entity
 from fastapi import WebSocket
+from projectdavid import Entity
 from sandbox.services.logging_service import LoggingUtility
 from starlette.websockets import WebSocketDisconnect
 

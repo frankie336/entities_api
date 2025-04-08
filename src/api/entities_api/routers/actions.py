@@ -1,12 +1,10 @@
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from projectdavid_common import ValidationInterface
 from sqlalchemy.orm import Session
 
 from entities_api.dependencies import get_db
-
-from projectdavid_common import ValidationInterface
-
 from entities_api.services.actions import ActionService
 from entities_api.services.logging_service import LoggingUtility
 
@@ -15,7 +13,9 @@ logging_utility = LoggingUtility()
 
 
 @router.post("/actions", response_model=ValidationInterface.ActionRead)
-def create_action(action: ValidationInterface.ActionCreate, db: Session = Depends(get_db)):
+def create_action(
+    action: ValidationInterface.ActionCreate, db: Session = Depends(get_db)
+):
     logging_utility.info(f"Received request to create a new action.")
     action_service = ActionService(db)
     try:
@@ -54,7 +54,9 @@ def get_action(action_id: str, db: Session = Depends(get_db)):
 
 @router.put("/actions/{action_id}", response_model=ValidationInterface.ActionRead)
 def update_action_status(
-    action_id: str, action_update: ValidationInterface.ActionUpdate, db: Session = Depends(get_db)
+    action_id: str,
+    action_update: ValidationInterface.ActionUpdate,
+    db: Session = Depends(get_db),
 ):
     logging_utility.info(f"Received request to update status of action ID: {action_id}")
     action_service = ActionService(db)
@@ -76,7 +78,9 @@ def update_action_status(
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-@router.get("/runs/{run_id}/actions/status", response_model=List[ValidationInterface.ActionRead])
+@router.get(
+    "/runs/{run_id}/actions/status", response_model=List[ValidationInterface.ActionRead]
+)
 def get_actions_by_status(
     run_id: str, status: Optional[str] = "pending", db: Session = Depends(get_db)
 ):

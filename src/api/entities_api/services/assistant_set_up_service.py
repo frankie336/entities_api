@@ -1,10 +1,12 @@
 # entities_api/services/assistant_setup_service.py
+from entities_common import ValidationInterface
 from projectdavid import Entity
 
-from entities_common import ValidationInterface
-
-from entities_api.constants.assistant import (BASE_ASSISTANT_INSTRUCTIONS,
-                                              BASE_TOOLS, DEFAULT_MODEL)
+from entities_api.constants.assistant import (
+    BASE_ASSISTANT_INSTRUCTIONS,
+    BASE_TOOLS,
+    DEFAULT_MODEL,
+)
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.vector_store_service import VectorStoreService
 from entities_api.services.vector_waves import AssistantVectorWaves
@@ -31,7 +33,7 @@ class AssistantSetupService:
     def create_and_associate_tools(self, function_definitions, assistant_id):
         """Creates tools if they do not already exist and associates them with the assistant."""
 
-        self.client.users.create_user(name='default')
+        self.client.users.create_user(name="default")
 
         for func_def in function_definitions:
             tool_name = func_def["function"]["name"]
