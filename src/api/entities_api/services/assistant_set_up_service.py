@@ -1,6 +1,6 @@
 # entities_api/services/assistant_setup_service.py
+from projectdavid import Entity
 
-from entities import Entities
 from entities_common import ValidationInterface
 
 from entities_api.constants.assistant import (BASE_ASSISTANT_INSTRUCTIONS,
@@ -14,7 +14,7 @@ validate = ValidationInterface()
 
 class AssistantSetupService:
     def __init__(self):
-        self.client = Entities()
+        self.client = Entity()
         self.logging_utility = LoggingUtility()
         self.vector_store_service = VectorStoreService()
         self._vector_waves = None  # Lazy initialization holder

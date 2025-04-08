@@ -14,12 +14,12 @@ from functools import lru_cache
 from typing import Any
 
 import httpx
-from entities.clients.actions import ActionsClient
-from entities.clients.assistants import AssistantsClient
-from entities.clients.files import FileClient
-from entities.clients.messages import MessagesClient
-from entities.clients.runs import RunsClient
-from entities.clients.tools import ToolsClient
+from projectdavid.clients.actions import ActionsClient
+from projectdavid.clients.assistants import AssistantsClient
+from projectdavid.clients.files import FileClient
+from projectdavid.clients.messages import MessagesClient
+from projectdavid.clients.runs import RunsClient
+from projectdavid.clients.tools import ToolsClient
 from entities_common import ValidationInterface
 from openai import OpenAI
 from together import Together

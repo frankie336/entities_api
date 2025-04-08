@@ -20,8 +20,5 @@ python-docx
 seaborn
 scikit-learn
 
-# Test PyPI-scoped packages (intentionally placed last)
-entities>=1.0.19
-entities-common>=0.1.14
-
-
+projectdavid>=1.0.25
+projectdavid-common>=1.0.16

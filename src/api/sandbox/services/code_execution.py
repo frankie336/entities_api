@@ -8,7 +8,7 @@ import traceback
 from typing import Tuple
 
 from dotenv import load_dotenv
-from entities import Entities
+from projectdavid import Entity
 from fastapi import WebSocket
 from sandbox.services.logging_service import LoggingUtility
 from starlette.websockets import WebSocketDisconnect
@@ -431,7 +431,7 @@ class StreamingCodeExecutionHandler:
 
     async def _upload_generated_files(self, user_id: str) -> list:
         uploaded_files = []
-        client = Entities(base_url="http://fastapi_cosmic_catalyst:9000")
+        client = Entity(base_url="http://fastapi_cosmic_catalyst:9000")
 
         try:
             user = client.users.create_user(name="test_user")
