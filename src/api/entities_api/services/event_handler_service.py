@@ -1,13 +1,14 @@
 # src/api/entities_api/services/event_handler_service.py
 
 import logging  # Use standard logging
+
 from entities import Entities
 
 # Assuming this is correctly implemented and handles async callbacks potentially
 from entities_api.services.event_handler import EntitiesEventHandler
-
 # Import the SSE Manager (adjust path as needed)
-from entities_api.services.sse_manager import SSEManager  # Assuming sse_manager.py is accessible
+from entities_api.services.sse_manager import \
+    SSEManager  # Assuming sse_manager.py is accessible
 
 # Assuming entities_sdk.src.entities_api.services.logging_service defines LoggingUtility
 # If not, adjust or use standard logging directly
@@ -33,7 +34,9 @@ class EventMonitoringService:
         """
         if not sse_manager:
             # SSEManager is crucial for the primary function (broadcasting)
-            raise ValueError("SSEManager instance must be provided to EventMonitoringService")
+            raise ValueError(
+                "SSEManager instance must be provided to EventMonitoringService"
+            )
 
         self.client = Entities()  # Internal client for data access
         self._sse_manager = sse_manager  # Store the SSE manager instance
@@ -78,7 +81,9 @@ class EventMonitoringService:
 
         except Exception as e:
             # Catch potential errors from the internal client during retrieval
-            logger.error(f"Error checking existence for run {run_id}: {e}", exc_info=True)
+            logger.error(
+                f"Error checking existence for run {run_id}: {e}", exc_info=True
+            )
             # Re-raise the exception to signal failure to the caller (API endpoint)
             raise
 
@@ -86,7 +91,9 @@ class EventMonitoringService:
         try:
             # This call likely starts a background task/thread within EntitiesEventHandler
             self._event_handler.start_monitoring(run_id)
-            logger.info(f"✅ Successfully initiated internal monitoring handler for run {run_id}")
+            logger.info(
+                f"✅ Successfully initiated internal monitoring handler for run {run_id}"
+            )
         except Exception as e:
             logger.error(
                 f"Error calling _event_handler.start_monitoring for run {run_id}: {e}",
@@ -114,7 +121,9 @@ class EventMonitoringService:
             # If run_id isn't directly in event_data, try 'id' as a fallback for some event types
             run_id = event_data.get("id") if isinstance(event_data, dict) else None
 
-        logger.info(f"[🔔 Internal Event Received] Run: {run_id or 'Unknown'}, Type: {event_type}")
+        logger.info(
+            f"[🔔 Internal Event Received] Run: {run_id or 'Unknown'}, Type: {event_type}"
+        )
         logger.debug(f"Event Data for {run_id or 'Unknown'}: {event_data}")
 
         # --- Broadcast via SSE ---
@@ -122,19 +131,29 @@ class EventMonitoringService:
             try:
                 # SSEManager handles JSON serialization and formatting
                 await self._sse_manager.broadcast_event(run_id, event_type, event_data)
-                logger.debug(f"Broadcasted event '{event_type}' for run {run_id} via SSE.")
+                logger.debug(
+                    f"Broadcasted event '{event_type}' for run {run_id} via SSE."
+                )
             except Exception as e:
                 # Log errors during broadcasting but don't necessarily stop processing
-                logger.error(f"Failed to broadcast SSE event for run {run_id}: {e}", exc_info=True)
+                logger.error(
+                    f"Failed to broadcast SSE event for run {run_id}: {e}",
+                    exc_info=True,
+                )
         else:
-            logger.warning(f"Cannot broadcast event '{event_type}': run_id missing in event_data.")
+            logger.warning(
+                f"Cannot broadcast event '{event_type}': run_id missing in event_data."
+            )
 
         # --- Optional: Handle external synchronous callback ---
         # This part remains synchronous if the callback itself is synchronous.
         if self._external_callback:
             logger.debug(f"Checking external callback for event type: {event_type}")
             # Example: Only call external callback for specific types if needed
-            if event_type in ["tool_invoked", "action_required"]:  # Add other types if necessary
+            if event_type in [
+                "tool_invoked",
+                "action_required",
+            ]:  # Add other types if necessary
                 try:
                     logger.info(
                         f"Executing external synchronous callback for event '{event_type}' for run {run_id or 'Unknown'}."

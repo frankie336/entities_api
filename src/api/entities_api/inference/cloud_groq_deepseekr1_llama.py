@@ -1,6 +1,6 @@
 import json
-import time
 import os
+import time
 
 from dotenv import load_dotenv
 from groq import Groq
@@ -30,7 +30,9 @@ class GroqCloud(BaseInference):
             role = message.get("role", "").strip().lower()
             if role not in ["user", "assistant", "system"]:
                 role = "user"
-            normalized_history.append({"role": role, "content": message.get("content", "").strip()})
+            normalized_history.append(
+                {"role": role, "content": message.get("content", "").strip()}
+            )
         return normalized_history
 
     def process_conversation(
@@ -58,7 +60,8 @@ class GroqCloud(BaseInference):
         )
         conversation_history = self.normalize_roles(conversation_history)
         groq_messages = [
-            {"role": msg["role"], "content": msg["content"]} for msg in conversation_history
+            {"role": msg["role"], "content": msg["content"]}
+            for msg in conversation_history
         ]
 
         # Initialize state variables
@@ -93,13 +96,17 @@ class GroqCloud(BaseInference):
                         if think_start != -1:
                             if think_start > 0:
                                 content_part = content_buffer[:think_start]
-                                yield json.dumps({"type": "content", "content": content_part})
+                                yield json.dumps(
+                                    {"type": "content", "content": content_part}
+                                )
                                 assistant_reply += content_part
                             content_buffer = content_buffer[think_start + 7 :]
                             in_think_block = True
                         else:
                             if content_buffer:
-                                yield json.dumps({"type": "content", "content": content_buffer})
+                                yield json.dumps(
+                                    {"type": "content", "content": content_buffer}
+                                )
                                 assistant_reply += content_buffer
                                 content_buffer = ""
                             break
@@ -107,13 +114,17 @@ class GroqCloud(BaseInference):
                         think_end = content_buffer.find("</think>")
                         if think_end != -1:
                             reasoning_part = content_buffer[:think_end]
-                            yield json.dumps({"type": "reasoning", "content": reasoning_part})
+                            yield json.dumps(
+                                {"type": "reasoning", "content": reasoning_part}
+                            )
                             reasoning_content += reasoning_part
                             content_buffer = content_buffer[think_end + 8 :]
                             in_think_block = False
                         else:
                             if content_buffer:
-                                yield json.dumps({"type": "reasoning", "content": content_buffer})
+                                yield json.dumps(
+                                    {"type": "reasoning", "content": content_buffer}
+                                )
                                 reasoning_content += content_buffer
                                 content_buffer = ""
                             break
@@ -169,4 +180,6 @@ class GroqCloud(BaseInference):
             self.run_service.update_run_status(run_id, "completed")
 
         if reasoning_content:
-            logging_utility.debug("Final reasoning context: %s", reasoning_content.strip())
+            logging_utility.debug(
+                "Final reasoning context: %s", reasoning_content.strip()
+            )

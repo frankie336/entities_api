@@ -1,7 +1,8 @@
 import json
 import threading
 import time
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
 from entities import Entities
 
 from entities_api.constants.assistant import PLATFORM_TOOLS
@@ -104,7 +105,9 @@ class EntitiesEventHandler:
 
         # Fetch pending actions by calling get_actions_by_status, then get each action.
         pending_actions = []
-        pending_action_ids = self.action_service.get_actions_by_status(run.id, status="pending")
+        pending_action_ids = self.action_service.get_actions_by_status(
+            run.id, status="pending"
+        )
         if pending_action_ids:
             for action_id in pending_action_ids:
                 try:
@@ -117,7 +120,9 @@ class EntitiesEventHandler:
                     )
 
         if pending_actions:
-            logging_utility.info(f"Processing {len(pending_actions)} actions for run {run.id}.")
+            logging_utility.info(
+                f"Processing {len(pending_actions)} actions for run {run.id}."
+            )
             for action in pending_actions:
                 self.on_tool_call_created(action)
         else:
@@ -146,12 +151,16 @@ class EntitiesEventHandler:
         """
         Handle tool invocation when a tool call is created.
         """
-        logging_utility.info(f"Tool call created: {tool_call.id} (Tool: {tool_call.tool_name})")
+        logging_utility.info(
+            f"Tool call created: {tool_call.id} (Tool: {tool_call.tool_name})"
+        )
         self._current_tool_call = tool_call
 
         # Check if the tool is in the excluded list
         if tool_call.tool_name in PLATFORM_TOOLS:
-            logging_utility.info(f"Skipping emission for platform tool: {tool_call.tool_name}")
+            logging_utility.info(
+                f"Skipping emission for platform tool: {tool_call.tool_name}"
+            )
             return
 
         try:
@@ -176,7 +185,9 @@ class EntitiesEventHandler:
                 ),
             }
 
-            logging_utility.info(f"Emitting tool invoked event: {json.dumps(tool_event)}")
+            logging_utility.info(
+                f"Emitting tool invoked event: {json.dumps(tool_event)}"
+            )
             if self.event_callback:
                 self.event_callback("tool_invoked", tool_event)
 
@@ -186,7 +197,9 @@ class EntitiesEventHandler:
                 run_id = self._current_run.id
                 # Update the run status to "in_progress" after handling the tool call.
 
-                self._client.run_service.update_run_status(run_id=run_id, new_status="in_progress")
+                self._client.run_service.update_run_status(
+                    run_id=run_id, new_status="in_progress"
+                )
 
                 logging_utility.info(
                     f"Run {run_id} status updated to in_progress after tool invocation."
@@ -207,5 +220,7 @@ class EntitiesEventHandler:
         """
         Submit the tool's result to the system.
         """
-        logging_utility.info(f"Submitting result for tool {tool_call.tool_name}: {tool_result}")
+        logging_utility.info(
+            f"Submitting result for tool {tool_call.tool_name}: {tool_result}"
+        )
         self.action_service.submit_tool_result(tool_call.id, tool_result)

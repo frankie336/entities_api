@@ -1,11 +1,11 @@
-from fastapi import WebSocket, WebSocketDisconnect, Query
-from fastapi.routing import APIRouter
 import json
+
+from fastapi import Query, WebSocket, WebSocketDisconnect
+from fastapi.routing import APIRouter
 from sandbox.services.code_execution import StreamingCodeExecutionHandler
 from sandbox.services.logging_service import LoggingUtility
-from sandbox.services.shell_session import PersistentShellSession
 from sandbox.services.room_manager import RoomManager
-
+from sandbox.services.shell_session import PersistentShellSession
 
 logging_utility = LoggingUtility()
 v1_router = APIRouter()  # No prefix here

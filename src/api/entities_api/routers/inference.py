@@ -1,9 +1,12 @@
 import json
 import time
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
+
 from entities_api.inference.inference_arbiter import InferenceArbiter
-from entities_api.inference.inference_provider_selector import InferenceProviderSelector
+from entities_api.inference.inference_provider_selector import \
+    InferenceProviderSelector
 from entities_api.schemas.inference import StreamRequest
 from entities_api.services.logging_service import LoggingUtility
 
@@ -20,7 +23,9 @@ async def completions(request: StreamRequest):
     """
     Enhanced streaming endpoint with first-chunk stabilization and robust error handling
     """
-    logging_utility.info("Completions streaming endpoint called with payload: %s", request.dict())
+    logging_utility.info(
+        "Completions streaming endpoint called with payload: %s", request.dict()
+    )
 
     # Initialize arbiter and provider selector
     arbiter = InferenceArbiter()
@@ -42,7 +47,9 @@ async def completions(request: StreamRequest):
 
     def stream_chunks():
         idx = 0
-        logging_utility.info("Starting to stream chunks for thread_id=%s", request.thread_id)
+        logging_utility.info(
+            "Starting to stream chunks for thread_id=%s", request.thread_id
+        )
 
         # Initial stabilization sequence
         yield "data: " + json.dumps({"status": "handshake"}) + "\n\n"
@@ -106,7 +113,9 @@ async def completions(request: StreamRequest):
 
         except Exception as e:
             logging_utility.error("Stream generator error: %s", str(e))
-            yield "data: " + json.dumps({"error": "stream_failure", "message": str(e)}) + "\n\n"
+            yield "data: " + json.dumps(
+                {"error": "stream_failure", "message": str(e)}
+            ) + "\n\n"
         finally:
             logging_utility.info("Stream completed for thread_id=%s", request.thread_id)
             yield "data: [DONE]\n\n"
@@ -115,7 +124,10 @@ async def completions(request: StreamRequest):
         return StreamingResponse(
             stream_chunks(),
             media_type="text/event-stream",
-            headers={"X-Stream-Init": "true", "Cache-Control": "no-cache, no-transform"},
+            headers={
+                "X-Stream-Init": "true",
+                "Cache-Control": "no-cache, no-transform",
+            },
         )
     except Exception as e:
         logging_utility.error("Stream setup failed: %s", str(e))

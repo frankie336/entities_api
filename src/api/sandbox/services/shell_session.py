@@ -3,6 +3,7 @@ import json
 import logging
 from asyncio import create_subprocess_exec
 from asyncio.subprocess import PIPE
+
 from fastapi import WebSocket, WebSocketDisconnect
 from sandbox.services.room_manager import RoomManager
 
@@ -11,7 +12,11 @@ logger = logging.getLogger("shell_session")
 
 class PersistentShellSession:
     def __init__(
-        self, websocket: WebSocket, room: str, room_manager: RoomManager, elevated: bool = False
+        self,
+        websocket: WebSocket,
+        room: str,
+        room_manager: RoomManager,
+        elevated: bool = False,
     ):
         """
         Initializes a persistent computer session with optional elevation.
@@ -91,7 +96,8 @@ class PersistentShellSession:
         full_cmd = f"{cmd}\necho {marker}"
 
         await self.room_manager.broadcast(
-            self.room, {"type": "shell_command", "thread_id": self.room, "content": full_cmd}
+            self.room,
+            {"type": "shell_command", "thread_id": self.room, "content": full_cmd},
         )
 
         if self.process and self.process.stdin:
@@ -111,17 +117,29 @@ class PersistentShellSession:
                         text_chunk = text_chunk.replace(marker, "")
                         await self.room_manager.broadcast(
                             self.room,
-                            {"type": "shell_output", "thread_id": self.room, "content": text_chunk},
+                            {
+                                "type": "shell_output",
+                                "thread_id": self.room,
+                                "content": text_chunk,
+                            },
                         )
                         # Send explicit command complete signal
                         await self.room_manager.broadcast(
                             self.room,
-                            {"type": "command_complete", "thread_id": self.room, "content": ""},
+                            {
+                                "type": "command_complete",
+                                "thread_id": self.room,
+                                "content": "",
+                            },
                         )
                     else:
                         await self.room_manager.broadcast(
                             self.room,
-                            {"type": "shell_output", "thread_id": self.room, "content": text_chunk},
+                            {
+                                "type": "shell_output",
+                                "thread_id": self.room,
+                                "content": text_chunk,
+                            },
                         )
                 else:
                     await asyncio.sleep(0.01)

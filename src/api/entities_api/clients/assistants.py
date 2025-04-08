@@ -1,9 +1,9 @@
 import os
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 import httpx
-from pydantic import ValidationError
 from entities_common import ValidationInterface
+from pydantic import ValidationError
 
 validation = ValidationInterface()
 
@@ -21,7 +21,9 @@ class AssistantsClient:
         self.client = httpx.Client(
             base_url=base_url, headers={"Authorization": f"Bearer {api_key}"}
         )
-        logging_utility.info("AssistantsClient initialized with base_url: %s", self.base_url)
+        logging_utility.info(
+            "AssistantsClient initialized with base_url: %s", self.base_url
+        )
 
     logging_utility = LoggingUtility()
 
@@ -65,10 +67,14 @@ class AssistantsClient:
 
             # Log the request data for debugging purposes.
             logging_utility.debug("Request data: %s", assistant_data)
-            logging_utility.info("Creating assistant with model: %s, name: %s", model, name)
+            logging_utility.info(
+                "Creating assistant with model: %s, name: %s", model, name
+            )
 
             # Make the POST request to create the assistant.
-            response = self.client.post("/v1/assistants", json=validated_data.model_dump())
+            response = self.client.post(
+                "/v1/assistants", json=validated_data.model_dump()
+            )
 
             # Log the raw response for debugging.
             logging_utility.debug("Response: %s", response.text)
@@ -76,24 +82,34 @@ class AssistantsClient:
 
             # Parse the response JSON and validate it against AssistantRead.
             if response.status_code == 200:
-                created_assistant = response.json()  # Only parse if the response is successful
+                created_assistant = (
+                    response.json()
+                )  # Only parse if the response is successful
                 validated_response = validation.AssistantRead(**created_assistant)
                 logging_utility.info(
                     "Assistant created successfully with id: %s", validated_response.id
                 )
                 return validated_response
             else:
-                logging_utility.error("Failed to create assistant, response: %s", response.text)
-                raise ValueError(f"Failed to create assistant, status: {response.status_code}")
+                logging_utility.error(
+                    "Failed to create assistant, response: %s", response.text
+                )
+                raise ValueError(
+                    f"Failed to create assistant, status: {response.status_code}"
+                )
 
         except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error occurred while creating assistant: %s", str(e))
+            logging_utility.error(
+                "HTTP error occurred while creating assistant: %s", str(e)
+            )
             logging_utility.error(
                 "Response content: %s", e.response.text
             )  # Log the response content for debugging
             raise
         except Exception as e:
-            logging_utility.error("An error occurred while creating assistant: %s", str(e))
+            logging_utility.error(
+                "An error occurred while creating assistant: %s", str(e)
+            )
             raise
 
     def retrieve_assistant(self, assistant_id: str) -> validation.AssistantRead:
@@ -109,13 +125,19 @@ class AssistantsClient:
             logging_utility.error("Validation error: %s", e.json())
             raise ValueError(f"Validation error: {e}")
         except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error occurred while retrieving assistant: %s", str(e))
+            logging_utility.error(
+                "HTTP error occurred while retrieving assistant: %s", str(e)
+            )
             raise
         except Exception as e:
-            logging_utility.error("An error occurred while retrieving assistant: %s", str(e))
+            logging_utility.error(
+                "An error occurred while retrieving assistant: %s", str(e)
+            )
             raise
 
-    def update_assistant(self, assistant_id: str, **updates) -> validation.AssistantRead:
+    def update_assistant(
+        self, assistant_id: str, **updates
+    ) -> validation.AssistantRead:
         logging_utility.info("Updating assistant with id: %s", assistant_id)
         try:
             updates.pop("id", None)
@@ -124,7 +146,8 @@ class AssistantsClient:
             validated_data = validation.AssistantUpdate(**updates)
 
             response = self.client.put(
-                f"/v1/assistants/{assistant_id}", json=validated_data.model_dump(exclude_unset=True)
+                f"/v1/assistants/{assistant_id}",
+                json=validated_data.model_dump(exclude_unset=True),
             )
             response.raise_for_status()
             updated_assistant = response.json()
@@ -135,10 +158,14 @@ class AssistantsClient:
             logging_utility.error("Validation error: %s", e.json())
             raise ValueError(f"Validation error: {e}")
         except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error occurred while updating assistant: %s", str(e))
+            logging_utility.error(
+                "HTTP error occurred while updating assistant: %s", str(e)
+            )
             raise
         except Exception as e:
-            logging_utility.error("An error occurred while updating assistant: %s", str(e))
+            logging_utility.error(
+                "An error occurred while updating assistant: %s", str(e)
+            )
             raise
 
     def delete_assistant(self, assistant_id: str) -> Dict[str, Any]:
@@ -150,32 +177,50 @@ class AssistantsClient:
             logging_utility.info("Assistant deleted successfully")
             return result
         except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error occurred while deleting assistant: %s", str(e))
+            logging_utility.error(
+                "HTTP error occurred while deleting assistant: %s", str(e)
+            )
             raise
         except Exception as e:
-            logging_utility.error("An error occurred while deleting assistant: %s", str(e))
+            logging_utility.error(
+                "An error occurred while deleting assistant: %s", str(e)
+            )
             raise
 
-    def associate_assistant_with_user(self, user_id: str, assistant_id: str) -> Dict[str, Any]:
+    def associate_assistant_with_user(
+        self, user_id: str, assistant_id: str
+    ) -> Dict[str, Any]:
         """
         Associate an assistant with a user by making a POST request to the appropriate endpoint.
         """
-        logging_utility.info("Associating assistant with id: %s to user: %s", assistant_id, user_id)
+        logging_utility.info(
+            "Associating assistant with id: %s to user: %s", assistant_id, user_id
+        )
         try:
-            response = self.client.post(f"/v1/users/{user_id}/assistants/{assistant_id}")
+            response = self.client.post(
+                f"/v1/users/{user_id}/assistants/{assistant_id}"
+            )
             response.raise_for_status()
             logging_utility.info(
-                "Assistant %s associated with user %s successfully", assistant_id, user_id
+                "Assistant %s associated with user %s successfully",
+                assistant_id,
+                user_id,
             )
             return {"message": "Assistant associated with user successfully"}
         except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error occurred while associating assistant: %s", str(e))
+            logging_utility.error(
+                "HTTP error occurred while associating assistant: %s", str(e)
+            )
             raise
         except Exception as e:
-            logging_utility.error("An error occurred while associating assistant: %s", str(e))
+            logging_utility.error(
+                "An error occurred while associating assistant: %s", str(e)
+            )
             raise
 
-    def disassociate_assistant_from_user(self, user_id: str, assistant_id: str) -> Dict[str, Any]:
+    def disassociate_assistant_from_user(
+        self, user_id: str, assistant_id: str
+    ) -> Dict[str, Any]:
         """
         Disassociate an assistant from a user by making a DELETE request to the appropriate endpoint.
         """
@@ -183,17 +228,25 @@ class AssistantsClient:
             "Disassociating assistant with id: %s from user: %s", assistant_id, user_id
         )
         try:
-            response = self.client.delete(f"/v1/users/{user_id}/assistants/{assistant_id}")
+            response = self.client.delete(
+                f"/v1/users/{user_id}/assistants/{assistant_id}"
+            )
             response.raise_for_status()
             logging_utility.info(
-                "Assistant %s disassociated from user %s successfully", assistant_id, user_id
+                "Assistant %s disassociated from user %s successfully",
+                assistant_id,
+                user_id,
             )
             return {"message": "Assistant disassociated from user successfully"}
         except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error occurred while disassociating assistant: %s", str(e))
+            logging_utility.error(
+                "HTTP error occurred while disassociating assistant: %s", str(e)
+            )
             raise
         except Exception as e:
-            logging_utility.error("An error occurred while disassociating assistant: %s", str(e))
+            logging_utility.error(
+                "An error occurred while disassociating assistant: %s", str(e)
+            )
             raise
 
     def list_assistants_by_user(self, user_id: str) -> List[validation.AssistantRead]:
@@ -208,7 +261,9 @@ class AssistantsClient:
             validated_assistants = [
                 validation.AssistantRead(**assistant) for assistant in assistants
             ]
-            logging_utility.info("Assistants retrieved successfully for user id: %s", user_id)
+            logging_utility.info(
+                "Assistants retrieved successfully for user id: %s", user_id
+            )
             return validated_assistants
         except ValidationError as e:
             logging_utility.error("Validation error: %s", e.json())

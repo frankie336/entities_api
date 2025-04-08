@@ -1,4 +1,5 @@
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
 
 from entities_api.schemas.vectors import VectorStoreRead
@@ -8,7 +9,9 @@ class AssistantCreate(BaseModel):
     id: Optional[str] = Field(
         None, description="Unique identifier for the assistant. Optional on creation."
     )
-    name: str = Field(..., description="Name of the assistant", example="ChatGPT Assistant")
+    name: str = Field(
+        ..., description="Name of the assistant", example="ChatGPT Assistant"
+    )
     description: str = Field(
         "",
         description="A brief description of the assistant",
@@ -21,11 +24,18 @@ class AssistantCreate(BaseModel):
         example="Be friendly and concise",
     )
     tools: Optional[List[dict]] = Field(
-        None, description="A list of tools available to the assistant, each defined as a dictionary"
+        None,
+        description="A list of tools available to the assistant, each defined as a dictionary",
     )
-    meta_data: Optional[dict] = Field(None, description="Additional metadata for the assistant")
-    top_p: float = Field(1.0, description="Top-p sampling parameter for text generation")
-    temperature: float = Field(1.0, description="Temperature parameter for text generation")
+    meta_data: Optional[dict] = Field(
+        None, description="Additional metadata for the assistant"
+    )
+    top_p: float = Field(
+        1.0, description="Top-p sampling parameter for text generation"
+    )
+    temperature: float = Field(
+        1.0, description="Temperature parameter for text generation"
+    )
     response_format: str = Field(
         "auto", description="Format of the assistant's response", example="auto"
     )
@@ -41,7 +51,9 @@ class AssistantRead(BaseModel):
     name: str = Field(..., description="Name of the assistant")
     description: Optional[str] = Field(None, description="Description of the assistant")
     model: str = Field(..., description="Model used by the assistant")
-    instructions: Optional[str] = Field(None, description="Instructions provided to the assistant")
+    instructions: Optional[str] = Field(
+        None, description="Instructions provided to the assistant"
+    )
     tools: Optional[List[dict]] = Field(
         None, description="List of tool definitions associated with the assistant"
     )
@@ -58,13 +70,21 @@ class AssistantRead(BaseModel):
 
 class AssistantUpdate(BaseModel):
     name: Optional[str] = Field(None, description="Updated name for the assistant")
-    description: Optional[str] = Field(None, description="Updated description for the assistant")
+    description: Optional[str] = Field(
+        None, description="Updated description for the assistant"
+    )
     model: Optional[str] = Field(None, description="Updated model name")
-    instructions: Optional[str] = Field(None, description="Updated instructions for the assistant")
-    tools: Optional[List[Any]] = Field(None, description="Updated list of tools for the assistant")
+    instructions: Optional[str] = Field(
+        None, description="Updated instructions for the assistant"
+    )
+    tools: Optional[List[Any]] = Field(
+        None, description="Updated list of tools for the assistant"
+    )
     meta_data: Optional[Dict[str, Any]] = Field(
         None, description="Updated metadata for the assistant"
     )
     top_p: Optional[float] = Field(None, description="Updated top-p parameter")
-    temperature: Optional[float] = Field(None, description="Updated temperature parameter")
+    temperature: Optional[float] = Field(
+        None, description="Updated temperature parameter"
+    )
     response_format: Optional[str] = Field(None, description="Updated response format")

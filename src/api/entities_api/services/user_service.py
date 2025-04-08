@@ -1,4 +1,4 @@
-from entities_common import ValidationInterface, UtilsInterface
+from entities_common import UtilsInterface, ValidationInterface
 from sqlalchemy.orm import Session
 
 from entities_api.models.models import User
@@ -8,6 +8,7 @@ validator = ValidationInterface()
 
 
 from typing import List
+
 from fastapi import HTTPException
 
 
@@ -19,7 +20,9 @@ class UserService:
         if user is None:
             user = validator.UserCreate()
 
-        new_user = User(id=UtilsInterface.IdentifierService.generate_user_id(), name=user.name)
+        new_user = User(
+            id=UtilsInterface.IdentifierService.generate_user_id(), name=user.name
+        )
         self.db.add(new_user)
         self.db.commit()
         self.db.refresh(new_user)
@@ -35,7 +38,9 @@ class UserService:
         users = self.db.query(User).all()
         return [validator.UserRead.from_orm(user) for user in users]
 
-    def update_user(self, user_id: str, user_update: validator.UserUpdate) -> validator.UserRead:
+    def update_user(
+        self, user_id: str, user_update: validator.UserUpdate
+    ) -> validator.UserRead:
         db_user = self.db.query(User).filter(User.id == user_id).first()
         if not db_user:
             raise HTTPException(status_code=404, detail="User not found")

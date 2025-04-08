@@ -1,6 +1,6 @@
 import json
-import time
 import os
+import time
 
 from azure.ai.inference import ChatCompletionsClient
 from azure.core.credentials import AzureKeyCredential
@@ -20,7 +20,9 @@ class AzureR1Cloud(BaseInference):
         self.endpoint = os.getenv(
             "AZURE_ENDPOINT", "https://DeepSeek-R1-pancho.eastus2.models.ai.azure.com"
         )
-        self.api_key = "HV6vTsiyIhfis5zPRG4B8b4jI7emEHsw"  # API key from environment variable
+        self.api_key = (
+            "HV6vTsiyIhfis5zPRG4B8b4jI7emEHsw"  # API key from environment variable
+        )
         self.client = ChatCompletionsClient(
             endpoint=self.endpoint, credential=AzureKeyCredential(self.api_key)
         )
@@ -35,7 +37,9 @@ class AzureR1Cloud(BaseInference):
             role = message.get("role", "").strip().lower()
             if role not in ["user", "assistant", "system"]:
                 role = "user"
-            normalized_history.append({"role": role, "content": message.get("content", "").strip()})
+            normalized_history.append(
+                {"role": role, "content": message.get("content", "").strip()}
+            )
         return normalized_history
 
     def process_conversation(
@@ -71,7 +75,8 @@ class AzureR1Cloud(BaseInference):
         conversation_history = self.normalize_roles(conversation_history)
 
         messages = [
-            {"role": msg["role"], "content": msg["content"]} for msg in conversation_history
+            {"role": msg["role"], "content": msg["content"]}
+            for msg in conversation_history
         ]
 
         run_cancelled = False
@@ -85,7 +90,8 @@ class AzureR1Cloud(BaseInference):
         try:
             # Azure AI Inference request setup
             response = self.client.complete(
-                messages=messages, stream=True  # Enable streaming for continuous results
+                messages=messages,
+                stream=True,  # Enable streaming for continuous results
             )
 
             # Process the streaming response
@@ -105,7 +111,9 @@ class AzureR1Cloud(BaseInference):
                                 if think_start == -1:
                                     # Emit all content as regular
                                     if buffer:
-                                        yield json.dumps({"type": "content", "content": buffer})
+                                        yield json.dumps(
+                                            {"type": "content", "content": buffer}
+                                        )
                                         assistant_reply += buffer
                                     buffer = ""
                                     break
@@ -113,12 +121,17 @@ class AzureR1Cloud(BaseInference):
                                 # Emit content before <think>
                                 if think_start > 0:
                                     yield json.dumps(
-                                        {"type": "content", "content": buffer[:think_start]}
+                                        {
+                                            "type": "content",
+                                            "content": buffer[:think_start],
+                                        }
                                     )
                                     assistant_reply += buffer[:think_start]
 
                                 # Remove processed content and tag
-                                buffer = buffer[think_start + 7 :]  # 7 is len('<think>')
+                                buffer = buffer[
+                                    think_start + 7 :
+                                ]  # 7 is len('<think>')
                                 in_think_block = True
 
                             if in_think_block:
@@ -127,7 +140,9 @@ class AzureR1Cloud(BaseInference):
                                 if think_end == -1:
                                     # Emit entire buffer as reasoning
                                     if buffer:
-                                        yield json.dumps({"type": "reasoning", "content": buffer})
+                                        yield json.dumps(
+                                            {"type": "reasoning", "content": buffer}
+                                        )
                                         reasoning_content += buffer
                                     buffer = ""
                                     break
@@ -147,7 +162,9 @@ class AzureR1Cloud(BaseInference):
                     # Check for cancellation during streaming
                     current_run = self.run_service.retrieve_run(run_id)
                     if current_run.status in ["cancelling", "cancelled"]:
-                        logging_utility.warning(f"Run {run_id} cancelled during streaming")
+                        logging_utility.warning(
+                            f"Run {run_id} cancelled during streaming"
+                        )
                         run_cancelled = True
                         break
 
@@ -181,13 +198,18 @@ class AzureR1Cloud(BaseInference):
                     is_last_chunk=True,
                 )
             if reasoning_content:
-                logging_utility.info("Saved partial reasoning content: %s", reasoning_content)
+                logging_utility.info(
+                    "Saved partial reasoning content: %s", reasoning_content
+                )
             return
 
         # Final state handling for successful completion
         if assistant_reply:
             self.message_service.save_assistant_message_chunk(
-                role="assistant", thread_id=thread_id, content=assistant_reply, is_last_chunk=True
+                role="assistant",
+                thread_id=thread_id,
+                content=assistant_reply,
+                is_last_chunk=True,
             )
             logging_utility.info("Assistant response stored successfully.")
             self.run_service.update_run_status(run_id, "completed")

@@ -1,10 +1,10 @@
 import time
 from typing import List
-from entities_common import ValidationInterface, UtilsInterface
-from fastapi import HTTPException
-from sqlalchemy.orm import Session
 
 from entities import Entities
+from entities_common import UtilsInterface, ValidationInterface
+from fastapi import HTTPException
+from sqlalchemy.orm import Session
 
 from entities_api.models.models import Assistant, User
 from entities_api.services.logging_service import LoggingUtility
@@ -19,16 +19,23 @@ class AssistantService:
         self.db = db
         self.client = Entities()
 
-    def create_assistant(self, assistant: validator.AssistantCreate) -> validator.AssistantRead:
+    def create_assistant(
+        self, assistant: validator.AssistantCreate
+    ) -> validator.AssistantRead:
         # Use provided ID or generate new
-        assistant_id = assistant.id or UtilsInterface.IdentifierService.generate_assistant_id()
+        assistant_id = (
+            assistant.id or UtilsInterface.IdentifierService.generate_assistant_id()
+        )
 
         # Validate ID uniqueness if provided
         if assistant.id:
-            existing = self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+            existing = (
+                self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+            )
             if existing:
                 raise HTTPException(
-                    status_code=400, detail=f"Assistant with ID '{assistant_id}' already exists"
+                    status_code=400,
+                    detail=f"Assistant with ID '{assistant_id}' already exists",
                 )
 
         # Map tools (from the Pydantic model) to tool_configs (for the DB)
@@ -54,7 +61,9 @@ class AssistantService:
         return self.map_to_read_model(db_assistant)
 
     def retrieve_assistant(self, assistant_id: str) -> validator.AssistantRead:
-        db_assistant = self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+        db_assistant = (
+            self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+        )
 
         if not db_assistant:
             raise HTTPException(status_code=404, detail="Assistant not found")
@@ -69,7 +78,9 @@ class AssistantService:
     def update_assistant(
         self, assistant_id: str, assistant_update: validator.AssistantUpdate
     ) -> validator.AssistantRead:
-        db_assistant = self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+        db_assistant = (
+            self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+        )
         if not db_assistant:
             raise HTTPException(status_code=404, detail="Assistant not found")
 
@@ -87,7 +98,9 @@ class AssistantService:
     def associate_assistant_with_user(self, user_id: str, assistant_id: str):
         """Associate an assistant with a user (many-to-many relationship)."""
         user = self.db.query(User).filter(User.id == user_id).first()
-        assistant = self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+        assistant = (
+            self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+        )
 
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
@@ -100,7 +113,9 @@ class AssistantService:
     def disassociate_assistant_from_user(self, user_id: str, assistant_id: str):
         """Disassociate an assistant from a user (many-to-many relationship)."""
         user = self.db.query(User).filter(User.id == user_id).first()
-        assistant = self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+        assistant = (
+            self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+        )
 
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
@@ -114,7 +129,9 @@ class AssistantService:
                 f"Assistant ID: {assistant_id} disassociated from user ID: {user_id}"
             )
         else:
-            raise HTTPException(status_code=400, detail="Assistant not associated with the user")
+            raise HTTPException(
+                status_code=400, detail="Assistant not associated with the user"
+            )
 
     def list_assistants_by_user(self, user_id: str) -> List[validator.AssistantRead]:
         """List all assistants associated with a given user."""

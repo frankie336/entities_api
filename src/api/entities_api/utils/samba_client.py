@@ -1,16 +1,17 @@
 import hashlib
 import hmac
+import io
 import os
 import socket
 import time
-import io
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 
-from entities_api.models.models import File
 from fastapi import HTTPException
 from smb.SMBConnection import SMBConnection
+
+from entities_api.models.models import File
 
 
 class SambaClient:
@@ -161,7 +162,9 @@ class SambaClient:
         # Note: This method expects access to self.db, which should be injected or set externally.
         file_record = self.db.query(File).filter(File.id == file_id).first()
         if not file_record:
-            raise HTTPException(status_code=404, detail=f"File with ID {file_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"File with ID {file_id} not found"
+            )
 
         secret_key = os.getenv("SIGNED_URL_SECRET", "default_secret_key")
         expiration_time = datetime.utcnow() + timedelta(seconds=expires_in)
@@ -215,7 +218,9 @@ class SambaClient:
         except Exception as e:
             raise Exception(f"Failed to retrieve file by ID {file_id}: {str(e)}")
 
-    def find_file_by_id_with_name(self, file_id: str, remote_dir: str = "") -> (str, bytes):
+    def find_file_by_id_with_name(
+        self, file_id: str, remote_dir: str = ""
+    ) -> (str, bytes):
         """
         Locate a file on the Samba share using its file id (assuming naming convention {file_id}_{original_filename})
         and return its original filename along with its contents as bytes.
@@ -253,7 +258,9 @@ class SambaClient:
         except Exception as e:
             raise Exception(f"Failed to retrieve file by ID {file_id}: {str(e)}")
 
-    def download_file_as_io(self, file_id: str, remote_dir: str = "") -> (str, io.BytesIO):
+    def download_file_as_io(
+        self, file_id: str, remote_dir: str = ""
+    ) -> (str, io.BytesIO):
         """
         Locate a file on the Samba share using its file id (assuming naming convention {file_id}_{original_filename}),
         download its contents, and return both the original filename and an in-memory file-like object (io.BytesIO).
@@ -271,14 +278,18 @@ class SambaClient:
             Exception: If the file cannot be found or read.
         """
         # Use the method that finds the file by ID and returns the original filename and file bytes.
-        original_filename, file_bytes = self.find_file_by_id_with_name(file_id, remote_dir)
+        original_filename, file_bytes = self.find_file_by_id_with_name(
+            file_id, remote_dir
+        )
 
         # Create an in-memory BytesIO object with the downloaded bytes.
         file_io = io.BytesIO(file_bytes)
 
         return original_filename, file_io
 
-    def save_file_to_disk(self, file_id: str, save_dir: str, remote_dir: str = "") -> str:
+    def save_file_to_disk(
+        self, file_id: str, save_dir: str, remote_dir: str = ""
+    ) -> str:
         """
         Locate a file on the Samba share using its file id (assuming naming convention {file_id}_{original_filename}),
         download its contents into an in-memory BytesIO object, and then save it to disk using the original filename.

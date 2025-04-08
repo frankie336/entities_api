@@ -11,7 +11,9 @@ CODE_INTERPRETER_MESSAGE = (
     "Return the tool output clearly and directly."
     "If a file URL is present, include it as a user-friendly download link."
 )
-DEFAULT_REMINDER_MESSAGE = "give the user the output from tool as advised in system message."
+DEFAULT_REMINDER_MESSAGE = (
+    "give the user the output from tool as advised in system message."
+)
 
 CODE_ANALYSIS_TOOL_MESSAGE = (
     "Advise the user that their file can be downloaded by clicking the link below."
@@ -81,7 +83,10 @@ BASE_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "Natural language search query"},
+                    "query": {
+                        "type": "string",
+                        "description": "Natural language search query",
+                    },
                     "search_type": {
                         "type": "string",
                         "enum": [
@@ -103,8 +108,12 @@ BASE_TOOLS = [
                         "type": "object",
                         "description": "Qdrant-compatible filter syntax",
                         "examples": {
-                            "temporal": {"created_at": {"$gte": 1672531200, "$lte": 1704067200}},
-                            "boolean": {"$or": [{"status": "active"}, {"priority": {"$gte": 7}}]},
+                            "temporal": {
+                                "created_at": {"$gte": 1672531200, "$lte": 1704067200}
+                            },
+                            "boolean": {
+                                "$or": [{"status": "active"}, {"priority": {"$gte": 7}}]
+                            },
                         },
                     },
                     "score_boosts": {
@@ -304,4 +313,6 @@ WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS = (
     "---\n"
 )
 
-JSON_VALIDATION_PATTERN = r'\{\s*"name"\s*:\s*".+?"\s*,\s*"arguments"\s*:\s*\{.*?\}\s*\}'
+JSON_VALIDATION_PATTERN = (
+    r'\{\s*"name"\s*:\s*".+?"\s*,\s*"arguments"\s*:\s*\{.*?\}\s*\}'
+)

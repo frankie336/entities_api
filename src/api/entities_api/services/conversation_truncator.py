@@ -47,7 +47,9 @@ class ConversationTruncator:
         system_token_count = sum(
             self.count_tokens(msg.get("content", "")) for msg in system_messages
         )
-        other_token_count = sum(self.count_tokens(msg.get("content", "")) for msg in other_messages)
+        other_token_count = sum(
+            self.count_tokens(msg.get("content", "")) for msg in other_messages
+        )
         total_tokens = system_token_count + other_token_count
 
         # Determine the threshold token count.
@@ -93,7 +95,9 @@ class ConversationTruncator:
             last_msg = merged[-1]
             if msg.get("role") == last_msg.get("role"):
                 # Merge by concatenating content with a newline separator.
-                last_msg["content"] = f"{last_msg.get('content', '')}\n{msg.get('content', '')}"
+                last_msg["content"] = (
+                    f"{last_msg.get('content', '')}\n{msg.get('content', '')}"
+                )
             else:
                 merged.append(msg)
         return merged

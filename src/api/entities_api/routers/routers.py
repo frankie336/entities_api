@@ -1,8 +1,7 @@
 # entities_api/routers.py
-from typing import Dict, Any
+from typing import Any, Dict
 
-from fastapi import APIRouter
-from fastapi import Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 

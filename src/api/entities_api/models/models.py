@@ -2,23 +2,12 @@ import logging
 import time
 from datetime import datetime
 from enum import Enum as PyEnum
-from entities_common import ValidationInterface
 
-from sqlalchemy import (
-    Column,
-    String,
-    Integer,
-    Boolean,
-    JSON,
-    DateTime,
-    ForeignKey,
-    Table,
-    BigInteger,
-    Index,
-    Enum as SAEnum,
-)
-from sqlalchemy import Text
-from sqlalchemy.orm import relationship, declarative_base, joinedload
+from entities_common import ValidationInterface
+from sqlalchemy import JSON, BigInteger, Boolean, Column, DateTime
+from sqlalchemy import Enum as SAEnum
+from sqlalchemy import ForeignKey, Index, Integer, String, Table, Text
+from sqlalchemy.orm import declarative_base, joinedload, relationship
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -53,7 +42,9 @@ user_assistants = Table(
 vector_store_assistants = Table(
     "vector_store_assistants",
     Base.metadata,
-    Column("vector_store_id", String(64), ForeignKey("vector_stores.id"), primary_key=True),
+    Column(
+        "vector_store_id", String(64), ForeignKey("vector_stores.id"), primary_key=True
+    ),
     Column("assistant_id", String(64), ForeignKey("assistants.id"), primary_key=True),
 )
 
@@ -61,7 +52,9 @@ thread_vector_stores = Table(
     "thread_vector_stores",
     Base.metadata,
     Column("thread_id", String(64), ForeignKey("threads.id"), primary_key=True),
-    Column("vector_store_id", String(64), ForeignKey("vector_stores.id"), primary_key=True),
+    Column(
+        "vector_store_id", String(64), ForeignKey("vector_stores.id"), primary_key=True
+    ),
 )
 
 
@@ -90,9 +83,15 @@ class User(Base):
     id = Column(String(64), primary_key=True, index=True)
     name = Column(String(128), index=True)
     # Reintroduce the threads relationship
-    threads = relationship("Thread", secondary=thread_participants, back_populates="participants")
-    assistants = relationship("Assistant", secondary=user_assistants, back_populates="users")
-    sandboxes = relationship("Sandbox", back_populates="user", cascade="all, delete-orphan")
+    threads = relationship(
+        "Thread", secondary=thread_participants, back_populates="participants"
+    )
+    assistants = relationship(
+        "Assistant", secondary=user_assistants, back_populates="users"
+    )
+    sandboxes = relationship(
+        "Sandbox", back_populates="user", cascade="all, delete-orphan"
+    )
     vector_stores = relationship("VectorStore", back_populates="user", lazy="select")
     files = relationship("File", back_populates="user", cascade="all, delete-orphan")
 
@@ -106,9 +105,14 @@ class Thread(Base):
     object = Column(String(64), nullable=False)
     tool_resources = Column(JSON, nullable=False, default={})
     # Reintroduce the participants relationship
-    participants = relationship("User", secondary=thread_participants, back_populates="threads")
+    participants = relationship(
+        "User", secondary=thread_participants, back_populates="threads"
+    )
     vector_stores = relationship(
-        "VectorStore", secondary=thread_vector_stores, back_populates="threads", lazy="select"
+        "VectorStore",
+        secondary=thread_vector_stores,
+        back_populates="threads",
+        lazy="select",
     )
 
 
@@ -119,7 +123,9 @@ class Message(Base):
     assistant_id = Column(String(64), index=True)
     attachments = Column(JSON, default=[])
     completed_at = Column(Integer, nullable=True)
-    content = Column(Text(length=4294967295), nullable=False)  # Specify LONGTEXT size explicitly
+    content = Column(
+        Text(length=4294967295), nullable=False
+    )  # Specify LONGTEXT size explicitly
     created_at = Column(Integer, nullable=False)
     incomplete_at = Column(Integer, nullable=True)
     incomplete_details = Column(JSON, nullable=True)
@@ -207,7 +213,9 @@ class Tool(Base):
     type = Column(String(64), nullable=False)
     function = Column(JSON, nullable=True)
 
-    assistants = relationship("Assistant", secondary=assistant_tools, back_populates="tools")
+    assistants = relationship(
+        "Assistant", secondary=assistant_tools, back_populates="tools"
+    )
     actions = relationship("Action", back_populates="tool")
 
 
@@ -230,7 +238,9 @@ class Action(Base):
 
     @staticmethod
     def get_full_action_query(session):
-        return session.query(Action).options(joinedload(Action.run), joinedload(Action.tool))
+        return session.query(Action).options(
+            joinedload(Action.run), joinedload(Action.tool)
+        )
 
 
 class Sandbox(Base):
@@ -267,9 +277,14 @@ class FileStorage(Base):
     __tablename__ = "file_storage"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    file_id = Column(String(64), ForeignKey("files.id", ondelete="CASCADE"), nullable=False)
+    file_id = Column(
+        String(64), ForeignKey("files.id", ondelete="CASCADE"), nullable=False
+    )
     storage_system = Column(
-        String(64), nullable=False, default="samba", comment="Storage system type (samba, s3, etc.)"
+        String(64),
+        nullable=False,
+        default="samba",
+        comment="Storage system type (samba, s3, etc.)",
     )
     storage_path = Column(
         String(512),
@@ -277,7 +292,9 @@ class FileStorage(Base):
         comment="Path to file in storage system (relative to share root)",
     )
     is_primary = Column(
-        Boolean, default=True, comment="Indicates if this is the primary storage location"
+        Boolean,
+        default=True,
+        comment="Indicates if this is the primary storage location",
     )
     created_at = Column(
         DateTime,
@@ -305,7 +322,10 @@ class VectorStore(Base):
     file_count = Column(Integer, default=0, nullable=False)  # Added field
     user = relationship("User", back_populates="vector_stores", lazy="select")
     threads = relationship(
-        "Thread", secondary="thread_vector_stores", back_populates="vector_stores", lazy="select"
+        "Thread",
+        secondary="thread_vector_stores",
+        back_populates="vector_stores",
+        lazy="select",
     )
     assistants = relationship(
         "Assistant",

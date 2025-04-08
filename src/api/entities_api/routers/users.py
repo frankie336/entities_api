@@ -1,3 +1,4 @@
+from entities_common import ValidationInterface
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -5,8 +6,6 @@ from entities_api.dependencies import get_db
 from entities_api.serializers import UserUpdate
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.user_service import UserService
-
-from entities_common import ValidationInterface
 
 validation = ValidationInterface()
 
@@ -26,7 +25,9 @@ def create_user(user: validation.UserCreate = None, db: Session = Depends(get_db
         logging_utility.error(f"HTTP error occurred while creating user: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while creating user: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while creating user: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
@@ -39,7 +40,9 @@ def get_user(user_id: str, db: Session = Depends(get_db)):
         logging_utility.info(f"User retrieved successfully with ID: {user_id}")
         return user
     except HTTPException as e:
-        logging_utility.error(f"HTTP error occurred while retrieving user {user_id}: {str(e)}")
+        logging_utility.error(
+            f"HTTP error occurred while retrieving user {user_id}: {str(e)}"
+        )
         raise e
     except Exception as e:
         logging_utility.error(
@@ -57,7 +60,9 @@ def update_user(user_id: str, user_update: UserUpdate, db: Session = Depends(get
         logging_utility.info(f"User updated successfully with ID: {user_id}")
         return updated_user
     except HTTPException as e:
-        logging_utility.error(f"HTTP error occurred while updating user {user_id}: {str(e)}")
+        logging_utility.error(
+            f"HTTP error occurred while updating user {user_id}: {str(e)}"
+        )
         raise e
     except Exception as e:
         logging_utility.error(
@@ -75,7 +80,9 @@ def delete_user(user_id: str, db: Session = Depends(get_db)):
         logging_utility.info(f"User deleted successfully with ID: {user_id}")
         return {"detail": "User deleted successfully"}
     except HTTPException as e:
-        logging_utility.error(f"HTTP error occurred while deleting user {user_id}: {str(e)}")
+        logging_utility.error(
+            f"HTTP error occurred while deleting user {user_id}: {str(e)}"
+        )
         raise e
     except Exception as e:
         logging_utility.error(

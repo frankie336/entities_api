@@ -2,10 +2,10 @@ import os
 from typing import List
 
 import httpx
+from entities_common import ValidationInterface
 from pydantic import ValidationError
 
 from entities_api.services.logging_service import LoggingUtility
-from entities_common import ValidationInterface
 
 validation = ValidationInterface()
 logging_utility = LoggingUtility()
@@ -27,7 +27,9 @@ class UserClient:
             response = self.client.post("/v1/users", json=user_data.model_dump())
             response.raise_for_status()
             validated_user = validation.UserRead.model_validate(response.json())
-            logging_utility.info("User created successfully with id: %s", validated_user.id)
+            logging_utility.info(
+                "User created successfully with id: %s", validated_user.id
+            )
             return validated_user
         except (httpx.HTTPStatusError, ValidationError) as e:
             logging_utility.error("Error during user creation: %s", str(e))
@@ -54,7 +56,8 @@ class UserClient:
 
             validated_data = validation.UserUpdate(**user_data)
             response = self.client.put(
-                f"/v1/users/{user_id}", json=validated_data.model_dump(exclude_unset=True)
+                f"/v1/users/{user_id}",
+                json=validated_data.model_dump(exclude_unset=True),
             )
             response.raise_for_status()
             validated_response = validation.UserRead.model_validate(response.json())
@@ -69,7 +72,9 @@ class UserClient:
         try:
             response = self.client.delete(f"/v1/users/{user_id}")
             response.raise_for_status()
-            validated_result = validation.UserDeleteResponse.model_validate(response.json())
+            validated_result = validation.UserDeleteResponse.model_validate(
+                response.json()
+            )
             logging_utility.info("User deleted successfully")
             return validated_result
         except (httpx.HTTPStatusError, ValidationError) as e:
@@ -82,8 +87,12 @@ class UserClient:
             response = self.client.get(f"/v1/users/{user_id}/assistants")
             response.raise_for_status()
             assistants = response.json()
-            validated_assistants = [validation.AssistantRead.model_validate(a) for a in assistants]
-            logging_utility.info("Assistants retrieved successfully for user id: %s", user_id)
+            validated_assistants = [
+                validation.AssistantRead.model_validate(a) for a in assistants
+            ]
+            logging_utility.info(
+                "Assistants retrieved successfully for user id: %s", user_id
+            )
             return validated_assistants
         except (httpx.HTTPStatusError, ValidationError) as e:
             logging_utility.error("Error during assistants retrieval: %s", str(e))

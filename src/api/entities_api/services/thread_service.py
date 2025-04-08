@@ -1,8 +1,8 @@
-from entities_common import ValidationInterface, UtilsInterface
+from entities_common import UtilsInterface, ValidationInterface
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from entities_api.models.models import Thread, User, Message
+from entities_api.models.models import Message, Thread, User
 from entities_api.schemas.users import UserBase
 
 validator = ValidationInterface()
@@ -10,7 +10,8 @@ validator = ValidationInterface()
 
 import json
 import time
-from typing import List, Dict, Any
+from typing import Any, Dict, List
+
 from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
@@ -20,8 +21,12 @@ class ThreadService:
     def __init__(self, db: Session):
         self.db = db
 
-    def create_thread(self, thread: validator.ThreadCreate) -> validator.ThreadReadDetailed:
-        existing_users = self.db.query(User).filter(User.id.in_(thread.participant_ids)).all()
+    def create_thread(
+        self, thread: validator.ThreadCreate
+    ) -> validator.ThreadReadDetailed:
+        existing_users = (
+            self.db.query(User).filter(User.id.in_(thread.participant_ids)).all()
+        )
         if len(existing_users) != len(thread.participant_ids):
             raise HTTPException(status_code=400, detail="Invalid user IDs")
 
@@ -56,7 +61,12 @@ class ThreadService:
         return True
 
     def list_threads_by_user(self, user_id: str) -> List[str]:
-        threads = self.db.query(Thread).join(Thread.participants).filter(User.id == user_id).all()
+        threads = (
+            self.db.query(Thread)
+            .join(Thread.participants)
+            .filter(User.id == user_id)
+            .all()
+        )
         return [thread.id for thread in threads]
 
     def update_thread_metadata(
@@ -96,7 +106,9 @@ class ThreadService:
             raise HTTPException(status_code=404, detail="Thread not found")
         return db_thread
 
-    def _create_thread_read_detailed(self, db_thread: Thread) -> validator.ThreadReadDetailed:
+    def _create_thread_read_detailed(
+        self, db_thread: Thread
+    ) -> validator.ThreadReadDetailed:
         participants = [UserBase.from_orm(user) for user in db_thread.participants]
         return validator.ThreadReadDetailed(
             id=db_thread.id,

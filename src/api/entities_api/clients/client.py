@@ -1,8 +1,10 @@
 # entities_api/clients/code_execution_client.py
 import os
 from contextlib import contextmanager
-from typing import Any, Dict, Optional, Generator
+from typing import Any, Dict, Generator, Optional
+
 from dotenv import load_dotenv
+
 from entities_api.clients.actions import ActionsClient
 from entities_api.clients.assistants import AssistantsClient
 from entities_api.clients.messages import MessagesClient
@@ -33,13 +35,16 @@ class EntitiesInternalInterface:
         Optionally, a configuration object could be injected here
         to decouple from environment variables for better testability.
         """
-        self.base_url = base_url or os.getenv("ASSISTANTS_BASE_URL", "http://localhost:9000/")
+        self.base_url = base_url or os.getenv(
+            "ASSISTANTS_BASE_URL", "http://localhost:9000/"
+        )
         self.api_key = api_key or os.getenv("API_KEY", "your_api_key")
 
         self._session_factory = SessionLocal
 
         logging_utility.info(
-            "CommonEntitiesInternalInterface initialized with base_url: %s", self.base_url
+            "CommonEntitiesInternalInterface initialized with base_url: %s",
+            self.base_url,
         )
 
         # Lazy initialization caches for service instances
@@ -55,13 +60,17 @@ class EntitiesInternalInterface:
     @property
     def user_service(self) -> UserClient:
         if self._user_service is None:
-            self._user_service = UserClient(base_url=self.base_url, api_key=self.api_key)
+            self._user_service = UserClient(
+                base_url=self.base_url, api_key=self.api_key
+            )
         return self._user_service
 
     @property
     def assistant_service(self) -> AssistantsClient:
         if self._assistant_service is None:
-            self._assistant_service = AssistantsClient(base_url=self.base_url, api_key=self.api_key)
+            self._assistant_service = AssistantsClient(
+                base_url=self.base_url, api_key=self.api_key
+            )
         return self._assistant_service
 
     @property
@@ -73,13 +82,17 @@ class EntitiesInternalInterface:
     @property
     def thread_service(self) -> ThreadsClient:
         if self._thread_service is None:
-            self._thread_service = ThreadsClient(base_url=self.base_url, api_key=self.api_key)
+            self._thread_service = ThreadsClient(
+                base_url=self.base_url, api_key=self.api_key
+            )
         return self._thread_service
 
     @property
     def message_service(self) -> MessagesClient:
         if self._message_service is None:
-            self._message_service = MessagesClient(base_url=self.base_url, api_key=self.api_key)
+            self._message_service = MessagesClient(
+                base_url=self.base_url, api_key=self.api_key
+            )
         return self._message_service
 
     @property

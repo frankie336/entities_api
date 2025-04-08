@@ -1,11 +1,14 @@
 import inspect
 import threading
-from typing import Union, Any, Generator, Dict
+from typing import Any, Dict, Generator, Union
 
-from entities_api.platform_tools.code_interpreter.code_execution_client import StreamOutput
-from entities_api.platform_tools.vector_store.vector_search_handler import VectorSearchHandler
+from entities_api.platform_tools.code_interpreter.code_execution_client import \
+    StreamOutput
+from entities_api.platform_tools.computer.shell_command_interface import \
+    ShellCommandInterface
+from entities_api.platform_tools.vector_store.vector_search_handler import \
+    VectorSearchHandler
 from entities_api.platform_tools.web.web_search_handler import FirecrawlService
-from entities_api.platform_tools.computer.shell_command_interface import ShellCommandInterface
 from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
@@ -43,7 +46,9 @@ class PlatformToolService:
 
     def _get_vector__search_handler(self):
         if self._vector_search_handler is None:
-            self._vector_search_handler = VectorSearchHandler(assistant_id=self.assistant_id)
+            self._vector_search_handler = VectorSearchHandler(
+                assistant_id=self.assistant_id
+            )
         return self._vector_search_handler
 
     def call_function(
@@ -87,7 +92,9 @@ class PlatformToolService:
                 )
             elif function_name == "computer":
                 # Use our new ShellCommandInterface for streaming computer commands.
-                shell_service = ShellCommandInterface(thread_id=self.thread_id, idle_timeout=5)
+                shell_service = ShellCommandInterface(
+                    thread_id=self.thread_id, idle_timeout=5
+                )
                 self.function_handlers[function_name] = shell_service.run_commands
             else:
                 return {"error": f"Unsupported function: {function_name}"}

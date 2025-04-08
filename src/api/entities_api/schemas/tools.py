@@ -1,12 +1,15 @@
 # entities_common/schemas/tools.py
-from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field, ConfigDict, validator
+from typing import Any, Dict, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, validator
 
 
 class ToolFunction(BaseModel):
     name: str = Field(..., description="Name of the function")
     description: str = Field(..., description="Function description")
-    parameters: Dict[str, Any] = Field(default_factory=dict, description="JSON Schema parameters")
+    parameters: Dict[str, Any] = Field(
+        default_factory=dict, description="JSON Schema parameters"
+    )
 
 
 class ToolCreate(BaseModel):

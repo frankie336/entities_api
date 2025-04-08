@@ -1,10 +1,11 @@
 from typing import List, Optional
 
-from entities_common import ValidationInterface, UtilsInterface
+from entities_common import UtilsInterface, ValidationInterface
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
-from entities_api.models.models import Tool, Assistant
+
+from entities_api.models.models import Assistant, Tool
 from entities_api.services.logging_service import LoggingUtility
 
 validator = ValidationInterface()
@@ -44,11 +45,15 @@ class ToolService:
         except IntegrityError as e:
             self.db.rollback()
             logging_utility.error("IntegrityError during tool creation: %s", str(e))
-            raise HTTPException(status_code=400, detail="Invalid tool data or duplicate tool name")
+            raise HTTPException(
+                status_code=400, detail="Invalid tool data or duplicate tool name"
+            )
         except Exception as e:
             self.db.rollback()
             logging_utility.error("Unexpected error during tool creation: %s", str(e))
-            raise HTTPException(status_code=500, detail="An error occurred while creating the tool")
+            raise HTTPException(
+                status_code=500, detail="An error occurred while creating the tool"
+            )
 
     def associate_tool_with_assistant(self, tool_id: str, assistant_id: str) -> None:
         logging_utility.info(
@@ -56,19 +61,24 @@ class ToolService:
         )
         try:
             tool = self._get_tool_or_404(tool_id)
-            assistant = self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+            assistant = (
+                self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+            )
 
             if not assistant:
                 logging_utility.warning("Assistant with ID %s not found.", assistant_id)
                 raise HTTPException(
-                    status_code=404, detail=f"Assistant with id {assistant_id} not found"
+                    status_code=404,
+                    detail=f"Assistant with id {assistant_id} not found",
                 )
 
             assistant.tools.append(tool)
             self.db.commit()
 
             logging_utility.info(
-                "Successfully associated tool ID %s with assistant ID %s", tool_id, assistant_id
+                "Successfully associated tool ID %s with assistant ID %s",
+                tool_id,
+                assistant_id,
             )
         except HTTPException as e:
             logging_utility.error("HTTPException: %s", str(e))
@@ -83,16 +93,21 @@ class ToolService:
 
     def disassociate_tool_from_assistant(self, tool_id: str, assistant_id: str) -> None:
         logging_utility.info(
-            "Disassociating tool with ID %s from assistant with ID %s", tool_id, assistant_id
+            "Disassociating tool with ID %s from assistant with ID %s",
+            tool_id,
+            assistant_id,
         )
         try:
             tool = self._get_tool_or_404(tool_id)
-            assistant = self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+            assistant = (
+                self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+            )
 
             if not assistant:
                 logging_utility.warning("Assistant with ID %s not found.", assistant_id)
                 raise HTTPException(
-                    status_code=404, detail=f"Assistant with id {assistant_id} not found"
+                    status_code=404,
+                    detail=f"Assistant with id {assistant_id} not found",
                 )
 
             if tool in assistant.tools:
@@ -112,7 +127,9 @@ class ToolService:
             raise
         except Exception as e:
             self.db.rollback()
-            logging_utility.error("Error disassociating tool from assistant: %s", str(e))
+            logging_utility.error(
+                "Error disassociating tool from assistant: %s", str(e)
+            )
             raise HTTPException(
                 status_code=500,
                 detail="An error occurred while disassociating the tool from the assistant",
@@ -140,7 +157,9 @@ class ToolService:
             db_tool = self.db.query(Tool).filter(Tool.name == name).first()
             if not db_tool:
                 logging_utility.warning("Tool with name %s not found", name)
-                raise HTTPException(status_code=404, detail=f"Tool with name {name} not found")
+                raise HTTPException(
+                    status_code=404, detail=f"Tool with name {name} not found"
+                )
 
             logging_utility.info("Tool retrieved successfully: %s", db_tool)
             return validator.ToolRead.model_validate(db_tool)
@@ -150,8 +169,12 @@ class ToolService:
                 status_code=500, detail="An error occurred while retrieving the tool"
             )
 
-    def update_tool(self, tool_id: str, tool_update: validator.ToolUpdate) -> validator.ToolRead:
-        logging_utility.info("Updating tool with ID: %s, ToolUpdate: %s", tool_id, tool_update)
+    def update_tool(
+        self, tool_id: str, tool_update: validator.ToolUpdate
+    ) -> validator.ToolRead:
+        logging_utility.info(
+            "Updating tool with ID: %s, ToolUpdate: %s", tool_id, tool_update
+        )
         try:
             db_tool = self._get_tool_or_404(tool_id)
             update_data = tool_update.model_dump(exclude_unset=True)
@@ -171,7 +194,9 @@ class ToolService:
         except Exception as e:
             self.db.rollback()
             logging_utility.error("Error updating tool: %s", str(e))
-            raise HTTPException(status_code=500, detail="An error occurred while updating the tool")
+            raise HTTPException(
+                status_code=500, detail="An error occurred while updating the tool"
+            )
 
     def delete_tool(self, tool_id: str) -> None:
         logging_utility.info("Deleting tool with ID: %s", tool_id)
@@ -187,7 +212,9 @@ class ToolService:
         except Exception as e:
             self.db.rollback()
             logging_utility.error("Error deleting tool: %s", str(e))
-            raise HTTPException(status_code=500, detail="An error occurred while deleting the tool")
+            raise HTTPException(
+                status_code=500, detail="An error occurred while deleting the tool"
+            )
 
     def list_tools(
         self, assistant_id: Optional[str] = None, restructure: bool = False
@@ -204,9 +231,12 @@ class ToolService:
                 logging_utility.debug("Assistant found: %s", assistant)
 
                 if not assistant:
-                    logging_utility.warning("Assistant with ID %s not found", assistant_id)
+                    logging_utility.warning(
+                        "Assistant with ID %s not found", assistant_id
+                    )
                     raise HTTPException(
-                        status_code=404, detail=f"Assistant with id {assistant_id} not found"
+                        status_code=404,
+                        detail=f"Assistant with id {assistant_id} not found",
                     )
 
                 tools = assistant.tools
@@ -225,7 +255,9 @@ class ToolService:
             return tool_list
         except Exception as e:
             logging_utility.error("Error listing tools: %s", str(e))
-            raise HTTPException(status_code=500, detail="An error occurred while listing the tools")
+            raise HTTPException(
+                status_code=500, detail="An error occurred while listing the tools"
+            )
 
     def restructure_tools(self, assistant_tools):
         """Restructure the tools to handle dynamic function structures."""
@@ -256,7 +288,9 @@ class ToolService:
             restructured_tool = {
                 "type": tool["type"],  # Keep the type information
                 "name": function_info.get("name", "Unnamed tool"),
-                "description": function_info.get("description", "No description provided"),
+                "description": function_info.get(
+                    "description", "No description provided"
+                ),
                 "parameters": parse_parameters(
                     function_info.get("parameters", {})
                 ),  # Recursively parse parameters

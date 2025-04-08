@@ -1,6 +1,8 @@
-from entities_api.utils.samba_client import SambaClient
-from dotenv import load_dotenv
 import os
+
+from dotenv import load_dotenv
+
+from entities_api.utils.samba_client import SambaClient
 
 load_dotenv()
 
@@ -9,7 +11,9 @@ share = os.getenv("SMBCLIENT_SHARE")
 password = os.getenv("SMBCLIENT_PASSWORD")
 user_name = os.getenv("SMBCLIENT_USERNAME")
 
-client = SambaClient(server=server, share=share, password=password, username=user_name, port=1445)
+client = SambaClient(
+    server=server, share=share, password=password, username=user_name, port=1445
+)
 
 # Specify a local directory to save the file.
 save_directory = "./downloaded_files"

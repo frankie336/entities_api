@@ -1,9 +1,10 @@
 # entities_api/services/assistant_setup_service.py
 
-from entities_common import ValidationInterface
 from entities import Entities
+from entities_common import ValidationInterface
 
-from entities_api.constants.assistant import DEFAULT_MODEL, BASE_ASSISTANT_INSTRUCTIONS, BASE_TOOLS
+from entities_api.constants.assistant import (BASE_ASSISTANT_INSTRUCTIONS,
+                                              BASE_TOOLS, DEFAULT_MODEL)
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.vector_store_service import VectorStoreService
 from entities_api.services.vector_waves import AssistantVectorWaves
@@ -22,7 +23,9 @@ class AssistantSetupService:
     def vector_waves(self):
         """Lazy-loaded vector waves component"""
         if self._vector_waves is None:
-            self._vector_waves = AssistantVectorWaves(vector_service=self.vector_store_service)
+            self._vector_waves = AssistantVectorWaves(
+                vector_service=self.vector_store_service
+            )
         return self._vector_waves
 
     def create_and_associate_tools(self, function_definitions, assistant_id):
@@ -33,12 +36,14 @@ class AssistantSetupService:
                 # Attempt to retrieve an existing tool for this assistant
                 existing_tool = self.client.tools.get_tool_by_name(tool_name)
                 if existing_tool:
-                    self.logging_utility.info("Tool already exists: %s (ID: %s)", tool_name,
-                                              existing_tool.id)
+                    self.logging_utility.info(
+                        "Tool already exists: %s (ID: %s)", tool_name, existing_tool.id
+                    )
                     continue  # Skip creation if tool exists
             except Exception as retrieval_error:
-                self.logging_utility.debug("No existing tool found for %s: %s", tool_name,
-                                           str(retrieval_error))
+                self.logging_utility.debug(
+                    "No existing tool found for %s: %s", tool_name, str(retrieval_error)
+                )
 
             try:
                 tool_function = validate.ToolFunction(function=func_def)
@@ -51,9 +56,13 @@ class AssistantSetupService:
                 self.client.tools.associate_tool_with_assistant(
                     tool_id=new_tool.id, assistant_id=assistant_id
                 )
-                self.logging_utility.info("Created tool: %s (ID: %s)", tool_name, new_tool.id)
+                self.logging_utility.info(
+                    "Created tool: %s (ID: %s)", tool_name, new_tool.id
+                )
             except Exception as e:
-                self.logging_utility.error("Tool creation failed for %s: %s", tool_name, str(e))
+                self.logging_utility.error(
+                    "Tool creation failed for %s: %s", tool_name, str(e)
+                )
                 # Optionally, continue to the next tool instead of raising the exception.
                 continue
 
@@ -70,7 +79,9 @@ class AssistantSetupService:
         try:
             # Attempt to retrieve the default assistant
             assistant = self.client.assistants.retrieve_assistant("default")
-            self.logging_utility.info("Default assistant already exists: %s", assistant.id)
+            self.logging_utility.info(
+                "Default assistant already exists: %s", assistant.id
+            )
         except Exception:
             # If retrieval fails (assistant not found), create a new one.
             try:
@@ -81,8 +92,11 @@ class AssistantSetupService:
                     instructions=instructions,
                     assistant_id="default",
                 )
-                self.logging_utility.info("Created new default assistant: %s (ID: %s)",
-                                          assistant_name, assistant.id)
+                self.logging_utility.info(
+                    "Created new default assistant: %s (ID: %s)",
+                    assistant_name,
+                    assistant.id,
+                )
             except Exception as e:
                 self.logging_utility.error("Assistant creation failed: %s", str(e))
                 raise
@@ -115,7 +129,9 @@ class AssistantSetupService:
             return assistant
 
         except Exception as e:
-            self.logging_utility.critical("Critical failure in orchestration: %s", str(e))
+            self.logging_utility.critical(
+                "Critical failure in orchestration: %s", str(e)
+            )
             raise
 
 

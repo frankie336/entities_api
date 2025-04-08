@@ -1,5 +1,6 @@
 # entities_api/services/vector_waves.py
 from typing import Dict
+
 from entities_api.services.vector_store_service import VectorStoreService
 
 
@@ -7,7 +8,9 @@ class AssistantVectorWaves:
     def __init__(self, vector_service: VectorStoreService):
         self.vector_service = vector_service
 
-    def _initialize_core_waves(self, assistant_id: str, user_id: str) -> Dict[str, dict]:
+    def _initialize_core_waves(
+        self, assistant_id: str, user_id: str
+    ) -> Dict[str, dict]:
         """Create and associate core vector stores with the assistant"""
 
         waves_config = {

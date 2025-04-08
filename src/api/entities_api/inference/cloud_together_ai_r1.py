@@ -37,7 +37,9 @@ class TogetherR1Inference(BaseInference):
 
     def _cache_message_retrieval(self, thread_id, system_message):
         """LRU-cached message retrieval."""
-        return self.message_service.get_formatted_messages(thread_id, system_message=system_message)
+        return self.message_service.get_formatted_messages(
+            thread_id, system_message=system_message
+        )
 
     def normalize_roles(self, conversation_history):
         """Reuse parent class normalization."""
@@ -66,7 +68,9 @@ class TogetherR1Inference(BaseInference):
 
         request_payload = {
             "model": model,
-            "messages": self._set_up_context_window(assistant_id, thread_id, trunk=True),
+            "messages": self._set_up_context_window(
+                assistant_id, thread_id, trunk=True
+            ),
             "max_tokens": None,
             "temperature": 0.6,
             "top_p": 0.95,

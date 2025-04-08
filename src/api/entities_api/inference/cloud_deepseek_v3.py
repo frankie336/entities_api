@@ -1,7 +1,7 @@
 import json
-import time
 import os
-from typing import Dict, Any, List
+import time
+from typing import Any, Dict, List
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -51,10 +51,14 @@ class DeepSeekV3Cloud(BaseInference):
         return super()._set_up_context_window(assistant_id, thread_id, trunk=True)
 
     def finalize_conversation(self, assistant_reply, thread_id, assistant_id, run_id):
-        return super().finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
+        return super().finalize_conversation(
+            assistant_reply, thread_id, assistant_id, run_id
+        )
 
     def _process_platform_tool_calls(self, thread_id, assistant_id, content, run_id):
-        return super()._process_platform_tool_calls(thread_id, assistant_id, content, run_id)
+        return super()._process_platform_tool_calls(
+            thread_id, assistant_id, content, run_id
+        )
 
     def _process_tool_calls(self, thread_id, assistant_id, content, run_id):
         return super()._process_tool_calls(thread_id, assistant_id, content, run_id)
@@ -73,7 +77,9 @@ class DeepSeekV3Cloud(BaseInference):
         try:
             stream_response = self.deepseek_client.chat.completions.create(
                 model=model,
-                messages=self._set_up_context_window(assistant_id, thread_id, trunk=True),
+                messages=self._set_up_context_window(
+                    assistant_id, thread_id, trunk=True
+                ),
                 stream=True,
                 temperature=0.6,
             )
@@ -84,7 +90,9 @@ class DeepSeekV3Cloud(BaseInference):
 
             for chunk in stream_response:
                 logging_utility.debug("Raw chunk received: %s", chunk)
-                reasoning_chunk = getattr(chunk.choices[0].delta, "reasoning_content", "")
+                reasoning_chunk = getattr(
+                    chunk.choices[0].delta, "reasoning_content", ""
+                )
 
                 if reasoning_chunk:
                     reasoning_content += reasoning_chunk
@@ -94,7 +102,9 @@ class DeepSeekV3Cloud(BaseInference):
                 if content_chunk:
                     assistant_reply += content_chunk
                     accumulated_content += content_chunk
-                    yield json.dumps({"type": "content", "content": content_chunk}) + "\n"
+                    yield json.dumps(
+                        {"type": "content", "content": content_chunk}
+                    ) + "\n"
 
                 time.sleep(0.01)
 
@@ -135,7 +145,9 @@ class DeepSeekV3Cloud(BaseInference):
         try:
             stream_response = self.deepseek_client.chat.completions.create(
                 model=model,
-                messages=self._set_up_context_window(assistant_id, thread_id, trunk=True),
+                messages=self._set_up_context_window(
+                    assistant_id, thread_id, trunk=True
+                ),
                 stream=True,
                 temperature=0.6,
                 # tools=tools
@@ -151,7 +163,9 @@ class DeepSeekV3Cloud(BaseInference):
                 logging_utility.debug("Raw chunk received: %s", chunk)
 
                 # Process reasoning tokens as before.
-                reasoning_chunk = getattr(chunk.choices[0].delta, "reasoning_content", "")
+                reasoning_chunk = getattr(
+                    chunk.choices[0].delta, "reasoning_content", ""
+                )
                 if reasoning_chunk:
                     reasoning_content += reasoning_chunk
                     yield json.dumps({"type": "reasoning", "content": reasoning_chunk})
@@ -166,7 +180,9 @@ class DeepSeekV3Cloud(BaseInference):
                     # 1) Check for partial code-interpreter match and exclude prior characters
                     # ---------------------------------------------------
                     if not code_mode:
-                        partial_match = self.parse_code_interpreter_partial(accumulated_content)
+                        partial_match = self.parse_code_interpreter_partial(
+                            accumulated_content
+                        )
                         if partial_match:
                             full_match = partial_match.get("full_match")
                             if full_match:
@@ -180,7 +196,9 @@ class DeepSeekV3Cloud(BaseInference):
                             code_mode = True
                             code_buffer = partial_match.get("code", "")
                             # Emit the start-of-code block marker.
-                            yield json.dumps({"type": "hot_code", "content": "```python\n"})
+                            yield json.dumps(
+                                {"type": "hot_code", "content": "```python\n"}
+                            )
                             # Do NOT yield the code_buffer from the partial match.
                             continue
 
@@ -193,15 +211,21 @@ class DeepSeekV3Cloud(BaseInference):
                             newline_pos = code_buffer.find("\n") + 1
                             line_chunk = code_buffer[:newline_pos]
                             code_buffer = code_buffer[newline_pos:]
-                            yield json.dumps({"type": "hot_code", "content": line_chunk})
+                            yield json.dumps(
+                                {"type": "hot_code", "content": line_chunk}
+                            )
                             break
                         if len(code_buffer) > 100:
-                            yield json.dumps({"type": "hot_code", "content": code_buffer})
+                            yield json.dumps(
+                                {"type": "hot_code", "content": code_buffer}
+                            )
                             code_buffer = ""
                         continue
 
                     # If not in code mode, yield content as normal.
-                    yield json.dumps({"type": "content", "content": content_chunk}) + "\n"
+                    yield json.dumps(
+                        {"type": "content", "content": content_chunk}
+                    ) + "\n"
 
                 time.sleep(0.01)
 
@@ -224,7 +248,9 @@ class DeepSeekV3Cloud(BaseInference):
             # ---------------------------------------------------
             # Handle saving to vector store!
             # ---------------------------------------------------
-            vector_store_id = self.get_vector_store_id_for_assistant(assistant_id=assistant_id)
+            vector_store_id = self.get_vector_store_id_for_assistant(
+                assistant_id=assistant_id
+            )
             user_message = self.message_service.retrieve_message(message_id=message_id)
             self.vector_store_service.store_message_in_vector_store(
                 message=user_message, vector_store_id=vector_store_id, role="user"
@@ -235,7 +261,9 @@ class DeepSeekV3Cloud(BaseInference):
             # ---------------------------------------------------
             if not self.get_tool_response_state():
                 self.vector_store_service.store_message_in_vector_store(
-                    message=assistant_message, vector_store_id=vector_store_id, role="assistant"
+                    message=assistant_message,
+                    vector_store_id=vector_store_id,
+                    role="assistant",
                 )
 
         # ---------------------------------------------------
@@ -243,8 +271,12 @@ class DeepSeekV3Cloud(BaseInference):
         # ---------------------------------------------------
         if accumulated_content:
             json_accumulated_content = self.ensure_valid_json(text=accumulated_content)
-            function_call = self.is_valid_function_call_response(json_data=json_accumulated_content)
-            complex_vector_search = self.is_complex_vector_search(data=json_accumulated_content)
+            function_call = self.is_valid_function_call_response(
+                json_data=json_accumulated_content
+            )
+            complex_vector_search = self.is_complex_vector_search(
+                data=json_accumulated_content
+            )
 
             if function_call or complex_vector_search:
                 self.set_tool_response_state(True)
@@ -259,7 +291,10 @@ class DeepSeekV3Cloud(BaseInference):
             tool_invocation_in_multi_line_text = self.extract_tool_invocations(
                 text=accumulated_content
             )
-            if tool_invocation_in_multi_line_text and not self.get_tool_response_state():
+            if (
+                tool_invocation_in_multi_line_text
+                and not self.get_tool_response_state()
+            ):
                 self.set_tool_response_state(True)
                 self.set_function_call_state(tool_invocation_in_multi_line_text[0])
 
@@ -298,7 +333,10 @@ class DeepSeekV3Cloud(BaseInference):
 
                     # Stream the output to the response:
                     for chunk in self.stream_function_call_output(
-                        thread_id=thread_id, run_id=run_id, model=model, assistant_id=assistant_id
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        model=model,
+                        assistant_id=assistant_id,
                     ):
                         yield chunk
 

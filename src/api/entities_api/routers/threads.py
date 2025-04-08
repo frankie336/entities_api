@@ -1,3 +1,4 @@
+from entities_common import ValidationInterface
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -5,9 +6,6 @@ from entities_api.dependencies import get_db
 from entities_api.serializers import ThreadCreate
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.thread_service import ThreadService
-
-
-from entities_common import ValidationInterface
 
 validation = ValidationInterface()
 
@@ -27,7 +25,9 @@ def create_thread(thread: ThreadCreate, db: Session = Depends(get_db)):
         logging_utility.error(f"HTTP error occurred while creating thread: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while creating thread: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while creating thread: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
@@ -40,7 +40,9 @@ def get_thread(thread_id: str, db: Session = Depends(get_db)):
         logging_utility.info(f"Thread retrieved successfully with ID: {thread_id}")
         return thread
     except HTTPException as e:
-        logging_utility.error(f"HTTP error occurred while retrieving thread {thread_id}: {str(e)}")
+        logging_utility.error(
+            f"HTTP error occurred while retrieving thread {thread_id}: {str(e)}"
+        )
         raise e
     except Exception as e:
         logging_utility.error(
@@ -58,7 +60,9 @@ def delete_thread(thread_id: str, db: Session = Depends(get_db)):
         logging_utility.info(f"Thread deleted successfully with ID: {thread_id}")
         return {"detail": "Thread deleted successfully"}
     except HTTPException as e:
-        logging_utility.error(f"HTTP error occurred while deleting thread {thread_id}: {str(e)}")
+        logging_utility.error(
+            f"HTTP error occurred while deleting thread {thread_id}: {str(e)}"
+        )
         raise e
     except Exception as e:
         logging_utility.error(

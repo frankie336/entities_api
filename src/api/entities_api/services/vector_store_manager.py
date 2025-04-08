@@ -1,17 +1,15 @@
 # entities_api/services/vector_store_manager.py
 import time
 import uuid
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
-from entities_api.interfaces.base_vector_store import (
-    BaseVectorStore,
-    StoreExistsError,
-    VectorStoreError,
-    StoreNotFoundError,
-)
+from entities_api.interfaces.base_vector_store import (BaseVectorStore,
+                                                       StoreExistsError,
+                                                       StoreNotFoundError,
+                                                       VectorStoreError)
 from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
@@ -76,13 +74,18 @@ class VectorStoreManager(BaseVectorStore):
             for i, vec in enumerate(vectors):
                 if len(vec) != expected_size:
                     raise ValueError(
-                        f"Vector {i} has invalid size {len(vec)} " f"(expected {expected_size})"
+                        f"Vector {i} has invalid size {len(vec)} "
+                        f"(expected {expected_size})"
                     )
                 if not all(isinstance(v, float) for v in vec):
                     raise TypeError(f"Vector {i} contains non-float values")
 
     def add_to_store(
-        self, store_name: str, texts: List[str], vectors: List[List[float]], metadata: List[dict]
+        self,
+        store_name: str,
+        texts: List[str],
+        vectors: List[List[float]],
+        metadata: List[dict],
     ):
         """Validate vectors before insertion"""
         self._validate_vectors(vectors)
@@ -93,7 +96,10 @@ class VectorStoreManager(BaseVectorStore):
                 models.PointStruct(
                     id=str(uuid.uuid4()),  # Generate unique IDs
                     vector=vector,
-                    payload={"text": text, "metadata": meta},  # Store metadata under dedicated key
+                    payload={
+                        "text": text,
+                        "metadata": meta,
+                    },  # Store metadata under dedicated key
                 )
                 for text, vector, meta in zip(texts, vectors, metadata)
             ],
@@ -108,7 +114,8 @@ class VectorStoreManager(BaseVectorStore):
         for i, vec in enumerate(vectors):
             if len(vec) != expected_size:
                 raise ValueError(
-                    f"Vector {i} has invalid size {len(vec)} " f"(expected {expected_size})"
+                    f"Vector {i} has invalid size {len(vec)} "
+                    f"(expected {expected_size})"
                 )
             if not all(isinstance(v, float) for v in vec):
                 raise TypeError(f"Vector {i} contains non-float values")
@@ -172,14 +179,19 @@ class VectorStoreManager(BaseVectorStore):
                     filter=models.Filter(
                         must=[
                             models.FieldCondition(
-                                key="metadata.source", match=models.MatchValue(value=file_path)
+                                key="metadata.source",
+                                match=models.MatchValue(value=file_path),
                             )
                         ]
                     )
                 ),
             )
 
-            return {"deleted_file": file_path, "store_name": store_name, "status": "success"}
+            return {
+                "deleted_file": file_path,
+                "store_name": store_name,
+                "status": "success",
+            }
 
         except Exception as e:
             logging_utility.error(f"File deletion failed: {str(e)}")
@@ -195,7 +207,9 @@ class VectorStoreManager(BaseVectorStore):
         try:
             self.client.delete_collection(store_name)
             del self.active_stores[store_name]
-            logging_utility.info(f"Store '{store_name}' deleted successfully. Source: {__file__}")
+            logging_utility.info(
+                f"Store '{store_name}' deleted successfully. Source: {__file__}"
+            )
             return {"name": store_name, "status": "deleted"}
 
         except Exception as e:
@@ -206,7 +220,9 @@ class VectorStoreManager(BaseVectorStore):
 
     def get_store_info(self, store_name: str) -> dict:
         """Get detailed information about a vector store"""
-        logging_utility.info(f"Getting info for store '{store_name}'. Source: {__file__}")
+        logging_utility.info(
+            f"Getting info for store '{store_name}'. Source: {__file__}"
+        )
 
         if store_name not in self.active_stores:
             raise StoreNotFoundError(f"Store {store_name} not found")
@@ -231,7 +247,9 @@ class VectorStoreManager(BaseVectorStore):
 
     def list_store_files(self, store_name: str) -> List[str]:
         """List unique source files in a vector store"""
-        logging_utility.info(f"Listing files in store '{store_name}'. Source: {__file__}")
+        logging_utility.info(
+            f"Listing files in store '{store_name}'. Source: {__file__}"
+        )
 
         try:
             # Get all points with scroll API

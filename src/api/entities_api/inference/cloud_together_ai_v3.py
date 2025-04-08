@@ -4,7 +4,7 @@ import sys
 import time
 from abc import ABC
 from functools import lru_cache
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
 from dotenv import load_dotenv
 from together import Together  # Using the official Together SDK
@@ -62,7 +62,9 @@ class TogetherV3Inference(BaseInference, ABC):
 
     def _cache_message_retrieval(self, thread_id, system_message):
         """LRU-cached message retrieval."""
-        return self.message_service.get_formatted_messages(thread_id, system_message=system_message)
+        return self.message_service.get_formatted_messages(
+            thread_id, system_message=system_message
+        )
 
     def normalize_roles(self, conversation_history):
         """Reuse parent class normalization."""
@@ -75,10 +77,14 @@ class TogetherV3Inference(BaseInference, ABC):
         return super()._set_up_context_window(assistant_id, thread_id, trunk=True)
 
     def finalize_conversation(self, assistant_reply, thread_id, assistant_id, run_id):
-        return super().finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
+        return super().finalize_conversation(
+            assistant_reply, thread_id, assistant_id, run_id
+        )
 
     def _process_platform_tool_calls(self, thread_id, assistant_id, content, run_id):
-        return super()._process_platform_tool_calls(thread_id, assistant_id, content, run_id)
+        return super()._process_platform_tool_calls(
+            thread_id, assistant_id, content, run_id
+        )
 
     def _process_tool_calls(self, thread_id, assistant_id, content, run_id):
         return super()._process_tool_calls(thread_id, assistant_id, content, run_id)
@@ -110,7 +116,9 @@ class TogetherV3Inference(BaseInference, ABC):
 
         request_payload = {
             "model": model,
-            "messages": self._set_up_context_window(assistant_id, thread_id, trunk=True),
+            "messages": self._set_up_context_window(
+                assistant_id, thread_id, trunk=True
+            ),
             "max_tokens": None,
             "temperature": 0.6,
             "top_p": 0.95,
@@ -198,7 +206,9 @@ class TogetherV3Inference(BaseInference, ABC):
         """
         request_payload = {
             "model": model,
-            "messages": self._set_up_context_window(assistant_id, thread_id, trunk=True),
+            "messages": self._set_up_context_window(
+                assistant_id, thread_id, trunk=True
+            ),
             "max_tokens": None,
             "temperature": 0.5,
             "top_p": 0.95,
@@ -245,7 +255,9 @@ class TogetherV3Inference(BaseInference, ABC):
                 # 1) Check for partial code-interpreter match and exclude prior characters
                 # ---------------------------------------------------
                 if not code_mode:
-                    partial_match = self.parse_code_interpreter_partial(accumulated_content)
+                    partial_match = self.parse_code_interpreter_partial(
+                        accumulated_content
+                    )
                     if partial_match:
                         full_match = partial_match.get("full_match")
                         if full_match:
@@ -316,8 +328,12 @@ class TogetherV3Inference(BaseInference, ABC):
             # 4) Validate if the accumulated response is a properly formed tool response.
             # ---------------------------------------------------
             json_accumulated_content = self.ensure_valid_json(text=accumulated_content)
-            function_call = self.is_valid_function_call_response(json_data=json_accumulated_content)
-            complex_vector_search = self.is_complex_vector_search(data=json_accumulated_content)
+            function_call = self.is_valid_function_call_response(
+                json_data=json_accumulated_content
+            )
+            complex_vector_search = self.is_complex_vector_search(
+                data=json_accumulated_content
+            )
 
             if function_call or complex_vector_search:
                 self.set_tool_response_state(True)
@@ -332,7 +348,10 @@ class TogetherV3Inference(BaseInference, ABC):
             tool_invocation_in_multi_line_text = self.extract_tool_invocations(
                 text=accumulated_content
             )
-            if tool_invocation_in_multi_line_text and not self.get_tool_response_state():
+            if (
+                tool_invocation_in_multi_line_text
+                and not self.get_tool_response_state()
+            ):
                 self.set_tool_response_state(True)
                 self.set_function_call_state(tool_invocation_in_multi_line_text[0])
 
@@ -347,7 +366,9 @@ class TogetherV3Inference(BaseInference, ABC):
             # ---------------------------------------------------
             # Handle saving to vector store!
             # ---------------------------------------------------
-            vector_store_id = self.get_vector_store_id_for_assistant(assistant_id=assistant_id)
+            vector_store_id = self.get_vector_store_id_for_assistant(
+                assistant_id=assistant_id
+            )
             user_message = self.message_service.retrieve_message(message_id=message_id)
             self.vector_store_service.store_message_in_vector_store(
                 message=user_message, vector_store_id=vector_store_id, role="user"
@@ -357,7 +378,9 @@ class TogetherV3Inference(BaseInference, ABC):
             # ---------------------------------------------------
             if not self.get_tool_response_state():
                 self.vector_store_service.store_message_in_vector_store(
-                    message=assistant_message, vector_store_id=vector_store_id, role="assistant"
+                    message=assistant_message,
+                    vector_store_id=vector_store_id,
+                    role="assistant",
                 )
 
         except Exception as e:
@@ -397,7 +420,10 @@ class TogetherV3Inference(BaseInference, ABC):
 
                     # Stream the output to the response:
                     for chunk in self.stream_function_call_output(
-                        thread_id=thread_id, model=model, run_id=run_id, assistant_id=assistant_id
+                        thread_id=thread_id,
+                        model=model,
+                        run_id=run_id,
+                        assistant_id=assistant_id,
                     ):
                         yield chunk
 

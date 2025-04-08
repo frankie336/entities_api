@@ -1,8 +1,10 @@
 import os
 import time
+
 import pytest
 from fastapi import HTTPException
-from sandbox.services.signed_url_service import SignedUrlService, SignedUrlRequest
+from sandbox.services.signed_url_service import (SignedUrlRequest,
+                                                 SignedUrlService)
 
 
 @pytest.fixture
@@ -123,7 +125,9 @@ def test_validate_signed_url_file_not_found(signed_url_service):
 
 def test_rate_limiting(signed_url_service, test_file):
     # Test rate limiting
-    request = SignedUrlRequest(filename=os.path.basename(test_file), client_ip="192.168.1.1")
+    request = SignedUrlRequest(
+        filename=os.path.basename(test_file), client_ip="192.168.1.1"
+    )
 
     # Generate URLs until rate limit is exceeded
     for _ in range(100):
@@ -140,7 +144,9 @@ def test_rate_limiting(signed_url_service, test_file):
 def test_custom_expiry(signed_url_service, test_file):
     # Test custom expiry time
     custom_expiry = 60  # 1 minute
-    request = SignedUrlRequest(filename=os.path.basename(test_file), custom_expiry=custom_expiry)
+    request = SignedUrlRequest(
+        filename=os.path.basename(test_file), custom_expiry=custom_expiry
+    )
     signed_url = signed_url_service.generate_signed_url(request)
 
     # Extract expiry from the signed URL
@@ -153,7 +159,9 @@ def test_custom_expiry(signed_url_service, test_file):
 def test_max_expiry(signed_url_service, test_file):
     # Test maximum expiry time
     custom_expiry = 100000  # Exceeds the default max_expiry of 86400
-    request = SignedUrlRequest(filename=os.path.basename(test_file), custom_expiry=custom_expiry)
+    request = SignedUrlRequest(
+        filename=os.path.basename(test_file), custom_expiry=custom_expiry
+    )
     signed_url = signed_url_service.generate_signed_url(request)
 
     # Extract expiry from the signed URL

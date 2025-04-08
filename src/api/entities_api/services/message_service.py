@@ -1,8 +1,8 @@
 import json
 import time
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
-from entities_common import ValidationInterface, UtilsInterface
+from entities_common import UtilsInterface, ValidationInterface
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
@@ -20,7 +20,9 @@ logging_utility = LoggingUtility()
 class MessageService:
     def __init__(self, db: Session):
         self.db = db
-        self.message_chunks: Dict[str, List[str]] = {}  # Temporary storage for message chunks
+        self.message_chunks: Dict[str, List[str]] = (
+            {}
+        )  # Temporary storage for message chunks
         logging_utility.info(
             f"Initialized MessageService with database session. Source: {__file__}"
         )
@@ -36,7 +38,9 @@ class MessageService:
         # Check if thread exists
         db_thread = self.db.query(Thread).filter(Thread.id == message.thread_id).first()
         if not db_thread:
-            logging_utility.error(f"Thread not found: {message.thread_id}. Source: {__file__}")
+            logging_utility.error(
+                f"Thread not found: {message.thread_id}. Source: {__file__}"
+            )
             raise HTTPException(status_code=404, detail="Thread not found")
 
         # Create the message
@@ -67,7 +71,9 @@ class MessageService:
             )
         except Exception as e:
             self.db.rollback()
-            logging_utility.error(f"Error creating message: {str(e)}. Source: {__file__}")
+            logging_utility.error(
+                f"Error creating message: {str(e)}. Source: {__file__}"
+            )
             raise HTTPException(status_code=500, detail="Failed to create message")
 
         return MessageRead(
@@ -92,11 +98,15 @@ class MessageService:
         """
         Retrieve a message by its ID.
         """
-        logging_utility.info(f"Retrieving message with id={message_id}. Source: {__file__}")
+        logging_utility.info(
+            f"Retrieving message with id={message_id}. Source: {__file__}"
+        )
 
         db_message = self.db.query(Message).filter(Message.id == message_id).first()
         if not db_message:
-            logging_utility.error(f"Message not found: {message_id}. Source: {__file__}")
+            logging_utility.error(
+                f"Message not found: {message_id}. Source: {__file__}"
+            )
             raise HTTPException(status_code=404, detail="Message not found")
 
         logging_utility.info(
@@ -270,7 +280,9 @@ class MessageService:
             .all()
         )
 
-        formatted_messages = [{"role": "system", "content": "Be as kind, intelligent, and helpful"}]
+        formatted_messages = [
+            {"role": "system", "content": "Be as kind, intelligent, and helpful"}
+        ]
 
         for db_message in db_messages:
             if db_message.role == "tool" and db_message.tool_id:
@@ -282,7 +294,9 @@ class MessageService:
                     }
                 )
             else:
-                formatted_messages.append({"role": db_message.role, "content": db_message.content})
+                formatted_messages.append(
+                    {"role": db_message.role, "content": db_message.content}
+                )
 
         logging_utility.info(
             f"Retrieved {len(formatted_messages)} formatted messages for thread_id={thread_id}. Source: {__file__}"
@@ -300,7 +314,9 @@ class MessageService:
         # Check if thread exists
         db_thread = self.db.query(Thread).filter(Thread.id == message.thread_id).first()
         if not db_thread:
-            logging_utility.error(f"Thread not found: {message.thread_id}. Source: {__file__}")
+            logging_utility.error(
+                f"Thread not found: {message.thread_id}. Source: {__file__}"
+            )
             raise HTTPException(status_code=404, detail="Thread not found")
 
         # Create the message
@@ -332,7 +348,9 @@ class MessageService:
             )
         except Exception as e:
             self.db.rollback()
-            logging_utility.error(f"Error creating message: {str(e)}. Source: {__file__}")
+            logging_utility.error(
+                f"Error creating message: {str(e)}. Source: {__file__}"
+            )
             raise HTTPException(status_code=500, detail="Failed to create message")
 
         return MessageRead(

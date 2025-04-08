@@ -1,9 +1,10 @@
 # entities_api/clients/client_actions_client.py
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
+
 import httpx
+from entities_common import UtilsInterface, ValidationInterface
 from pydantic import ValidationError
-from entities_common import ValidationInterface, UtilsInterface
 
 validation = ValidationInterface()
 
@@ -129,7 +130,9 @@ class ActionsClient:
         """Update an action's status and result."""
         try:
             # Create the payload using the ActionUpdate schema
-            payload = validation.ActionUpdate(status=status, result=result).dict(exclude_none=True)
+            payload = validation.ActionUpdate(status=status, result=result).dict(
+                exclude_none=True
+            )
             logging_utility.debug("Payload for action update: %s", payload)
 
             # Ensure the URL includes the /routers prefix
@@ -146,7 +149,9 @@ class ActionsClient:
             logging_utility.error("HTTP error during action update: %s", str(e))
             raise ValueError(f"HTTP error during action update: {str(e)}")
 
-    def get_actions_by_status(self, run_id: str, status: str = "pending") -> List[Dict[str, Any]]:
+    def get_actions_by_status(
+        self, run_id: str, status: str = "pending"
+    ) -> List[Dict[str, Any]]:
         """Retrieve actions by run_id and status."""
         try:
             logging_utility.debug(
@@ -166,7 +171,9 @@ class ActionsClient:
                 logging_utility.error(
                     f"Unexpected content type: {response.headers.get('Content-Type')}"
                 )
-                raise ValueError(f"Unexpected content type: {response.headers.get('Content-Type')}")
+                raise ValueError(
+                    f"Unexpected content type: {response.headers.get('Content-Type')}"
+                )
 
             logging_utility.info(
                 f"Actions retrieved successfully for run_id: {run_id} with status: {status}"
@@ -203,5 +210,7 @@ class ActionsClient:
             return response_data  # Return raw JSON data
 
         except httpx.HTTPStatusError as e:
-            logging_utility.error("HTTP error during pending actions retrieval: %s", str(e))
+            logging_utility.error(
+                "HTTP error during pending actions retrieval: %s", str(e)
+            )
             raise ValueError(f"HTTP error during pending actions retrieval: {str(e)}")

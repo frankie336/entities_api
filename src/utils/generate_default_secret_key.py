@@ -1,5 +1,5 @@
-import os
 import base64
+import os
 
 
 def generate_default_secret_key(length: int = 32) -> str:

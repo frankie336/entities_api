@@ -1,10 +1,13 @@
 import time
 from typing import List
-from entities_common import ValidationInterface, UtilsInterface
+
+from entities_common import UtilsInterface, ValidationInterface
 from fastapi import HTTPException
 from pydantic import parse_obj_as
 from sqlalchemy.orm import Session
-from entities_api.models.models import Run, StatusEnum  # Ensure Run is imported
+
+from entities_api.models.models import (Run,  # Ensure Run is imported
+                                        StatusEnum)
 from entities_api.services.logging_service import LoggingUtility
 
 validator = ValidationInterface()
@@ -113,15 +116,20 @@ class RunService:
                 self.logger.error("Run with ID %s not found", run_id)
                 raise HTTPException(status_code=404, detail="Run not found")
 
-            self.logger.info("Run with ID %s found. Current status: %s", run_id, run.status)
+            self.logger.info(
+                "Run with ID %s found. Current status: %s", run_id, run.status
+            )
 
             # Check if the run can be cancelled
             if run.status in [StatusEnum.completed, StatusEnum.cancelled]:
                 self.logger.warning(
-                    "Cannot cancel run with ID %s because it is already %s", run_id, run.status
+                    "Cannot cancel run with ID %s because it is already %s",
+                    run_id,
+                    run.status,
                 )
                 raise HTTPException(
-                    status_code=400, detail="Cannot cancel a completed or already cancelled run"
+                    status_code=400,
+                    detail="Cannot cancel a completed or already cancelled run",
                 )
 
             # Set the status to 'cancelling'
@@ -144,6 +152,10 @@ class RunService:
             return run
 
         except Exception as e:
-            self.logger.error("Failed to cancel run with ID %s. Error: %s", run_id, str(e))
+            self.logger.error(
+                "Failed to cancel run with ID %s. Error: %s", run_id, str(e)
+            )
             self.db.rollback()  # Rollback in case of error
-            raise HTTPException(status_code=500, detail=f"Failed to cancel run: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to cancel run: {str(e)}"
+            )

@@ -4,17 +4,19 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from http.client import HTTPException
 from pathlib import Path
-from typing import Any
-from typing import List, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
-from entities_common import ValidationInterface, UtilsInterface
+from entities_common import UtilsInterface, ValidationInterface
 from qdrant_client.http import models
 from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker, joinedload
-from tenacity import retry, stop_after_attempt, wait_random_exponential, retry_if_exception_type
+from sqlalchemy.orm import joinedload, sessionmaker
+from tenacity import (retry, retry_if_exception_type, stop_after_attempt,
+                      wait_random_exponential)
+
 from entities_api.constants.platform import DIRECT_DATABASE_URL
-from entities_api.interfaces.base_vector_store import StoreNotFoundError, VectorStoreError
-from entities_api.models.models import VectorStore, Base, Assistant
+from entities_api.interfaces.base_vector_store import (StoreNotFoundError,
+                                                       VectorStoreError)
+from entities_api.models.models import Assistant, Base, VectorStore
 from entities_api.services.file_processor import FileProcessor
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.vector_store_manager import VectorStoreManager
@@ -31,7 +33,9 @@ class VectorStoreService:
         self.api_key = api_key
 
         self.engine = create_engine(DIRECT_DATABASE_URL, echo=True)
-        self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+        self.SessionLocal = sessionmaker(
+            autocommit=False, autoflush=False, bind=self.engine
+        )
 
         Base.metadata.create_all(bind=self.engine)
 
@@ -85,7 +89,11 @@ class VectorStoreService:
             raise
 
     def add_to_store(
-        self, store_name: str, texts: List[str], vectors: List[List[float]], metadata: List[dict]
+        self,
+        store_name: str,
+        texts: List[str],
+        vectors: List[List[float]],
+        metadata: List[dict],
     ) -> dict:
         """Batch insert with improved error logging."""
         try:
@@ -201,7 +209,9 @@ class VectorStoreService:
             # Process and enhance results
             processed_results = []
             for result in raw_results:
-                processed = self._process_result(result, store.id, score_boosts, explain)
+                processed = self._process_result(
+                    result, store.id, score_boosts, explain
+                )
                 processed_results.append(processed)
 
             return processed_results
@@ -219,10 +229,14 @@ class VectorStoreService:
             # Handle logical operators
             if key.startswith("$"):
                 if key == "$or":
-                    or_conditions = [self._parse_advanced_filters(cond) for cond in value]
+                    or_conditions = [
+                        self._parse_advanced_filters(cond) for cond in value
+                    ]
                     conditions.append(models.Filter(should=or_conditions))
                 elif key == "$and":
-                    and_conditions = [self._parse_advanced_filters(cond) for cond in value]
+                    and_conditions = [
+                        self._parse_advanced_filters(cond) for cond in value
+                    ]
                     conditions.append(models.Filter(must=and_conditions))
                 continue
 
@@ -238,7 +252,8 @@ class VectorStoreService:
                     elif op == "$contains":
                         conditions.append(
                             models.FieldCondition(
-                                key=f"metadata.{key}", match=models.MatchAny(any=[op_value])
+                                key=f"metadata.{key}",
+                                match=models.MatchAny(any=[op_value]),
                             )
                         )
             else:
@@ -262,7 +277,9 @@ class VectorStoreService:
                 value = result["metadata"]
                 if "." in field:
                     for part in field.split("."):
-                        value = value.get(part, None) if isinstance(value, dict) else None
+                        value = (
+                            value.get(part, None) if isinstance(value, dict) else None
+                        )
                         if value is None:
                             break
 
@@ -297,7 +314,11 @@ class VectorStoreService:
         return list(result.get("metadata", {}).keys())
 
     def batch_search(
-        self, queries: List[str], store_name: str, top_k: int = 5, filters: Optional[Dict] = None
+        self,
+        queries: List[str],
+        store_name: str,
+        top_k: int = 5,
+        filters: Optional[Dict] = None,
     ) -> Dict[str, List[validator.VectorStoreSearchResult]]:
         """
         Process multiple searches in parallel.
@@ -353,7 +374,9 @@ class VectorStoreService:
                     store.status = validator.StatusEnum.deleted
                     store.updated_at = int(time.time())
                     session.commit()
-                logging_utility.info(f"Deleted store '{store_name}', permanent={permanent}")
+                logging_utility.info(
+                    f"Deleted store '{store_name}', permanent={permanent}"
+                )
                 return {
                     "store_name": store_name,
                     "status": "deleted",
@@ -412,7 +435,9 @@ class VectorStoreService:
                 except Exception as db_error:
                     session.rollback()
                     raise VectorStoreError(f"Database update failed: {str(db_error)}")
-            logging_utility.info(f"Deleted file '{file_path}' from store '{store_name}'")
+            logging_utility.info(
+                f"Deleted file '{file_path}' from store '{store_name}'"
+            )
             return result
         except Exception as e:
             logging_utility.error(f"File deletion failed: {str(e)}")
@@ -440,21 +465,27 @@ class VectorStoreService:
         return validator.ProcessOutput(**result)
 
     @retry(stop=stop_after_attempt(3), wait=wait_random_exponential(min=1, max=5))
-    def attach_vector_store_to_assistant(self, vector_store_id: str, assistant_id: str) -> bool:
+    def attach_vector_store_to_assistant(
+        self, vector_store_id: str, assistant_id: str
+    ) -> bool:
         with self.SessionLocal() as session:
             # Load both objects in the same session
             vector_store = session.get(VectorStore, vector_store_id)
             assistant = session.get(Assistant, assistant_id)
 
             if not vector_store:
-                logging_utility.warning("Vector store with ID %s not found.", vector_store_id)
+                logging_utility.warning(
+                    "Vector store with ID %s not found.", vector_store_id
+                )
                 raise HTTPException(
-                    status_code=404, detail=f"Vector store with id {vector_store_id} not found"
+                    status_code=404,
+                    detail=f"Vector store with id {vector_store_id} not found",
                 )
             if not assistant:
                 logging_utility.warning("Assistant with ID %s not found.", assistant_id)
                 raise HTTPException(
-                    status_code=404, detail=f"Assistant with id {assistant_id} not found"
+                    status_code=404,
+                    detail=f"Assistant with id {assistant_id} not found",
                 )
 
             # Append and commit in the same session
@@ -468,7 +499,9 @@ class VectorStoreService:
             return True
 
     @retry(stop=stop_after_attempt(3), wait=wait_random_exponential(min=1, max=5))
-    def detach_vector_store_from_assistant(self, vector_store_id: str, assistant_id: str) -> bool:
+    def detach_vector_store_from_assistant(
+        self, vector_store_id: str, assistant_id: str
+    ) -> bool:
         with self.SessionLocal() as session:
             # Load both objects in the same session
             assistant = session.get(Assistant, assistant_id)
@@ -477,12 +510,16 @@ class VectorStoreService:
             if not assistant:
                 logging_utility.warning("Assistant with ID %s not found.", assistant_id)
                 raise HTTPException(
-                    status_code=404, detail=f"Assistant with id {assistant_id} not found"
+                    status_code=404,
+                    detail=f"Assistant with id {assistant_id} not found",
                 )
             if not vector_store:
-                logging_utility.warning("Vector store with ID %s not found.", vector_store_id)
+                logging_utility.warning(
+                    "Vector store with ID %s not found.", vector_store_id
+                )
                 raise HTTPException(
-                    status_code=404, detail=f"Vector store with id {vector_store_id} not found"
+                    status_code=404,
+                    detail=f"Vector store with id {vector_store_id} not found",
                 )
 
             # Ensure the vector store is actually linked to the assistant
@@ -504,7 +541,9 @@ class VectorStoreService:
             )
             return True
 
-    def get_vector_stores_for_assistant(self, assistant_id: str) -> List[validator.VectorStoreRead]:
+    def get_vector_stores_for_assistant(
+        self, assistant_id: str
+    ) -> List[validator.VectorStoreRead]:
         """
         Retrieve all vector stores associated with a given assistant.
         """
@@ -521,7 +560,10 @@ class VectorStoreService:
                 raise HTTPException(status_code=404, detail="Assistant not found")
 
             # Convert each VectorStore ORM object into a Pydantic model.
-            return [validator.VectorStoreRead.model_validate(vs) for vs in assistant.vector_stores]
+            return [
+                validator.VectorStoreRead.model_validate(vs)
+                for vs in assistant.vector_stores
+            ]
 
     def get_stores_by_user(self, user_id: str) -> List[validator.VectorStoreRead]:
         """
@@ -536,12 +578,20 @@ class VectorStoreService:
         try:
             with self.SessionLocal() as session:
                 # Query the database for stores belonging to the user
-                stores = session.query(VectorStore).filter(VectorStore.user_id == user_id).all()
+                stores = (
+                    session.query(VectorStore)
+                    .filter(VectorStore.user_id == user_id)
+                    .all()
+                )
 
                 # Convert the ORM objects to Pydantic models
-                return [validator.VectorStoreRead.model_validate(store) for store in stores]
+                return [
+                    validator.VectorStoreRead.model_validate(store) for store in stores
+                ]
         except Exception as e:
-            logging_utility.error(f"Error retrieving stores for user {user_id}: {str(e)}")
+            logging_utility.error(
+                f"Error retrieving stores for user {user_id}: {str(e)}"
+            )
             raise
 
     def health_check(self, deep_check: bool = False) -> Dict[str, Any]:
@@ -581,7 +631,9 @@ class VectorStoreService:
                 collections = self.vector_manager.client.get_collections()
                 status["collection_counts"] = {
                     "total": len(collections.collections),
-                    "active": sum(1 for c in collections.collections if c.status == "green"),
+                    "active": sum(
+                        1 for c in collections.collections if c.status == "green"
+                    ),
                 }
 
                 # File storage check
@@ -627,10 +679,14 @@ class VectorStoreService:
             if role not in ["user", "assistant"]:
                 raise ValueError(f"Invalid message role: {role}")
 
-            formatted_message = self.format_message_for_storage(message=message, role=role)
+            formatted_message = self.format_message_for_storage(
+                message=message, role=role
+            )
             logging_utility.debug("Formatted message: %s", formatted_message)
 
-            embedding = self.file_processor.embedding_model.encode(formatted_message["text"])
+            embedding = self.file_processor.embedding_model.encode(
+                formatted_message["text"]
+            )
             vector_as_floats = [float(val) for val in embedding]
 
             self.add_to_store(

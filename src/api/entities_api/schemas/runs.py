@@ -1,12 +1,11 @@
 from datetime import datetime
 from enum import Enum
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
 from entities_api.schemas.actions import ActionRead
-from entities_api.schemas.tools import Tool
-from entities_api.schemas.tools import ToolRead
+from entities_api.schemas.tools import Tool, ToolRead
 
 
 class Run(BaseModel):

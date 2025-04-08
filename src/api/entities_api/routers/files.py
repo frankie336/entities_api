@@ -5,7 +5,7 @@ from datetime import datetime
 from urllib.parse import urlencode
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -26,7 +26,9 @@ def verify_signature(
 ) -> bool:
     secret_key = os.getenv("SIGNED_URL_SECRET", "default_secret_key")
     data = f"{file_id}:{expires}:{use_real_filename}"
-    computed_signature = hmac.new(secret_key.encode(), data.encode(), hashlib.sha256).hexdigest()
+    computed_signature = hmac.new(
+        secret_key.encode(), data.encode(), hashlib.sha256
+    ).hexdigest()
     return hmac.compare_digest(computed_signature, signature)
 
 
@@ -51,7 +53,9 @@ def download_file(
     file_service = FileService(db)
     file_stream, filename, mime_type = file_service.get_file_with_metadata(file_id)
 
-    is_inline = mime_type.startswith(("image/", "text/")) or mime_type == "application/pdf"
+    is_inline = (
+        mime_type.startswith(("image/", "text/")) or mime_type == "application/pdf"
+    )
     disposition_type = "inline" if is_inline else "attachment"
 
     headers = {
@@ -70,7 +74,9 @@ def generate_signed_url(
     use_real_filename: bool = Query(False),
     db: Session = Depends(get_db),
 ):
-    logging_utility.info(f"Generating signed URL for file: {file_id} with TTL: {expires_in}s")
+    logging_utility.info(
+        f"Generating signed URL for file: {file_id} with TTL: {expires_in}s"
+    )
 
     file_record = db.query(File).filter(File.id == file_id).first()
     if not file_record:

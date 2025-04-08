@@ -1,7 +1,8 @@
 import logging
-from typing import List, Dict, Union
+from typing import Dict, List, Union
 
 from qdrant_client.http import models
+
 from entities_api.schemas.vectors import VectorStoreSearchResult
 from entities_api.services.vector_store_service import VectorStoreService
 
@@ -155,7 +156,8 @@ class VectorSearchHandler:
         if not collection_name:
             available = list(self.source_mapping.keys())
             raise ValueError(
-                f"No store found for source_type '{source_type}'. " f"Available types: {available}"
+                f"No store found for source_type '{source_type}'. "
+                f"Available types: {available}"
             )
         return collection_name
 
@@ -172,10 +174,14 @@ class VectorSearchHandler:
                     return self._handle_logical_operator(operator, condition[operator])
             return self._build_field_conditions(condition)
         elif isinstance(condition, list):
-            return models.Filter(must=[self._recursive_filter_builder(c) for c in condition])
+            return models.Filter(
+                must=[self._recursive_filter_builder(c) for c in condition]
+            )
         raise ValueError(f"Unsupported condition type: {type(condition)}")
 
-    def _handle_logical_operator(self, operator: str, conditions: List) -> models.Filter:
+    def _handle_logical_operator(
+        self, operator: str, conditions: List
+    ) -> models.Filter:
         """Process logical operators"""
         parsed_conditions = [self._recursive_filter_builder(c) for c in conditions]
         if operator == "$and":
@@ -195,7 +201,9 @@ class VectorSearchHandler:
                 key=f"metadata.{field}", match=models.MatchValue(value=condition)
             )
 
-    def _parse_comparison_operators(self, field: str, operators: Dict) -> models.FieldCondition:
+    def _parse_comparison_operators(
+        self, field: str, operators: Dict
+    ) -> models.FieldCondition:
         """Process comparison operators"""
         range_params = {}
         match_params = {}

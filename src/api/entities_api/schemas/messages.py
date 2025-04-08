@@ -1,8 +1,7 @@
 from enum import Enum
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict
-from pydantic import validator
+from pydantic import BaseModel, ConfigDict, validator
 
 
 # Define the MessageRole enum
@@ -53,7 +52,9 @@ class ToolMessageCreate(BaseModel):
     content: str
 
     model_config = ConfigDict(
-        json_schema_extra={"example": {"content": "This is the content of the tool message."}}
+        json_schema_extra={
+            "example": {"content": "This is the content of the tool message."}
+        }
     )
 
 

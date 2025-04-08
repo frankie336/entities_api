@@ -1,10 +1,10 @@
 import time
 from datetime import datetime
 from enum import Enum
-from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field, ConfigDict
-from pydantic import validator
 from enum import Enum as PyEnum
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, validator
 
 import entities_api.models.models
 
@@ -20,7 +20,9 @@ class ProviderEnum(str, Enum):
 class StreamRequest(BaseModel):
     provider: ProviderEnum = Field(..., description="The inference provider")
     model: str = Field(..., description="The model to use for inference")
-    api_key: Optional[str] = Field(None, description="Optional API key for third-party providers")
+    api_key: Optional[str] = Field(
+        None, description="Optional API key for third-party providers"
+    )
     thread_id: str = Field(..., description="Thread identifier")
     message_id: str = Field(..., description="Message identifier")
     run_id: str = Field(..., description="Run identifier")
@@ -68,7 +70,9 @@ class UserDeleteResponse(BaseModel):
 
 
 class ThreadCreate(BaseModel):
-    participant_ids: Optional[List[str]] = (Field(..., description="List of participant IDs"),)
+    participant_ids: Optional[List[str]] = (
+        Field(..., description="List of participant IDs"),
+    )
     meta_data: Optional[Dict[str, Any]] = {}
 
 
@@ -194,7 +198,9 @@ class ToolMessageCreate(BaseModel):
     content: str
 
     model_config = ConfigDict(
-        json_schema_extra={"example": {"content": "This is the content of the tool message."}}
+        json_schema_extra={
+            "example": {"content": "This is the content of the tool message."}
+        }
     )
 
 
@@ -441,17 +447,25 @@ class VectorStoreStatus(str, Enum):
 
 
 class VectorStoreCreate(BaseModel):
-    name: str = Field(..., min_length=3, max_length=128, description="Human-friendly store name")
-    user_id: str = Field(..., min_length=3, description="Owner user ID (should be valid)")
+    name: str = Field(
+        ..., min_length=3, max_length=128, description="Human-friendly store name"
+    )
+    user_id: str = Field(
+        ..., min_length=3, description="Owner user ID (should be valid)"
+    )
     vector_size: int = Field(..., gt=0, description="Must be a positive integer")
-    distance_metric: str = Field(..., description="Distance metric (COSINE, EUCLID, DOT)")
+    distance_metric: str = Field(
+        ..., description="Distance metric (COSINE, EUCLID, DOT)"
+    )
     config: Optional[Dict[str, Any]] = None
 
     @validator("distance_metric")
     def validate_distance_metric(cls, v):
         allowed_metrics = {"COSINE", "EUCLID", "DOT"}
         if v.upper() not in allowed_metrics:
-            raise ValueError(f"Invalid distance metric: {v}. Must be one of {allowed_metrics}")
+            raise ValueError(
+                f"Invalid distance metric: {v}. Must be one of {allowed_metrics}"
+            )
         return v
 
 
@@ -510,7 +524,9 @@ class VectorStoreFileList(BaseModel):
 
 
 class VectorStoreLinkAssistant(BaseModel):
-    assistant_ids: List[str] = Field(..., min_items=1, description="List of assistant IDs to link")
+    assistant_ids: List[str] = Field(
+        ..., min_items=1, description="List of assistant IDs to link"
+    )
 
 
 class VectorStoreUnlinkAssistant(BaseModel):
@@ -639,9 +655,10 @@ class CodeExecutionResponse(BaseModel):
     error: Optional[str] = None
 
 
+from typing import Dict, List, Optional
+
 # NEW: Added search explanation model
 from pydantic import BaseModel
-from typing import List, Dict, Optional
 
 
 class SearchExplanation(BaseModel):

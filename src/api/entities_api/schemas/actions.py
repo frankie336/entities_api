@@ -1,9 +1,8 @@
 from datetime import datetime
 from enum import Enum
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
-from pydantic import validator
+from pydantic import BaseModel, ConfigDict, Field, validator
 
 
 class ActionBase(BaseModel):
@@ -58,33 +57,45 @@ class ActionCreate(BaseModel):
 
 
 class ActionRead(BaseModel):
-    id: str = Field(..., description="Unique identifier for the action", example="action_123456")
+    id: str = Field(
+        ..., description="Unique identifier for the action", example="action_123456"
+    )
     run_id: Optional[str] = Field(
         None, description="Associated run ID for this action", example="run_123456"
     )
     tool_id: Optional[str] = Field(
-        None, description="Tool identifier associated with the action", example="tool_123456"
+        None,
+        description="Tool identifier associated with the action",
+        example="tool_123456",
     )
     tool_name: Optional[str] = Field(
         None, description="Name of the tool", example="code_interpreter"
     )
     triggered_at: Optional[str] = Field(
-        None, description="Timestamp when the action was triggered", example="2025-03-24T12:00:00Z"
+        None,
+        description="Timestamp when the action was triggered",
+        example="2025-03-24T12:00:00Z",
     )
     expires_at: Optional[str] = Field(
-        None, description="Timestamp when the action expires", example="2025-03-24T12:05:00Z"
+        None,
+        description="Timestamp when the action expires",
+        example="2025-03-24T12:05:00Z",
     )
     is_processed: Optional[bool] = Field(
         None, description="Indicates if the action has been processed"
     )
     processed_at: Optional[str] = Field(
-        None, description="Timestamp when the action was processed", example="2025-03-24T12:01:00Z"
+        None,
+        description="Timestamp when the action was processed",
+        example="2025-03-24T12:01:00Z",
     )
     status: Optional[str] = Field(
         None, description="Current status of the action", example="in_progress"
     )
     function_args: Optional[dict] = Field(
-        None, description="Arguments passed to the tool function", example={"param1": "value1"}
+        None,
+        description="Arguments passed to the tool function",
+        example={"param1": "value1"},
     )
     result: Optional[dict] = Field(
         None,

@@ -1,8 +1,9 @@
-import logging
-import os
 import asyncio
 import json
+import logging
+import os
 from typing import List
+
 import websockets
 from dotenv import load_dotenv
 
@@ -15,7 +16,9 @@ SHELL_SERVER_URL = os.getenv("SHELL_SERVER_URL", "ws://localhost:8000/ws/compute
 
 
 class ShellClient:
-    def __init__(self, endpoint: str, room: str, elevated: bool = False, timeout: int = 30):
+    def __init__(
+        self, endpoint: str, room: str, elevated: bool = False, timeout: int = 30
+    ):
         self.endpoint = endpoint
         self.room = room
         self.elevated = elevated  # Matches server-side parameter
@@ -25,7 +28,9 @@ class ShellClient:
 
     async def __aenter__(self):
         # Include the elevated parameter in the query string
-        conn_str = f"{self.endpoint}?room={self.room}&elevated={str(self.elevated).lower()}"
+        conn_str = (
+            f"{self.endpoint}?room={self.room}&elevated={str(self.elevated).lower()}"
+        )
         logging_utility.info(f"Connecting to WebSocket: {conn_str}")
         self.ws = await websockets.connect(conn_str, ping_interval=self.timeout)
         logging_utility.info(f"Connected to room '{self.room}'")
@@ -67,7 +72,9 @@ class ShellClient:
                     if msg_type in ["shell_output", "shell_error"]:
                         content = data.get("content", "")
                         buffer += content
-                        logging_utility.info(f"Received output chunk: {content.strip()}")
+                        logging_utility.info(
+                            f"Received output chunk: {content.strip()}"
+                        )
                     elif msg_type == "command_complete":
                         completions_received += 1
                         logging_utility.info(

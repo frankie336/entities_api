@@ -1,6 +1,7 @@
 # api/routers/serializers.py
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, ConfigDict
-from typing import List, Optional, Dict, Any
 
 
 class UserBase(BaseModel):

@@ -24,8 +24,12 @@ class DeepSeekR1Local(BaseInference):
         logging_utility.info("Creating tool filtering messages")
         logging_utility.debug("Original messages: %s", messages)
 
-        system_message = next((msg for msg in messages if msg["role"] == "system"), None)
-        last_user_message = next((msg for msg in reversed(messages) if msg["role"] == "user"), None)
+        system_message = next(
+            (msg for msg in messages if msg["role"] == "system"), None
+        )
+        last_user_message = next(
+            (msg for msg in reversed(messages) if msg["role"] == "user"), None
+        )
 
         if not system_message or not last_user_message:
             logging_utility.warning(
@@ -63,7 +67,9 @@ class DeepSeekR1Local(BaseInference):
                     tool_name=function_name, run_id=run_id, function_args=function_args
                 )
 
-                logging_utility.info(f"Created action for function call: {action_response.id}")
+                logging_utility.info(
+                    f"Created action for function call: {action_response.id}"
+                )
 
                 # Execute the corresponding function
                 if function_name in self.available_functions:
@@ -73,10 +79,16 @@ class DeepSeekR1Local(BaseInference):
                         parsed_response = json.loads(function_response)
 
                         # Save the tool response
-                        self.message_service.submit_tool_output(message_id, function_response)
-                        logging_utility.info(f"Tool response saved to thread: {thread_id}")
+                        self.message_service.submit_tool_output(
+                            message_id, function_response
+                        )
+                        logging_utility.info(
+                            f"Tool response saved to thread: {thread_id}"
+                        )
 
-                        tool_results.append(parsed_response)  # Collect successful results
+                        tool_results.append(
+                            parsed_response
+                        )  # Collect successful results
                     except Exception as func_e:
                         logging_utility.error(
                             f"Error executing function '{function_name}': {str(func_e)}",
@@ -89,15 +101,21 @@ class DeepSeekR1Local(BaseInference):
                     )
 
         except Exception as e:
-            logging_utility.error(f"Error in _process_tool_calls: {str(e)}", exc_info=True)
+            logging_utility.error(
+                f"Error in _process_tool_calls: {str(e)}", exc_info=True
+            )
 
         return tool_results  # Return collected results, excluding any that had errors
 
-    def generate_final_response(self, thread_id, message_id, run_id, tool_results, messages, model):
+    def generate_final_response(
+        self, thread_id, message_id, run_id, tool_results, messages, model
+    ):
         logging_utility.info(f"Generating final response for run_id: {run_id}")
 
         if tool_results:
-            messages.extend({"role": "tool", "content": json.dumps(r)} for r in tool_results)
+            messages.extend(
+                {"role": "tool", "content": json.dumps(r)} for r in tool_results
+            )
 
         full_response = ""
         run_cancelled = False  # Cancellation state tracker
@@ -134,7 +152,10 @@ class DeepSeekR1Local(BaseInference):
             # Final completion handling
             if not run_cancelled:
                 self.message_service.save_assistant_message_chunk(
-                    role="assistant", thread_id=thread_id, content=full_response, is_last_chunk=True
+                    role="assistant",
+                    thread_id=thread_id,
+                    content=full_response,
+                    is_last_chunk=True,
                 )
                 self.run_service.update_run_status(run_id, "completed")
                 logging_utility.info(f"Completed response for {run_id}")
@@ -144,12 +165,17 @@ class DeepSeekR1Local(BaseInference):
             # Emergency save of partial response
             if full_response:
                 self.message_service.save_assistant_message_chunk(
-                    role="assistant", thread_id=thread_id, content=full_response, is_last_chunk=True
+                    role="assistant",
+                    thread_id=thread_id,
+                    content=full_response,
+                    is_last_chunk=True,
                 )
             self.run_service.update_run_status(run_id, "failed")
             yield f"[ERROR] Response generation failed: {str(e)}"
 
-    def process_conversation(self, thread_id, message_id, run_id, assistant_id, model="llama3.1"):
+    def process_conversation(
+        self, thread_id, message_id, run_id, assistant_id, model="llama3.1"
+    ):
         logging_utility.info(
             "Processing conversation for thread_id: %s, run_id: %s, model: %s",
             thread_id,

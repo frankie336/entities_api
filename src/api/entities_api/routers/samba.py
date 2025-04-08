@@ -3,8 +3,10 @@ import hmac
 import os
 from datetime import datetime
 
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Form, Response
+from fastapi import (APIRouter, Depends, File, Form, HTTPException, Response,
+                     UploadFile)
 from sqlalchemy.orm import Session
+
 from entities_api.dependencies import get_db
 from entities_api.schemas.files import FileResponse, FileUploadRequest
 from entities_api.services.file_service import FileService
@@ -52,7 +54,8 @@ def upload_file(
         # Catch any other exceptions, log, and return a 500 error
         logging_utility.error(f"Unexpected error during file upload: {str(e)}")
         raise HTTPException(
-            status_code=500, detail="An unexpected error occurred while uploading the file."
+            status_code=500,
+            detail="An unexpected error occurred while uploading the file.",
         )
 
 
@@ -70,7 +73,9 @@ def get_file_by_id(file_id: str, db: Session = Depends(get_db)):
 
         if not file_metadata:
             logging_utility.warning(f"File with ID {file_id} not found")
-            raise HTTPException(status_code=404, detail=f"File with ID {file_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"File with ID {file_id} not found"
+            )
 
         # Validate and return as Pydantic object (FileResponse)
         file_response = FileResponse.model_validate(file_metadata)
@@ -107,7 +112,9 @@ def download_file_as_object(file_id: str, db: Session = Depends(get_db)):
         raise e
     except Exception as e:
         logging_utility.error(f"Unexpected error in download_file_as_object: {str(e)}")
-        raise HTTPException(status_code=500, detail="Unexpected error retrieving file object.")
+        raise HTTPException(
+            status_code=500, detail="Unexpected error retrieving file object."
+        )
 
 
 @router.get("/uploads/{file_id}/signed-url", response_model=dict)
@@ -124,7 +131,9 @@ def get_signed_url(file_id: str, db: Session = Depends(get_db)):
         raise e
     except Exception as e:
         logging_utility.error(f"Unexpected error in get_signed_url: {str(e)}")
-        raise HTTPException(status_code=500, detail="Unexpected error generating signed URL.")
+        raise HTTPException(
+            status_code=500, detail="Unexpected error generating signed URL."
+        )
 
 
 @router.get("/uploads/{file_id}/base64", response_model=dict)
@@ -141,7 +150,9 @@ def get_file_as_base64(file_id: str, db: Session = Depends(get_db)):
         raise e
     except Exception as e:
         logging_utility.error(f"Unexpected error in get_file_as_base64: {str(e)}")
-        raise HTTPException(status_code=500, detail="Unexpected error retrieving file as BASE64.")
+        raise HTTPException(
+            status_code=500, detail="Unexpected error retrieving file as BASE64."
+        )
 
 
 @router.delete("/uploads/{file_id}", response_model=dict)
@@ -153,7 +164,9 @@ def delete_file(file_id: str, db: Session = Depends(get_db)):
     try:
         success = file_service.delete_file_by_id(file_id)
         if not success:
-            raise HTTPException(status_code=404, detail=f"File with ID {file_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"File with ID {file_id} not found"
+            )
         return {"deleted": True}
     except HTTPException as e:
         logging_utility.error(f"HTTP error in delete_file: {str(e)}")

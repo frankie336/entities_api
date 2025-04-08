@@ -1,12 +1,11 @@
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
 
-from entities_common import ValidationInterface, UtilsInterface
+from entities import Entities
+from entities_common import UtilsInterface, ValidationInterface
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-
-from entities import Entities
 
 from entities_api.models.models import Action, Tool
 from entities_api.services.logging_service import LoggingUtility
@@ -41,7 +40,9 @@ class ActionService:
         }
         self.db.commit()
 
-    def update_action_output(self, action_id: str, new_content: str, is_partial: bool = True):
+    def update_action_output(
+        self, action_id: str, new_content: str, is_partial: bool = True
+    ):
         action = self.db.query(Action).get(action_id)
         if not action:
             raise HTTPException(status_code=404, detail="Action not found")
@@ -62,7 +63,9 @@ class ActionService:
 
         self.db.commit()
 
-    def create_action(self, action_data: validator.ActionCreate) -> validator.ActionRead:
+    def create_action(
+        self, action_data: validator.ActionCreate
+    ) -> validator.ActionRead:
         logging_utility.info(
             "Creating action for tool_name: %s, run_id: %s",
             action_data.tool_name,
@@ -70,18 +73,27 @@ class ActionService:
         )
         try:
             # Log the received ActionCreate data
-            logging_utility.debug("Received ActionCreate payload: %s", action_data.dict())
+            logging_utility.debug(
+                "Received ActionCreate payload: %s", action_data.dict()
+            )
 
             # Validate that the tool_name exists in the tools table
-            tool = self.db.query(Tool).filter(Tool.name == action_data.tool_name).first()
+            tool = (
+                self.db.query(Tool).filter(Tool.name == action_data.tool_name).first()
+            )
             if not tool:
-                logging_utility.warning("Tool with name %s not found.", action_data.tool_name)
+                logging_utility.warning(
+                    "Tool with name %s not found.", action_data.tool_name
+                )
                 raise HTTPException(
-                    status_code=404, detail=f"Tool with name {action_data.tool_name} not found"
+                    status_code=404,
+                    detail=f"Tool with name {action_data.tool_name} not found",
                 )
 
             # Log the fetched tool details
-            logging_utility.debug("Fetched tool: %s", {"id": tool.id, "name": tool.name})
+            logging_utility.debug(
+                "Fetched tool: %s", {"id": tool.id, "name": tool.name}
+            )
 
             # Generate a new action id (or decide if you want to use action_data.id)
             new_action_id = UtilsInterface.IdentifierService.generate_action_id()
@@ -115,7 +127,9 @@ class ActionService:
             self.db.rollback()
             logging_utility.error("IntegrityError during action creation: %s", str(e))
             logging_utility.exception("IntegrityError traceback:")
-            raise HTTPException(status_code=400, detail="Invalid action data or duplicate entry")
+            raise HTTPException(
+                status_code=400, detail="Invalid action data or duplicate entry"
+            )
         except Exception as e:
             self.db.rollback()
             logging_utility.error("Unexpected error during action creation: %s", str(e))
@@ -132,8 +146,12 @@ class ActionService:
             action = self.db.query(Action).filter(Action.id == action_id).first()
 
             if not action:
-                logging_utility.error("Action not found in DB. Queried ID: %s", action_id)
-                raise HTTPException(status_code=404, detail=f"Action {action_id} not found")
+                logging_utility.error(
+                    "Action not found in DB. Queried ID: %s", action_id
+                )
+                raise HTTPException(
+                    status_code=404, detail=f"Action {action_id} not found"
+                )
 
             # we indirectly fetch the tool name by id which is already available on another end point
             tool = client.tool_service.get_tool_by_id(tool_id=action.tool_id)
@@ -143,7 +161,9 @@ class ActionService:
                 run_id=action.run_id,
                 tool_id=action.tool_id,
                 tool_name=tool.name,
-                triggered_at=datetime_to_iso(action.triggered_at),  # Use conversion utility
+                triggered_at=datetime_to_iso(
+                    action.triggered_at
+                ),  # Use conversion utility
                 expires_at=datetime_to_iso(action.expires_at),
                 is_processed=action.is_processed,
                 processed_at=datetime_to_iso(action.processed_at),
@@ -163,7 +183,9 @@ class ActionService:
         try:
             action = self.db.query(Action).filter(Action.id == action_id).first()
             if not action:
-                raise HTTPException(status_code=404, detail=f"Action with ID {action_id} not found")
+                raise HTTPException(
+                    status_code=404, detail=f"Action with ID {action_id} not found"
+                )
 
             # Validate status value by checking the ActionStatus enum
             if action_update.status not in validator.ActionStatus.__members__:
@@ -172,7 +194,9 @@ class ActionService:
             # Update fields
             action.status = action_update.status
             action.result = action_update.result
-            if action_update.status == validator.ActionStatus.completed:  # Use the enum value here
+            if (
+                action_update.status == validator.ActionStatus.completed
+            ):  # Use the enum value here
                 action.is_processed = True
                 action.processed_at = datetime.now()
 
@@ -184,7 +208,9 @@ class ActionService:
                 id=action.id,
                 status=action.status,
                 result=action.result,
-                processed_at=datetime_to_iso(action.processed_at),  # Add converted field
+                processed_at=datetime_to_iso(
+                    action.processed_at
+                ),  # Add converted field
             )
 
         except Exception as e:
@@ -196,10 +222,14 @@ class ActionService:
         self, run_id: str, status: Optional[str] = "pending"
     ) -> List[validator.ActionRead]:
         """Retrieve actions by run_id and status with proper datetime conversion."""
-        logging_utility.info(f"Retrieving actions for run_id: {run_id} with status: {status}")
+        logging_utility.info(
+            f"Retrieving actions for run_id: {run_id} with status: {status}"
+        )
         try:
             actions = (
-                self.db.query(Action).filter(Action.run_id == run_id, Action.status == status).all()
+                self.db.query(Action)
+                .filter(Action.run_id == run_id, Action.status == status)
+                .all()
             )
             return [
                 validator.ActionRead(
@@ -254,7 +284,9 @@ class ActionService:
 
             if not action:
                 logging_utility.warning("Action with ID %s not found", action_id)
-                raise HTTPException(status_code=404, detail=f"Action with id {action_id} not found")
+                raise HTTPException(
+                    status_code=404, detail=f"Action with id {action_id} not found"
+                )
 
             self.db.delete(action)
             self.db.commit()

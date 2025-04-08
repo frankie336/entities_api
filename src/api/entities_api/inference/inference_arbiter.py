@@ -5,14 +5,16 @@ from entities_api.inference.cloud_azure_r1 import AzureR1Cloud
 from entities_api.inference.cloud_deepseek_r1 import DeepSeekR1Cloud
 from entities_api.inference.cloud_deepseek_v3 import DeepSeekV3Cloud
 from entities_api.inference.cloud_groq_deepseekr1_llama import GroqCloud
+from entities_api.inference.cloud_hyperbolic_llama3 import \
+    HyperbolicLlama3Inference
 from entities_api.inference.cloud_hyperbolic_r1 import HyperbolicR1Inference
 from entities_api.inference.cloud_hyperbolic_v3 import HyperbolicV3Inference
+from entities_api.inference.cloud_together_ai_llama2 import \
+    TogetherLlama2Inference
 from entities_api.inference.cloud_together_ai_r1 import TogetherR1Inference
 from entities_api.inference.cloud_together_ai_v3 import TogetherV3Inference
-from entities_api.inference.cloud_together_ai_llama2 import TogetherLlama2Inference
-from entities_api.inference.cloud_hyperbolic_llama3 import HyperbolicLlama3Inference
-
-from entities_api.inference.local_inference import LocalInference  # New local inference provider
+from entities_api.inference.local_inference import \
+    LocalInference  # New local inference provider
 from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
@@ -26,7 +28,9 @@ class InferenceArbiter:
     @lru_cache(maxsize=16)
     def _create_provider(self, provider_class):
         """Factory method with LRU caching for provider instances."""
-        logging_utility.debug(f"Initializing new provider instance: {provider_class.__name__}")
+        logging_utility.debug(
+            f"Initializing new provider instance: {provider_class.__name__}"
+        )
         return provider_class()
 
     def _get_provider(self, provider_class):

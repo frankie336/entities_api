@@ -1,14 +1,15 @@
 import asyncio
 import re
-
-import pdfplumber
-import validators
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Union, List, Tuple
+from typing import Any, Dict, List, Tuple, Union
+
 import numpy as np
+import pdfplumber
+import validators
 from sentence_transformers import SentenceTransformer
+
 from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
@@ -141,11 +142,17 @@ class FileProcessor:
             text = await self._extract_text(file_path)
             chunks = self._chunk_text(text)
 
-            vectors = await asyncio.gather(*[self._encode_chunk_async(chunk) for chunk in chunks])
+            vectors = await asyncio.gather(
+                *[self._encode_chunk_async(chunk) for chunk in chunks]
+            )
 
             return {
                 "content": text,
-                "metadata": {"type": "text", "source": str(file_path), "chunks": len(chunks)},
+                "metadata": {
+                    "type": "text",
+                    "source": str(file_path),
+                    "chunks": len(chunks),
+                },
                 "vectors": [v.tolist() for v in vectors],
                 "chunks": chunks,
             }
@@ -153,17 +160,25 @@ class FileProcessor:
             logging_utility.error(f"Processing failed: {str(e)}")
             raise
 
-    async def _extract_text(self, file_path: Path) -> Union[str, Tuple[str, dict, list]]:
+    async def _extract_text(
+        self, file_path: Path
+    ) -> Union[str, Tuple[str, dict, list]]:
         """Unified text extraction"""
         loop = asyncio.get_event_loop()
 
         if file_path.suffix.lower() == ".pdf":
-            return await loop.run_in_executor(self._executor, self._extract_pdf_text, file_path)
+            return await loop.run_in_executor(
+                self._executor, self._extract_pdf_text, file_path
+            )
         else:
-            text = await loop.run_in_executor(self._executor, self._read_text_file, file_path)
+            text = await loop.run_in_executor(
+                self._executor, self._read_text_file, file_path
+            )
             return text, {}, []
 
-    def _extract_pdf_text(self, file_path: Path) -> Tuple[List[Tuple[str, int, List[int]]], dict]:
+    def _extract_pdf_text(
+        self, file_path: Path
+    ) -> Tuple[List[Tuple[str, int, List[int]]], dict]:
         """PDF extraction with line number tracking"""
         page_chunks = []
         metadata = {}
@@ -283,7 +298,9 @@ class FileProcessor:
         chunks = []
         for i in range(0, len(tokens), self.effective_max_length):
             chunk_tokens = tokens[i : i + self.effective_max_length]
-            chunk_text = self.embedding_model.tokenizer.convert_tokens_to_string(chunk_tokens)
+            chunk_text = self.embedding_model.tokenizer.convert_tokens_to_string(
+                chunk_tokens
+            )
             chunks.append(chunk_text)
 
         return chunks
@@ -326,7 +343,9 @@ class FileProcessor:
 
         if metadata.get("url") and not metadata.get("document_type"):
             metadata["document_type"] = "web_content"
-            logging_utility.info("Auto-set document_type to 'web_content' for URL source")
+            logging_utility.info(
+                "Auto-set document_type to 'web_content' for URL source"
+            )
 
     def _extract_domain(self, url: str) -> Union[str, None]:
         """Extract domain from URL"""
@@ -356,7 +375,10 @@ class FileProcessor:
         try:
             processed = asyncio.run(
                 self._async_process_and_store(
-                    file_path, destination_store, vector_service, metadata  # Now a Path object
+                    file_path,
+                    destination_store,
+                    vector_service,
+                    metadata,  # Now a Path object
                 )
             )
             return {
@@ -370,7 +392,11 @@ class FileProcessor:
             raise
 
     async def _async_process_and_store(
-        self, file_path: Path, destination_store: str, vector_service, doc_metadata: dict
+        self,
+        file_path: Path,
+        destination_store: str,
+        vector_service,
+        doc_metadata: dict,
     ):
         """Process and store with page tracking"""
         processed = await self.process_file(file_path)

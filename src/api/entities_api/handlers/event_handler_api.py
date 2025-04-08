@@ -1,12 +1,11 @@
 # event_handler_api.py
 from typing import Any, List
+
+from common.services.logging_service import LoggingUtility
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-
 from entities_api.services.event_handler import EntitiesEventHandler
-from common.services.logging_service import LoggingUtility
-
 
 # Initialize logging and the main client.
 logging_utility = LoggingUtility()
@@ -57,7 +56,9 @@ def start_monitor(request: MonitorRequest):
         return {"message": f"Monitoring started for run: {run_id}"}
     except Exception as e:
         logging_utility.error(f"Error starting monitor for run {run_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error starting monitor for run {run_id}")
+        raise HTTPException(
+            status_code=500, detail=f"Error starting monitor for run {run_id}"
+        )
 
 
 @app.post("/api/events/stop-monitor", summary="Stop monitoring a run")
@@ -75,7 +76,9 @@ def stop_monitor(request: StopMonitorRequest):
         return {"message": f"Monitoring stopped for run: {run_id}"}
     except Exception as e:
         logging_utility.error(f"Error stopping monitor for run {run_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error stopping monitor for run {run_id}")
+        raise HTTPException(
+            status_code=500, detail=f"Error stopping monitor for run {run_id}"
+        )
 
 
 @app.get("/api/events/active", summary="List active monitors")

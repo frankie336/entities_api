@@ -5,7 +5,7 @@ import asyncio
 import json
 import logging
 from collections import defaultdict
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 
 # Use standard Python logging. Configure it in your main application setup.
 logger = logging.getLogger(__name__)
@@ -61,7 +61,9 @@ class SSEManager:
             # If no clients are left listening for this run_id, clean up the entry
             if not sse_subscribers[run_id]:
                 del sse_subscribers[run_id]
-                logger.info(f"SSEManager: No subscribers remaining for {run_id}. Removed entry.")
+                logger.info(
+                    f"SSEManager: No subscribers remaining for {run_id}. Removed entry."
+                )
 
         except KeyError:
             # This can happen if the run_id entry was already removed (e.g., race condition on disconnect)
@@ -74,7 +76,9 @@ class SSEManager:
                 f"SSEManager: Attempted to remove a queue instance not found for run_id: {run_id}"
             )
 
-    async def broadcast_event(self, run_id: str, event_type: str, event_data: Dict[str, Any]):
+    async def broadcast_event(
+        self, run_id: str, event_type: str, event_data: Dict[str, Any]
+    ):
         """
         Formats an event and puts it into the queues of all clients subscribed to the run_id.
 

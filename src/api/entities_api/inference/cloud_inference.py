@@ -22,7 +22,9 @@ class CloudInference:
     @lru_cache(maxsize=8)
     def _create_provider(self, provider_class):
         """Factory method with LRU caching for provider instances"""
-        logging_utility.debug(f"Initializing new provider instance: {provider_class.__name__}")
+        logging_utility.debug(
+            f"Initializing new provider instance: {provider_class.__name__}"
+        )
         return provider_class()
 
     def _get_provider(self, provider_class):

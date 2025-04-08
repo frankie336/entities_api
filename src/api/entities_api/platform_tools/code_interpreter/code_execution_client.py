@@ -2,11 +2,12 @@ import asyncio
 import json
 import os
 from dataclasses import dataclass
-from typing import Optional, Dict, Any, AsyncGenerator, Generator
+from typing import Any, AsyncGenerator, Dict, Generator, Optional
 
 import websockets
 from dotenv import load_dotenv
-from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
+from tenacity import (retry, retry_if_exception_type, stop_after_attempt,
+                      wait_fixed)
 from websockets.legacy.protocol import WebSocketCommonProtocol
 
 from entities_api.services.logging_service import LoggingUtility
@@ -68,7 +69,9 @@ class CodeExecutionClient:
             logging_utility.info("Successfully connected to WebSocket endpoint.")
         except asyncio.TimeoutError as e:
             logging_utility.error("Connection to %s timed out", self.config.endpoint)
-            raise ExecutionTimeoutError(f"Connection to {self.config.endpoint} timed out") from e
+            raise ExecutionTimeoutError(
+                f"Connection to {self.config.endpoint} timed out"
+            ) from e
 
     async def close(self):
         if self._connection:
@@ -85,7 +88,9 @@ class CodeExecutionClient:
 
         try:
             logging_utility.info("Sending code execution request.")
-            await self._connection.send(json.dumps({"code": code, "metadata": metadata}))
+            await self._connection.send(
+                json.dumps({"code": code, "metadata": metadata})
+            )
 
             while True:
                 message = await self._connection.recv()
@@ -97,7 +102,9 @@ class CodeExecutionClient:
 
                     if isinstance(data, dict):
                         if "error" in data:
-                            logging_utility.error("ExecutionSecurityViolation: %s", data["error"])
+                            logging_utility.error(
+                                "ExecutionSecurityViolation: %s", data["error"]
+                            )
                             raise ExecutionSecurityViolation(data["error"])
 
                         if "status" in data and "uploaded_files" in data:
@@ -113,15 +120,23 @@ class CodeExecutionClient:
                             break
                         elif "status" in data:
                             # Intermediate status message
-                            yield json.dumps({"type": "status", "content": data["status"]})
+                            yield json.dumps(
+                                {"type": "status", "content": data["status"]}
+                            )
                             # Do NOT break — we may not be done yet
                         elif "output" in data:
-                            yield json.dumps({"type": "output", "content": data["output"]})
+                            yield json.dumps(
+                                {"type": "output", "content": data["output"]}
+                            )
                         else:
                             # Unrecognized dict – treat as raw
-                            yield json.dumps({"type": "hot_code_output", "content": str(data)})
+                            yield json.dumps(
+                                {"type": "hot_code_output", "content": str(data)}
+                            )
                     else:
-                        yield json.dumps({"type": "hot_code_output", "content": str(data)})
+                        yield json.dumps(
+                            {"type": "hot_code_output", "content": str(data)}
+                        )
 
                 except json.JSONDecodeError:
                     logging_utility.warning("Received non-JSON output: %s", message)

@@ -5,14 +5,13 @@ import re
 import tempfile
 import time
 import traceback
-from dotenv import load_dotenv
-from entities import Entities
-
-from fastapi import WebSocket
-from starlette.websockets import WebSocketDisconnect
 from typing import Tuple
 
+from dotenv import load_dotenv
+from entities import Entities
+from fastapi import WebSocket
 from sandbox.services.logging_service import LoggingUtility
+from starlette.websockets import WebSocketDisconnect
 
 load_dotenv()
 
@@ -26,7 +25,9 @@ class StreamingCodeExecutionHandler:
         self.last_executed_script_path = None
 
         self.logging_utility.info("Current working directory: %s", os.getcwd())
-        self.logging_utility.info("Generated files directory: %s", self.generated_files_dir)
+        self.logging_utility.info(
+            "Generated files directory: %s", self.generated_files_dir
+        )
 
         disable_firejail = os.getenv("DISABLE_FIREJAIL", "false").lower() == "true"
         self.security_profile = {
@@ -48,7 +49,10 @@ class StreamingCodeExecutionHandler:
         }
 
         self.required_imports = (
-            "import asyncio\n" "import math\n" "import time\n" "from datetime import datetime\n"
+            "import asyncio\n"
+            "import math\n"
+            "import time\n"
+            "from datetime import datetime\n"
         )
 
     def normalize_code(self, code: str) -> str:
@@ -160,7 +164,9 @@ class StreamingCodeExecutionHandler:
                 else:
                     # This is the last line and ends with a colon
                     final_lines.append(line)
-                    final_lines.append(" " * (len(line) - len(stripped) + indent_size) + "pass")
+                    final_lines.append(
+                        " " * (len(line) - len(stripped) + indent_size) + "pass"
+                    )
             else:
                 final_lines.append(line)
             i += 1
@@ -187,7 +193,9 @@ class StreamingCodeExecutionHandler:
             # If successful, no changes needed
             return code
         except SyntaxError as e:
-            self.logging_utility.warning("AST validation failed: %s at line %s", e.msg, e.lineno)
+            self.logging_utility.warning(
+                "AST validation failed: %s at line %s", e.msg, e.lineno
+            )
             # Attempt to fix common syntax errors
             fixed_code, success = self._fix_common_syntax_errors(code, e)
             if success:
@@ -196,7 +204,9 @@ class StreamingCodeExecutionHandler:
             # If we couldn't fix it, return the original and let the execution fail with better error messages
             return code
 
-    def _fix_common_syntax_errors(self, code: str, error: SyntaxError) -> Tuple[str, bool]:
+    def _fix_common_syntax_errors(
+        self, code: str, error: SyntaxError
+    ) -> Tuple[str, bool]:
         """
         Attempts to fix common syntax errors based on the error message and location.
         Returns a tuple containing (fixed_code, success_flag).
@@ -220,9 +230,13 @@ class StreamingCodeExecutionHandler:
                 prev_line = lines[line_number - 1] if line_number > 0 else ""
                 if prev_line.rstrip().endswith(":"):
                     # Calculate proper indentation
-                    current_indent = len(problematic_line) - len(problematic_line.lstrip())
+                    current_indent = len(problematic_line) - len(
+                        problematic_line.lstrip()
+                    )
                     # Add 4 spaces of indentation
-                    lines[line_number] = " " * (current_indent + 4) + problematic_line.lstrip()
+                    lines[line_number] = (
+                        " " * (current_indent + 4) + problematic_line.lstrip()
+                    )
                     return "\n".join(lines), True
 
             # Check if this is an 'unexpected indent' error
@@ -242,7 +256,8 @@ class StreamingCodeExecutionHandler:
         # Fix 3: Missing colon after if/for/while/def/class
         elif "expected" in error_msg and ":" in error_msg:
             if any(
-                keyword in problematic_line for keyword in ["if", "for", "while", "def", "class"]
+                keyword in problematic_line
+                for keyword in ["if", "for", "while", "def", "class"]
             ):
                 if not problematic_line.rstrip().endswith(":"):
                     lines[line_number] = problematic_line.rstrip() + ":"
@@ -305,7 +320,9 @@ class StreamingCodeExecutionHandler:
 
             if not self._validate_code_security(full_code):
                 await websocket.send_json({"error": "Code violates security policy"})
-                self.logging_utility.warning("Security validation failed for user %s", user_id)
+                self.logging_utility.warning(
+                    "Security validation failed for user %s", user_id
+                )
                 return
 
             execution_id = f"{user_id}-{int(time.time() * 1000)}"
@@ -336,7 +353,11 @@ class StreamingCodeExecutionHandler:
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                cwd=None if os.name != "nt" and not disable_firejail else self.generated_files_dir,
+                cwd=(
+                    None
+                    if os.name != "nt" and not disable_firejail
+                    else self.generated_files_dir
+                ),
             )
             self.active_processes[execution_id] = proc
             await self._stream_process_output(proc, websocket, execution_id)
@@ -365,7 +386,9 @@ class StreamingCodeExecutionHandler:
             except RuntimeError:
                 self.logging_utility.debug("WebSocket already closed.")
 
-    async def _stream_process_output(self, proc, websocket: WebSocket, execution_id: str) -> None:
+    async def _stream_process_output(
+        self, proc, websocket: WebSocket, execution_id: str
+    ) -> None:
         try:
             while True:
                 line = await asyncio.wait_for(proc.stdout.readline(), timeout=30)
@@ -382,7 +405,9 @@ class StreamingCodeExecutionHandler:
                 }
             )
         except asyncio.TimeoutError:
-            self.logging_utility.error("Timeout occurred for execution_id: %s", execution_id)
+            self.logging_utility.error(
+                "Timeout occurred for execution_id: %s", execution_id
+            )
             proc.terminate()
             await websocket.send_json({"error": "Execution timed out."})
         except WebSocketDisconnect:
@@ -435,7 +460,8 @@ class StreamingCodeExecutionHandler:
             if os.path.isfile(os.path.join(self.generated_files_dir, fname))
             and not self.last_executed_script_path
             or not os.path.samefile(
-                os.path.join(self.generated_files_dir, fname), self.last_executed_script_path
+                os.path.join(self.generated_files_dir, fname),
+                self.last_executed_script_path,
             )
         ]
 

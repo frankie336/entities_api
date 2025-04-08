@@ -1,9 +1,11 @@
-import time
-import requests
 import re
+import time
 from urllib.parse import quote
-from entities_api.services.logging_service import LoggingUtility
+
+import requests
+
 from entities_api.constants.platform import WEB_SEARCH_BASE_URL
+from entities_api.services.logging_service import LoggingUtility
 
 # Initialize the logging utility
 logging_utility = LoggingUtility()
@@ -104,7 +106,9 @@ class FirecrawlService:
                     time.sleep(self.retry_delay)
                     retries += 1
                 else:
-                    logging_utility.warning(f"Unexpected job status: {results.get('status')}")
+                    logging_utility.warning(
+                        f"Unexpected job status: {results.get('status')}"
+                    )
                     break
             else:
                 logging_utility.error("Failed to retrieve job status.")
@@ -126,7 +130,9 @@ class FirecrawlService:
             list: A list of results in markdown format.
         """
         logging_utility.info(
-            "Starting search_orchestrator with query='%s' and max_pages=%d", query, max_pages
+            "Starting search_orchestrator with query='%s' and max_pages=%d",
+            query,
+            max_pages,
         )
 
         results_data_list = []
@@ -134,47 +140,64 @@ class FirecrawlService:
             try:
                 encoded_query = quote(query)
                 # Use the correct path for SearxNG
-                if "localhost" in WEB_SEARCH_BASE_URL or "127.0.0.1" in WEB_SEARCH_BASE_URL:
+                if (
+                    "localhost" in WEB_SEARCH_BASE_URL
+                    or "127.0.0.1" in WEB_SEARCH_BASE_URL
+                ):
                     # Format URL for SearxNG with appropriate parameters
                     url_to_crawl = f"{WEB_SEARCH_BASE_URL}/search?q={encoded_query}&page={i + 1}&language=auto&safesearch=0&categories=general"
                 else:
                     # Default format for other search engines
-                    url_to_crawl = f"{WEB_SEARCH_BASE_URL}?q={encoded_query}&first={i * 10 + 1}"
+                    url_to_crawl = (
+                        f"{WEB_SEARCH_BASE_URL}?q={encoded_query}&first={i * 10 + 1}"
+                    )
 
                 logging_utility.debug("Generated URL to crawl: %s", url_to_crawl)
 
                 job_id = self.crawl_url(url_to_crawl)
                 if job_id:
-                    logging_utility.info("Job ID %s created, waiting for completion...", job_id)
+                    logging_utility.info(
+                        "Job ID %s created, waiting for completion...", job_id
+                    )
                     results = self.wait_for_completion(job_id)
 
                     if results:
                         logging_utility.info(
-                            "Crawl results retrieved successfully for job ID %s.", job_id
+                            "Crawl results retrieved successfully for job ID %s.",
+                            job_id,
                         )
                         results_data = results.get("data", [])
 
                         if results_data:
                             results_markdown_dict = results_data[0]
                             results_data_list.append(results_markdown_dict)
-                            logging_utility.debug("Added results data: %s", results_markdown_dict)
+                            logging_utility.debug(
+                                "Added results data: %s", results_markdown_dict
+                            )
                         else:
                             logging_utility.warning(
                                 "No data found in results for job ID %s.", job_id
                             )
                     else:
-                        logging_utility.warning("No results retrieved for job ID %s.", job_id)
+                        logging_utility.warning(
+                            "No results retrieved for job ID %s.", job_id
+                        )
                 else:
-                    logging_utility.error("Failed to create job ID for URL: %s", url_to_crawl)
+                    logging_utility.error(
+                        "Failed to create job ID for URL: %s", url_to_crawl
+                    )
 
             except Exception as e:
                 logging_utility.exception(
-                    "An error occurred in search_orchestrator at iteration %d: %s", i, str(e)
+                    "An error occurred in search_orchestrator at iteration %d: %s",
+                    i,
+                    str(e),
                 )
 
         if results_data_list:
             logging_utility.info(
-                "Search completed successfully, returning %d results.", len(results_data_list)
+                "Search completed successfully, returning %d results.",
+                len(results_data_list),
             )
         else:
             logging_utility.warning("Search completed but no results were found.")

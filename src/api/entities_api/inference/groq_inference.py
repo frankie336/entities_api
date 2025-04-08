@@ -1,6 +1,8 @@
 import os
+
 from dotenv import load_dotenv
 from groq import Groq
+
 from entities_api.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
 
@@ -28,7 +30,9 @@ class CloudInference(BaseInference):
             role = message.get("role", "").strip().capitalize()
             if role not in ["User", "Assistant", "System"]:
                 role = "User"
-            normalized_history.append({"role": role, "content": message.get("content", "").strip()})
+            normalized_history.append(
+                {"role": role, "content": message.get("content", "").strip()}
+            )
         return normalized_history
 
     def process_conversation(
@@ -74,26 +78,32 @@ class CloudInference(BaseInference):
             thread_id, system_message=assistant.instructions
         )
         logging_utility.debug(
-            "Original formatted messages with system prompt included: %s", conversation_history
+            "Original formatted messages with system prompt included: %s",
+            conversation_history,
         )
 
         # Normalize roles to ensure consistency
         conversation_history = self.normalize_roles(conversation_history)
-        logging_utility.debug("Normalized conversation history: %s", conversation_history)
+        logging_utility.debug(
+            "Normalized conversation history: %s", conversation_history
+        )
 
         # Exclude system messages since the system prompt has already been included correctly
         conversation_history = [
             msg for msg in conversation_history if msg["role"] in ["User", "Assistant"]
         ]
         logging_utility.debug(
-            "Filtered conversation history (User and Assistant only): %s", conversation_history
+            "Filtered conversation history (User and Assistant only): %s",
+            conversation_history,
         )
 
         # Truncate the conversation history to maintain the last 10 exchanges
         conversation_history = self.truncate_conversation_history(
             conversation_history, max_exchanges=10
         )
-        logging_utility.debug("Truncated conversation history: %s", conversation_history)
+        logging_utility.debug(
+            "Truncated conversation history: %s", conversation_history
+        )
 
         # Check if the last message is the same as the new user message to prevent duplication
         if not (
@@ -112,7 +122,8 @@ class CloudInference(BaseInference):
         # Directly use the conversation history as messages for Groq API
         # Include the system message as the first message
         groq_messages = [{"role": "system", "content": assistant.instructions}] + [
-            {"role": msg["role"].lower(), "content": msg["content"]} for msg in conversation_history
+            {"role": msg["role"].lower(), "content": msg["content"]}
+            for msg in conversation_history
         ]
         logging_utility.debug(f"Messages for Groq API:\n{groq_messages}")
         try:
@@ -148,7 +159,9 @@ class CloudInference(BaseInference):
 
         except Exception as e:
             error_message = "[ERROR] An error occurred during streaming with Groq API."
-            logging_utility.error(f"Error during Groq API streaming: {str(e)}", exc_info=True)
+            logging_utility.error(
+                f"Error during Groq API streaming: {str(e)}", exc_info=True
+            )
             yield error_message
             return  # Exit the generator after yielding the error
 

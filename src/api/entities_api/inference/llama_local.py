@@ -1,7 +1,9 @@
 import json
 import time
+
 from dotenv import load_dotenv
 from ollama import Client
+
 from entities_api.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
 
@@ -16,8 +18,12 @@ class LlamaLocal(BaseInference):
 
     def create_tool_filtering_messages(self, messages):
         logging_utility.debug("Filtering messages for tools")
-        system_message = next((msg for msg in messages if msg["role"] == "system"), None)
-        last_user_message = next((msg for msg in reversed(messages) if msg["role"] == "user"), None)
+        system_message = next(
+            (msg for msg in messages if msg["role"] == "system"), None
+        )
+        last_user_message = next(
+            (msg for msg in reversed(messages) if msg["role"] == "user"), None
+        )
         return (
             [system_message, last_user_message]
             if system_message and last_user_message
@@ -49,11 +55,15 @@ class LlamaLocal(BaseInference):
 
         return tool_results
 
-    def generate_final_response(self, thread_id, message_id, run_id, tool_results, messages, model):
+    def generate_final_response(
+        self, thread_id, message_id, run_id, tool_results, messages, model
+    ):
         logging_utility.info(f"Generating final response for {run_id}")
 
         if tool_results:
-            messages.extend({"role": "tool", "content": json.dumps(r)} for r in tool_results)
+            messages.extend(
+                {"role": "tool", "content": json.dumps(r)} for r in tool_results
+            )
 
         try:
             stream = self.ollama_client.chat(
@@ -84,7 +94,9 @@ class LlamaLocal(BaseInference):
                         is_last_chunk=True,
                     )
                     self.run_service.update_run_status(run_id, "cancelled")
-                    logging_utility.warning(f"Run {run_id} cancelled - saved partial response")
+                    logging_utility.warning(
+                        f"Run {run_id} cancelled - saved partial response"
+                    )
                     run_cancelled = True
                     break  # Exit streaming loop immediately
 
@@ -93,7 +105,10 @@ class LlamaLocal(BaseInference):
             # Only complete if not cancelled
             if not run_cancelled:
                 self.message_service.save_assistant_message_chunk(
-                    role="assistant", thread_id=thread_id, content=full_response, is_last_chunk=True
+                    role="assistant",
+                    thread_id=thread_id,
+                    content=full_response,
+                    is_last_chunk=True,
                 )
                 self.run_service.update_run_status(run_id, "completed")
 
@@ -102,15 +117,26 @@ class LlamaLocal(BaseInference):
             # Save partial response on error
             if full_response:
                 self.message_service.save_assistant_message_chunk(
-                    role="assistant", thread_id=thread_id, content=full_response, is_last_chunk=True
+                    role="assistant",
+                    thread_id=thread_id,
+                    content=full_response,
+                    is_last_chunk=True,
                 )
-            yield json.dumps({"type": "error", "content": f"LLM streaming error: {str(e)}"})
+            yield json.dumps(
+                {"type": "error", "content": f"LLM streaming error: {str(e)}"}
+            )
 
-    def process_conversation(self, thread_id, message_id, run_id, assistant_id, model="llama3.1"):
-        logging_utility.info(f"Processing conversation: thread={thread_id}, run={run_id}")
+    def process_conversation(
+        self, thread_id, message_id, run_id, assistant_id, model="llama3.1"
+    ):
+        logging_utility.info(
+            f"Processing conversation: thread={thread_id}, run={run_id}"
+        )
 
         assistant = self.assistant_service.retrieve_assistant(assistant_id)
-        messages = self.message_service.get_formatted_messages(thread_id, assistant.instructions)
+        messages = self.message_service.get_formatted_messages(
+            thread_id, assistant.instructions
+        )
 
         # Tool processing workflow
         filtered_messages = self.create_tool_filtering_messages(messages)

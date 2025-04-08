@@ -1,10 +1,10 @@
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from entities_api.dependencies import get_db
-from entities_api.schemas.messages import MessageRead, MessageCreate
+from entities_api.schemas.messages import MessageCreate, MessageRead
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.message_service import MessageService
 
@@ -26,7 +26,9 @@ def create_message(message: MessageCreate, db: Session = Depends(get_db)):
         logging_utility.error(f"HTTP error occurred while creating message: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while creating message: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while creating message: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
@@ -52,7 +54,9 @@ async def submit_tool_response(message: MessageCreate, db: Session = Depends(get
         logging_utility.error(f"HTTP error occurred while creating message: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"An unexpected error occurred while creating message: {str(e)}")
+        logging_utility.error(
+            f"An unexpected error occurred while creating message: {str(e)}"
+        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
@@ -80,11 +84,17 @@ def get_message(message_id: str, db: Session = Depends(get_db)):
 def list_messages(
     thread_id: str, limit: int = 20, order: str = "asc", db: Session = Depends(get_db)
 ):
-    logging_utility.info(f"Received request to list messages for thread ID: {thread_id}")
+    logging_utility.info(
+        f"Received request to list messages for thread ID: {thread_id}"
+    )
     message_service = MessageService(db)
     try:
-        messages = message_service.list_messages(thread_id=thread_id, limit=limit, order=order)
-        logging_utility.info(f"Successfully retrieved messages for thread ID: {thread_id}")
+        messages = message_service.list_messages(
+            thread_id=thread_id, limit=limit, order=order
+        )
+        logging_utility.info(
+            f"Successfully retrieved messages for thread ID: {thread_id}"
+        )
         return messages
     except HTTPException as e:
         logging_utility.error(
@@ -98,9 +108,13 @@ def list_messages(
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-@router.get("/threads/{thread_id}/formatted_messages", response_model=List[Dict[str, Any]])
+@router.get(
+    "/threads/{thread_id}/formatted_messages", response_model=List[Dict[str, Any]]
+)
 def get_formatted_messages(thread_id: str, db: Session = Depends(get_db)):
-    logging_utility.info(f"Received request to get formatted messages for thread ID: {thread_id}")
+    logging_utility.info(
+        f"Received request to get formatted messages for thread ID: {thread_id}"
+    )
     message_service = MessageService(db)
     try:
         messages = message_service.list_messages_for_thread(thread_id)
@@ -140,7 +154,9 @@ def save_assistant_message(message: MessageCreate, db: Session = Depends(get_db)
         )
 
         if new_message is None:
-            logging_utility.debug("Received non-final chunk. Returning early. Source: %s", __file__)
+            logging_utility.debug(
+                "Received non-final chunk. Returning early. Source: %s", __file__
+            )
             raise HTTPException(
                 status_code=500,
                 detail="Message saving failed: No complete message to return (expected for non-final chunks).",
