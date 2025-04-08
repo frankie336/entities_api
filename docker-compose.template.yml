@@ -1,13 +1,13 @@
-version: "3.8"
+# docker-compose.template.yml (Corrected Structure)
+# NO 'version:' key at the top
 
 services:
   db:
     image: mysql:8.0
     container_name: my_mysql_cosmic_catalyst
     restart: always
-    # REMOVED env_file: - .env
     environment:
-      # Direct injection will handle these
+      # Use placeholders for values from .env
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
@@ -15,7 +15,7 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     ports:
-      - "${MYSQL_EXTERNAL_PORT:-3307}:3306" # Use variable for external port mapping
+      - "${MYSQL_EXTERNAL_PORT}:3306" # Use placeholder for port if needed
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
@@ -29,15 +29,14 @@ services:
     container_name: qdrant_server
     restart: always
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "${QDRANT_PORT}:6333"  # Use placeholder
+      - "6334:6334"          # Assuming this is fixed
     volumes:
       - qdrant_storage:/qdrant/storage
     environment:
-      # These are static or injected directly
       QDRANT__STORAGE__STORAGE_PATH: "/qdrant/storage"
-      QDRANT__SERVICE__GRPC_PORT: "6334"
-      QDRANT__LOG_LEVEL: "${LOG_LEVEL:-INFO}" # Allow override from .env
+      QDRANT__SERVICE__GRPC_PORT: "6334" # Fixed value
+      QDRANT__LOG_LEVEL: ${LOG_LEVEL}     # Use placeholder
     networks:
       - my_custom_network
 
@@ -47,16 +46,17 @@ services:
       dockerfile: docker/api/Dockerfile
     container_name: fastapi_cosmic_catalyst
     restart: always
-    env_file: # API relies heavily on env_file per gold standard
+    env_file: # Keep this if you want base values from .env
       - .env
-    environment:
-      # Only inject vars explicitly listed in gold standard's environment section
-      DATABASE_URL: ${DATABASE_URL} # This will be substituted by script
-      SANDBOX_SERVER_URL: ${SANDBOX_SERVER_URL} # This will be substituted
-      QDRANT_URL: ${QDRANT_URL} # This will be substituted
-      DEFAULT_SECRET_KEY: ${DEFAULT_SECRET_KEY} # This will be substituted
+    environment: # Use the LIST format for overrides/additions
+      # Use placeholders for values you want explicitly set here (potentially overriding .env)
+      - DATABASE_URL=${DATABASE_URL}
+      - SANDBOX_SERVER_URL=${SANDBOX_SERVER_URL}
+      - QDRANT_URL=${QDRANT_URL}
+      - DEFAULT_SECRET_KEY=${DEFAULT_SECRET_KEY}
+      # Add any other specific environment variables needed in this list format
     ports:
-      - "9000:9000"
+      - "9000:9000" # Assuming fixed port
     depends_on:
       db:
         condition: service_healthy
@@ -64,16 +64,8 @@ services:
         condition: service_started
       qdrant:
         condition: service_started
-    command:
-      - ./wait-for-it.sh
-      - db:3306
-      - --
-      - uvicorn
-      - entities_api.app:app # Ensure this matches your app path
-      - --host
-      - 0.0.0.0
-      - --port
-      - "9000"
+    # Use the exact list format for command
+    command: ["./wait-for-it.sh", "db:3306", "--", "uvicorn", "entities_api.app:app", "--host", "0.0.0.0", "--port", "9000"]
     networks:
       - my_custom_network
 
@@ -90,15 +82,15 @@ services:
     devices:
       - /dev/fuse
     ports:
-      - "8000:8000"
+      - "8000:8000" # Assuming fixed port
     depends_on:
       db:
         condition: service_healthy
     volumes:
-      - /tmp/sandbox_logs:/app/logs # Consider making host path configurable?
-    env_file: # Sandbox relies entirely on env_file per gold standard
+      - /tmp/sandbox_logs:/app/logs
+    env_file: # Keep this to load base values from .env
       - .env
-    # NO 'environment:' section here, matching gold standard
+    # Add specific 'environment:' list here if needed, like in 'api' service
     networks:
       - my_custom_network
 
@@ -107,29 +99,30 @@ services:
     container_name: samba_server
     restart: unless-stopped
     environment:
-      # Direct injection handles these, keep placeholders if preferred, but direct is fine too
-      USERID: ${SAMBA_USERID:-1000} # Allow override, default 1000
-      GROUPID: ${SAMBA_GROUPID:-1000} # Allow override, default 1000
-      TZ: ${SAMBA_TZ:-UTC} # Allow override, default UTC
-      USER: "${SMBCLIENT_USERNAME};${SMBCLIENT_PASSWORD}" # Composite, injected by script
-      SHARE: "${SMBCLIENT_SHARE};/samba/share;yes;no;no;${SMBCLIENT_USERNAME}" # Composite, injected
-      GLOBAL: "server min protocol = NT1\nserver max protocol = SMB3" # Static multi-line
+      USERID: ${SAMBA_USERID} # Placeholder
+      GROUPID: ${SAMBA_GROUPID} # Placeholder
+      TZ: ${SAMBA_TZ}       # Placeholder
+      # Combine user/pass from .env values
+      USER: "${SMBCLIENT_USERNAME};${SMBCLIENT_PASSWORD}" # Use placeholders
+      # Construct share definition
+      SHARE: "${SMBCLIENT_SHARE};/samba/share;yes;no;no;${SMBCLIENT_USERNAME}" # Use placeholders
+      # Ensure GLOBAL uses \n for newlines within the string if needed by the image
+      GLOBAL: "server min protocol = NT1\nserver max protocol = SMB3" # Keep literal \n
     ports:
-      - "139:139" # Keep standard host port unless conflict
-      - "445:445" # Keep standard host port unless conflict
+      - "139:139"
+      - "${SMBCLIENT_PORT}:445" # Use placeholder for host port (1445 in gold standard)
     volumes:
-      # Use the literal placeholder, Docker Compose will handle it
+      # This MUST remain exactly as ${SHARED_PATH} for compose to interpolate it correctly at runtime
       - ${SHARED_PATH}:/samba/share
     networks:
       - my_custom_network
 
-# --- Top Level Definitions ---
 volumes:
   mysql_data:
-    driver: local # Explicit driver
+    driver: local
   qdrant_storage:
-    driver: local # Explicit driver
+    driver: local
 
 networks:
   my_custom_network:
-    driver: bridge # Explicit driver
+    driver: bridge
