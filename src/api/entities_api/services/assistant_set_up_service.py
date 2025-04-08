@@ -30,6 +30,9 @@ class AssistantSetupService:
 
     def create_and_associate_tools(self, function_definitions, assistant_id):
         """Creates tools if they do not already exist and associates them with the assistant."""
+
+        self.client.users.create_user(name='default')
+
         for func_def in function_definitions:
             tool_name = func_def["function"]["name"]
             try:
