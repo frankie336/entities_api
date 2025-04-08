@@ -3,6 +3,7 @@
 --prefer-binary
 
 # Core libraries
+PyYAML # <--Make sure at least this is installed in local dev
 alembic
 annotated-types
 anyio
