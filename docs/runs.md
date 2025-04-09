@@ -72,6 +72,6 @@ client.run_service.cancel_run(run_id=run_id)
 
 **Example use case**
 
-![Diagram](run0.png)
+![Diagram](../assets/run0.png)
 
 The cancel method in the Run end point can be leveraged to create an interrupt button in the user interface app of a chat bot.
