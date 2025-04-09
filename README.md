@@ -99,11 +99,11 @@ Example dialogue array:
 
 ### Getting Started & Basic Concepts
 
-- [Assistants](/docs/assistants.md)  
-- [Threads](/docs/threads.md)  
-- [Messages](/docs/messages.md)  
-- [Runs](/docs/runs.md)  
-- [Inference](/docs/inference.md)  
+- [Assistants](https://github.com/frankie336/projectdavid/blob/master/docs/assistants.md)  
+- [Threads](https://github.com/frankie336/projectdavid/blob/master/docs/threads.md)  
+- [Messages](https://github.com/frankie336/projectdavid/blob/master/docs/messages.md)  
+- [Runs](https://github.com/frankie336/projectdavid/blob/master/docs/runs.md)  
+- [Inference](https://github.com/frankie336/projectdavid/blob/master/docs/inference.md)  
 - [Streaming](/docs/streams.md)  
 
 ### Advanced Features

@@ -2,8 +2,7 @@ from abc import ABC, abstractmethod
 from functools import lru_cache
 from typing import Any, Dict, Generator, Optional
 
-from .streamers import \
-    InferenceStreamer  # Assuming streamers are in a sub-module
+from .streamers import InferenceStreamer  # Assuming streamers are in a sub-module
 
 
 class BaseInference(ABC):

@@ -97,6 +97,7 @@ class DockerManager:
         "ASSISTANTS_BASE_URL": "http://localhost:9000/",
         "SANDBOX_SERVER_URL": "http://localhost:9000",  # Or maybe 'http://sandbox_api:8000'? Check usage.
         "DOWNLOAD_BASE_URL": "http://localhost:9000/v1/files/download",
+        "HYPERBOLIC_BASE_URL": "https://api.hyperbolic.xyz/v1",  # <--- Added new value
         # --- Database Components Fallbacks (if not in compose) ---
         "MYSQL_HOST": DEFAULT_DB_SERVICE_NAME,  # Usually the service name
         "MYSQL_PORT": DEFAULT_DB_CONTAINER_PORT,
