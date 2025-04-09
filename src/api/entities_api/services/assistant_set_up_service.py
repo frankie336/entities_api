@@ -1,12 +1,11 @@
 # entities_api/services/assistant_setup_service.py
-from entities_common import ValidationInterface
-from projectdavid import Entity
 
-from entities_api.constants.assistant import (BASE_ASSISTANT_INSTRUCTIONS,
-                                              BASE_TOOLS, DEFAULT_MODEL)
+from projectdavid import Entity
+from projectdavid_common import ValidationInterface
+
+from entities_api.constants.assistant import BASE_TOOLS, DEFAULT_MODEL
 from entities_api.services.logging_service import LoggingUtility
-from entities_api.services.vector_store_service import VectorStoreService
-from entities_api.services.vector_waves import AssistantVectorWaves
+from entities_api.system_message.assembly import assemble_instructions
 
 validate = ValidationInterface()
 
@@ -15,17 +14,6 @@ class AssistantSetupService:
     def __init__(self):
         self.client = Entity()
         self.logging_utility = LoggingUtility()
-        self.vector_store_service = VectorStoreService()
-        self._vector_waves = None  # Lazy initialization holder
-
-    @property
-    def vector_waves(self):
-        """Lazy-loaded vector waves component"""
-        if self._vector_waves is None:
-            self._vector_waves = AssistantVectorWaves(
-                vector_service=self.vector_store_service
-            )
-        return self._vector_waves
 
     def create_and_associate_tools(self, function_definitions, assistant_id):
         """Creates tools if they do not already exist and associates them with the assistant."""
@@ -123,7 +111,7 @@ class AssistantSetupService:
                 assistant_name="Q",
                 assistant_description="Assistant",
                 model=DEFAULT_MODEL,
-                instructions=BASE_ASSISTANT_INSTRUCTIONS,
+                instructions=assemble_instructions(),
                 function_definitions=BASE_TOOLS,
             )
 

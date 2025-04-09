@@ -1560,7 +1560,6 @@ class BaseInference(ABC):
         stream_reasoning=False,
         api_key: Optional[str] = None,
     ):
-
         """
         Streaming handler for tool-based assistant responses, including reasoning and content.
 
