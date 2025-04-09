@@ -3,16 +3,16 @@ import time
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from projectdavid_common import (  # Assuming StreamRequest has api_key field
+from projectdavid_common import (
     ValidationInterface,
-)
+)  # Assuming StreamRequest has api_key field
 
 # Make sure these imports point to the correct location of your classes
 from entities_api.inference.inference_arbiter import InferenceArbiter
 from entities_api.inference.inference_provider_selector import InferenceProviderSelector
-from entities_api.services.logging_service import (  # Ensure this path is correct
+from entities_api.services.logging_service import (
     LoggingUtility,
-)
+)  # Ensure this path is correct
 
 router = APIRouter()
 logging_utility = LoggingUtility()

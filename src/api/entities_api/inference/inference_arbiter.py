@@ -11,9 +11,9 @@ from entities_api.inference.cloud_hyperbolic_v3 import HyperbolicV3Inference
 from entities_api.inference.cloud_together_ai_llama2 import TogetherLlama2Inference
 from entities_api.inference.cloud_together_ai_r1 import TogetherR1Inference
 from entities_api.inference.cloud_together_ai_v3 import TogetherV3Inference
-from entities_api.inference.local_inference import (  # New local inference provider
+from entities_api.inference.local_inference import (
     LocalInference,
-)
+)  # New local inference provider
 from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()

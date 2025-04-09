@@ -82,9 +82,7 @@ class BaseInference(ABC):
 
         self.base_url = base_url
 
-
-        self.api_key = None,
-
+        self.api_key = (None,)
 
         self.assistant_id = assistant_id
         self.thread_id = thread_id
@@ -99,25 +97,6 @@ class BaseInference(ABC):
         # -------------------------------
         # Clients
         # --------------------------------
-
-        # ---> FIX: Initialize Hyperbolic client ONCE with a default key <---
-        hyperbolic_key_default = os.getenv("HYPERBOLIC_API_KEY")
-        if not hyperbolic_key_default:
-            logging_utility.warning(
-                "HYPERBOLIC_API_KEY environment variable not set. "
-                "Client initialization requires it, or requests might fail if no key is passed."
-                # If essential, raise ConfigurationError("HYPERBOLIC_API_KEY must be set...")
-            )
-        # This client instance is created ONCE with the default key.
-        self.hyperbolic_client = OpenAI(
-            api_key=hyperbolic_key_default,  # Use default key for initialization
-            base_url="https://api.hyperbolic.xyz/v1",
-            timeout=httpx.Timeout(30.0, read=30.0),
-        )
-
-
-
-        # --------------------------------------------------------------------
 
         self.code_mode = False
 
@@ -207,9 +186,6 @@ class BaseInference(ABC):
             except Exception as e:
                 raise AuthenticationError(f"Credential validation failed: {str(e)}")
 
-
-
-
     @property
     def user_service(self):
 
@@ -263,8 +239,6 @@ class BaseInference(ABC):
     def setup_services(self):
         """Initialize any additional services required by child classes."""
         pass
-
-
 
     # -------------------------------------------------
     # ENTITIES STATE INFORMATION
@@ -1550,7 +1524,14 @@ class BaseInference(ABC):
         pass
 
     def stream_function_call_output(
-        self, thread_id, run_id, assistant_id, model, name=None, stream_reasoning=False
+        self,
+        thread_id,
+        run_id,
+        assistant_id,
+        model,
+        name=None,
+        stream_reasoning=False,
+        api_key: Optional[str] = None,
     ):
         """
         Streaming handler for tool-based assistant responses, including reasoning and content.
@@ -1565,6 +1546,7 @@ class BaseInference(ABC):
             model (str): Model to use.
             name (str): Name of the invoked tool.
             stream_reasoning (bool): Whether to include reasoning output.
+            api_key: Optional[str]: provider api key
 
         Yields:
             JSON stringified chunks.
@@ -1593,7 +1575,6 @@ class BaseInference(ABC):
         )
         logging_utility.info("Sent reminder message to assistant: %s", reminder)
 
-        # Begin streaming via hyperbolic backend
         try:
             stream_generator = self.stream_response_hyperbolic(
                 thread_id=thread_id,
@@ -1602,6 +1583,7 @@ class BaseInference(ABC):
                 assistant_id=assistant_id,
                 model=model,
                 stream_reasoning=True,
+                api_key=api_key,
             )
 
             assistant_reply = ""
@@ -1934,16 +1916,6 @@ class BaseInference(ABC):
 
         self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
 
-    import json
-    import time
-    import sys
-    from typing import Optional
-
-    # Assuming necessary imports like OpenAI, httpx, logging_utility, validator, etc.
-    # are present in the file where this method resides (likely BaseInference).
-
-    # --- Within the BaseInference class (or wherever defined) ---
-
     def stream_response_hyperbolic(
         self,
         thread_id,
@@ -1980,8 +1952,10 @@ class BaseInference(ABC):
         if api_key:
             key_source_log = "provided"
             logging_utility.debug(
-                f"Run {run_id}: Creating temporary Hyperbolic client with provided API key.")
+                f"Run {run_id}: Creating temporary Hyperbolic client with provided API key."
+            )
             try:
+
                 # Create a NEW client instance for this specific request
                 client_to_use = OpenAI(
                     api_key=api_key,
@@ -1990,22 +1964,35 @@ class BaseInference(ABC):
                     timeout=httpx.Timeout(30.0, read=30.0),
                     # Ensure these match default client params
                 )
+
+
             except Exception as client_init_error:
                 logging_utility.error(
                     f"Run {run_id}: Failed to create temporary Hyperbolic client: {client_init_error}",
-                    exc_info=True)
-                yield json.dumps({"type": "error",
-                                  "content": f"Failed to initialize client for request: {client_init_error}"})
+                    exc_info=True,
+                )
+                yield json.dumps(
+                    {
+                        "type": "error",
+                        "content": f"Failed to initialize client for request: {client_init_error}",
+                    }
+                )
                 return  # Stop processing if client can't be made
         else:
-            logging_utility.debug(f"Run {run_id}: Using default configured Hyperbolic client.")
+            logging_utility.debug(
+                f"Run {run_id}: Using default configured Hyperbolic client."
+            )
             # Use the client initialized in __init__ (self.hyperbolic_client)
             client_to_use = self.hyperbolic_client
 
         # Ensure we have a client to use
         if not client_to_use:
-            logging_utility.error(f"Run {run_id}: No valid Hyperbolic client available.")
-            yield json.dumps({"type": "error", "content": "Hyperbolic client configuration error."})
+            logging_utility.error(
+                f"Run {run_id}: No valid Hyperbolic client available."
+            )
+            yield json.dumps(
+                {"type": "error", "content": "Hyperbolic client configuration error."}
+            )
             return
 
         assistant_reply = ""
@@ -2019,9 +2006,7 @@ class BaseInference(ABC):
         try:
             # Use the selected client (temporary or default)
             # DO NOT pass api_key=... inside create()
-            response = client_to_use.chat.completions.create(
-                **request_payload
-            )
+            response = client_to_use.chat.completions.create(**request_payload)
 
             # Process the stream
             for token in response:
@@ -2053,64 +2038,90 @@ class BaseInference(ABC):
                     else [delta_content]
                 )
                 for seg in segments:
-                    if not seg: continue
+                    if not seg:
+                        continue
 
                     # Handle reasoning tags
                     if seg == "<think>":
                         in_reasoning = True
                         reasoning_content += seg
-                        if stream_reasoning: yield json.dumps({"type": "reasoning", "content": seg})
+                        if stream_reasoning:
+                            yield json.dumps({"type": "reasoning", "content": seg})
                         continue
                     elif seg == "</think>":
                         in_reasoning = False
                         reasoning_content += seg
-                        if stream_reasoning: yield json.dumps({"type": "reasoning", "content": seg})
+                        if stream_reasoning:
+                            yield json.dumps({"type": "reasoning", "content": seg})
                         continue
 
                     # Process content or reasoning segment
                     if in_reasoning:
                         reasoning_content += seg
-                        if stream_reasoning: yield json.dumps({"type": "reasoning", "content": seg})
+                        if stream_reasoning:
+                            yield json.dumps({"type": "reasoning", "content": seg})
                     else:
                         assistant_reply += seg
                         accumulated_content += seg
 
                         # Handle code interpreter logic if applicable
-                        if hasattr(self, 'parse_code_interpreter_partial'):
-                            partial_match = self.parse_code_interpreter_partial(accumulated_content)
+                        if hasattr(self, "parse_code_interpreter_partial"):
+                            partial_match = self.parse_code_interpreter_partial(
+                                accumulated_content
+                            )
                         else:
                             partial_match = None
 
                         if not code_mode and partial_match:
                             # Enter code mode
                             full_match = partial_match.get(
-                                "full_match")  # Ensure parse_code_interpreter_partial returns this if needed
+                                "full_match"
+                            )  # Ensure parse_code_interpreter_partial returns this if needed
                             if full_match:
                                 match_index = accumulated_content.find(full_match)
                                 if match_index != -1:
                                     accumulated_content = accumulated_content[
-                                                          match_index + len(full_match):]
+                                        match_index + len(full_match) :
+                                    ]
                             code_mode = True
                             code_buffer = partial_match.get("code", "")
                             self.code_mode = True
-                            yield json.dumps({"type": "hot_code", "content": "```python\n"})
+                            yield json.dumps(
+                                {"type": "hot_code", "content": "```python\n"}
+                            )
                             # Process initial buffer if code interpreter chunks method exists
-                            if code_buffer and hasattr(self, '_process_code_interpreter_chunks'):
-                                results, code_buffer = self._process_code_interpreter_chunks("",
-                                                                                             code_buffer)
-                                for r in results: yield r; assistant_reply += r if isinstance(r,
-                                                                                              str) else json.loads(
-                                    r).get("content", "")  # Accumulate string content
+                            if code_buffer and hasattr(
+                                self, "_process_code_interpreter_chunks"
+                            ):
+                                results, code_buffer = (
+                                    self._process_code_interpreter_chunks(
+                                        "", code_buffer
+                                    )
+                                )
+                                for r in results:
+                                    yield r
+                                    assistant_reply += (
+                                        r
+                                        if isinstance(r, str)
+                                        else json.loads(r).get("content", "")
+                                    )  # Accumulate string content
                             continue
 
                         if code_mode:
                             # Process code chunks if method exists
-                            if hasattr(self, '_process_code_interpreter_chunks'):
-                                results, code_buffer = self._process_code_interpreter_chunks(seg,
-                                                                                             code_buffer)
-                                for r in results: yield r; assistant_reply += r if isinstance(r,
-                                                                                              str) else json.loads(
-                                    r).get("content", "")  # Accumulate string content
+                            if hasattr(self, "_process_code_interpreter_chunks"):
+                                results, code_buffer = (
+                                    self._process_code_interpreter_chunks(
+                                        seg, code_buffer
+                                    )
+                                )
+                                for r in results:
+                                    yield r
+                                    assistant_reply += (
+                                        r
+                                        if isinstance(r, str)
+                                        else json.loads(r).get("content", "")
+                                    )  # Accumulate string content
                             else:  # Fallback if method missing
                                 yield json.dumps({"type": "hot_code", "content": seg})
                             continue
@@ -2123,35 +2134,39 @@ class BaseInference(ABC):
             # Error message now uses key_source_log determined earlier
             error_msg = f"Hyperbolic SDK error (using {key_source_log} key): {str(e)}"
             logging_utility.error(f"Run {run_id}: {error_msg}", exc_info=True)
-            if hasattr(self, 'handle_error'):
-                self.handle_error(reasoning_content + assistant_reply, thread_id, assistant_id,
-                                  run_id)
+            if hasattr(self, "handle_error"):
+                self.handle_error(
+                    reasoning_content + assistant_reply, thread_id, assistant_id, run_id
+                )
             yield json.dumps({"type": "error", "content": error_msg})
             return
 
         # Finalize conversation and parse function calls
-        if assistant_reply and hasattr(self, 'finalize_conversation'):
-            self.finalize_conversation(reasoning_content + assistant_reply, thread_id, assistant_id,
-                                       run_id)
+        if assistant_reply and hasattr(self, "finalize_conversation"):
+            self.finalize_conversation(
+                reasoning_content + assistant_reply, thread_id, assistant_id, run_id
+            )
 
-        if accumulated_content and hasattr(self, 'parse_and_set_function_calls'):
+        if accumulated_content and hasattr(self, "parse_and_set_function_calls"):
             self.parse_and_set_function_calls(accumulated_content, assistant_reply)
 
         # Update run status if applicable
-        if hasattr(self, 'run_service') and hasattr(validator, 'StatusEnum'):
-            if not self.get_function_call_state():  # Check state using appropriate method
-                self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
+        if hasattr(self, "run_service") and hasattr(validator, "StatusEnum"):
+            if (
+                not self.get_function_call_state()
+            ):  # Check state using appropriate method
+                self.run_service.update_run_status(
+                    run_id, validator.StatusEnum.completed
+                )
 
         if reasoning_content:
             logging_utility.info(
-                f"Run {run_id}: Final reasoning content length: {len(reasoning_content)}")
+                f"Run {run_id}: Final reasoning content length: {len(reasoning_content)}"
+            )
 
-
-
-
-
-
-    def process_function_calls(self, thread_id, run_id, assistant_id, model=None):
+    def process_function_calls(
+        self, thread_id, run_id, assistant_id, model=None, api_key=None
+    ):
         """
         Process the pending function call state and yield output chunks accordingly.
 
@@ -2177,6 +2192,8 @@ class BaseInference(ABC):
           model : Optional[Any]
               The model used during processing; can be utilized for context in tool call outputs.
 
+          api_key: Inference provider api-key
+
         Yields:
           chunk : Any
               Chunks of output generated by the processing of function calls.
@@ -2201,6 +2218,7 @@ class BaseInference(ABC):
                     run_id=run_id,
                     model=model,
                     assistant_id=assistant_id,
+                    api_key=api_key,
                     # name='code_interpreter'
                 ):
                     yield chunk
@@ -2219,6 +2237,7 @@ class BaseInference(ABC):
                     run_id=run_id,
                     model=model,
                     assistant_id=assistant_id,
+                    api_key=api_key,
                 ):
                     yield chunk
 
@@ -2245,6 +2264,7 @@ class BaseInference(ABC):
                         run_id=run_id,
                         model=model,
                         assistant_id=assistant_id,
+                        api_key=api_key,
                     ):
                         yield chunk
 
@@ -2258,8 +2278,13 @@ class BaseInference(ABC):
                         content=fc_state,
                         run_id=run_id,
                     )
+
                     for chunk in self.stream_function_call_output(
-                        thread_id=thread_id, run_id=run_id, assistant_id=assistant_id
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        model=model,
+                        assistant_id=assistant_id,
+                        api_key=api_key,
                     ):
                         yield chunk
 
