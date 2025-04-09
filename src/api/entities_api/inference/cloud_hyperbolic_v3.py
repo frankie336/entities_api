@@ -49,7 +49,7 @@ class HyperbolicV3Inference(BaseInference):
         api_key: Optional[str] = None,  # Keep parameter signature
     ):
         # Pass the key down to the base class method which handles the API call
-        return super().stream_response_hyperbolic(
+        return super().stream_hyperbolic(
             thread_id=thread_id,
             message_id=message_id,
             run_id=run_id,

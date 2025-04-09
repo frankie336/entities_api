@@ -6,7 +6,8 @@ from projectdavid_common import UtilsInterface, ValidationInterface
 from pydantic import parse_obj_as
 from sqlalchemy.orm import Session
 
-from entities_api.models.models import Run, StatusEnum  # Ensure Run is imported
+from entities_api.models.models import Run  # Ensure Run is imported
+from entities_api.models.models import StatusEnum
 from entities_api.services.logging_service import LoggingUtility
 
 validator = ValidationInterface()

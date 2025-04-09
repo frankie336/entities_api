@@ -37,7 +37,7 @@ class HyperbolicR1Inference(BaseInference):
     def stream_response(
         self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=True
     ):
-        return super().stream_response_hyperbolic(
+        return super().stream_hyperbolic(
             thread_id, message_id, run_id, assistant_id, model, stream_reasoning=True
         )
 

@@ -73,17 +73,13 @@ class BaseInference(ABC):
         api_key=None,
         assistant_id=None,
         thread_id=None,
-        # New parameters for ConversationTruncator
         model_name="deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B",
         max_context_window=128000,
         threshold_percentage=0.8,
         available_functions=None,
     ):
-
         self.base_url = base_url
-
-        self.api_key = (None,)
-
+        self.api_key = api_key
         self.assistant_id = assistant_id
         self.thread_id = thread_id
         self.available_functions = available_functions
@@ -94,13 +90,21 @@ class BaseInference(ABC):
         self.function_call = None
         self.client = Together(api_key=os.getenv("TOGETHER_API_KEY"))
 
-        # -------------------------------
-        # Clients
-        # --------------------------------
+        # Instantiate the default OpenAI client
+        try:
+            self.openai_client = OpenAI(
+                api_key=os.getenv("TOGETHER_API_KEY"),
+                base_url=self.base_url,
+                timeout=httpx.Timeout(30.0, read=30.0),
+            )
+        except Exception as e:
+            logging_utility.error(
+                "Failed to initialize default OpenAI client: %s", e, exc_info=True
+            )
+            self.openai_client = None
 
         self.code_mode = False
 
-        # Store truncation parameters
         self.truncator_params = {
             "model_name": model_name,
             "max_context_window": max_context_window,
@@ -109,6 +113,10 @@ class BaseInference(ABC):
 
         logging_utility.info("BaseInference initialized with lazy service loading.")
         self.setup_services()
+
+    def setup_services(self):
+        """Initialize all lazy-loadable service classes"""
+        pass
 
     def _get_service(self, service_class, custom_params=None):
         """Intelligent service initializer with parametric awareness"""
@@ -119,17 +127,16 @@ class BaseInference(ABC):
                 elif service_class == ConversationTruncator:
                     self._services[service_class] = self._init_conversation_truncator()
                 elif service_class == StreamOutput:
-                    # Explicitly initialize StreamOutput with no args
                     self._services[service_class] = self._init_stream_output()
                 else:
                     self._services[service_class] = self._init_general_service(
                         service_class, custom_params
                     )
-
                 logging_utility.debug(f"Initialized {service_class.__name__}")
             except Exception as e:
                 logging_utility.error(
-                    f"Service init failed for {service_class.__name__}: {str(e)}"
+                    f"Service init failed for {service_class.__name__}: {str(e)}",
+                    exc_info=True,
                 )
                 raise
         return self._services[service_class]
@@ -144,25 +151,21 @@ class BaseInference(ABC):
             thread_id=self.thread_id,
         )
 
+    def _init_conversation_truncator(self):
+        return ConversationTruncator(**self.truncator_params)
+
     def _init_stream_output(self):
         return StreamOutput()
 
-    def _init_conversation_truncator(self):
-        """Config-driven truncator initialization"""
-        return ConversationTruncator(**self.truncator_params)
-
     def _init_general_service(self, service_class, custom_params):
-        """Parametric service initialization with signature analysis"""
         if custom_params is not None:
             return service_class(*custom_params)
-
         signature = inspect.signature(service_class.__init__)
         params = self._resolve_init_parameters(signature)
         return service_class(*params)
 
     @lru_cache(maxsize=32)
     def _resolve_init_parameters(self, signature):
-        """Cached parameter resolution with attribute matching"""
         params = []
         for name, param in signature.parameters.items():
             if name == "self":
@@ -176,15 +179,54 @@ class BaseInference(ABC):
         return params
 
     def _validate_platform_dependencies(self):
-        """Centralized platform service validation"""
         if not self.get_assistant_id():
             raise ConfigurationError("Platform services require assistant_id")
-
         if not hasattr(self, "_platform_credentials_verified"):
             try:
                 self._platform_credentials_verified = True
             except Exception as e:
                 raise AuthenticationError(f"Credential validation failed: {str(e)}")
+
+    @lru_cache(maxsize=32)
+    def _get_openai_client(
+        self, api_key: Optional[str], base_url: Optional[str] = None
+    ) -> OpenAI:
+        """
+        Retrieves or creates an OpenAI client for the given API key.
+        Uses an LRU cache for reuse. If api_key is None, returns the default client.
+        """
+        if api_key:
+            logging_utility.debug("Creating client for specific key (not cached).")
+            try:
+                return OpenAI(
+                    api_key=api_key,
+                    base_url=base_url,
+                    timeout=httpx.Timeout(30.0, read=30.0),
+                )
+            except Exception as e:
+                logging_utility.error(
+                    "Failed to create specific OpenAI client: %s", e, exc_info=True
+                )
+                if self.openai_client:
+                    logging_utility.warning(
+                        "Falling back to default client due to error."
+                    )
+                    return self.openai_client
+                else:
+                    raise RuntimeError(
+                        "Default OpenAI client is not initialized, and specific client creation failed."
+                    )
+        else:
+            if self.openai_client:
+                logging_utility.debug(
+                    "Using default OpenAI client (no specific key provided)."
+                )
+                return self.openai_client
+            else:
+                raise RuntimeError("Default OpenAI client is not initialized.")
+
+    def get_assistant_id(self):
+        return self.assistant_id
 
     @property
     def user_service(self):
@@ -235,11 +277,6 @@ class BaseInference(ABC):
     def conversation_truncator(self):
         return self._get_service(ConversationTruncator)
 
-    @abstractmethod
-    def setup_services(self):
-        """Initialize any additional services required by child classes."""
-        pass
-
     # -------------------------------------------------
     # ENTITIES STATE INFORMATION
     # From time to time we need to pass
@@ -257,9 +294,6 @@ class BaseInference(ABC):
             # Clear cached services that depend on thread_id
             self._invalidate_service_cache(PlatformToolService)
             self.thread_id = thread_id
-
-    def get_assistant_id(self):
-        return self.assistant_id
 
     def get_thread_id(self):
         return self.assistant_id
@@ -1576,7 +1610,7 @@ class BaseInference(ABC):
         logging_utility.info("Sent reminder message to assistant: %s", reminder)
 
         try:
-            stream_generator = self.stream_response_hyperbolic(
+            stream_generator = self.stream_hyperbolic(
                 thread_id=thread_id,
                 message_id=None,  # Optional: extend interface to capture user msg ID if needed
                 run_id=run_id,
@@ -1817,7 +1851,7 @@ class BaseInference(ABC):
     ):
         """
         Llama 3 (Hyperbolic) streaming with content, code, and function call handling.
-        Mirrors stream_response_hyperbolic structure, excluding reasoning logic.
+        Mirrors stream_hyperbolic structure, excluding reasoning logic.
         """
         self.start_cancellation_listener(run_id)
 
@@ -1916,7 +1950,7 @@ class BaseInference(ABC):
 
         self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
 
-    def stream_response_hyperbolic(
+    def stream_hyperbolic(
         self,
         thread_id,
         message_id,
@@ -1956,15 +1990,9 @@ class BaseInference(ABC):
             )
             try:
 
-                # Create a NEW client instance for this specific request
-                client_to_use = OpenAI(
-                    api_key=api_key,
-                    base_url="https://api.hyperbolic.xyz/v1",
-                    # Ensure these match default client params
-                    timeout=httpx.Timeout(30.0, read=30.0),
-                    # Ensure these match default client params
+                client_to_use = self._get_openai_client(
+                    base_url=os.getenv("HYPERBOLIC_BASE_URL"), api_key=api_key
                 )
-
 
             except Exception as client_init_error:
                 logging_utility.error(
@@ -1977,15 +2005,12 @@ class BaseInference(ABC):
                         "content": f"Failed to initialize client for request: {client_init_error}",
                     }
                 )
-                return  # Stop processing if client can't be made
+                return
         else:
             logging_utility.debug(
                 f"Run {run_id}: Using default configured Hyperbolic client."
             )
-            # Use the client initialized in __init__ (self.hyperbolic_client)
-            client_to_use = self.hyperbolic_client
 
-        # Ensure we have a client to use
         if not client_to_use:
             logging_utility.error(
                 f"Run {run_id}: No valid Hyperbolic client available."
@@ -2001,11 +2026,9 @@ class BaseInference(ABC):
         in_reasoning = False
         code_mode = False
         code_buffer = ""
-        # matched = False # This variable seemed unused
 
         try:
-            # Use the selected client (temporary or default)
-            # DO NOT pass api_key=... inside create()
+
             response = client_to_use.chat.completions.create(**request_payload)
 
             # Process the stream

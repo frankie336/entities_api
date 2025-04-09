@@ -83,13 +83,13 @@
              | Provider Instance Method: stream_response(..., api_key)              |
              |-----------------------------------------------------------------------|
              | - Receives api_key='some_key'                                        |
-             | - Calls super().stream_response_hyperbolic(..., api_key='some_key') |
+             | - Calls super().stream_hyperbolic(..., api_key='some_key') |
              +-----------------------------------------------------------------------+
                                          |
                                          | api_key='some_key' passed down
                                          v
    +-------------------------------------------------------------------------------------------------+
-   | BaseInference Method: stream_response_hyperbolic(..., api_key='some_key')                       |
+   | BaseInference Method: stream_hyperbolic(..., api_key='some_key')                       |
    |-------------------------------------------------------------------------------------------------|
    | 1. Receives api_key='some_key'                                                                 |
    | 2. Checks if api_key is provided:                                                             |
