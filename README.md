@@ -104,7 +104,7 @@ Example dialogue array:
 - [Messages](https://github.com/frankie336/projectdavid/blob/master/docs/messages.md)  
 - [Runs](https://github.com/frankie336/projectdavid/blob/master/docs/runs.md)  
 - [Inference](https://github.com/frankie336/projectdavid/blob/master/docs/inference.md)  
-- [Streaming](/docs/streams.md)  
+- [Streaming](https://github.com/frankie336/projectdavid/blob/master/docs/streams.md)  
 
 ### Advanced Features
 
