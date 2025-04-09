@@ -17,25 +17,24 @@ class HyperbolicV3Inference(BaseInference):
             "HyperbolicV3Inference specific setup completed (if any)."
         )
 
-    # ... (get_tool_response_state, get_function_call_state, handle_code_interpreter_action - Keep as is) ...
-
     def stream_function_call_output(
         self,
         thread_id,
         run_id,
         assistant_id,
         model,
+        name=None,
         stream_reasoning=False,
-        api_key: Optional[str] = None,  # Keep parameter signature
+        api_key: Optional[str] = None,
     ):
-        # Ensure super method accepts api_key if needed
+
         return super().stream_function_call_output(
             thread_id=thread_id,
             run_id=run_id,
             assistant_id=assistant_id,
             model=model,
             stream_reasoning=stream_reasoning,
-            api_key=api_key,  # <-- PASS api_key to super()
+            api_key=api_key,
         )
 
     def stream_response(
@@ -46,9 +45,9 @@ class HyperbolicV3Inference(BaseInference):
         assistant_id,
         model,
         stream_reasoning=True,
-        api_key: Optional[str] = None,  # Keep parameter signature
+        api_key: Optional[str] = None,
     ):
-        # Pass the key down to the base class method which handles the API call
+
         return super().stream_hyperbolic(
             thread_id=thread_id,
             message_id=message_id,
@@ -56,7 +55,7 @@ class HyperbolicV3Inference(BaseInference):
             assistant_id=assistant_id,
             model=model,
             stream_reasoning=stream_reasoning,
-            api_key=api_key,  # <-- PASS api_key to super()
+            api_key=api_key,
         )
 
     def process_function_calls(
@@ -65,15 +64,15 @@ class HyperbolicV3Inference(BaseInference):
         run_id,
         assistant_id,
         model=None,
-        api_key: Optional[str] = None,  # Keep parameter signature
+        api_key: Optional[str] = None,
     ):
-        # Ensure super method accepts api_key if needed
+
         return super().process_function_calls(
             thread_id=thread_id,
             run_id=run_id,
             assistant_id=assistant_id,
             model=model,
-            api_key=api_key,  # <-- PASS api_key to super()
+            api_key=api_key,
         )
 
     def process_conversation(
@@ -84,15 +83,12 @@ class HyperbolicV3Inference(BaseInference):
         assistant_id,
         model,
         stream_reasoning=False,
-        api_key: Optional[str] = None,  # Keep parameter signature
+        api_key: Optional[str] = None,
     ):
         """
         Processes the conversation, passing the api_key down for use
         in the actual API request via override.
         """
-        # --- REMOVE THIS LINE ---
-        # self.set_api_key(api_key=api_key)
-        # -----------------------
 
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)
@@ -109,7 +105,7 @@ class HyperbolicV3Inference(BaseInference):
             assistant_id=assistant_id,
             model=model,
             stream_reasoning=stream_reasoning,
-            api_key=api_key,  # <-- Keep Passing api_key
+            api_key=api_key,
         ):
             yield chunk
 

@@ -1,6 +1,5 @@
-from entities_api.platform_tools.computer.shell_command_interface import (
-    run_shell_commands,
-)
+from entities_api.platform_tools.computer.shell_command_interface import \
+    run_shell_commands
 
 # List of commands to execute on the remote shell.
 commands_list = [
