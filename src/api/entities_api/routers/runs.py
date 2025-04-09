@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from entities_api.dependencies import get_db
-from entities_api.services.run_service import RunService
+from entities_api.services.runs import RunService
 
 # Instantiate our utilities.
 ent_validator = ValidationInterface()

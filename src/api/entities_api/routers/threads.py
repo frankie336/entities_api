@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from entities_api.dependencies import get_db
 from entities_api.serializers import ThreadCreate
 from entities_api.services.logging_service import LoggingUtility
-from entities_api.services.thread_service import ThreadService
+from entities_api.services.threads import ThreadService
 
 validation = ValidationInterface()
 

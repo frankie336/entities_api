@@ -7,7 +7,7 @@ from entities_api.dependencies import get_db
 validation = ValidationInterface()
 
 from entities_api.services.logging_service import LoggingUtility
-from entities_api.services.tool_service import ToolService
+from entities_api.services.tools import ToolService
 
 router = APIRouter()
 logging_utility = LoggingUtility()

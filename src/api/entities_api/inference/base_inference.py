@@ -11,7 +11,7 @@ import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import lru_cache
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 from openai import OpenAI
@@ -24,6 +24,7 @@ from projectdavid.clients.threads import ThreadsClient
 from projectdavid.clients.tools import ToolsClient
 from projectdavid.clients.vectors import VectorStoreClient
 from projectdavid_common import ValidationInterface
+from sympy import pde_separate
 from together import Together
 
 from entities_api.constants.assistant import (
@@ -80,7 +81,11 @@ class BaseInference(ABC):
     ):
 
         self.base_url = base_url
-        self.api_key = api_key
+
+
+        self.api_key = None,
+
+
         self.assistant_id = assistant_id
         self.thread_id = thread_id
         self.available_functions = available_functions
@@ -90,15 +95,29 @@ class BaseInference(ABC):
         self.tool_response = None
         self.function_call = None
         self.client = Together(api_key=os.getenv("TOGETHER_API_KEY"))
+
         # -------------------------------
         # Clients
         # --------------------------------
+
+        # ---> FIX: Initialize Hyperbolic client ONCE with a default key <---
+        hyperbolic_key_default = os.getenv("HYPERBOLIC_API_KEY")
+        if not hyperbolic_key_default:
+            logging_utility.warning(
+                "HYPERBOLIC_API_KEY environment variable not set. "
+                "Client initialization requires it, or requests might fail if no key is passed."
+                # If essential, raise ConfigurationError("HYPERBOLIC_API_KEY must be set...")
+            )
+        # This client instance is created ONCE with the default key.
         self.hyperbolic_client = OpenAI(
-            api_key=os.getenv("HYPERBOLIC_API_KEY"),
+            api_key=hyperbolic_key_default,  # Use default key for initialization
             base_url="https://api.hyperbolic.xyz/v1",
             timeout=httpx.Timeout(30.0, read=30.0),
         )
-        logging_utility.info("DeepSeekV3Cloud specific setup completed.")
+
+
+
+        # --------------------------------------------------------------------
 
         self.code_mode = False
 
@@ -188,6 +207,9 @@ class BaseInference(ABC):
             except Exception as e:
                 raise AuthenticationError(f"Credential validation failed: {str(e)}")
 
+
+
+
     @property
     def user_service(self):
 
@@ -241,6 +263,8 @@ class BaseInference(ABC):
     def setup_services(self):
         """Initialize any additional services required by child classes."""
         pass
+
+
 
     # -------------------------------------------------
     # ENTITIES STATE INFORMATION
@@ -1910,30 +1934,34 @@ class BaseInference(ABC):
 
         self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
 
+    import json
+    import time
+    import sys
+    from typing import Optional
+
+    # Assuming necessary imports like OpenAI, httpx, logging_utility, validator, etc.
+    # are present in the file where this method resides (likely BaseInference).
+
+    # --- Within the BaseInference class (or wherever defined) ---
+
     def stream_response_hyperbolic(
-        self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=True
+        self,
+        thread_id,
+        message_id,
+        run_id,
+        assistant_id,
+        model,
+        stream_reasoning=True,
+        api_key: Optional[str] = None,  # Accept the api_key passed down
     ):
         """
-        Process conversation with dual streaming of content and reasoning.
-        If a tool call trigger is detected, update run status to 'action_required',
-        then wait for the status change and reprocess the original prompt.
-
-        This function splits incoming tokens into reasoning and content segments
-        (using <think> tags) while also handling a code mode. When a partial
-        code-interpreter match is found, it enters code mode, processes and streams
-        raw code via the _process_code_interpreter_chunks helper, and emits a start-of-code marker.
-
-        Accumulated content is later used to finalize the conversation and validate
-        tool responses.
+        Streams response from Hyperbolic endpoint. Uses passed api_key by creating
+        a temporary client if necessary, otherwise uses the default client.
         """
-        # Start cancellation listener
         self.start_cancellation_listener(run_id)
 
-        # Force correct model value via mapping (defaulting if not mapped)
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)
-        else:
-            model = "deepseek-ai/DeepSeek-V3"
 
         request_payload = {
             "model": model,
@@ -1945,18 +1973,57 @@ class BaseInference(ABC):
             "stream": True,
         }
 
+        # Select or Create Client based on passed api_key
+        client_to_use = None
+        key_source_log = "default configured"
+
+        if api_key:
+            key_source_log = "provided"
+            logging_utility.debug(
+                f"Run {run_id}: Creating temporary Hyperbolic client with provided API key.")
+            try:
+                # Create a NEW client instance for this specific request
+                client_to_use = OpenAI(
+                    api_key=api_key,
+                    base_url="https://api.hyperbolic.xyz/v1",
+                    # Ensure these match default client params
+                    timeout=httpx.Timeout(30.0, read=30.0),
+                    # Ensure these match default client params
+                )
+            except Exception as client_init_error:
+                logging_utility.error(
+                    f"Run {run_id}: Failed to create temporary Hyperbolic client: {client_init_error}",
+                    exc_info=True)
+                yield json.dumps({"type": "error",
+                                  "content": f"Failed to initialize client for request: {client_init_error}"})
+                return  # Stop processing if client can't be made
+        else:
+            logging_utility.debug(f"Run {run_id}: Using default configured Hyperbolic client.")
+            # Use the client initialized in __init__ (self.hyperbolic_client)
+            client_to_use = self.hyperbolic_client
+
+        # Ensure we have a client to use
+        if not client_to_use:
+            logging_utility.error(f"Run {run_id}: No valid Hyperbolic client available.")
+            yield json.dumps({"type": "error", "content": "Hyperbolic client configuration error."})
+            return
+
         assistant_reply = ""
         accumulated_content = ""
         reasoning_content = ""
         in_reasoning = False
         code_mode = False
         code_buffer = ""
-        matched = False
+        # matched = False # This variable seemed unused
 
         try:
-            # Using self.client for streaming responses; adjust if deepseek_client is required.
-            response = self.hyperbolic_client.chat.completions.create(**request_payload)
+            # Use the selected client (temporary or default)
+            # DO NOT pass api_key=... inside create()
+            response = client_to_use.chat.completions.create(
+                **request_payload
+            )
 
+            # Process the stream
             for token in response:
                 if self.check_cancellation_flag():
                     logging_utility.warning(f"Run {run_id} cancelled mid-stream")
@@ -1968,126 +2035,121 @@ class BaseInference(ABC):
 
                 delta = token.choices[0].delta
 
-                # Process any explicit reasoning content from delta.
+                # Process reasoning if present and enabled
                 delta_reasoning = getattr(delta, "reasoning_content", "")
-                if delta_reasoning:
+                if delta_reasoning and stream_reasoning:
                     reasoning_content += delta_reasoning
                     yield json.dumps({"type": "reasoning", "content": delta_reasoning})
 
-                # Process content from delta.
+                # Process content
                 delta_content = getattr(delta, "content", "")
                 if not delta_content:
                     continue
 
-                # Optionally output raw content for debugging.
-                sys.stdout.write(delta_content)
-                sys.stdout.flush()
-
-                # Split the content based on reasoning tags (<think> and </think>)
+                # Split content based on reasoning tags
                 segments = (
                     self.REASONING_PATTERN.split(delta_content)
                     if hasattr(self, "REASONING_PATTERN")
                     else [delta_content]
                 )
                 for seg in segments:
-                    if not seg:
-                        continue
+                    if not seg: continue
 
-                    # Check for reasoning start/end tags.
+                    # Handle reasoning tags
                     if seg == "<think>":
                         in_reasoning = True
                         reasoning_content += seg
-                        logging_utility.debug("Yielding reasoning tag: %s", seg)
-                        yield json.dumps({"type": "reasoning", "content": seg})
+                        if stream_reasoning: yield json.dumps({"type": "reasoning", "content": seg})
                         continue
                     elif seg == "</think>":
                         in_reasoning = False
                         reasoning_content += seg
-                        logging_utility.debug("Yielding reasoning tag: %s", seg)
-                        yield json.dumps({"type": "reasoning", "content": seg})
+                        if stream_reasoning: yield json.dumps({"type": "reasoning", "content": seg})
                         continue
 
+                    # Process content or reasoning segment
                     if in_reasoning:
-                        # If within reasoning, yield as reasoning content.
                         reasoning_content += seg
-                        logging_utility.debug("Yielding reasoning segment: %s", seg)
-                        yield json.dumps({"type": "reasoning", "content": seg})
+                        if stream_reasoning: yield json.dumps({"type": "reasoning", "content": seg})
                     else:
-                        # Outside reasoning: process as normal content.
                         assistant_reply += seg
                         accumulated_content += seg
-                        logging_utility.debug("Processing content segment: %s", seg)
 
-                        # Check if a code-interpreter trigger is found (and not already in code mode).
-                        partial_match = self.parse_code_interpreter_partial(
-                            accumulated_content
-                        )
-
-                        if not code_mode:
-
-                            if partial_match:
-                                full_match = partial_match.get("full_match")
-                                if full_match:
-                                    match_index = accumulated_content.find(full_match)
-                                    if match_index != -1:
-                                        # Remove all content up to and including the trigger.
-                                        accumulated_content = accumulated_content[
-                                            match_index + len(full_match) :
-                                        ]
-                                code_mode = True
-                                code_buffer = partial_match.get("code", "")
-
-                                # Emit start-of-code block marker.
-                                self.code_mode = True
-                                yield json.dumps(
-                                    {"type": "hot_code", "content": "```python\n"}
-                                )
-                                continue  # Skip further processing of this segment.
-
-                        # If already in code mode, delegate to code-chunk processing.
-                        if code_mode:
-
-                            results, code_buffer = (
-                                self._process_code_interpreter_chunks(seg, code_buffer)
-                            )
-                            for r in results:
-                                yield r  # Yield raw code line(s).
-                                assistant_reply += r  # Optionally accumulate the code.
-
-                            continue
-
-                        # Yield non-code content as normal.
-                        if not code_buffer:
-                            yield json.dumps({"type": "content", "content": seg}) + "\n"
+                        # Handle code interpreter logic if applicable
+                        if hasattr(self, 'parse_code_interpreter_partial'):
+                            partial_match = self.parse_code_interpreter_partial(accumulated_content)
                         else:
+                            partial_match = None
+
+                        if not code_mode and partial_match:
+                            # Enter code mode
+                            full_match = partial_match.get(
+                                "full_match")  # Ensure parse_code_interpreter_partial returns this if needed
+                            if full_match:
+                                match_index = accumulated_content.find(full_match)
+                                if match_index != -1:
+                                    accumulated_content = accumulated_content[
+                                                          match_index + len(full_match):]
+                            code_mode = True
+                            code_buffer = partial_match.get("code", "")
+                            self.code_mode = True
+                            yield json.dumps({"type": "hot_code", "content": "```python\n"})
+                            # Process initial buffer if code interpreter chunks method exists
+                            if code_buffer and hasattr(self, '_process_code_interpreter_chunks'):
+                                results, code_buffer = self._process_code_interpreter_chunks("",
+                                                                                             code_buffer)
+                                for r in results: yield r; assistant_reply += r if isinstance(r,
+                                                                                              str) else json.loads(
+                                    r).get("content", "")  # Accumulate string content
                             continue
 
-                # Slight pause to allow incremental delivery.
-                time.sleep(0.05)
+                        if code_mode:
+                            # Process code chunks if method exists
+                            if hasattr(self, '_process_code_interpreter_chunks'):
+                                results, code_buffer = self._process_code_interpreter_chunks(seg,
+                                                                                             code_buffer)
+                                for r in results: yield r; assistant_reply += r if isinstance(r,
+                                                                                              str) else json.loads(
+                                    r).get("content", "")  # Accumulate string content
+                            else:  # Fallback if method missing
+                                yield json.dumps({"type": "hot_code", "content": seg})
+                            continue
+
+                        # Yield normal content if not in code mode
+                        if not code_buffer:
+                            yield json.dumps({"type": "content", "content": seg})
 
         except Exception as e:
-            error_msg = f"Hyperbolic SDK error: {str(e)}"
-            logging_utility.error(error_msg, exc_info=True)
-            combined = reasoning_content + assistant_reply
-            self.handle_error(combined, thread_id, assistant_id, run_id)
+            # Error message now uses key_source_log determined earlier
+            error_msg = f"Hyperbolic SDK error (using {key_source_log} key): {str(e)}"
+            logging_utility.error(f"Run {run_id}: {error_msg}", exc_info=True)
+            if hasattr(self, 'handle_error'):
+                self.handle_error(reasoning_content + assistant_reply, thread_id, assistant_id,
+                                  run_id)
             yield json.dumps({"type": "error", "content": error_msg})
             return
 
-        # Finalize conversation if there's any assistant reply content.
-        if assistant_reply:
-            combined = reasoning_content + assistant_reply
-            self.finalize_conversation(combined, thread_id, assistant_id, run_id)
+        # Finalize conversation and parse function calls
+        if assistant_reply and hasattr(self, 'finalize_conversation'):
+            self.finalize_conversation(reasoning_content + assistant_reply, thread_id, assistant_id,
+                                       run_id)
 
-        # -----------------------------------------
-        #  Parsing the complete accumulated content
-        #  for function calls.
-        # -----------------------------------------
-        if accumulated_content:
+        if accumulated_content and hasattr(self, 'parse_and_set_function_calls'):
             self.parse_and_set_function_calls(accumulated_content, assistant_reply)
 
-        self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
+        # Update run status if applicable
+        if hasattr(self, 'run_service') and hasattr(validator, 'StatusEnum'):
+            if not self.get_function_call_state():  # Check state using appropriate method
+                self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
+
         if reasoning_content:
-            logging_utility.info("Final reasoning content: %s", reasoning_content)
+            logging_utility.info(
+                f"Run {run_id}: Final reasoning content length: {len(reasoning_content)}")
+
+
+
+
+
 
     def process_function_calls(self, thread_id, run_id, assistant_id, model=None):
         """
