@@ -18,6 +18,7 @@ from .tools import router as tools_router
 from .users import router as users_router
 from .vectors import router as vectors_router
 
+
 # Create a central API router
 api_router = APIRouter()
 

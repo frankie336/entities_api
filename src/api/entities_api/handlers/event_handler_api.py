@@ -23,7 +23,7 @@ def handle_event(event_type: str, event_data: Any):
 # Initialize the event handler with the client services and callback.
 event_handler = EntitiesEventHandler(
     run_service=client.run_service,
-    action_service=client.action_service,
+    action_service=client.action_client,
     event_callback=handle_event,
 )
 

@@ -63,7 +63,7 @@ class DeepSeekR1Local(BaseInference):
                 tool_id = tool_record.id  # Use tool_id
 
                 # Create the action for the tool call
-                action_response = self.action_service.create_action(
+                action_response = self.action_client.create_action(
                     tool_name=function_name, run_id=run_id, function_args=function_args
                 )
 

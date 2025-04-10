@@ -5,10 +5,10 @@ from entities_api.inference.cloud_azure_r1 import AzureR1Cloud
 from entities_api.inference.cloud_deepseek_r1 import DeepSeekR1Cloud
 from entities_api.inference.cloud_deepseek_v3 import DeepSeekV3Cloud
 from entities_api.inference.cloud_groq_deepseekr1_llama import GroqCloud
-from entities_api.inference.hypherbolic.r1 import HyperbolicR1Inference
-from entities_api.inference.hypherbolic.v3 import HyperbolicV3Inference
 from entities_api.inference.cloud_together_ai_r1 import TogetherR1Inference
 from entities_api.inference.cloud_together_ai_v3 import TogetherV3Inference
+from entities_api.inference.hypherbolic.r1 import HyperbolicR1Inference
+from entities_api.inference.hypherbolic.v3 import HyperbolicV3Inference
 from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()

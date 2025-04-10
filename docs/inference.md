@@ -149,7 +149,8 @@ def process_messages():
         # Pass the Inference instance and inference_type to the conversation function
         inference_factory = InferenceFactory()
         response = conversation(
-            inference=inference_factory.get_inference(inference_type='cloud', available_functions=None),
+            inference=inference_factory.get_inference(inference_type='cloud',
+                                                      available_functions=None),
             # TODO: pass the inbound inference_type
             thread_id=thread_id,
             user_message=user_message,
@@ -172,8 +173,10 @@ def check_and_update_pending_actions(thread_id, inference):
 
     try:
         # Example implementation; adjust based on your actual logic
-        pending_actions = inference.action_service.get_actions_by_status(thread_id=thread_id, status="pending")
-        logging_utility.info("Retrieved %d pending actions for thread_id: %s", len(pending_actions), thread_id)
+        pending_actions = inference.action_client.get_actions_by_status(thread_id=thread_id,
+                                                                        status="pending")
+        logging_utility.info("Retrieved %d pending actions for thread_id: %s", len(pending_actions),
+                             thread_id)
 
         if pending_actions:
             for action in pending_actions:
@@ -182,11 +185,14 @@ def check_and_update_pending_actions(thread_id, inference):
         else:
             logging_utility.info("No pending actions found for thread_id: %s", thread_id)
     except Exception as e:
-        logging_utility.error("Error occurred while retrieving pending actions for thread_id %s: %s", thread_id, str(e))
+        logging_utility.error(
+            "Error occurred while retrieving pending actions for thread_id %s: %s", thread_id,
+            str(e))
         raise  # Re-raise the exception after logging
 
 
-def conversation(thread_id, user_message, user_id, selected_model, inference, inference_type='cloud'):
+def conversation(thread_id, user_message, user_id, selected_model, inference,
+                 inference_type='cloud'):
     assistant_id = "asst_HAaA8ScjIR0wliE2ji0jpX"  # Ensure you use the correct assistant ID
 
     # Build the inbound user message

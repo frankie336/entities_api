@@ -17,7 +17,7 @@
 | `run_service` (property)               | N/A (Property)     | No                       | Public access point for the service.                                          |
 | `tool_service` (property)              | N/A (Property)     | No                       | Public access point for the service.                                          |
 | `platform_tool_service` (property)     | N/A (Property)     | No                       | Public access point for the service.                                          |
-| `action_service` (property)            | N/A (Property)     | No                       | Public access point for the service.                                          |
+| `action_client` (property)            | N/A (Property)     | No                       | Public access point for the service.                                          |
 | `code_execution_client` (property)     | N/A (Property)     | No                       | Public access point for the service.                                          |
 | `vector_store_service` (property)      | N/A (Property)     | No                       | Public access point for the service.                                          |
 | `conversation_truncator` (property)    | N/A (Property)     | No                       | Public access point for the service.                                          |

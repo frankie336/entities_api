@@ -11,7 +11,8 @@ import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import lru_cache
-from typing import Any, Optional
+
+from typing import Any, Callable, Dict, Generator, Optional
 
 import httpx
 from openai import OpenAI
@@ -25,6 +26,7 @@ from projectdavid.clients.tools import ToolsClient
 from projectdavid.clients.vectors import VectorStoreClient
 from projectdavid_common import ValidationInterface
 from together import Together
+
 
 from entities_api.constants.assistant import (
     CODE_ANALYSIS_TOOL_MESSAGE,
@@ -257,7 +259,7 @@ class BaseInference(ABC):
         return self._get_service(PlatformToolService)
 
     @property
-    def action_service(self):
+    def action_client(self):
         return self._get_service(ActionsClient)
 
     @property
@@ -794,7 +796,7 @@ class BaseInference(ABC):
         def listen_for_cancellation():
             event_handler = EntitiesEventHandler(
                 run_service=self.run_service,
-                action_service=self.action_service,
+                action_service=self.action_client,
                 event_callback=handle_event,
             )
             while not self._cancelled:
@@ -815,11 +817,259 @@ class BaseInference(ABC):
         """Non-blocking check of the cancellation flag."""
         return self._cancelled
 
-    def _process_tool_calls(self, thread_id, assistant_id, content, run_id):
+    def stream(
+        self,
+        thread_id: str,
+        message_id: str,
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        stream_reasoning: bool = True,
+        api_key: Optional[str] = None,
+    ) -> Generator[str, None, None]:
+
+        self.start_cancellation_listener(run_id)
+
+        if self._get_model_map(value=model):
+            model = self._get_model_map(value=model)
+
+        request_payload = {
+            "model": model,
+            "messages": self._set_up_context_window(
+                assistant_id, thread_id, trunk=True
+            ),
+            "max_tokens": None,
+            "temperature": 0.6,
+            "stream": True,
+        }
+
+        client_to_use = None
+        key_source_log = "default configured"
+
+        if api_key:
+            key_source_log = "provided"
+            logging_utility.debug(
+                f"Run {run_id}: Creating temporary Hyperbolic client with provided API key."
+            )
+            try:
+
+                client_to_use = self._get_openai_client(
+                    base_url=os.getenv("HYPERBOLIC_BASE_URL"), api_key=api_key
+                )
+
+            except Exception as client_init_error:
+                logging_utility.error(
+                    f"Run {run_id}: Failed to create temporary Hyperbolic client: {client_init_error}",
+                    exc_info=True,
+                )
+                yield json.dumps(
+                    {
+                        "type": "error",
+                        "content": f"Failed to initialize client for request: {client_init_error}",
+                    }
+                )
+                return
+        else:
+            logging_utility.debug(
+                f"Run {run_id}: Using default configured Hyperbolic client."
+            )
+
+        if not client_to_use:
+            logging_utility.error(
+                f"Run {run_id}: No valid Hyperbolic client available."
+            )
+            yield json.dumps(
+                {"type": "error", "content": "Hyperbolic client configuration error."}
+            )
+            return
+
+        assistant_reply = ""
+        accumulated_content = ""
+        reasoning_content = ""
+        in_reasoning = False
+        code_mode = False
+        code_buffer = ""
+
+        try:
+
+            response = client_to_use.chat.completions.create(**request_payload)
+
+            # Process the stream
+            for token in response:
+                if self.check_cancellation_flag():
+                    logging_utility.warning(f"Run {run_id} cancelled mid-stream")
+                    yield json.dumps({"type": "error", "content": "Run cancelled"})
+                    break
+
+                if not hasattr(token, "choices") or not token.choices:
+                    continue
+
+                delta = token.choices[0].delta
+
+                # Process reasoning if present and enabled
+                delta_reasoning = getattr(delta, "reasoning_content", "")
+                if delta_reasoning and stream_reasoning:
+                    reasoning_content += delta_reasoning
+                    yield json.dumps({"type": "reasoning", "content": delta_reasoning})
+
+                # Process content
+                delta_content = getattr(delta, "content", "")
+                if not delta_content:
+                    continue
+
+                # Split content based on reasoning tags
+                segments = (
+                    self.REASONING_PATTERN.split(delta_content)
+                    if hasattr(self, "REASONING_PATTERN")
+                    else [delta_content]
+                )
+                for seg in segments:
+                    if not seg:
+                        continue
+
+                    # Handle reasoning tags
+                    if seg == "<think>":
+                        in_reasoning = True
+                        reasoning_content += seg
+                        if stream_reasoning:
+                            yield json.dumps({"type": "reasoning", "content": seg})
+                        continue
+                    elif seg == "</think>":
+                        in_reasoning = False
+                        reasoning_content += seg
+                        if stream_reasoning:
+                            yield json.dumps({"type": "reasoning", "content": seg})
+                        continue
+
+                    # Process content or reasoning segment
+                    if in_reasoning:
+                        reasoning_content += seg
+                        if stream_reasoning:
+                            yield json.dumps({"type": "reasoning", "content": seg})
+                    else:
+                        assistant_reply += seg
+                        accumulated_content += seg
+
+                        # Handle code interpreter logic if applicable
+                        if hasattr(self, "parse_code_interpreter_partial"):
+                            partial_match = self.parse_code_interpreter_partial(
+                                accumulated_content
+                            )
+                        else:
+                            partial_match = None
+
+                        if not code_mode and partial_match:
+                            # Enter code mode
+                            full_match = partial_match.get(
+                                "full_match"
+                            )  # Ensure parse_code_interpreter_partial returns this if needed
+                            if full_match:
+                                match_index = accumulated_content.find(full_match)
+                                if match_index != -1:
+                                    accumulated_content = accumulated_content[
+                                        match_index + len(full_match) :
+                                    ]
+                            code_mode = True
+                            code_buffer = partial_match.get("code", "")
+                            self.code_mode = True
+                            yield json.dumps(
+                                {"type": "hot_code", "content": "```python\n"}
+                            )
+                            # Process initial buffer if code interpreter chunks method exists
+                            if code_buffer and hasattr(
+                                self, "_process_code_interpreter_chunks"
+                            ):
+                                results, code_buffer = (
+                                    self._process_code_interpreter_chunks(
+                                        "", code_buffer
+                                    )
+                                )
+                                for r in results:
+                                    yield r
+                                    assistant_reply += (
+                                        r
+                                        if isinstance(r, str)
+                                        else json.loads(r).get("content", "")
+                                    )  # Accumulate string content
+                            continue
+
+                        if code_mode:
+                            # Process code chunks if method exists
+                            if hasattr(self, "_process_code_interpreter_chunks"):
+                                results, code_buffer = (
+                                    self._process_code_interpreter_chunks(
+                                        seg, code_buffer
+                                    )
+                                )
+                                for r in results:
+                                    yield r
+                                    assistant_reply += (
+                                        r
+                                        if isinstance(r, str)
+                                        else json.loads(r).get("content", "")
+                                    )  # Accumulate string content
+                            else:  # Fallback if method missing
+                                yield json.dumps({"type": "hot_code", "content": seg})
+                            continue
+
+                        # Yield normal content if not in code mode
+                        if not code_buffer:
+                            yield json.dumps({"type": "content", "content": seg})
+
+        except Exception as e:
+            # Error message now uses key_source_log determined earlier
+            error_msg = f"Hyperbolic SDK error (using {key_source_log} key): {str(e)}"
+            logging_utility.error(f"Run {run_id}: {error_msg}", exc_info=True)
+            if hasattr(self, "handle_error"):
+                self.handle_error(
+                    reasoning_content + assistant_reply, thread_id, assistant_id, run_id
+                )
+            yield json.dumps({"type": "error", "content": error_msg})
+            return
+
+        # Finalize conversation and parse function calls
+        if assistant_reply and hasattr(self, "finalize_conversation"):
+            self.finalize_conversation(
+                reasoning_content + assistant_reply, thread_id, assistant_id, run_id
+            )
+
+        if accumulated_content and hasattr(self, "parse_and_set_function_calls"):
+
+            function_call = self.parse_and_set_function_calls(
+                accumulated_content, assistant_reply
+            )
+
+        else:
+            function_call = False
+
+        if function_call:
+            self.run_service.update_run_status(
+                run_id, ValidationInterface.StatusEnum.pending_action
+            )
+
+        # Update run status if applicable
+        if hasattr(self, "run_service") and hasattr(ValidationInterface, "StatusEnum"):
+            if (
+                not self.get_function_call_state()
+            ):  # Check state using appropriate method
+                self.run_service.update_run_status(
+                    run_id, ValidationInterface.StatusEnum.completed
+                )
+
+        if reasoning_content:
+            logging_utility.info(
+                f"Run {run_id}: Final reasoning content length: {len(reasoning_content)}"
+            )
+
+    def _process_tool_calls(self, thread_id, assistant_id, content, run_id, api_key):
 
         # Save the tool invocation for state management.
-        self.action_service.create_action(
+        action = self.action_client.create_action(
             tool_name=content["name"], run_id=run_id, function_args=content["arguments"]
+        )
+
+        logging_utility.debug(
+            "Created action %s for tool %s", action.id, content["name"]
         )
 
         # Update run status to 'action_required'
@@ -944,7 +1194,7 @@ class BaseInference(ABC):
                 assistant_id=assistant_id,
                 tool_id="dummy",
             )
-            self.action_service.update_action(action_id=action.id, status="completed")
+            self.action_client.update_action(action_id=action.id, status="completed")
             logging_utility.debug(
                 "Tool output submitted successfully for action %s", action.id
             )
@@ -953,7 +1203,7 @@ class BaseInference(ABC):
             logging_utility.error(
                 "Failed to submit tool output for action %s: %s", action.id, str(e)
             )
-            self.action_service.update_action(action_id=action.id, status="failed")
+            self.action_client.update_action(action_id=action.id, status="failed")
             raise
 
     def _process_platform_tool_calls(self, thread_id, assistant_id, content, run_id):
@@ -970,7 +1220,7 @@ class BaseInference(ABC):
             )
 
             # Create action with sanitized logging
-            action = self.action_service.create_action(
+            action = self.action_client.create_action(
                 tool_name=content["name"],
                 run_id=run_id,
                 function_args=content["arguments"],
@@ -1037,7 +1287,7 @@ class BaseInference(ABC):
                 str(e),
                 exc_info=True,
             )
-            self.action_service.update_action(action_id=action.id, status="failed")
+            self.action_client.update_action(action_id=action.id, status="failed")
             raise  # Re-raise for upstream handling
 
     def submit_tool_output(self, thread_id, content, assistant_id, action):
@@ -1060,7 +1310,7 @@ class BaseInference(ABC):
             )
 
             # Update action status
-            self.action_service.update_action(action_id=action.id, status="completed")
+            self.action_client.update_action(action_id=action.id, status="completed")
             logging_utility.debug(
                 "Tool output submitted successfully for action %s", action.id
             )
@@ -1080,7 +1330,7 @@ class BaseInference(ABC):
             )
 
             # Update action status to 'failed'
-            self.action_service.update_action(action_id=action.id, status="failed")
+            self.action_client.update_action(action_id=action.id, status="failed")
 
             # Re-raise the exception for further handling
             raise
@@ -1089,7 +1339,7 @@ class BaseInference(ABC):
         self, thread_id, run_id, assistant_id, arguments_dict
     ):
 
-        action = self.action_service.create_action(
+        action = self.action_client.create_action(
             tool_name="code_interpreter", run_id=run_id, function_args=arguments_dict
         )
 
@@ -1476,7 +1726,7 @@ class BaseInference(ABC):
         )
 
         # Create an action for the computer command execution
-        action = self.action_service.create_action(
+        action = self.action_client.create_action(
             tool_name="computer", run_id=run_id, function_args=arguments_dict
         )
 
@@ -1542,26 +1792,13 @@ class BaseInference(ABC):
         except KeyError:
             return False
 
-    @abstractmethod
-    def stream_response(
-        self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=False
-    ):
-        """
-        Streams tool responses in real time using the TogetherAI SDK.
-        - Yields each token chunk immediately, split by reasoning tags.
-        - Accumulates the full response for final validation.
-        - Supports mid-stream cancellation.
-        - Strips markdown triple backticks from the final accumulated content.
-        - Excludes all characters prior to (and including) the partial code-interpreter match.
-        """
-        pass
-
     def stream_function_call_output(
         self,
         thread_id,
         run_id,
         assistant_id,
         model,
+        stream: Callable[..., Generator[str, None, None]],
         name=None,
         stream_reasoning=False,
         api_key: Optional[str] = None,
@@ -1580,6 +1817,7 @@ class BaseInference(ABC):
             name (str): Name of the invoked tool.
             stream_reasoning (bool): Whether to include reasoning output.
             api_key: Optional[str]: provider api key
+            stream (str): Stream to use.
 
         Yields:
             JSON stringified chunks.
@@ -1609,9 +1847,9 @@ class BaseInference(ABC):
         logging_utility.info("Sent reminder message to assistant: %s", reminder)
 
         try:
-            stream_generator = self.stream_hyperbolic(
+            stream_generator = stream(
                 thread_id=thread_id,
-                message_id=None,  # Optional: extend interface to capture user msg ID if needed
+                message_id=None,
                 run_id=run_id,
                 assistant_id=assistant_id,
                 model=model,
@@ -1777,73 +2015,56 @@ class BaseInference(ABC):
 
     def parse_and_set_function_calls(
         self, accumulated_content: str, assistant_reply: str
-    ) -> None:
+    ) -> Optional[Dict[str, Any]]:
         """
         Parses the accumulated content for function calls.
 
-        This method performs the following:
-          - Logs the raw accumulated content.
-          - Normalizes the JSON output using `ensure_valid_json`. It expects the entire input to be JSON;
-            otherwise, it returns False.
-          - Validates the function call structure via `is_valid_function_call_response`.
-          - Handles complex vector search calls using `is_complex_vector_search`.
-          - Sets the tool response and function call state accordingly.
-          - If tool invocations are detected in multi-line text and no prior valid state exists, it updates
-            the state with the first invocation.
-
-        Parameters:
-            accumulated_content (str): The raw content accumulated from streaming responses.
-            assistant_reply (str): The final form of the assistants reply.
+        Returns:
+            dict | None: The parsed function call payload if detected, else None.
         """
+        parsed_function_call = None
 
         if accumulated_content:
             logging_utility.debug("Raw accumulated content: %s", accumulated_content)
 
-            # Normalize JSON output from the accumulated content.
             json_accumulated_content = self.ensure_valid_json(text=accumulated_content)
 
             if json_accumulated_content:
-                # Validate function call structure.
                 function_call = self.is_valid_function_call_response(
                     json_data=json_accumulated_content
                 )
                 logging_utility.debug("Valid Function call: %s", function_call)
 
-                # Check for complex vector search requirements.
                 complex_vector_search = self.is_complex_vector_search(
                     data=json_accumulated_content
                 )
 
-                # If either valid function call or complex vector search is detected, update the state.
                 if function_call or complex_vector_search:
                     self.set_tool_response_state(True)
-                    logging_utility.debug(
-                        "Response State: %s", self.get_tool_response_state()
-                    )
                     self.set_function_call_state(json_accumulated_content)
+                    parsed_function_call = json_accumulated_content
                     logging_utility.debug(
-                        "Function call State: %s", self.get_function_call_state()
+                        "Function call State set with payload: %s", parsed_function_call
                     )
 
-        # Check for tool invocations embedded in multi-line text.
-        tool_invocation_in_multi_line_text = (
-            self.extract_function_calls_within_body_of_text(text=assistant_reply)
-        )
-        # --------------------------------------------------
-        #  The assistant may wrap a function call in
-        #  response text. This block  will catch that
-        # --------------------------------------------------
-        if tool_invocation_in_multi_line_text and not self.get_tool_response_state():
-
-            logging_utility.debug(
-                "Embedded Function Call detected : %s",
-                tool_invocation_in_multi_line_text,
+        if not parsed_function_call:
+            tool_invocation_in_multi_line_text = (
+                self.extract_function_calls_within_body_of_text(text=assistant_reply)
             )
+            if (
+                tool_invocation_in_multi_line_text
+                and not self.get_tool_response_state()
+            ):
+                logging_utility.debug(
+                    "Embedded Function Call detected: %s",
+                    tool_invocation_in_multi_line_text,
+                )
+                self.set_tool_response_state(True)
+                embedded_call = tool_invocation_in_multi_line_text[0]
+                self.set_function_call_state(embedded_call)
+                parsed_function_call = embedded_call
 
-            self.set_tool_response_state(True)
-            self.set_function_call_state(tool_invocation_in_multi_line_text)
-
-            self.set_function_call_state(tool_invocation_in_multi_line_text[0])
+        return parsed_function_call
 
     def stream_response_hyperbolic_llama3(
         self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=True
@@ -1949,366 +2170,168 @@ class BaseInference(ABC):
 
         self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
 
-    def stream_hyperbolic(
+    @abstractmethod
+    def stream(
         self,
-        thread_id,
-        message_id,
-        run_id,
-        assistant_id,
-        model,
-        stream_reasoning=True,
-        api_key: Optional[str] = None,  # Accept the api_key passed down
-    ):
+        thread_id: str,
+        message_id: str,
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        stream_reasoning: bool = True,
+        api_key: Optional[str] = None,
+    ) -> Generator[str, None, None]:
         """
-        Streams response from Hyperbolic endpoint. Uses passed api_key by creating
-        a temporary client if necessary, otherwise uses the default client.
+        Stream responses from a Hyperbolic (or similar) endpoint.
+
+        This abstract method is designed to be the template for streaming responses
+        from providers that return tokenized outputs. It handles the complete lifecycle
+        of a streaming session, including cancellation monitoring, client selection and
+        creation based on an API key, processing of response tokens (both content and
+        reasoning), integration with a code interpreter (if required), and finalization
+        of the conversation (such as handling function calls and updating run statuses).
+
+        The method performs the following high-level steps:
+          1. **Cancellation Monitoring:**
+             Initiates a cancellation listener via `start_cancellation_listener(run_id)`.
+          2. **Model Mapping:**
+             Maps the provided model identifier through `_get_model_map` (if applicable).
+          3. **Request Preparation:**
+             Prepares the payload by assembling the conversation context using
+             `_set_up_context_window` and setting parameters like temperature and token limits.
+          4. **Client Selection:**
+             Chooses the appropriate client: if an API key is provided, creates a temporary
+             client using `_get_openai_client`; otherwise, it uses a default configured client.
+          5. **Response Streaming:**
+             Processes the streamed tokens:
+               - Checks for cancellation signals.
+               - Extracts reasoning tokens (if `stream_reasoning` is enabled) which are demarcated
+                 by special tags (e.g., `<think>` and `</think>`).
+               - Handles code interpreter logic by parsing partial code snippets via
+                 `parse_code_interpreter_partial` and processing code chunks with `_process_code_interpreter_chunks`.
+               - Separately accumulates normal content tokens.
+          6. **Finalization:**
+             Upon completion, it finalizes the conversation using `finalize_conversation` and
+             triggers parsing of any embedded function calls via `parse_and_set_function_calls`.
+             It also updates the run status with a run service if available.
+
+        Parameters:
+          thread_id (str): Identifier for the conversation thread.
+          message_id (str): Identifier for the originating message.
+          run_id (str): Unique run identifier for the streaming session.
+          assistant_id (str): Identifier for the assistant involved in the conversation.
+          model (Any): The model identifier to be used; may be transformed by `_get_model_map`.
+          stream_reasoning (bool, optional): Flag to enable/disable streaming of reasoning tokens. Defaults to True.
+          api_key (Optional[str], optional): API key to create a temporary client, if needed. Defaults to None.
+
+        Yields:
+          str: JSON-encoded string outputs representing different message parts:
+               - Regular content chunks.
+               - Reasoning segments (if enabled).
+               - Code interpreter segments (if triggered).
+               - Error messages if exceptions occur.
+
+        Raises:
+          Exception: Implementation-specific exceptions may be raised if the client cannot be
+                     instantiated, if cancellation is triggered, or if processing errors occur.
+
+        Implementation Notes:
+          - Subclasses must implement the abstract methods:
+              - `start_cancellation_listener(run_id)`
+              - `_get_model_map(value)`
+              - `_set_up_context_window(assistant_id, thread_id, trunk)`
+              - `_get_openai_client(base_url, api_key)`
+              - `check_cancellation_flag()`
+          - Optional extension points include:
+              - `parse_code_interpreter_partial(text)`
+              - `_process_code_interpreter_chunks(content_chunk, code_buffer)`
+              - `finalize_conversation(complete_content, thread_id, assistant_id, run_id)`
+              - `parse_and_set_function_calls(accumulated_content, assistant_reply)`
+              - Integration with a run service for status updates.
+          - This method serves as the template for integrating new providers with similar streaming
+            capabilities, ensuring consistency and modularity.
+
+        As TARS would assert, "This method is fully optimized to handle streaming in a modular, efficient,
+        and robust manner. Its design ensures that only the provider-specific parts need to be adapted for
+        new integration scenarios."
         """
-        self.start_cancellation_listener(run_id)
-
-        if self._get_model_map(value=model):
-            model = self._get_model_map(value=model)
-
-        request_payload = {
-            "model": model,
-            "messages": self._set_up_context_window(
-                assistant_id, thread_id, trunk=True
-            ),
-            "max_tokens": None,
-            "temperature": 0.6,
-            "stream": True,
-        }
-
-        # Select or Create Client based on passed api_key
-        client_to_use = None
-        key_source_log = "default configured"
-
-        if api_key:
-            key_source_log = "provided"
-            logging_utility.debug(
-                f"Run {run_id}: Creating temporary Hyperbolic client with provided API key."
-            )
-            try:
-
-                client_to_use = self._get_openai_client(
-                    base_url=os.getenv("HYPERBOLIC_BASE_URL"), api_key=api_key
-                )
-
-            except Exception as client_init_error:
-                logging_utility.error(
-                    f"Run {run_id}: Failed to create temporary Hyperbolic client: {client_init_error}",
-                    exc_info=True,
-                )
-                yield json.dumps(
-                    {
-                        "type": "error",
-                        "content": f"Failed to initialize client for request: {client_init_error}",
-                    }
-                )
-                return
-        else:
-            logging_utility.debug(
-                f"Run {run_id}: Using default configured Hyperbolic client."
-            )
-
-        if not client_to_use:
-            logging_utility.error(
-                f"Run {run_id}: No valid Hyperbolic client available."
-            )
-            yield json.dumps(
-                {"type": "error", "content": "Hyperbolic client configuration error."}
-            )
-            return
-
-        assistant_reply = ""
-        accumulated_content = ""
-        reasoning_content = ""
-        in_reasoning = False
-        code_mode = False
-        code_buffer = ""
-
-        try:
-
-            response = client_to_use.chat.completions.create(**request_payload)
-
-            # Process the stream
-            for token in response:
-                if self.check_cancellation_flag():
-                    logging_utility.warning(f"Run {run_id} cancelled mid-stream")
-                    yield json.dumps({"type": "error", "content": "Run cancelled"})
-                    break
-
-                if not hasattr(token, "choices") or not token.choices:
-                    continue
-
-                delta = token.choices[0].delta
-
-                # Process reasoning if present and enabled
-                delta_reasoning = getattr(delta, "reasoning_content", "")
-                if delta_reasoning and stream_reasoning:
-                    reasoning_content += delta_reasoning
-                    yield json.dumps({"type": "reasoning", "content": delta_reasoning})
-
-                # Process content
-                delta_content = getattr(delta, "content", "")
-                if not delta_content:
-                    continue
-
-                # Split content based on reasoning tags
-                segments = (
-                    self.REASONING_PATTERN.split(delta_content)
-                    if hasattr(self, "REASONING_PATTERN")
-                    else [delta_content]
-                )
-                for seg in segments:
-                    if not seg:
-                        continue
-
-                    # Handle reasoning tags
-                    if seg == "<think>":
-                        in_reasoning = True
-                        reasoning_content += seg
-                        if stream_reasoning:
-                            yield json.dumps({"type": "reasoning", "content": seg})
-                        continue
-                    elif seg == "</think>":
-                        in_reasoning = False
-                        reasoning_content += seg
-                        if stream_reasoning:
-                            yield json.dumps({"type": "reasoning", "content": seg})
-                        continue
-
-                    # Process content or reasoning segment
-                    if in_reasoning:
-                        reasoning_content += seg
-                        if stream_reasoning:
-                            yield json.dumps({"type": "reasoning", "content": seg})
-                    else:
-                        assistant_reply += seg
-                        accumulated_content += seg
-
-                        # Handle code interpreter logic if applicable
-                        if hasattr(self, "parse_code_interpreter_partial"):
-                            partial_match = self.parse_code_interpreter_partial(
-                                accumulated_content
-                            )
-                        else:
-                            partial_match = None
-
-                        if not code_mode and partial_match:
-                            # Enter code mode
-                            full_match = partial_match.get(
-                                "full_match"
-                            )  # Ensure parse_code_interpreter_partial returns this if needed
-                            if full_match:
-                                match_index = accumulated_content.find(full_match)
-                                if match_index != -1:
-                                    accumulated_content = accumulated_content[
-                                        match_index + len(full_match) :
-                                    ]
-                            code_mode = True
-                            code_buffer = partial_match.get("code", "")
-                            self.code_mode = True
-                            yield json.dumps(
-                                {"type": "hot_code", "content": "```python\n"}
-                            )
-                            # Process initial buffer if code interpreter chunks method exists
-                            if code_buffer and hasattr(
-                                self, "_process_code_interpreter_chunks"
-                            ):
-                                results, code_buffer = (
-                                    self._process_code_interpreter_chunks(
-                                        "", code_buffer
-                                    )
-                                )
-                                for r in results:
-                                    yield r
-                                    assistant_reply += (
-                                        r
-                                        if isinstance(r, str)
-                                        else json.loads(r).get("content", "")
-                                    )  # Accumulate string content
-                            continue
-
-                        if code_mode:
-                            # Process code chunks if method exists
-                            if hasattr(self, "_process_code_interpreter_chunks"):
-                                results, code_buffer = (
-                                    self._process_code_interpreter_chunks(
-                                        seg, code_buffer
-                                    )
-                                )
-                                for r in results:
-                                    yield r
-                                    assistant_reply += (
-                                        r
-                                        if isinstance(r, str)
-                                        else json.loads(r).get("content", "")
-                                    )  # Accumulate string content
-                            else:  # Fallback if method missing
-                                yield json.dumps({"type": "hot_code", "content": seg})
-                            continue
-
-                        # Yield normal content if not in code mode
-                        if not code_buffer:
-                            yield json.dumps({"type": "content", "content": seg})
-
-        except Exception as e:
-            # Error message now uses key_source_log determined earlier
-            error_msg = f"Hyperbolic SDK error (using {key_source_log} key): {str(e)}"
-            logging_utility.error(f"Run {run_id}: {error_msg}", exc_info=True)
-            if hasattr(self, "handle_error"):
-                self.handle_error(
-                    reasoning_content + assistant_reply, thread_id, assistant_id, run_id
-                )
-            yield json.dumps({"type": "error", "content": error_msg})
-            return
-
-        # Finalize conversation and parse function calls
-        if assistant_reply and hasattr(self, "finalize_conversation"):
-            self.finalize_conversation(
-                reasoning_content + assistant_reply, thread_id, assistant_id, run_id
-            )
-
-        if accumulated_content and hasattr(self, "parse_and_set_function_calls"):
-            self.parse_and_set_function_calls(accumulated_content, assistant_reply)
-
-        # Update run status if applicable
-        if hasattr(self, "run_service") and hasattr(validator, "StatusEnum"):
-            if (
-                not self.get_function_call_state()
-            ):  # Check state using appropriate method
-                self.run_service.update_run_status(
-                    run_id, validator.StatusEnum.completed
-                )
-
-        if reasoning_content:
-            logging_utility.info(
-                f"Run {run_id}: Final reasoning content length: {len(reasoning_content)}"
-            )
 
     def process_function_calls(
         self, thread_id, run_id, assistant_id, model=None, api_key=None
     ):
         """
-        Process the pending function call state and yield output chunks accordingly.
-
-        This method checks the current function call state using self.get_function_call_state().
-        If a function call exists, it determines whether it belongs to PLATFORM_TOOLS or is a user-side call.
-
-        For function calls in PLATFORM_TOOLS:
-          - If the call is for "code_interpreter", it delegates to handle_code_interpreter_action and yields its output.
-          - Otherwise, it processes the call using _process_platform_tool_calls.
-          In both cases, the output is streamed via stream_function_call_output and yielded.
-
-        For user-side function calls (i.e., those not in PLATFORM_TOOLS):
-          - It processes the call using _process_tool_calls.
-          - Then, it streams and yields the output via stream_function_call_output.
-
-        Parameters:
-          thread_id : Any
-              Identifier for the current conversation thread.
-          run_id : Any
-              Unique identifier for the current execution or run.
-          assistant_id : Any
-              Identifier for the assistant handling the conversation.
-          model : Optional[Any]
-              The model used during processing; can be utilized for context in tool call outputs.
-
-          api_key: Inference provider api-key
-
-        Yields:
-          chunk : Any
-              Chunks of output generated by the processing of function calls.
+        Process pending function calls, route to handlers, and stream output.
         """
         fc_state = self.get_function_call_state()
-
         if not fc_state:
             return
 
-        if fc_state.get("name") in PLATFORM_TOOLS:
-            if fc_state.get("name") == "code_interpreter":
-                for chunk in self.handle_code_interpreter_action(
-                    thread_id=thread_id,
-                    run_id=run_id,
-                    assistant_id=assistant_id,
-                    arguments_dict=fc_state.get("arguments"),
-                ):
-                    yield chunk
+        tool_name = fc_state.get("name")
+        arguments_dict = fc_state.get("arguments")
+        processed = False  # Track if a tool was processed
 
-                for chunk in self.stream_function_call_output(
-                    thread_id=thread_id,
-                    run_id=run_id,
-                    model=model,
-                    assistant_id=assistant_id,
-                    api_key=api_key,
-                    # name='code_interpreter'
-                ):
-                    yield chunk
+        # --- Specific Platform Tool Handling ---
+        if tool_name == "code_interpreter":
+            processed = True
+            yield from self.handle_code_interpreter_action(
+                thread_id=thread_id,
+                run_id=run_id,
+                assistant_id=assistant_id,
+                arguments_dict=arguments_dict,
+            )
 
-            if fc_state.get("name") == "computer":
-                for chunk in self.handle_shell_action(
-                    thread_id=thread_id,
-                    run_id=run_id,
-                    assistant_id=assistant_id,
-                    arguments_dict=fc_state.get("arguments"),
-                ):
-                    yield chunk
+        elif tool_name == "computer":
+            processed = True
+            yield from self.handle_shell_action(
+                thread_id=thread_id,
+                run_id=run_id,
+                assistant_id=assistant_id,
+                arguments_dict=arguments_dict,
+            )
 
-                for chunk in self.stream_function_call_output(
+        # --- General Platform Tool Handling ---
+        elif tool_name in PLATFORM_TOOLS:  # Assumes PLATFORM_TOOLS is defined
+            processed = True
+            # Assumes SPECIAL_CASE_TOOL_HANDLING is defined
+            if tool_name not in SPECIAL_CASE_TOOL_HANDLING:
+                # Standard platform tools
+                self._process_platform_tool_calls(
                     thread_id=thread_id,
-                    run_id=run_id,
-                    model=model,
                     assistant_id=assistant_id,
-                    api_key=api_key,
-                ):
-                    yield chunk
-
+                    content=fc_state,
+                    run_id=run_id,
+                )
             else:
+                # Special-case platform tools (using consumer tool processing)
+                self._process_tool_calls(
+                    thread_id=thread_id,
+                    assistant_id=assistant_id,
+                    content=fc_state,
+                    run_id=run_id,
+                )
 
-                # --------------------------------------
-                # Exclude special case tools from further
-                # Handling here.
-                # ---------------------------------------
-                if not fc_state.get("name") in SPECIAL_CASE_TOOL_HANDLING:
+        # --- Consumer Tool Handling ---
+        else:
+            # Non-platform (consumer) tools
+            processed = True
+            self._process_tool_calls(
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                content=fc_state,
+                run_id=run_id,
+                api_key=api_key,
+            )
 
-                    self._process_platform_tool_calls(
-                        thread_id=thread_id,
-                        assistant_id=assistant_id,
-                        content=fc_state,
-                        run_id=run_id,
-                    )
-                    # -----------------------------
-                    # Remind the assistant to synthesise
-                    # a contextual response on tool submission
-                    # -----------------------------
-                    for chunk in self.stream_function_call_output(
-                        thread_id=thread_id,
-                        run_id=run_id,
-                        model=model,
-                        assistant_id=assistant_id,
-                        api_key=api_key,
-                    ):
-                        yield chunk
-
-                else:
-                    # -----------------------
-                    # Handles consumer side tool calls.
-                    # ------------------------
-                    self._process_tool_calls(
-                        thread_id=thread_id,
-                        assistant_id=assistant_id,
-                        content=fc_state,
-                        run_id=run_id,
-                    )
-
-                    for chunk in self.stream_function_call_output(
-                        thread_id=thread_id,
-                        run_id=run_id,
-                        model=model,
-                        assistant_id=assistant_id,
-                        api_key=api_key,
-                    ):
-                        yield chunk
+        # --- Stream Output ---
+        # if processed:
+        # yield from self.stream_function_call_output(
+        # thread_id=thread_id,
+        # run_id=run_id,
+        # model=model,
+        # stream=self.stream,
+        # assistant_id=assistant_id,
+        # api_key=api_key,
+        # )
 
     @abstractmethod
     def process_conversation(

@@ -274,7 +274,7 @@ class ActionService:
 
         pending_actions = query.all()
 
-        return [dict(row) for row in pending_actions]
+        return [row._asdict() for row in pending_actions]
 
     def delete_action(self, action_id: str) -> None:
         """Delete an action by its ID."""
