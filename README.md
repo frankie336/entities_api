@@ -108,13 +108,13 @@ Example dialogue array:
 
 ### Advanced Features
 
-- [Function Calling](/docs/function_calling.md)  
-- [Code Interpretation](/docs/code_interpretation.md)  
+- [Function Calling](https://github.com/frankie336/projectdavid/blob/master/docs/function_calling.md)  
+- [Code Interpretation](https://github.com/frankie336/projectdavid/blob/master/docs/code_interpretation.md)  
 
 ### Data & Vector Storage
 
 - [Files](/docs/files.md)  
-- [Vector Store](/docs/vector_store.md)  
+- [Vector Store](https://github.com/frankie336/projectdavid/blob/master/docs/vector_store.md)  
 
 ### Infrastructure & Management
 
