@@ -76,6 +76,21 @@ class HyperbolicV3Inference(BaseInference, ABC):
             logging_utility.debug(
                 f"Run {run_id}: Creating temporary Hyperbolic client with provided API key."
             )
+
+            hyperbolic_base_url = os.getenv("HYPERBOLIC_BASE_URL")
+            # 2. Check if the base URL is missing or empty
+            if not hyperbolic_base_url:
+                error_msg_log = f"Run {run_id}: Configuration Error: 'HYPERBOLIC_BASE_URL' environment variable is not set or is empty. Cannot initialize temporary Hyperbolic client."
+                logging_utility.error(error_msg_log)
+                # Yield a user-friendly error message about configuration
+                yield json.dumps(
+                    {
+                        "type": "error",
+                        "content": "Server Configuration Error: Hyperbolic service endpoint is not configured. Please check server logs or contact support.",
+                    }
+                )
+                return  # Stop execution for this request
+
             try:
 
                 client_to_use = self._get_openai_client(

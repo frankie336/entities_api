@@ -66,6 +66,7 @@ groq
 # PySMB (Samba file access)
 pysmb
 
+# Internal packages
 projectdavid
 projectdavid-common
 

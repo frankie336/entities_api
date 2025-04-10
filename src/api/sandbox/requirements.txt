@@ -20,5 +20,6 @@ python-docx
 seaborn
 scikit-learn
 
-projectdavid>=1.0.25
+# Internal packages
+projectdavid
 projectdavid-common
