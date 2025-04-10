@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from projectdavid_common import ValidationInterface
 
 from entities_api.inference.base_inference import BaseInference
-from entities_api.services.logging_service import LoggingUtility
+from projectdavid_common.utilities.logging_service import LoggingUtility
 
 load_dotenv()
 logging_utility = LoggingUtility()

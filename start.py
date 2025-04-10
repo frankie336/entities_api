@@ -356,9 +356,11 @@ class DockerManager:
         """
         Generates the .env file based on compose, defaults, and generated values,
         including constructing database URLs and formatting according to _ENV_STRUCTURE.
+        Inline comments on key-value lines are omitted to prevent parsing issues.
         """
         self.log.info(f"Generating '{self._ENV_FILE}'...")
         env_values = {}
+        # Keep generation_log for internal debugging/logging if needed, but don't write it to the file lines
         generation_log = {}  # Use dict for easier checking {key: comment}
 
         # 1. Populate from docker-compose environment sections based on mapping
@@ -369,15 +371,14 @@ class DockerManager:
                 generation_log[env_key] = (
                     f"Value sourced from {self._DOCKER_COMPOSE_FILE} ({service_name}/{compose_key})"
                 )
-            # else: Value not found, will try defaults/generation later
 
-        # 2. Fill in missing values with defaults, respecting already found values
+        # 2. Fill in missing values with defaults
         for key, default_value in self._DEFAULT_VALUES.items():
             if key not in env_values:
                 env_values[key] = default_value
                 generation_log[key] = "Using default value"
 
-        # 3. Generate required secrets if not already set (e.g., from compose or defaults)
+        # 3. Generate required secrets if not already set
         for key in self._GENERATED_SECRETS:
             if key not in env_values:
                 env_values[key] = secrets.token_hex(16 if key == "API_KEY" else 32)
@@ -386,33 +387,23 @@ class DockerManager:
         # 4. Generate Tool IDs if not already set
         for key in self._GENERATED_TOOL_IDS:
             if key not in env_values:
-                env_values[key] = (
-                    f"tool_{secrets.token_hex(10)}"  # Made slightly longer
-                )
+                env_values[key] = f"tool_{secrets.token_hex(10)}"
                 generation_log[key] = "Generated new tool ID"
 
         # --- 5. Construct Composite Database URLs ---
         db_user = env_values.get("MYSQL_USER")
         db_pass = env_values.get("MYSQL_PASSWORD")
-        db_host = env_values.get(
-            "MYSQL_HOST", DEFAULT_DB_SERVICE_NAME
-        )  # Use default service name if host missing
-        db_port = env_values.get(
-            "MYSQL_PORT", DEFAULT_DB_CONTAINER_PORT
-        )  # Use default port if missing
+        db_host = env_values.get("MYSQL_HOST", DEFAULT_DB_SERVICE_NAME)
+        db_port = env_values.get("MYSQL_PORT", DEFAULT_DB_CONTAINER_PORT)
         db_name = env_values.get("MYSQL_DATABASE")
 
-        if all(
-            [db_user, db_pass is not None, db_host, db_port, db_name]
-        ):  # Check all components exist
-            # Escape password for URL
+        if all([db_user, db_pass is not None, db_host, db_port, db_name]):
             escaped_pass = quote_plus(str(db_pass))
             env_values["DATABASE_URL"] = (
                 f"mysql+pymysql://{db_user}:{escaped_pass}@{db_host}:{db_port}/{db_name}"
             )
             generation_log["DATABASE_URL"] = "Constructed from DB components"
 
-            # Construct SPECIAL_DB_URL using host port mapping
             host_db_port = self._get_host_port_from_compose_service(
                 DEFAULT_DB_SERVICE_NAME, DEFAULT_DB_CONTAINER_PORT
             )
@@ -430,8 +421,6 @@ class DockerManager:
                 generation_log["SPECIAL_DB_URL"] = (
                     "Skipped: Could not find host port mapping in compose"
                 )
-                # Optionally set a placeholder or omit the key entirely
-                # env_values['SPECIAL_DB_URL'] = "# NOT_CONFIGURED"
         else:
             log.warning(
                 "Missing one or more database components (user, password, host, port, name). Cannot construct DATABASE_URL/SPECIAL_DB_URL."
@@ -440,6 +429,7 @@ class DockerManager:
             generation_log["SPECIAL_DB_URL"] = "Skipped: Missing DB components"
 
         # --- 6. Format the output .env file ---
+        # Keep section headers as comments
         env_lines = [f"# Auto-generated .env file by {os.path.basename(__file__)}", ""]
         processed_keys = set()
 
@@ -451,21 +441,19 @@ class DockerManager:
             for key in keys_in_section:
                 if key in env_values:
                     value = env_values[key]
-                    comment = generation_log.get(key, "Source unknown")
                     # Basic quoting logic
                     if any(c in value for c in [" ", "#", "="]):
                         escaped_value = value.replace("\\", "\\\\").replace('"', '\\"')
-                        env_lines.append(f'{key}="{escaped_value}" # {comment}')
+                        # --- MODIFICATION: Removed comment ---
+                        env_lines.append(f'{key}="{escaped_value}"')
                     else:
-                        env_lines.append(f"{key}={value} # {comment}")
+                        # --- MODIFICATION: Removed comment ---
+                        env_lines.append(f"{key}={value}")
                     processed_keys.add(key)
                     found_key_in_section = True
-                # else: Key defined in structure but not found in generated values - skip silently
             if not found_key_in_section:
-                env_lines.append(
-                    f"# (No variables configured for this section)"
-                )  # Indicate empty section
-            env_lines.append("")  # Add blank line after section
+                env_lines.append(f"# (No variables configured for this section)")
+            env_lines.append("")
 
         # Add any remaining keys that were generated but not in the defined structure
         remaining_keys = sorted(list(set(env_values.keys()) - processed_keys))
@@ -475,12 +463,14 @@ class DockerManager:
             env_lines.append(f"#############################")
             for key in remaining_keys:
                 value = env_values[key]
-                comment = generation_log.get(key, "Source unknown")
+                # Basic quoting logic
                 if any(c in value for c in [" ", "#", "="]):
                     escaped_value = value.replace("\\", "\\\\").replace('"', '\\"')
-                    env_lines.append(f'{key}="{escaped_value}" # {comment}')
+                    # --- MODIFICATION: Removed comment ---
+                    env_lines.append(f'{key}="{escaped_value}"')
                 else:
-                    env_lines.append(f"{key}={value} # {comment}")
+                    # --- MODIFICATION: Removed comment ---
+                    env_lines.append(f"{key}={value}")
             env_lines.append("")
 
         content = "\n".join(env_lines)
@@ -490,12 +480,18 @@ class DockerManager:
                 f.write(content)
             self.log.info(f"Successfully generated '{self._ENV_FILE}'.")
             if self.args.verbose:
+                # Log the generation source information separately if verbose
+                self.log.debug("Variable generation sources:")
+                for key, comment in sorted(generation_log.items()):
+                    if key in env_values:  # Only log for keys actually written
+                        self.log.debug(f"  - {key}: {comment}")
                 self.log.debug(
                     f"Generated {self._ENV_FILE} content:\n---\n{content}\n---"
                 )
         except IOError as e:
             self.log.error(f"Failed to write generated {self._ENV_FILE}: {e}")
             sys.exit(1)
+
 
     def _check_for_required_env_file(self):
         """Checks if the actual .env file exists; if not, generates it."""

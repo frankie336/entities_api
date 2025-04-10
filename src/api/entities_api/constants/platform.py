@@ -39,9 +39,22 @@ MODEL_MAP = {
     "together-ai/deepseek-ai/DeepSeek-R1": "deepseek-ai/DeepSeek-R1",
     "together-ai/deepseek-ai/DeepSeek-V3": "deepseek-ai/DeepSeek-V3",
     "meta/meta-llama/Llama-2-70b-hf": "meta-llama/Llama-2-70b-hf",
+
+    # Deepseek@Hyperbolic
+    "hyperbolic/deepseek-ai/deepseek-ai/DeepSeek-V3-0324": "deepseek-ai/DeepSeek-V3-0324",
     "hyperbolic/deepseek-ai/DeepSeek-R1": "deepseek-ai/DeepSeek-R1",
     "hyperbolic/deepseek-ai/DeepSeek-V3": "deepseek-ai/DeepSeek-V3",
+    # Llama@Hyperbolic
+    "hyperbolic/meta-llama/Llama-3.3-70B-Instruct": "meta-llama/Llama-3.3-70B-Instruct",
+    "hyperbolic/meta-llama/Llama-3.2-3B-Instruct": "meta-llama/Llama-3.2-3B-Instruct",
+    "hyperbolic/meta-llama/Meta-Llama-3.1-405B-Instruct": "meta-llama/Meta-Llama-3.1-405B-Instruct",
+    "hyperbolic/meta-llama/Meta-Llama-3.1-8B-Instruct": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+    "hyperbolic/meta-llama/Meta-Llama-3.1-70B-Instruct": "meta-llama/Meta-Llama-3.1-70B-Instruct",
+    "hyperbolic/meta-llama/Meta-Llama-3-70B-Instruct": "meta-llama/Meta-Llama-3-70B-Instruct",
+
+
 }
+
 
 
 WEB_SEARCH_BASE_URL = "http://localhost:8080/"
