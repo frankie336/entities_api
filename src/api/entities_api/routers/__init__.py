@@ -2,21 +2,19 @@
 
 from fastapi import APIRouter
 
-from .actions import router as actions_router
-from .assistants import router as assistants_router
-from .events import router as events_router
-from .files import router as files_router
-from .inference import router as inference_router
-from .messages import router as messages_router
-
-# Import routers with a clear suffix alias
+from .actions_router import router as actions_router
+from .assistants_router import router as assistants_router
+from .events_router import router as events_router
+from .files_router import router as files_router
+from .inference_router import router as inference_router
+from .messages_router import router as messages_router
 from .routers import router as main_router
-from .runs import router as runs_router
-from .samba import router as samba_router
-from .threads import router as threads_router
-from .tools import router as tools_router
-from .users import router as users_router
-from .vectors import router as vectors_router
+from .runs_router import router as runs_router
+from .samba_router import router as samba_router
+from .threads_router import router as threads_router
+from .tools_router import router as tools_router
+from .users_router import router as users_router
+from .vectors_router import router as vectors_router
 
 # Create a central API router
 api_router = APIRouter()

@@ -6,9 +6,8 @@ from projectdavid_common import UtilsInterface
 from sqlalchemy import create_engine, text
 
 from entities_api.models.models import Base
-from entities_api.routers import (
-    api_router,
-)  # This central router includes all decoupled routers
+from entities_api.routers import \
+    api_router  # This central router includes all decoupled routers
 
 # Initialize the logging utility
 logging_utility = UtilsInterface.LoggingUtility()
@@ -27,9 +26,9 @@ def create_app(init_db=True):
         title="Entities",
         description="API for AI inference",
         version="1.0.0",
-        docs_url="/mydocs",  # Change Swagger UI URL
-        redoc_url="/altredoc",  # Change ReDoc URL
-        openapi_url="/openapi.json",  # Change OpenAPI JSON URL
+        docs_url="/mydocs",
+        redoc_url="/altredoc",
+        openapi_url="/openapi.json",
     )
 
     # Include the central API router with all decoupled routers under the /v1 prefix

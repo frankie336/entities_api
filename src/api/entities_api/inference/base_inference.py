@@ -16,33 +16,27 @@ from typing import Any, Callable, Dict, Generator, Optional
 
 import httpx
 from openai import OpenAI
-from projectdavid.clients.actions import ActionsClient
-from projectdavid.clients.assistants import AssistantsClient
-from projectdavid.clients.files import FileClient
-from projectdavid.clients.messages import MessagesClient
+from projectdavid.clients.actions_client import ActionsClient
+from projectdavid.clients.assistants_client import AssistantsClient
+from projectdavid.clients.files_client import FileClient
+from projectdavid.clients.messages_client import MessagesClient
 from projectdavid.clients.runs import RunsClient
-from projectdavid.clients.threads import ThreadsClient
-from projectdavid.clients.tools import ToolsClient
+from projectdavid.clients.threads_client import ThreadsClient
+from projectdavid.clients.tools_client import ToolsClient
 from projectdavid.clients.vectors import VectorStoreClient
 from projectdavid_common import ValidationInterface
 from together import Together
 
 from entities_api.constants.assistant import (
-    CODE_ANALYSIS_TOOL_MESSAGE,
-    CODE_INTERPRETER_MESSAGE,
-    DEFAULT_REMINDER_MESSAGE,
-    PLATFORM_TOOLS,
-    WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS,
-)
-from entities_api.constants.platform import (
-    ERROR_NO_CONTENT,
-    MODEL_MAP,
-    SPECIAL_CASE_TOOL_HANDLING,
-)
-from entities_api.platform_tools.code_interpreter.code_execution_client import (
-    StreamOutput,
-)
-from entities_api.platform_tools.platform_tool_service import PlatformToolService
+    CODE_ANALYSIS_TOOL_MESSAGE, CODE_INTERPRETER_MESSAGE,
+    DEFAULT_REMINDER_MESSAGE, PLATFORM_TOOLS,
+    WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS)
+from entities_api.constants.platform import (ERROR_NO_CONTENT, MODEL_MAP,
+                                             SPECIAL_CASE_TOOL_HANDLING)
+from entities_api.platform_tools.code_interpreter.code_execution_client import \
+    StreamOutput
+from entities_api.platform_tools.platform_tool_service import \
+    PlatformToolService
 from entities_api.services.conversation_truncator import ConversationTruncator
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.user_service import UserService
@@ -1504,9 +1498,8 @@ class BaseInference(ABC):
     def handle_shell_action(self, thread_id, run_id, assistant_id, arguments_dict):
         import json
 
-        from entities_api.platform_tools.computer.shell_command_interface import (
-            run_shell_commands,
-        )
+        from entities_api.platform_tools.computer.shell_command_interface import \
+            run_shell_commands
 
         # Create an action for the computer command execution
         action = self.action_client.create_action(

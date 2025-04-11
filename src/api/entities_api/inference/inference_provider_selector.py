@@ -1,23 +1,27 @@
 # entities_api/inference/inference_provider_selector.py (Revised)
 
-import threading # Added for cache lock
+import threading  # Added for cache lock
 from typing import Any, Type
 
 from projectdavid_common.constants.ai_model_map import MODEL_MAP
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-# --- Import General Handler Classes ---
-from entities_api.inference.hypherbolic.hyperbolic_handler import HyperbolicHandler
+from entities_api.inference.azure.azure_handler import AzureHandler  # Example
+from entities_api.inference.deepseek.deepseek_handler import \
+    DeepseekHandler  # Example
 from entities_api.inference.google.google_handler import GoogleHandler
-from entities_api.inference.togeterai.togetherai_handler import TogetherAIHandler # Example
-from entities_api.inference.deepseek.deepseek_handler import DeepseekHandler # Example
-from entities_api.inference.azure.azure_handler import AzureHandler # Example
-from entities_api.inference.groq.groq_handler import GroqHandler # Example
-from entities_api.inference.local.local_handler import LocalHandler # Example
-# --- We DO NOT import specific child handlers here ---
-
+from entities_api.inference.groq.groq_handler import GroqHandler  # Example
+# --- Import General Handler Classes ---
+from entities_api.inference.hypherbolic.hyperbolic_handler import \
+    HyperbolicHandler
 # --- Import Arbiter (Needed by the General Handlers) ---
 from entities_api.inference.inference_arbiter import InferenceArbiter
+from entities_api.inference.local.local_handler import LocalHandler  # Example
+from entities_api.inference.togeterai.togetherai_handler import \
+    TogetherAIHandler  # Example
+
+# --- We DO NOT import specific child handlers here ---
+
 
 logging_utility = LoggingUtility()
 
@@ -49,14 +53,14 @@ class InferenceProviderSelector:
         self.arbiter = arbiter
         # Cache for the GENERAL handler instances (managed by the selector now)
         self._general_handler_cache: dict[str, Any] = {}
-        self._cache_lock = threading.RLock() # Lock for thread safety
+        self._cache_lock = threading.RLock()  # Lock for thread safety
         # Sorted routing keys remain the same
         self._sorted_routing_keys = sorted(
             list(TOP_LEVEL_ROUTING_MAP.keys()), key=len, reverse=True
         )
 
     def _get_or_create_general_handler(self, handler_class: Type[Any]) -> Any:
-        """ Gets from cache or creates/caches the GENERAL handler instance, passing arbiter. """
+        """Gets from cache or creates/caches the GENERAL handler instance, passing arbiter."""
         class_name = handler_class.__name__
 
         # Check cache first (read doesn't strictly need lock, but safer)
@@ -69,19 +73,27 @@ class InferenceProviderSelector:
 
         # If not in cache, acquire lock and double-check before creating
         with self._cache_lock:
-            instance = self._general_handler_cache.get(class_name) # Double check
+            instance = self._general_handler_cache.get(class_name)  # Double check
             if not instance:
-                logging_utility.debug(f"Cache miss for general handler: {class_name}. Creating instance.")
+                logging_utility.debug(
+                    f"Cache miss for general handler: {class_name}. Creating instance."
+                )
                 try:
                     # --- CRITICAL CHANGE: Instantiate directly, passing arbiter ---
                     instance = handler_class(self.arbiter)
-                    self._general_handler_cache[class_name] = instance # Store in selector's cache
+                    self._general_handler_cache[class_name] = (
+                        instance  # Store in selector's cache
+                    )
                 except Exception as e:
-                    logging_utility.error(f"Failed to instantiate general handler {class_name}: {e}", exc_info=True)
+                    logging_utility.error(
+                        f"Failed to instantiate general handler {class_name}: {e}",
+                        exc_info=True,
+                    )
                     # Re-raise as a ValueError to be caught by select_provider
-                    raise ValueError(f"Instantiation failed for handler {class_name}") from e
+                    raise ValueError(
+                        f"Instantiation failed for handler {class_name}"
+                    ) from e
         return instance
-
 
     def select_provider(self, model_id: str) -> tuple[Any, str]:
         """
@@ -116,14 +128,22 @@ class InferenceProviderSelector:
             provider_instance = self._get_or_create_general_handler(
                 selected_general_class
             )
-        except ValueError as e: # Catch instantiation errors from _get_or_create...
-             logging_utility.error(f"Provider selection failed for model '{model_id}': {e}")
-             # Re-raise the ValueError caught from the internal method
-             raise ValueError(f"Handler instantiation failed for model '{model_id}'") from e
-        except Exception as e: # Catch unexpected errors
-            logging_utility.error(f"Unexpected error getting handler instance for {selected_general_class.__name__}: {e}", exc_info=True)
-            raise ValueError(f"Failed to get handler instance for model '{model_id}'") from e
-
+        except ValueError as e:  # Catch instantiation errors from _get_or_create...
+            logging_utility.error(
+                f"Provider selection failed for model '{model_id}': {e}"
+            )
+            # Re-raise the ValueError caught from the internal method
+            raise ValueError(
+                f"Handler instantiation failed for model '{model_id}'"
+            ) from e
+        except Exception as e:  # Catch unexpected errors
+            logging_utility.error(
+                f"Unexpected error getting handler instance for {selected_general_class.__name__}: {e}",
+                exc_info=True,
+            )
+            raise ValueError(
+                f"Failed to get handler instance for model '{model_id}'"
+            ) from e
 
         # Step 5: Return resolved handler and model name (remains the same)
         logging_utility.info(

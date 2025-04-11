@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException
-
 # Import validators and utilities from your common package.
 from projectdavid_common import UtilsInterface, ValidationInterface
 from pydantic import ValidationError
