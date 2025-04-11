@@ -4,14 +4,19 @@ from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.inference.cloud_hyperbolic_llama3 import \
-    HyperbolicLlama3Inference  # Assumed existing class for Llama
-from entities_api.inference.hypherbolic.r1 import \
-    HyperbolicR1Inference  # Assumed existing class
+from entities_api.inference.cloud_hyperbolic_llama3 import (
+    HyperbolicLlama3Inference,
+)  # Assumed existing class for Llama
+from entities_api.inference.hypherbolic.r1 import (
+    HyperbolicR1Inference,
+)  # Assumed existing class
+
 # --- Import the SPECIFIC child handler classes ---
 # These are the classes that contain the actual business logic
-from entities_api.inference.hypherbolic.v3 import \
-    HyperbolicV3Inference  # Your provided class
+from entities_api.inference.hypherbolic.v3 import (
+    HyperbolicV3Inference,
+)  # Your provided class
+
 # --- Import supporting modules ---
 # Assuming the arbiter is accessible, e.g., passed in __init__ or via a global/DI mechanism
 from entities_api.inference.inference_arbiter import InferenceArbiter

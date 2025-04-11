@@ -4,8 +4,9 @@ import threading
 from functools import lru_cache
 from typing import Any, Type  # Added Type hints
 
-from projectdavid_common.utilities.logging_service import \
-    LoggingUtility  # Adjusted import path based on previous examples
+from projectdavid_common.utilities.logging_service import (
+    LoggingUtility,
+)  # Adjusted import path based on previous examples
 
 # --- No specific class imports needed here anymore ---
 

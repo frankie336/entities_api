@@ -28,15 +28,21 @@ from projectdavid_common import ValidationInterface
 from together import Together
 
 from entities_api.constants.assistant import (
-    CODE_ANALYSIS_TOOL_MESSAGE, CODE_INTERPRETER_MESSAGE,
-    DEFAULT_REMINDER_MESSAGE, PLATFORM_TOOLS,
-    WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS)
-from entities_api.constants.platform import (ERROR_NO_CONTENT, MODEL_MAP,
-                                             SPECIAL_CASE_TOOL_HANDLING)
-from entities_api.platform_tools.code_interpreter.code_execution_client import \
-    StreamOutput
-from entities_api.platform_tools.platform_tool_service import \
-    PlatformToolService
+    CODE_ANALYSIS_TOOL_MESSAGE,
+    CODE_INTERPRETER_MESSAGE,
+    DEFAULT_REMINDER_MESSAGE,
+    PLATFORM_TOOLS,
+    WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS,
+)
+from entities_api.constants.platform import (
+    ERROR_NO_CONTENT,
+    MODEL_MAP,
+    SPECIAL_CASE_TOOL_HANDLING,
+)
+from entities_api.platform_tools.code_interpreter.code_execution_client import (
+    StreamOutput,
+)
+from entities_api.platform_tools.platform_tool_service import PlatformToolService
 from entities_api.services.conversation_truncator import ConversationTruncator
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.user_service import UserService
@@ -1498,8 +1504,9 @@ class BaseInference(ABC):
     def handle_shell_action(self, thread_id, run_id, assistant_id, arguments_dict):
         import json
 
-        from entities_api.platform_tools.computer.shell_command_interface import \
-            run_shell_commands
+        from entities_api.platform_tools.computer.shell_command_interface import (
+            run_shell_commands,
+        )
 
         # Create an action for the computer command execution
         action = self.action_client.create_action(

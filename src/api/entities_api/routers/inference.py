@@ -5,16 +5,17 @@ import time
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from projectdavid_common import ValidationInterface
+
 # Logging utility
-from projectdavid_common.utilities.logging_service import \
-    LoggingUtility  # Adjusted path based on previous examples
+from projectdavid_common.utilities.logging_service import (
+    LoggingUtility,
+)  # Adjusted path based on previous examples
 
 # Make sure these imports point to the correct location of your classes
-from entities_api.inference.inference_arbiter import \
-    InferenceArbiter  # Keep arbiter
+from entities_api.inference.inference_arbiter import InferenceArbiter  # Keep arbiter
+
 # Import the selector implementing the new logic
-from entities_api.inference.inference_provider_selector import \
-    InferenceProviderSelector
+from entities_api.inference.inference_provider_selector import InferenceProviderSelector
 
 router = APIRouter()
 logging_utility = LoggingUtility()

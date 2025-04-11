@@ -1,63 +1,72 @@
-# entities_api/inference/inference_provider_selector.py (Two-Level Routing)
+# entities_api/inference/inference_provider_selector.py
 
 from typing import Any, Type
 
-from projectdavid_common.constants.ai_model_map import \
-    MODEL_MAP  # Your dict[str, str] map
+from projectdavid_common.constants.ai_model_map import MODEL_MAP
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.inference.handlers.azure import \
-    AzureHandler  # Example
-from entities_api.inference.handlers.deepseek_handler import \
-    DeepseekHandler  # Example
-from entities_api.inference.handlers.google_handler import GoogleHandler
-from entities_api.inference.handlers.groq_handler import GroqHandler  # Example
-# --- STEP 1: Import only the GENERAL handler classes ---
-from entities_api.inference.handlers.hyperbolic_handler import \
-    HyperbolicHandler
-from entities_api.inference.handlers.local_handler import \
-    LocalHandler  # Example
-# Import other general handlers: TogetherAIHandler, DeepseekHandler, GroqHandler, LocalHandler, AzureHandler...
-from entities_api.inference.handlers.togetherai_handler import \
-    TogetherAIHandler  # Example
-# --- Import supporting modules ---
+# Import general top-level handler classes only (not specific sub-model handlers)
+from entities_api.inference.azure.azure_handler import AzureHandler
+from entities_api.inference.deepseek.deepseek_handler import DeepseekHandler
+from entities_api.inference.google.google_handler import GoogleHandler
+from entities_api.inference.groq.groq_handler import GroqHandler
+from entities_api.inference.hypherbolic.hyperbolic_handler import HyperbolicHandler
+from entities_api.inference.local.local_handler import LocalHandler
+from entities_api.inference.togeterai.togetherai_handler import TogetherAIHandler
+
 from entities_api.inference.inference_arbiter import InferenceArbiter
 
 logging_utility = LoggingUtility()
 
-# --- STEP 2: Define the TOP-LEVEL routing map (Prefix -> General Class) ---
+# Top-level routing map: model_id prefix -> general handler class
 TOP_LEVEL_ROUTING_MAP: dict[str, Type[Any]] = {
     "hyperbolic/": HyperbolicHandler,
     "google/": GoogleHandler,
-    "together-ai/": TogetherAIHandler,  # Maps the prefix to the general handler
-    "deepseek-ai/": DeepseekHandler,  # Maps the prefix to the general handler
-    "azure/": AzureHandler,  # Maps the prefix to the general handler
-    "groq": GroqHandler,  # Direct mapping for non-prefixed providers
-    "local": LocalHandler,  # Direct mapping for non-prefixed providers
+    "together-ai/": TogetherAIHandler,
+    "deepseek-ai/": DeepseekHandler,
+    "azure/": AzureHandler,
+    "groq": GroqHandler,  # Direct name (no slash) for flat identifiers
+    "local": LocalHandler,
 }
 
 
 class InferenceProviderSelector:
+    """
+    Selects a general handler class (e.g. GoogleHandler) based on top-level
+    model ID prefixes and resolves the correct API model name.
+    """
+
     MODEL_MAP = MODEL_MAP
 
     def __init__(self, arbiter: InferenceArbiter):
         self.arbiter = arbiter
-        # Sort keys by length descending for correct prefix matching (e.g., "together-ai/" before "together/")
+        # Sorted by descending length to ensure longest prefix match
         self._sorted_routing_keys = sorted(
             list(TOP_LEVEL_ROUTING_MAP.keys()), key=len, reverse=True
         )
 
     def select_provider(self, model_id: str) -> tuple[Any, str]:
         """
-        Selects the general provider handler instance based on the top-level prefix
-        and returns the API-specific model name.
-        """
-        model_id_lookup = model_id.lower().strip()  # For case-insensitive matching
+        Resolves a general handler instance and API-specific model name
+        based on the incoming model_id string.
 
-        # 1. API Name Translation (Use original model_id key for lookup)
+        Args:
+            model_id (str): The user-specified or unified model key.
+
+        Returns:
+            Tuple:
+              - General handler instance (e.g. GoogleHandler)
+              - Resolved API model name (e.g. "gemini-1.5-pro")
+
+        Raises:
+            ValueError: If no matching handler class is found or instantiation fails.
+        """
+        model_id_lookup = model_id.lower().strip()
+
+        # Step 1: Translate to API-specific model name using MODEL_MAP
         api_model_name = self.MODEL_MAP.get(model_id, model_id)
 
-        # 2. Routing to GENERAL handler class using top-level prefix
+        # Step 2: Determine the appropriate general handler class
         selected_general_class: Type[Any] | None = None
         for prefix in self._sorted_routing_keys:
             if model_id_lookup.startswith(prefix):
@@ -67,30 +76,28 @@ class InferenceProviderSelector:
                 )
                 break
 
-        # 3. Handle Not Found
+        # Step 3: Handle missing routing match
         if selected_general_class is None:
-            logging_utility.error(
-                f"Could not determine general handler class for model identifier: '{model_id}'. No matching prefix found in TOP_LEVEL_ROUTING_MAP."
-            )
+            logging_utility.error(f"No routing match for model_id prefix: '{model_id}'")
             raise ValueError(
                 f"Invalid or unknown model identifier prefix: '{model_id}'"
             )
 
-        # 4. Get GENERAL Handler Instance from Arbiter
+        # Step 4: Get instance via the Arbiter (ensures singleton & caching)
         try:
             provider_instance = self.arbiter.get_provider_instance(
                 selected_general_class
             )
         except Exception as e:
             logging_utility.error(
-                f"Failed to get instance for general handler class {selected_general_class.__name__} from arbiter: {e}"
+                f"Failed to instantiate handler '{selected_general_class.__name__}': {e}"
             )
             raise ValueError(
-                f"Failed to instantiate provider for model '{model_id}'."
+                f"Handler instantiation failed for model '{model_id}'"
             ) from e
 
-        # 5. Return the general handler instance and the API-specific model name string
+        # Step 5: Return resolved handler and model name
         logging_utility.info(
-            f"Selected general handler '{selected_general_class.__name__}' for model '{model_id}' (API name: '{api_model_name}')"
+            f"Handler selected: '{selected_general_class.__name__}' → Model: '{api_model_name}'"
         )
         return provider_instance, api_model_name
