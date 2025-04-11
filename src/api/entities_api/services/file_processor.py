@@ -8,9 +8,8 @@ from typing import Any, Dict, List, Tuple, Union
 import numpy as np
 import pdfplumber
 import validators
+from projectdavid_common.utilities.logging_service import LoggingUtility
 from sentence_transformers import SentenceTransformer
-
-from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 

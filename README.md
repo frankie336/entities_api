@@ -109,6 +109,10 @@ Example dialogue array:
 - [Security](/docs/security_privacy_section.md.md) 
 ---
 
+### Integration Status 
+- [Integration](/docs/model_integration_status.md) 
+
+
 ### Advanced Features
 
 - [Function Calling](https://github.com/frankie336/projectdavid/blob/master/docs/function_calling.md)  

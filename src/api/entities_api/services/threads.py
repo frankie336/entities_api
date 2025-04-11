@@ -1,19 +1,16 @@
-from fastapi import HTTPException
-from projectdavid_common import UtilsInterface, ValidationInterface
-from sqlalchemy.orm import Session
-
-from entities_api.models.models import Message, Thread, User
-
-validator = ValidationInterface()
-
-
 import json
 import time
 from typing import Any, Dict, List
 
-from entities_api.services.logging_service import LoggingUtility
+from fastapi import HTTPException
+from projectdavid_common import UtilsInterface, ValidationInterface
+from projectdavid_common.utilities.logging_service import LoggingUtility
+from sqlalchemy.orm import Session
+
+from entities_api.models.models import Message, Thread, User
 
 logging_utility = LoggingUtility()
+validator = ValidationInterface()
 
 
 class ThreadService:

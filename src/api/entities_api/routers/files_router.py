@@ -7,12 +7,12 @@ from urllib.parse import urlencode
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.orm import Session
 
 from entities_api.dependencies import get_db
 from entities_api.models.models import File
 from entities_api.services.file_service import FileService
-from entities_api.services.logging_service import LoggingUtility
 
 # --- Initialization ---
 router = APIRouter()

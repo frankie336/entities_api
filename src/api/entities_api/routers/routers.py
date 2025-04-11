@@ -2,11 +2,11 @@
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
+from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from entities_api.dependencies import get_db
-from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 router = APIRouter()

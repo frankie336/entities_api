@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from projectdavid_common import ValidationInterface
+from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.orm import Session
 
 from entities_api.dependencies import get_db
 from entities_api.serializers import ThreadCreate
-from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.threads import ThreadService
 
 validation = ValidationInterface()

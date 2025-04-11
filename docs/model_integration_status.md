@@ -1,5 +1,7 @@
 # Model Integration status
 
+**The following models are either fully integrated and tested to at least process basic prompts in Entities or in   process of integration.  This list is not exhaustive, there will be many more.**  
+
 | Model ID (Key)                                           | Status     |
 |----------------------------------------------------------|------------|
 | deepseek-ai/deepseek-reasoner                           | 🟡 In Migration |

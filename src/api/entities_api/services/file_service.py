@@ -9,15 +9,16 @@ from urllib.parse import urlencode
 
 from fastapi import HTTPException
 from projectdavid_common import UtilsInterface, ValidationInterface
+from projectdavid_common.constants.mime_types import (SUPPORTED_MIME_TYPES,
+                                                      get_mime_type)
+from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.orm import Session
 
 from entities_api.constants.platform import SUPPORTED_MIME_TYPES, get_mime_type
 from entities_api.models.models import File, FileStorage, User
-from entities_api.services.logging_service import LoggingUtility
 from entities_api.utils.samba_client import SambaClient
 
 logging_utility = LoggingUtility()
-
 
 validator = ValidationInterface()
 

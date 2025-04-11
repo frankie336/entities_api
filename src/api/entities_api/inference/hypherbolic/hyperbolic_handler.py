@@ -4,9 +4,12 @@ from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.inference.hypherbolic.hyperbolic_llama_3_3 import HyperbolicLlama33Inference
-from entities_api.inference.hypherbolic.hyperbolic_deepseek_r1 import HyperbolicR1Inference
-from entities_api.inference.hypherbolic.hyperbolic_deepseek_v3 import HyperbolicDeepSeekV3Inference
+from entities_api.inference.hypherbolic.hyperbolic_deepseek_r1 import \
+    HyperbolicR1Inference
+from entities_api.inference.hypherbolic.hyperbolic_deepseek_v3 import \
+    HyperbolicDeepSeekV3Inference
+from entities_api.inference.hypherbolic.hyperbolic_llama_3_3 import \
+    HyperbolicLlama33Inference
 from entities_api.inference.inference_arbiter import InferenceArbiter
 
 logging_utility = LoggingUtility()
@@ -23,18 +26,19 @@ class HyperbolicHandler:
         "deepseek-ai/DeepSeek-V3-0324": HyperbolicDeepSeekV3Inference,
         "deepseek-r1": HyperbolicR1Inference,
         "meta-llama/": HyperbolicLlama33Inference,
-
     }
 
     def __init__(self, arbiter: InferenceArbiter):
         self.arbiter = arbiter
-        self._sorted_sub_routes = sorted(self.SUBMODEL_CLASS_MAP.keys(), key=len, reverse=True)
+        self._sorted_sub_routes = sorted(
+            self.SUBMODEL_CLASS_MAP.keys(), key=len, reverse=True
+        )
         logging_utility.info("HyperbolicHandler dispatcher initialized.")
 
     def _get_specific_handler_instance(self, unified_model_id: str) -> Any:
         prefix = "hyperbolic/"
         sub_model_id = (
-            unified_model_id[len(prefix):].lower()
+            unified_model_id[len(prefix) :].lower()
             if unified_model_id.lower().startswith(prefix)
             else unified_model_id.lower()
         )
@@ -67,9 +71,12 @@ class HyperbolicHandler:
             return self.arbiter.get_provider_instance(SpecificHandlerClass)
         except Exception as e:
             logging_utility.error(
-                f"Failed to obtain handler instance: {SpecificHandlerClass.__name__}", exc_info=True
+                f"Failed to obtain handler instance: {SpecificHandlerClass.__name__}",
+                exc_info=True,
             )
-            raise ValueError(f"Handler resolution failed for model: {unified_model_id}") from e
+            raise ValueError(
+                f"Handler resolution failed for model: {unified_model_id}"
+            ) from e
 
     def process_conversation(
         self,
@@ -120,12 +127,7 @@ class HyperbolicHandler:
         )
 
     def process_function_calls(
-        self,
-        thread_id,
-        run_id,
-        assistant_id,
-        model=None,
-        api_key=None
+        self, thread_id, run_id, assistant_id, model=None, api_key=None
     ) -> Generator[str, None, None]:
         logging_utility.debug(f"Dispatching process_function_calls for: {model}")
         handler = self._get_specific_handler_instance(model)

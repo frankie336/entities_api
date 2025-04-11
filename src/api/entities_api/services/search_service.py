@@ -2,9 +2,9 @@ import re
 import time
 
 import requests
+from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from entities_api.constants.platform import WEB_SEARCH_BASE_URL
-from entities_api.services.logging_service import LoggingUtility
 from entities_api.utils import count_tokens
 
 # Initialize the logging utility

@@ -25,13 +25,14 @@ from projectdavid.clients.threads_client import ThreadsClient
 from projectdavid.clients.tools_client import ToolsClient
 from projectdavid.clients.vectors import VectorStoreClient
 from projectdavid_common import ValidationInterface
+from projectdavid_common.constants.ai_model_map import MODEL_MAP
 from together import Together
 
 from entities_api.constants.assistant import (
     CODE_ANALYSIS_TOOL_MESSAGE, CODE_INTERPRETER_MESSAGE,
     DEFAULT_REMINDER_MESSAGE, PLATFORM_TOOLS,
     WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS)
-from entities_api.constants.platform import (ERROR_NO_CONTENT, MODEL_MAP,
+from entities_api.constants.platform import (ERROR_NO_CONTENT,
                                              SPECIAL_CASE_TOOL_HANDLING)
 from entities_api.platform_tools.code_interpreter.code_execution_client import \
     StreamOutput

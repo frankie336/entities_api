@@ -6,7 +6,7 @@ from projectdavid_common import ValidationInterface
 from sqlalchemy.orm import Session
 
 from entities_api.dependencies import get_db
-from entities_api.services.assistants import AssistantService
+from entities_api.services.assistants_service import AssistantService
 from entities_api.services.logging_service import LoggingUtility
 
 router = APIRouter()
