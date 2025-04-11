@@ -20,8 +20,10 @@ class HyperbolicHandler:
 
     SUBMODEL_CLASS_MAP: dict[str, Type[Any]] = {
         "deepseek-v3": HyperbolicDeepSeekV3Inference,
+        "deepseek-ai/DeepSeek-V3-0324": HyperbolicDeepSeekV3Inference,
         "deepseek-r1": HyperbolicR1Inference,
         "meta-llama/": HyperbolicLlama33Inference,
+
     }
 
     def __init__(self, arbiter: InferenceArbiter):
