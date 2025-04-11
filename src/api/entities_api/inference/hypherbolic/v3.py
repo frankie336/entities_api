@@ -5,9 +5,9 @@ from typing import Any, Generator, Optional
 
 from dotenv import load_dotenv
 from projectdavid_common import ValidationInterface
+from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from entities_api.inference.base_inference import BaseInference
-from projectdavid_common.utilities.logging_service import LoggingUtility
 
 load_dotenv()
 logging_utility = LoggingUtility()

@@ -13,7 +13,7 @@ load_dotenv()
 logging_utility = LoggingUtility()
 
 
-class HyperbolicV3Inference(BaseInference, ABC):
+class HyperbolicR1Inference(BaseInference, ABC):
 
     def setup_services(self):
         logging_utility.debug(

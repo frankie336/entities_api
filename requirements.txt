@@ -58,6 +58,10 @@ websockets
 azure-core
 azure-ai-inference
 
+# google
+
+google-generativeai
+
 # Ollama integration
 ollama
 #

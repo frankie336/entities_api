@@ -8,7 +8,6 @@ from .events import router as events_router
 from .files import router as files_router
 from .inference import router as inference_router
 from .messages import router as messages_router
-
 # Import routers with a clear suffix alias
 from .routers import router as main_router
 from .runs import router as runs_router
@@ -17,7 +16,6 @@ from .threads import router as threads_router
 from .tools import router as tools_router
 from .users import router as users_router
 from .vectors import router as vectors_router
-
 
 # Create a central API router
 api_router = APIRouter()

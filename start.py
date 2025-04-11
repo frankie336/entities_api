@@ -492,7 +492,6 @@ class DockerManager:
             self.log.error(f"Failed to write generated {self._ENV_FILE}: {e}")
             sys.exit(1)
 
-
     def _check_for_required_env_file(self):
         """Checks if the actual .env file exists; if not, generates it."""
         self.log.debug(f"[ENV SCAN] Checking for required '{self._ENV_FILE}' file...")

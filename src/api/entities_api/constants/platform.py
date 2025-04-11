@@ -35,11 +35,12 @@ DIRECT_DATABASE_URL = (
 MODEL_MAP = {
     "deepseek-ai/deepseek-reasoner": "deepseek-reasoner",
     "deepseek-ai/deepseek-chat": "deepseek-chat",
-    # Together Ai
+    # Deepseek@TogetherAi
     "together-ai/deepseek-ai/DeepSeek-R1": "deepseek-ai/DeepSeek-R1",
     "together-ai/deepseek-ai/DeepSeek-V3": "deepseek-ai/DeepSeek-V3",
-    "meta/meta-llama/Llama-2-70b-hf": "meta-llama/Llama-2-70b-hf",
-
+    # Llama@TogetherAi
+    "together-ai/meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+    "together-ai/meta-llama/Llama-4-Scout-17B-16E-Instruct": "meta-llama/Llama-4-Scout-17B-16E-Instruct",
     # Deepseek@Hyperbolic
     "hyperbolic/deepseek-ai/deepseek-ai/DeepSeek-V3-0324": "deepseek-ai/DeepSeek-V3-0324",
     "hyperbolic/deepseek-ai/DeepSeek-R1": "deepseek-ai/DeepSeek-R1",
@@ -51,10 +52,7 @@ MODEL_MAP = {
     "hyperbolic/meta-llama/Meta-Llama-3.1-8B-Instruct": "meta-llama/Meta-Llama-3.1-8B-Instruct",
     "hyperbolic/meta-llama/Meta-Llama-3.1-70B-Instruct": "meta-llama/Meta-Llama-3.1-70B-Instruct",
     "hyperbolic/meta-llama/Meta-Llama-3-70B-Instruct": "meta-llama/Meta-Llama-3-70B-Instruct",
-
-
 }
-
 
 
 WEB_SEARCH_BASE_URL = "http://localhost:8080/"

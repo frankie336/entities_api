@@ -1,3 +1,4 @@
+import abc
 import base64
 import inspect
 import json
@@ -11,7 +12,6 @@ import time
 from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import lru_cache
-
 from typing import Any, Callable, Dict, Generator, Optional
 
 import httpx
@@ -27,23 +27,16 @@ from projectdavid.clients.vectors import VectorStoreClient
 from projectdavid_common import ValidationInterface
 from together import Together
 
-
 from entities_api.constants.assistant import (
-    CODE_ANALYSIS_TOOL_MESSAGE,
-    CODE_INTERPRETER_MESSAGE,
-    DEFAULT_REMINDER_MESSAGE,
-    PLATFORM_TOOLS,
-    WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS,
-)
-from entities_api.constants.platform import (
-    ERROR_NO_CONTENT,
-    MODEL_MAP,
-    SPECIAL_CASE_TOOL_HANDLING,
-)
-from entities_api.platform_tools.code_interpreter.code_execution_client import (
-    StreamOutput,
-)
-from entities_api.platform_tools.platform_tool_service import PlatformToolService
+    CODE_ANALYSIS_TOOL_MESSAGE, CODE_INTERPRETER_MESSAGE,
+    DEFAULT_REMINDER_MESSAGE, PLATFORM_TOOLS,
+    WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS)
+from entities_api.constants.platform import (ERROR_NO_CONTENT, MODEL_MAP,
+                                             SPECIAL_CASE_TOOL_HANDLING)
+from entities_api.platform_tools.code_interpreter.code_execution_client import \
+    StreamOutput
+from entities_api.platform_tools.platform_tool_service import \
+    PlatformToolService
 from entities_api.services.conversation_truncator import ConversationTruncator
 from entities_api.services.logging_service import LoggingUtility
 from entities_api.services.user_service import UserService
@@ -316,6 +309,34 @@ class BaseInference(ABC):
 
     def get_function_call_state(self):
         return self.function_call
+
+    @abc.abstractmethod
+    def stream(
+        self,
+        thread_id: str,
+        message_id: str,
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        stream_reasoning: bool = True,
+        api_key: Optional[str] = None,
+    ) -> Generator[str, None, None]:
+        """
+        Begin a structured streaming session from the assistant model.
+
+        Args:
+            thread_id (str): The thread ID associated with the message.
+            message_id (str): The specific message ID being streamed.
+            run_id (str): The ID of the current assistant run.
+            assistant_id (str): The ID of the assistant handling the conversation.
+            model (Any): Model identifier or object to be mapped and resolved.
+            stream_reasoning (bool): Whether to emit reasoning deltas (`<think>` segments).
+            api_key (Optional[str]): Optional API key to override default config.
+
+        Yields:
+            str: JSON string-encoded response chunks (type: "content", "reasoning", "hot_code", "error")
+        """
+        pass
 
     @staticmethod
     def parse_code_interpreter_partial(text):
@@ -816,250 +837,6 @@ class BaseInference(ABC):
     def check_cancellation_flag(self) -> bool:
         """Non-blocking check of the cancellation flag."""
         return self._cancelled
-
-    def stream(
-        self,
-        thread_id: str,
-        message_id: str,
-        run_id: str,
-        assistant_id: str,
-        model: Any,
-        stream_reasoning: bool = True,
-        api_key: Optional[str] = None,
-    ) -> Generator[str, None, None]:
-
-        self.start_cancellation_listener(run_id)
-
-        if self._get_model_map(value=model):
-            model = self._get_model_map(value=model)
-
-        request_payload = {
-            "model": model,
-            "messages": self._set_up_context_window(
-                assistant_id, thread_id, trunk=True
-            ),
-            "max_tokens": None,
-            "temperature": 0.6,
-            "stream": True,
-        }
-
-        client_to_use = None
-        key_source_log = "default configured"
-
-        if api_key:
-            key_source_log = "provided"
-            logging_utility.debug(
-                f"Run {run_id}: Creating temporary Hyperbolic client with provided API key."
-            )
-            try:
-
-                client_to_use = self._get_openai_client(
-                    base_url=os.getenv("HYPERBOLIC_BASE_URL"), api_key=api_key
-                )
-
-            except Exception as client_init_error:
-                logging_utility.error(
-                    f"Run {run_id}: Failed to create temporary Hyperbolic client: {client_init_error}",
-                    exc_info=True,
-                )
-                yield json.dumps(
-                    {
-                        "type": "error",
-                        "content": f"Failed to initialize client for request: {client_init_error}",
-                    }
-                )
-                return
-        else:
-            logging_utility.debug(
-                f"Run {run_id}: Using default configured Hyperbolic client."
-            )
-
-        if not client_to_use:
-            logging_utility.error(
-                f"Run {run_id}: No valid Hyperbolic client available."
-            )
-            yield json.dumps(
-                {"type": "error", "content": "Hyperbolic client configuration error."}
-            )
-            return
-
-        assistant_reply = ""
-        accumulated_content = ""
-        reasoning_content = ""
-        in_reasoning = False
-        code_mode = False
-        code_buffer = ""
-
-        try:
-
-            response = client_to_use.chat.completions.create(**request_payload)
-
-            # Process the stream
-            for token in response:
-                if self.check_cancellation_flag():
-                    logging_utility.warning(f"Run {run_id} cancelled mid-stream")
-                    yield json.dumps({"type": "error", "content": "Run cancelled"})
-                    break
-
-                if not hasattr(token, "choices") or not token.choices:
-                    continue
-
-                delta = token.choices[0].delta
-
-                # Process reasoning if present and enabled
-                delta_reasoning = getattr(delta, "reasoning_content", "")
-                if delta_reasoning and stream_reasoning:
-                    reasoning_content += delta_reasoning
-                    yield json.dumps({"type": "reasoning", "content": delta_reasoning})
-
-                # Process content
-                delta_content = getattr(delta, "content", "")
-                if not delta_content:
-                    continue
-
-                # Split content based on reasoning tags
-                segments = (
-                    self.REASONING_PATTERN.split(delta_content)
-                    if hasattr(self, "REASONING_PATTERN")
-                    else [delta_content]
-                )
-                for seg in segments:
-                    if not seg:
-                        continue
-
-                    # Handle reasoning tags
-                    if seg == "<think>":
-                        in_reasoning = True
-                        reasoning_content += seg
-                        if stream_reasoning:
-                            yield json.dumps({"type": "reasoning", "content": seg})
-                        continue
-                    elif seg == "</think>":
-                        in_reasoning = False
-                        reasoning_content += seg
-                        if stream_reasoning:
-                            yield json.dumps({"type": "reasoning", "content": seg})
-                        continue
-
-                    # Process content or reasoning segment
-                    if in_reasoning:
-                        reasoning_content += seg
-                        if stream_reasoning:
-                            yield json.dumps({"type": "reasoning", "content": seg})
-                    else:
-                        assistant_reply += seg
-                        accumulated_content += seg
-
-                        # Handle code interpreter logic if applicable
-                        if hasattr(self, "parse_code_interpreter_partial"):
-                            partial_match = self.parse_code_interpreter_partial(
-                                accumulated_content
-                            )
-                        else:
-                            partial_match = None
-
-                        if not code_mode and partial_match:
-                            # Enter code mode
-                            full_match = partial_match.get(
-                                "full_match"
-                            )  # Ensure parse_code_interpreter_partial returns this if needed
-                            if full_match:
-                                match_index = accumulated_content.find(full_match)
-                                if match_index != -1:
-                                    accumulated_content = accumulated_content[
-                                        match_index + len(full_match) :
-                                    ]
-                            code_mode = True
-                            code_buffer = partial_match.get("code", "")
-                            self.code_mode = True
-                            yield json.dumps(
-                                {"type": "hot_code", "content": "```python\n"}
-                            )
-                            # Process initial buffer if code interpreter chunks method exists
-                            if code_buffer and hasattr(
-                                self, "_process_code_interpreter_chunks"
-                            ):
-                                results, code_buffer = (
-                                    self._process_code_interpreter_chunks(
-                                        "", code_buffer
-                                    )
-                                )
-                                for r in results:
-                                    yield r
-                                    assistant_reply += (
-                                        r
-                                        if isinstance(r, str)
-                                        else json.loads(r).get("content", "")
-                                    )  # Accumulate string content
-                            continue
-
-                        if code_mode:
-                            # Process code chunks if method exists
-                            if hasattr(self, "_process_code_interpreter_chunks"):
-                                results, code_buffer = (
-                                    self._process_code_interpreter_chunks(
-                                        seg, code_buffer
-                                    )
-                                )
-                                for r in results:
-                                    yield r
-                                    assistant_reply += (
-                                        r
-                                        if isinstance(r, str)
-                                        else json.loads(r).get("content", "")
-                                    )  # Accumulate string content
-                            else:  # Fallback if method missing
-                                yield json.dumps({"type": "hot_code", "content": seg})
-                            continue
-
-                        # Yield normal content if not in code mode
-                        if not code_buffer:
-                            yield json.dumps({"type": "content", "content": seg})
-
-        except Exception as e:
-            # Error message now uses key_source_log determined earlier
-            error_msg = f"Hyperbolic SDK error (using {key_source_log} key): {str(e)}"
-            logging_utility.error(f"Run {run_id}: {error_msg}", exc_info=True)
-            if hasattr(self, "handle_error"):
-                self.handle_error(
-                    reasoning_content + assistant_reply, thread_id, assistant_id, run_id
-                )
-            yield json.dumps({"type": "error", "content": error_msg})
-            return
-
-        # Finalize conversation and parse function calls
-        if assistant_reply and hasattr(self, "finalize_conversation"):
-            self.finalize_conversation(
-                reasoning_content + assistant_reply, thread_id, assistant_id, run_id
-            )
-
-        if accumulated_content and hasattr(self, "parse_and_set_function_calls"):
-
-            function_call = self.parse_and_set_function_calls(
-                accumulated_content, assistant_reply
-            )
-
-        else:
-            function_call = False
-
-        if function_call:
-            self.run_service.update_run_status(
-                run_id, ValidationInterface.StatusEnum.pending_action
-            )
-
-        # Update run status if applicable
-        if hasattr(self, "run_service") and hasattr(ValidationInterface, "StatusEnum"):
-            if (
-                not self.get_function_call_state()
-            ):  # Check state using appropriate method
-                self.run_service.update_run_status(
-                    run_id, ValidationInterface.StatusEnum.completed
-                )
-
-        if reasoning_content:
-            logging_utility.info(
-                f"Run {run_id}: Final reasoning content length: {len(reasoning_content)}"
-            )
 
     def _process_tool_calls(self, thread_id, assistant_id, content, run_id, api_key):
 
@@ -1721,9 +1498,8 @@ class BaseInference(ABC):
     def handle_shell_action(self, thread_id, run_id, assistant_id, arguments_dict):
         import json
 
-        from entities_api.platform_tools.computer.shell_command_interface import (
-            run_shell_commands,
-        )
+        from entities_api.platform_tools.computer.shell_command_interface import \
+            run_shell_commands
 
         # Create an action for the computer command execution
         action = self.action_client.create_action(
@@ -2065,110 +1841,6 @@ class BaseInference(ABC):
                 parsed_function_call = embedded_call
 
         return parsed_function_call
-
-    def stream_response_hyperbolic_llama3(
-        self, thread_id, message_id, run_id, assistant_id, model, stream_reasoning=True
-    ):
-        """
-        Llama 3 (Hyperbolic) streaming with content, code, and function call handling.
-        Mirrors stream_hyperbolic structure, excluding reasoning logic.
-        """
-        self.start_cancellation_listener(run_id)
-
-        model = "meta-llama/Llama-3.3-70B-Instruct"
-        request_payload = {
-            "model": model,
-            "messages": self._set_up_context_window(
-                assistant_id, thread_id, trunk=True
-            ),
-            "max_tokens": None,
-            "temperature": 0.6,
-            "stream": True,
-        }
-
-        assistant_reply = ""
-        accumulated_content = ""
-        code_mode = False
-        code_buffer = ""
-
-        try:
-            response = self.hyperbolic_client.chat.completions.create(**request_payload)
-
-            for token in response:
-                if self.check_cancellation_flag():
-                    logging_utility.warning(f"Run {run_id} cancelled mid-stream")
-                    yield json.dumps({"type": "error", "content": "Run cancelled"})
-                    break
-
-                if not hasattr(token, "choices") or not token.choices:
-                    continue
-
-                delta = token.choices[0].delta
-                delta_content = getattr(delta, "content", "")
-                if not delta_content:
-                    continue
-
-                sys.stdout.write(delta_content)
-                sys.stdout.flush()
-
-                segments = [delta_content]
-
-                for seg in segments:
-                    if not seg:
-                        continue
-
-                    assistant_reply += seg
-                    accumulated_content += seg
-
-                    # --- Code Interpreter Trigger Check ---
-                    partial_match = self.parse_code_interpreter_partial(
-                        accumulated_content
-                    )
-
-                    if not code_mode and partial_match:
-                        full_match = partial_match.get("full_match")
-                        if full_match:
-                            match_index = accumulated_content.find(full_match)
-                            if match_index != -1:
-                                accumulated_content = accumulated_content[
-                                    match_index + len(full_match) :
-                                ]
-                        code_mode = True
-                        code_buffer = partial_match.get("code", "")
-                        self.code_mode = True
-                        yield json.dumps({"type": "hot_code", "content": "```python\n"})
-                        continue
-
-                    if code_mode:
-                        results, code_buffer = self._process_code_interpreter_chunks(
-                            seg, code_buffer
-                        )
-                        for r in results:
-                            yield r
-                            assistant_reply += r
-                        continue
-
-                    if not code_buffer:
-                        yield json.dumps({"type": "content", "content": seg}) + "\n"
-
-                time.sleep(0.05)
-
-        except Exception as e:
-            error_msg = f"Llama 3 / Hyperbolic SDK error: {str(e)}"
-            logging_utility.error(error_msg, exc_info=True)
-            self.handle_error(assistant_reply, thread_id, assistant_id, run_id)
-            yield json.dumps({"type": "error", "content": error_msg})
-            return
-
-        # Finalize assistant message and parse function calls
-        if assistant_reply:
-            self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
-
-        if accumulated_content:
-            self.parse_and_set_function_calls(accumulated_content, assistant_reply)
-            logging_utility.info(f"Function call parsing completed for run {run_id}")
-
-        self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
 
     def process_function_calls(
         self, thread_id, run_id, assistant_id, model=None, api_key=None

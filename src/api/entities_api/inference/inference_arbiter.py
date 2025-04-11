@@ -1,107 +1,108 @@
+# entities_api/inference/inference_arbiter.py (Cleaned)
+
 import threading
 from functools import lru_cache
+from typing import Any, Type  # Added Type hints
 
-from entities_api.inference.cloud_azure_r1 import AzureR1Cloud
-from entities_api.inference.cloud_deepseek_r1 import DeepSeekR1Cloud
-from entities_api.inference.cloud_deepseek_v3 import DeepSeekV3Cloud
-from entities_api.inference.cloud_groq_deepseekr1_llama import GroqCloud
-from entities_api.inference.cloud_hyperbolic_llama3 import HyperbolicLlama3Inference
-from entities_api.inference.cloud_together_ai_llama2 import TogetherLlama2Inference
-from entities_api.inference.cloud_together_ai_r1 import TogetherR1Inference
-from entities_api.inference.cloud_together_ai_v3 import TogetherV3Inference
-from entities_api.inference.hypherbolic.r1 import HyperbolicR1Inference
-from entities_api.inference.hypherbolic.v3 import HyperbolicV3Inference
-from entities_api.inference.local_inference import (
-    LocalInference,
-)  # New local inference provider
-from entities_api.services.logging_service import LoggingUtility
+from projectdavid_common.utilities.logging_service import \
+    LoggingUtility  # Adjusted import path based on previous examples
+
+# --- No specific class imports needed here anymore ---
+
 
 logging_utility = LoggingUtility()
 
 
 class InferenceArbiter:
     def __init__(self):
-        self._provider_cache = {}
+        self._provider_cache: dict[str, Any] = {}  # Cache instance per class name
         self._cache_lock = threading.RLock()  # For thread safety
 
-    @lru_cache(maxsize=16)
-    def _create_provider(self, provider_class):
+    # Keep the robust caching mechanism for instance creation
+    @lru_cache(
+        maxsize=32
+    )  # Caches the *result* of instantiation for a given class type
+    def _create_provider(self, provider_class: Type[Any]) -> Any:
         """Factory method with LRU caching for provider instances."""
+        # Type checking is good practice here
+        if not isinstance(provider_class, type):
+            raise TypeError(f"Expected a class type, but got {type(provider_class)}")
         logging_utility.debug(
-            f"Initializing new provider instance: {provider_class.__name__}"
+            f"Initializing NEW provider instance via LRU cache: {provider_class.__name__}"
         )
+        # --- Instance Creation ---
+        # This assumes classes have parameterless __init__ or handle their own config
         return provider_class()
 
-    def _get_provider(self, provider_class):
-        """Thread-safe provider retrieval with double-checked locking."""
+    def get_provider_instance(self, provider_class: Type[Any]) -> Any:
+        """
+        Thread-safe provider instance retrieval using the class type.
+        Gets existing instance from cache or creates/caches a new one.
+        """
+        if not isinstance(provider_class, type):
+            raise TypeError(f"Expected a class type, but got {type(provider_class)}")
+
         class_name = provider_class.__name__
+
+        # Check instance cache first (fast path, no lock needed for read)
+        instance = self._provider_cache.get(class_name)
+        if instance:
+            return instance
+
+        # If not in instance cache, acquire lock and double-check before creating
         with self._cache_lock:
-            if class_name not in self._provider_cache:
+            instance = self._provider_cache.get(class_name)  # Double check
+            if not instance:
+                logging_utility.debug(
+                    f"Instance cache miss for {class_name}. Attempting creation."
+                )
+                # Call the LRU-cached creation method
                 instance = self._create_provider(provider_class)
-                self._provider_cache[class_name] = instance
-        return self._provider_cache[class_name]
+                self._provider_cache[class_name] = instance  # Store in instance cache
+        return instance
 
-    # Provider access methods for cloud providers:
-    def get_deepseek_r1(self):
-        return self._get_provider(DeepSeekR1Cloud)
+    # --- Specific get_xyz methods REMOVED ---
+    # --- PROVIDER_CLASSES dictionary REMOVED ---
 
-    def get_deepseek_v3(self):
-        return self._get_provider(DeepSeekV3Cloud)
-
-    def get_groq(self):
-        return self._get_provider(GroqCloud)
-
-    def get_azure_r1(self):
-        return self._get_provider(AzureR1Cloud)
-
-    def get_hyperbolic_r1(self):
-        return self._get_provider(HyperbolicR1Inference)
-
-    def get_hyperbolic_v3(self):
-        return self._get_provider(HyperbolicV3Inference)
-
-    def get_hyperbolic_llama3(self):
-        return self._get_provider(HyperbolicLlama3Inference)
-
-    def get_together_llama2(self):
-        return self._get_provider(TogetherLlama2Inference)
-
-    def get_together_r1(self):
-        return self._get_provider(TogetherR1Inference)
-
-    def get_together_v3(self):
-        return self._get_provider(TogetherV3Inference)
-
-    # Provider access method for local inference:
-    def get_local(self):
-        return self._get_provider(LocalInference)
-
-    # Cache management
+    # --- Cache management and Monitoring properties remain useful ---
     def clear_cache(self):
         """Clear all cached provider instances."""
         with self._cache_lock:
             self._provider_cache.clear()
-            self._create_provider.cache_clear()
+            self._create_provider.cache_clear()  # Clear LRU cache too
+        logging_utility.info("InferenceArbiter cache cleared.")
 
-    def refresh_provider(self, provider_class):
+    def refresh_provider(self, provider_class: Type[Any]) -> Any:
         """Force refresh a specific provider instance."""
-        with self._cache_lock:
-            self._create_provider.cache_clear()
-            if provider_class.__name__ in self._provider_cache:
-                del self._provider_cache[provider_class.__name__]
-        return self._get_provider(provider_class)
+        if not isinstance(provider_class, type):
+            raise TypeError(f"Expected a class type, but got {type(provider_class)}")
 
-    # Monitoring properties
+        class_name = provider_class.__name__
+        logging_utility.info(f"Refreshing provider instance for {class_name}")
+        with self._cache_lock:
+            # Clear the specific entry from LRU if possible (clearing all is safer)
+            self._create_provider.cache_clear()  # Clear entire LRU cache
+            if class_name in self._provider_cache:
+                del self._provider_cache[class_name]  # Clear instance cache entry
+        # Get (or create) a fresh instance
+        return self.get_provider_instance(provider_class)
+
     @property
     def cache_stats(self):
-        info = self._create_provider.cache_info()
+        """Returns statistics about the instance and LRU caches."""
+        lru_info = self._create_provider.cache_info()
+        with self._cache_lock:
+            instance_cache_size = len(self._provider_cache)
         return {
-            "current_size": len(self._provider_cache),
-            "hits": info.hits,
-            "misses": info.misses,
-            "max_size": info.max_size,
+            "instance_cache_size": instance_cache_size,
+            "lru_hits": lru_info.hits,
+            "lru_misses": lru_info.misses,
+            "lru_max_size": lru_info.maxsize,
+            "lru_current_size": lru_info.currsize,
         }
 
     @property
-    def active_providers(self):
-        return list(self._provider_cache.keys())
+    def active_providers(self) -> list[str]:
+        """Returns a list of class names currently held in the instance cache."""
+        with self._cache_lock:
+            return list(self._provider_cache.keys())
