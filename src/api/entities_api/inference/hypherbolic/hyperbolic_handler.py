@@ -7,14 +7,14 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from entities_api.inference.cloud_hyperbolic_llama3 import (
     HyperbolicLlama3Inference,
 )  # Assumed existing class for Llama
-from entities_api.inference.hypherbolic.r1 import (
+from entities_api.inference.hypherbolic.hyperbolic_deepseek_r1 import (
     HyperbolicR1Inference,
 )  # Assumed existing class
 
 # --- Import the SPECIFIC child handler classes ---
 # These are the classes that contain the actual business logic
-from entities_api.inference.hypherbolic.v3 import (
-    HyperbolicV3Inference,
+from entities_api.inference.hypherbolic.hyperbolic_deepseek_v3 import (
+    HyperbolicDeepSeekV3Inference,
 )  # Your provided class
 
 # --- Import supporting modules ---
@@ -34,7 +34,7 @@ class HyperbolicHandler:
     # Keys should distinguish the model types handled by different classes.
     # Values are the Class objects themselves.
     SUBMODEL_CLASS_MAP: dict[str, Type[Any]] = {
-        "deepseek-v3": HyperbolicV3Inference,  # Route to V3 logic class
+        "deepseek-v3": HyperbolicDeepSeekV3Inference,  # Route to V3 logic class
         "deepseek-r1": HyperbolicR1Inference,  # Route to R1 logic class
         "meta-llama/": HyperbolicLlama3Inference,  # Route Llama models to their logic class
         # Add other routes as needed
@@ -84,7 +84,7 @@ class HyperbolicHandler:
 
         # Use the arbiter to get a potentially cached instance of the SPECIFIC child class
         try:
-            # The arbiter uses the Class name (e.g., "HyperbolicV3Inference") as the cache key
+            # The arbiter uses the Class name (e.g., "HyperbolicDeepSeekV3Inference") as the cache key
             specific_handler_instance = self.arbiter.get_provider_instance(
                 SpecificHandlerClass
             )

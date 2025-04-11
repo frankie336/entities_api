@@ -7,8 +7,8 @@ from entities_api.inference.cloud_deepseek_v3 import DeepSeekV3Cloud
 from entities_api.inference.cloud_groq_deepseekr1_llama import GroqCloud
 from entities_api.inference.cloud_together_ai_r1 import TogetherR1Inference
 from entities_api.inference.cloud_together_ai_v3 import TogetherV3Inference
-from entities_api.inference.hypherbolic.r1 import HyperbolicR1Inference
-from entities_api.inference.hypherbolic.v3 import HyperbolicV3Inference
+from entities_api.inference.hypherbolic.hyperbolic_deepseek_r1 import HyperbolicR1Inference
+from entities_api.inference.hypherbolic.hyperbolic_deepseek_v3 import HyperbolicDeepSeekV3Inference
 from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
@@ -54,7 +54,7 @@ class CloudInference:
         return self._get_provider(HyperbolicR1Inference)
 
     def get_hyperbolic_v3(self):
-        return self._get_provider(HyperbolicV3Inference)
+        return self._get_provider(HyperbolicDeepSeekV3Inference)
 
     def get_together_ai_r1(self):
         return self._get_provider(TogetherR1Inference)

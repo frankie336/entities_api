@@ -13,11 +13,11 @@ load_dotenv()
 logging_utility = LoggingUtility()
 
 
-class HyperbolicV3Inference(BaseInference, ABC):
+class HyperbolicDeepSeekV3Inference(BaseInference, ABC):
 
     def setup_services(self):
         logging_utility.debug(
-            "HyperbolicV3Inference specific setup completed (if any)."
+            "HyperbolicDeepSeekV3Inference specific setup completed (if any)."
         )
 
     def stream_function_call_output(

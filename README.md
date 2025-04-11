@@ -87,11 +87,7 @@ Example dialogue array:
 
 ---
 
-## Quick Start 
-
-
 ![Network Diagram](assets/quik_start-work_flow.png)
-
 
 ---
 
@@ -105,6 +101,13 @@ Example dialogue array:
 - [Runs](https://github.com/frankie336/projectdavid/blob/master/docs/runs.md)  
 - [Inference](https://github.com/frankie336/projectdavid/blob/master/docs/inference.md)  
 - [Streaming](https://github.com/frankie336/projectdavid/blob/master/docs/streams.md)  
+
+
+---
+
+### Security & Privacy
+- [Security](/docs/security_privacy_section.md.md) 
+---
 
 ### Advanced Features
 
@@ -123,7 +126,6 @@ Example dialogue array:
 - [Tools](/docs/tools.md)  
 - [Users](/docs/users.md)
 
----
 
 ## Endpoint Documentation 🌐
 
