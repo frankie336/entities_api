@@ -1,16 +1,20 @@
 import logging
+import secrets
 import time
 from datetime import datetime
 from enum import Enum as PyEnum
 
+from passlib.context import CryptContext
 from projectdavid_common import ValidationInterface
+from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy import JSON, BigInteger, Boolean, Column, DateTime
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, Index, Integer, String, Table, Text
+from sqlalchemy import (ForeignKey, Index, Integer, String, Table, Text,
+                        UniqueConstraint)
 from sqlalchemy.orm import declarative_base, joinedload, relationship
 
 # Configure logging
-logger = logging.getLogger(__name__)
+logger = LoggingUtility()
 
 Base = declarative_base()
 
@@ -77,23 +81,138 @@ class StatusEnum(PyEnum):
 # -----------------------------------------------------------------------------
 # Models
 # -----------------------------------------------------------------------------
+
+# Configure password/key hashing
+# Use bcrypt which is robust for passwords and suitable for API keys too.
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+    # ... (columns as defined before: id, key_name, hashed_key, prefix, user_id, created_at, etc.)
+    id = Column(Integer, primary_key=True, index=True)
+    key_name = Column(String(100), nullable=True)
+    hashed_key = Column(String(255), unique=True, nullable=False, index=True)
+    prefix = Column(String(8), unique=True, nullable=False)
+    user_id = Column(
+        String(64),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+    last_used_at = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    user = relationship(
+        "User", back_populates="api_keys"
+    )  # Ensure back_populates matches User model
+
+    __table_args__ = (Index("idx_apikey_user_id_active", "user_id", "is_active"),)
+
+    # ... (static methods generate_key, hash_key, verify_key as before)
+    @staticmethod
+    def generate_key(prefix="sk_"):
+        return f"{prefix}{secrets.token_urlsafe(32)}"
+
+    @staticmethod
+    def hash_key(key: str) -> str:
+        return pwd_context.hash(key)
+
+    def verify_key(self, plain_key: str) -> bool:
+        return pwd_context.verify(plain_key, self.hashed_key)
+
+
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(String(64), primary_key=True, index=True)
-    name = Column(String(128), index=True)
-    # Reintroduce the threads relationship
+    # --- Core Internal Fields ---
+    id = Column(
+        String(64),
+        primary_key=True,
+        index=True,
+        comment="Internal unique identifier for the user (e.g., user_...)",
+    )
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    # --- OAuth / Profile Information ---
+    email = Column(
+        String(255),
+        unique=True,
+        index=True,
+        nullable=True,
+        comment="Primary email address, potentially verified by OAuth provider",
+    )
+    email_verified = Column(
+        Boolean,
+        default=False,
+        nullable=True,
+        comment="Whether the email address has been verified",
+    )
+    full_name = Column(String(255), nullable=True, comment="User's full display name")
+    given_name = Column(String(128), nullable=True, comment="First name")
+    family_name = Column(String(128), nullable=True, comment="Last name")
+    picture_url = Column(
+        Text, nullable=True, comment="URL to the user's profile picture"
+    )
+
+    # --- OAuth Provider Linking ---
+    oauth_provider = Column(
+        String(50),
+        nullable=True,
+        index=True,
+        comment="Name of the OAuth provider (e.g., 'google', 'github', 'local')",
+    )
+    provider_user_id = Column(
+        String(255),
+        nullable=True,
+        index=True,
+        comment="The unique ID assigned by the OAuth provider",
+    )
+
+    # --- Relationships (Keep existing ones) ---
+    api_keys = relationship(
+        "ApiKey", back_populates="user", cascade="all, delete-orphan", lazy="select"
+    )  # Changed lazy loading strategy
     threads = relationship(
-        "Thread", secondary=thread_participants, back_populates="participants"
+        "Thread",
+        secondary=thread_participants,
+        back_populates="participants",
+        lazy="select",  # Changed lazy loading strategy
     )
     assistants = relationship(
-        "Assistant", secondary=user_assistants, back_populates="users"
+        "Assistant", secondary=user_assistants, back_populates="users", lazy="select"
     )
     sandboxes = relationship(
-        "Sandbox", back_populates="user", cascade="all, delete-orphan"
+        "Sandbox",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="select",  # Changed lazy loading strategy
     )
     vector_stores = relationship("VectorStore", back_populates="user", lazy="select")
-    files = relationship("File", back_populates="user", cascade="all, delete-orphan")
+    files = relationship(
+        "File", back_populates="user", cascade="all, delete-orphan", lazy="select"
+    )  # Changed lazy loading strategy
+
+    # --- Constraints ---
+    # Optional: Ensure that the combination of provider and provider_user_id is unique
+    # if a user can link multiple OAuth accounts eventually. For a single provider sync,
+    # indexing provider_user_id might be sufficient if it's always populated for OAuth users.
+    # Let's add it for robustness.
+    __table_args__ = (
+        UniqueConstraint(
+            "oauth_provider", "provider_user_id", name="uq_user_oauth_provider_id"
+        ),
+        Index(
+            "idx_user_email", "email"
+        ),  # Ensure email index exists if not added by unique=True
+        # Index("idx_user_provider_id", "provider_user_id"), # Ensure index exists if not added by index=True
+        # Index("idx_user_oauth_provider", "oauth_provider"), # Ensure index exists if not added by index=True
+    )
 
 
 class Thread(Base):
