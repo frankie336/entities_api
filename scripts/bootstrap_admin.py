@@ -11,14 +11,11 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
 # --- End Path Adjustment ---
 
-from projectdavid_common import \
-    UtilsInterface
-from projectdavid_common.utilities.logging_service import \
-    LoggingUtility
+from projectdavid_common import UtilsInterface
+from projectdavid_common.utilities.logging_service import LoggingUtility
 
 
-from entities_api.models.models import (
-    ApiKey, User)
+from entities_api.models.models import ApiKey, User
 
 
 dotenv_path = os.path.join(project_root, ".env")
@@ -191,7 +188,6 @@ def bootstrap_admin_user():
                 print(
                     f"\nWarning: Failed to update .env file at {dotenv_path}: {dotenv_err}"
                 )
-
 
             # --- IMPORTANT: Output the Plain Text Key to Console ---
             print("\n" + "=" * 60)

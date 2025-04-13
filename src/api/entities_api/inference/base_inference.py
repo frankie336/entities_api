@@ -30,15 +30,17 @@ from projectdavid_common.constants.ai_model_map import MODEL_MAP
 from together import Together
 
 from entities_api.constants.assistant import (
-    CODE_ANALYSIS_TOOL_MESSAGE, CODE_INTERPRETER_MESSAGE,
-    DEFAULT_REMINDER_MESSAGE, PLATFORM_TOOLS,
-    WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS)
-from entities_api.constants.platform import (ERROR_NO_CONTENT,
-                                             SPECIAL_CASE_TOOL_HANDLING)
-from entities_api.platform_tools.code_interpreter.code_execution_client import \
-    StreamOutput
-from entities_api.platform_tools.platform_tool_service import \
-    PlatformToolService
+    CODE_ANALYSIS_TOOL_MESSAGE,
+    CODE_INTERPRETER_MESSAGE,
+    DEFAULT_REMINDER_MESSAGE,
+    PLATFORM_TOOLS,
+    WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS,
+)
+from entities_api.constants.platform import ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING
+from entities_api.platform_tools.code_interpreter.code_execution_client import (
+    StreamOutput,
+)
+from entities_api.platform_tools.platform_tool_service import PlatformToolService
 from entities_api.services.conversation_truncator import ConversationTruncator
 from entities_api.services.logging_service import LoggingUtility
 
@@ -98,21 +100,34 @@ class BaseInference(ABC):
             )
             self.openai_client = None
 
-            # Instantiate the default project_david client
-            try:
-                self.project_david_client = Entity(
-                    api_key=os.getenv("ENTITIES_API_KEY"),
-                    base_url=self.base_url,
-                )
-            except Exception as e:
-                logging_utility.error(
-                    "Failed to initialize default project_david client: %s",
-                    e,
-                    exc_info=True,
-                )
-                self.project_david_client = None
+        # 2. Initialize the default project_david client (INDEPENDENTLY)
+        project_david_api_key = os.getenv("ENTITIES_API_KEY")
 
-        self.code_mode = False
+        project_david_base_url = self.base_url
+
+        try:
+            if not project_david_api_key:
+                raise ConfigurationError("ENTITIES_API_KEY is not set.")
+            if not project_david_base_url:
+                raise ConfigurationError(
+                    "Base URL for Project David client is not set."
+                )
+
+            self.project_david_client = Entity(
+                api_key=project_david_api_key,
+                base_url=project_david_base_url,
+                # time out handled internally
+            )
+            logging_utility.debug(
+                "Default project_david client initialized successfully."
+            )
+        except Exception as e:
+            logging_utility.error(
+                "Failed to initialize default project_david client: %s",
+                e,
+                exc_info=True,
+            )
+            self.project_david_client = None  # Ensure it's None on failure
 
         self.truncator_params = {
             "model_name": model_name,
@@ -1634,8 +1649,9 @@ class BaseInference(ABC):
     def handle_shell_action(self, thread_id, run_id, assistant_id, arguments_dict):
         import json
 
-        from entities_api.platform_tools.computer.shell_command_interface import \
-            run_shell_commands
+        from entities_api.platform_tools.computer.shell_command_interface import (
+            run_shell_commands,
+        )
 
         # Create an action for the computer command execution
         action = self.action_client.create_action(

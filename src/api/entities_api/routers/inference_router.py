@@ -1,19 +1,15 @@
 import asyncio
 import json
 import time
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, AsyncGenerator
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.dependencies import \
-    get_db  # Still needed if inference handlers require DB later
 from entities_api.inference.inference_arbiter import InferenceArbiter
-from entities_api.inference.inference_provider_selector import \
-    InferenceProviderSelector
+from entities_api.inference.inference_provider_selector import InferenceProviderSelector
 
 router = APIRouter()
 logging_utility = LoggingUtility()

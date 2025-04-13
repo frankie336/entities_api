@@ -21,10 +21,6 @@ def create_assistant(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
 
-    logging_utility.error(
-        f"!!!!!! ASSISTANTS POST ENDPOINT REACHED by user {auth_key.user_id} !!!!!!"
-    )  #
-
     logging_utility.info(
         f"User '{auth_key.user_id}' - Creating assistant with ID: {assistant.id or 'auto-generated'}"
     )
