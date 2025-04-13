@@ -9,16 +9,19 @@ from entities_api.system_message.assembly import assemble_instructions
 
 validate = ValidationInterface()
 
+# ea_6zZiZEsLXftvlC9UbyKRyQsuanWkkHzqeFymXFjLzuQ
+
+
+admin_user_id = "user_Goy0s4EWkXlUE1gqfgajKW"
+
 
 class AssistantSetupService:
     def __init__(self):
-        self.client = Entity()
+        self.client = Entity(api_key="ea_RnjHVcb-WFue6JAhlc35IBg7V3_osH4gbVL4BqzxFUI")
         self.logging_utility = LoggingUtility()
 
     def create_and_associate_tools(self, function_definitions, assistant_id):
         """Creates tools if they do not already exist and associates them with the assistant."""
-
-        self.client.users.create_user(name="default")
 
         for func_def in function_definitions:
             tool_name = func_def["function"]["name"]
@@ -100,7 +103,7 @@ class AssistantSetupService:
         try:
             # Use a get-or-create approach for the default user
             try:
-                user = self.client.users.retrieve_user("default")
+                user = self.client.users.retrieve_user(admin_user_id)
                 self.logging_utility.debug("Using existing user: ID %s", user.id)
             except Exception:
                 user = self.client.users.create_user(name="default")

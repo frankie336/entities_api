@@ -138,23 +138,3 @@ def delete_thread(thread_id: str, db: Session = Depends(get_db)):
             f"An unexpected error occurred while deleting thread {thread_id}: {str(e)}"
         )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
-
-
-# NOTE: The endpoint /users/{user_id}/threads might be better placed in users_router.py
-# and should also require authentication and authorization (user can only list their own threads).
-# If kept here, it needs similar modifications.
-
-# @router.get("/users/{user_id}/threads", ...) # Original path clashes with router prefix
-# Possible Fix 1: Move to users_router.py
-# Possible Fix 2: Change path here, e.g., "/list/by_user/{user_id}" (less RESTful)
-# Possible Fix 3: Don't add prefix to this specific router (less organized)
-
-# Example assuming moved to users_router.py or path adjusted
-# @router.get("/list/by_user/{user_id}", response_model=validation.ThreadIds)
-# def list_threads_by_user(
-#     user_id: str,
-#     db: Session = Depends(get_db),
-#     auth_key: ApiKeyModel = Depends(get_api_key) # Needs AuthN/AuthZ
-# ):
-#     # --- NEEDS AUTHORIZATION CHECK: auth_key.user_id must match user_id ---
-#     # ... implementation ...

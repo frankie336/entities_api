@@ -124,6 +124,15 @@ class ApiKey(Base):
         return pwd_context.verify(plain_key, self.hashed_key)
 
 
+# models.py (portion)
+
+from datetime import datetime
+
+from sqlalchemy import (Boolean, Column, DateTime, ForeignKey, Index, Integer,
+                        String, Table, Text, UniqueConstraint)
+from sqlalchemy.orm import relationship
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -138,6 +147,15 @@ class User(Base):
     updated_at = Column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
+    # --- Added is_admin flag ---
+    is_admin = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+        server_default="0",  # Explicit default for DB level (adjust if not MySQL/MariaDB)
+        comment="Flag indicating administrative privileges",
+    )
+    # --- End added is_admin flag ---
 
     # --- OAuth / Profile Information ---
     email = Column(
@@ -177,41 +195,39 @@ class User(Base):
     # --- Relationships (Keep existing ones) ---
     api_keys = relationship(
         "ApiKey", back_populates="user", cascade="all, delete-orphan", lazy="select"
-    )  # Changed lazy loading strategy
+    )
     threads = relationship(
         "Thread",
-        secondary=thread_participants,
+        secondary=thread_participants,  # Assumes thread_participants table is defined
         back_populates="participants",
-        lazy="select",  # Changed lazy loading strategy
+        lazy="select",
     )
     assistants = relationship(
-        "Assistant", secondary=user_assistants, back_populates="users", lazy="select"
+        "Assistant",
+        secondary=user_assistants,  # Assumes user_assistants table is defined
+        back_populates="users",
+        lazy="select",
     )
     sandboxes = relationship(
         "Sandbox",
         back_populates="user",
         cascade="all, delete-orphan",
-        lazy="select",  # Changed lazy loading strategy
+        lazy="select",
     )
     vector_stores = relationship("VectorStore", back_populates="user", lazy="select")
     files = relationship(
         "File", back_populates="user", cascade="all, delete-orphan", lazy="select"
-    )  # Changed lazy loading strategy
+    )
 
     # --- Constraints ---
-    # Optional: Ensure that the combination of provider and provider_user_id is unique
-    # if a user can link multiple OAuth accounts eventually. For a single provider sync,
-    # indexing provider_user_id might be sufficient if it's always populated for OAuth users.
-    # Let's add it for robustness.
     __table_args__ = (
         UniqueConstraint(
             "oauth_provider", "provider_user_id", name="uq_user_oauth_provider_id"
         ),
-        Index(
-            "idx_user_email", "email"
-        ),  # Ensure email index exists if not added by unique=True
-        # Index("idx_user_provider_id", "provider_user_id"), # Ensure index exists if not added by index=True
-        # Index("idx_user_oauth_provider", "oauth_provider"), # Ensure index exists if not added by index=True
+        Index("idx_user_email", "email"),
+        # --- Added index for is_admin ---
+        Index("idx_user_is_admin", "is_admin"),
+        # --- End added index ---
     )
 
 

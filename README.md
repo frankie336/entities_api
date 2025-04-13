@@ -106,7 +106,7 @@ Example dialogue array:
 ---
 
 ### Security & Privacy
-- [Security](/docs/security_privacy_section.md.md) 
+- [Security](/docs/security.md) 
 ---
 
 ### Integration Status 

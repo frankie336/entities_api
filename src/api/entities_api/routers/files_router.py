@@ -5,12 +5,13 @@ from datetime import datetime
 from urllib.parse import urlencode
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.orm import Session
 
-from entities_api.dependencies import get_db
+from entities_api.dependencies import get_api_key, get_db
+from entities_api.models.models import ApiKey as ApiKeyModel
 from entities_api.models.models import File
 from entities_api.services.file_service import FileService
 
@@ -42,13 +43,19 @@ def download_file(
     signature: str,
     use_real_filename: bool = Query(False),
     db: Session = Depends(get_db),
+    auth_key: ApiKeyModel = Depends(get_api_key),
 ):
+    logging_utility.info(f"User '{auth_key.user_id}' - Downloading file: {file_id}")
     if datetime.utcnow().timestamp() > expires:
-        raise HTTPException(status_code=400, detail="Signed URL has expired")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Signed URL has expired"
+        )
 
     data = f"{file_id}:{expires}:{use_real_filename}"
     if not verify_signature(file_id, expires, signature, use_real_filename):
-        raise HTTPException(status_code=403, detail="Invalid signature")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Invalid signature"
+        )
 
     file_service = FileService(db)
     file_stream, filename, mime_type = file_service.get_file_with_metadata(file_id)
@@ -73,14 +80,17 @@ def generate_signed_url(
     expires_in: int = Query(600),
     use_real_filename: bool = Query(False),
     db: Session = Depends(get_db),
+    auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     logging_utility.info(
-        f"Generating signed URL for file: {file_id} with TTL: {expires_in}s"
+        f"User '{auth_key.user_id}' - Generating signed URL for file: {file_id} with TTL: {expires_in}s"
     )
 
     file_record = db.query(File).filter(File.id == file_id).first()
     if not file_record:
-        raise HTTPException(status_code=404, detail="File not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="File not found"
+        )
 
     secret_key = os.getenv("SIGNED_URL_SECRET", "default_secret_key")
     base_url = os.getenv("BASE_URL", "http://localhost:9000")
@@ -102,11 +112,17 @@ def generate_signed_url(
 
 # --- Base64 Endpoint ---
 @router.get("/v1/uploads/{file_id}/base64")
-def get_file_as_base64(file_id: str, db: Session = Depends(get_db)):
+def get_file_as_base64(
+    file_id: str,
+    db: Session = Depends(get_db),
+    auth_key: ApiKeyModel = Depends(get_api_key),
+):
     """
     Returns a BASE64-encoded version of the file content.
     """
-    logging_utility.info(f"Retrieving file as BASE64: {file_id}")
+    logging_utility.info(
+        f"User '{auth_key.user_id}' - Retrieving file as BASE64: {file_id}"
+    )
     file_service = FileService(db)
 
     try:
@@ -115,4 +131,7 @@ def get_file_as_base64(file_id: str, db: Session = Depends(get_db)):
         return {"file_id": file_id, "base64": base64_content}
     except Exception as e:
         logging_utility.error("Failed to return BASE64 content: %s", str(e))
-        raise HTTPException(status_code=500, detail="Failed to retrieve BASE64 content")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve BASE64 content",
+        )

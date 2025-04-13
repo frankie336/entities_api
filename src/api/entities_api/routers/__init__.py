@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from .actions_router import router as actions_router
+from .admin_router import admin_router as admin_router
 from .api_key_router import router as api_key_router
 from .assistants_router import router as assistants_router
 from .events_router import router as events_router
@@ -35,3 +36,5 @@ api_router.include_router(files_router, tags=["Files"])
 api_router.include_router(vectors_router, tags=["Vector Stores"])
 
 api_router.include_router(api_key_router, tags=["API Keys"])
+
+api_router.include_router(admin_router, tags=["Admin"])
