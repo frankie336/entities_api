@@ -1,7 +1,7 @@
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
-from projectdavid.clients.users import UsersClient
+from projectdavid.clients.users_client import UsersClient
 from projectdavid_common import ValidationInterface
 from sqlalchemy.orm import Session
 

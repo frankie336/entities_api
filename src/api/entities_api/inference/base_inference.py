@@ -23,6 +23,7 @@ from projectdavid.clients.messages_client import MessagesClient
 from projectdavid.clients.runs import RunsClient
 from projectdavid.clients.threads_client import ThreadsClient
 from projectdavid.clients.tools_client import ToolsClient
+from projectdavid.clients.users_client import UsersClient
 from projectdavid.clients.vectors import VectorStoreClient
 from projectdavid_common import ValidationInterface
 from projectdavid_common.constants.ai_model_map import MODEL_MAP
@@ -40,7 +41,6 @@ from entities_api.platform_tools.platform_tool_service import \
     PlatformToolService
 from entities_api.services.conversation_truncator import ConversationTruncator
 from entities_api.services.logging_service import LoggingUtility
-from entities_api.services.user_service import UserService
 
 logging_utility = LoggingUtility()
 validator = ValidationInterface()
@@ -224,9 +224,9 @@ class BaseInference(ABC):
         return self.assistant_id
 
     @property
-    def user_service(self):
+    def user_client(self):
 
-        return self._get_service(UserService)
+        return self._get_service(UsersClient)
 
     @property
     def assistant_service(self):
@@ -1965,4 +1965,4 @@ class BaseInference(ABC):
     @lru_cache(maxsize=128)
     def cached_user_details(self, user_id):
         """Cache user details to avoid redundant API calls."""
-        return self.user_service.get_user(user_id)
+        return self.user_client.get_user(user_id)

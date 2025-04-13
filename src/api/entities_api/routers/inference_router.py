@@ -22,7 +22,11 @@ logging_utility = LoggingUtility()
 # Optional: Configure a dedicated executor if needed, otherwise default is fine
 # executor = ThreadPoolExecutor(max_workers=...)
 
-
+#-------------------------------------
+# We stream to consumers asynchronously
+#
+#
+#--------------------------------------
 async def run_sync_generator_in_thread(
     sync_gen_func, *args, **kwargs
 ) -> AsyncGenerator[Any, None]:

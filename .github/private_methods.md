@@ -10,7 +10,7 @@
 | `_init_general_service`                | Correct (`_`)      | Yes                      | Internal helper called by `_get_service`.                                     |
 | `_resolve_init_parameters`             | Correct (`_`)      | Yes                      | Internal helper called by `_init_general_service`.                            |
 | `_validate_platform_dependencies`      | Correct (`_`)      | Yes                      | Internal helper called by `_init_platform_tool_service`.                      |
-| `user_service` (property)              | N/A (Property)     | No                       | Public access point for the service.                                          |
+| `user_client` (property)              | N/A (Property)     | No                       | Public access point for the service.                                          |
 | `assistant_service` (property)         | N/A (Property)     | No                       | Public access point for the service.                                          |
 | `thread_service` (property)            | N/A (Property)     | No                       | Public access point for the service.                                          |
 | `message_service` (property)           | N/A (Property)     | No                       | Public access point for the service.                                          |
