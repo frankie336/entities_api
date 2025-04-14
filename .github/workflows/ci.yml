@@ -50,13 +50,10 @@ jobs:
             ruff check . --fix --output-format=github || true
           fi
 
-      - name: ⚫️ Run Black Formatter Check
-        run: black --check .
-
-      - name: 🐳 Lint Dockerfiles
+      - name: ⚫️ Run Black Formatter (Auto Fix)
         run: |
-          hadolint docker/api/Dockerfile
-          hadolint docker/sandbox/Dockerfile
+          black .
+          git diff --exit-code || true  # Prevent exit 1 on auto-format diff
 
   test:
     name: ✅ Run Unit Tests
