@@ -88,7 +88,7 @@ jobs:
           pip install pytest pytest-cov
 
       - name: ✅ Run Pytest with Coverage
-        run: pytest src/tests/ --cov=src --cov-report=xml --cov-report=term-missing
+        run: pytest tests/ --cov=src --cov-report=xml --cov-report=term-missing
 
       - name: ⬆️ Upload coverage reports to Codecov
         uses: codecov/codecov-action@v4.0.1
