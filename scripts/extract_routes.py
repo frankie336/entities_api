@@ -2,6 +2,7 @@
 
 import os
 import sys
+
 from tabulate import tabulate
 
 # Setup path to allow module resolution
@@ -11,6 +12,7 @@ if project_root not in sys.path:
 
 try:
     from fastapi.routing import APIRoute
+
     from entities_api.routers import api_router  # Central router only
 except ImportError as e:
     print(f"❌ Failed to import FastAPI components: {e}")

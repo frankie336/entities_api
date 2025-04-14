@@ -53,6 +53,7 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
         from hyperbolic_async_client import AsyncHyperbolicClient
+
         from entities_api.utils.async_to_sync import async_to_sync_stream
 
         self.start_cancellation_listener(run_id)

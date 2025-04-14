@@ -1,7 +1,8 @@
-import httpx
-import json
 import asyncio
+import json
 from typing import AsyncGenerator
+
+import httpx
 
 
 class AsyncHyperbolicClient:

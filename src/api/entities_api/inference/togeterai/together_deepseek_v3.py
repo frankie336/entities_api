@@ -82,10 +82,12 @@ class TogetherDeepSeekV3Inference(BaseInference, ABC):
                     f"Run {run_id}: Failed to create TogetherAI client: {client_init_error}",
                     exc_info=True,
                 )
-                yield json.dumps({
-                    "type": "error",
-                    "content": f"Failed to initialize client for request: {client_init_error}",
-                })
+                yield json.dumps(
+                    {
+                        "type": "error",
+                        "content": f"Failed to initialize client for request: {client_init_error}",
+                    }
+                )
                 return
         else:
             logging_utility.debug(
@@ -93,11 +95,12 @@ class TogetherDeepSeekV3Inference(BaseInference, ABC):
             )
 
         if not client_to_use:
-            logging_utility.error(f"Run {run_id}: No valid TogetherAI client available.")
-            yield json.dumps({
-                "type": "error",
-                "content": "TogetherAI client configuration error."
-            })
+            logging_utility.error(
+                f"Run {run_id}: No valid TogetherAI client available."
+            )
+            yield json.dumps(
+                {"type": "error", "content": "TogetherAI client configuration error."}
+            )
             return
 
         assistant_reply = ""
@@ -160,35 +163,59 @@ class TogetherDeepSeekV3Inference(BaseInference, ABC):
                         assistant_reply += seg
                         accumulated_content += seg
 
-                        partial_match = self.parse_code_interpreter_partial(
-                            accumulated_content
-                        ) if hasattr(self, "parse_code_interpreter_partial") else None
+                        partial_match = (
+                            self.parse_code_interpreter_partial(accumulated_content)
+                            if hasattr(self, "parse_code_interpreter_partial")
+                            else None
+                        )
 
                         if not code_mode and partial_match:
                             full_match = partial_match.get("full_match")
                             if full_match:
                                 match_index = accumulated_content.find(full_match)
                                 if match_index != -1:
-                                    accumulated_content = accumulated_content[match_index + len(full_match):]
+                                    accumulated_content = accumulated_content[
+                                        match_index + len(full_match) :
+                                    ]
 
                             code_mode = True
                             code_buffer = partial_match.get("code", "")
                             self.code_mode = True
-                            yield json.dumps({"type": "hot_code", "content": "```python\n"})
+                            yield json.dumps(
+                                {"type": "hot_code", "content": "```python\n"}
+                            )
 
-                            if code_buffer and hasattr(self, "_process_code_interpreter_chunks"):
-                                results, code_buffer = self._process_code_interpreter_chunks("", code_buffer)
+                            if code_buffer and hasattr(
+                                self, "_process_code_interpreter_chunks"
+                            ):
+                                results, code_buffer = (
+                                    self._process_code_interpreter_chunks(
+                                        "", code_buffer
+                                    )
+                                )
                                 for r in results:
                                     yield r
-                                    assistant_reply += r if isinstance(r, str) else json.loads(r).get("content", "")
+                                    assistant_reply += (
+                                        r
+                                        if isinstance(r, str)
+                                        else json.loads(r).get("content", "")
+                                    )
                             continue
 
                         if code_mode:
                             if hasattr(self, "_process_code_interpreter_chunks"):
-                                results, code_buffer = self._process_code_interpreter_chunks(seg, code_buffer)
+                                results, code_buffer = (
+                                    self._process_code_interpreter_chunks(
+                                        seg, code_buffer
+                                    )
+                                )
                                 for r in results:
                                     yield r
-                                    assistant_reply += r if isinstance(r, str) else json.loads(r).get("content", "")
+                                    assistant_reply += (
+                                        r
+                                        if isinstance(r, str)
+                                        else json.loads(r).get("content", "")
+                                    )
                             else:
                                 yield json.dumps({"type": "hot_code", "content": seg})
                             continue
@@ -200,24 +227,34 @@ class TogetherDeepSeekV3Inference(BaseInference, ABC):
             error_msg = f"TogetherAI SDK error (using {key_source_log} key): {str(e)}"
             logging_utility.error(f"Run {run_id}: {error_msg}", exc_info=True)
             if hasattr(self, "handle_error"):
-                self.handle_error(reasoning_content + assistant_reply, thread_id, assistant_id, run_id)
+                self.handle_error(
+                    reasoning_content + assistant_reply, thread_id, assistant_id, run_id
+                )
             yield json.dumps({"type": "error", "content": error_msg})
             return
 
         if assistant_reply and hasattr(self, "finalize_conversation"):
-            self.finalize_conversation(reasoning_content + assistant_reply, thread_id, assistant_id, run_id)
+            self.finalize_conversation(
+                reasoning_content + assistant_reply, thread_id, assistant_id, run_id
+            )
 
         if accumulated_content and hasattr(self, "parse_and_set_function_calls"):
-            function_call = self.parse_and_set_function_calls(accumulated_content, assistant_reply)
+            function_call = self.parse_and_set_function_calls(
+                accumulated_content, assistant_reply
+            )
         else:
             function_call = False
 
         if function_call:
-            self.run_service.update_run_status(run_id, ValidationInterface.StatusEnum.pending_action)
+            self.run_service.update_run_status(
+                run_id, ValidationInterface.StatusEnum.pending_action
+            )
 
         if hasattr(self, "run_service") and hasattr(ValidationInterface, "StatusEnum"):
             if not self.get_function_call_state():
-                self.run_service.update_run_status(run_id, ValidationInterface.StatusEnum.completed)
+                self.run_service.update_run_status(
+                    run_id, ValidationInterface.StatusEnum.completed
+                )
 
         if reasoning_content:
             logging_utility.info(
