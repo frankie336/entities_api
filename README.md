@@ -199,15 +199,18 @@ Example dialogue array:
 - [Streaming](https://github.com/frankie336/projectdavid/blob/master/docs/streams.md)  
 
 
+
+### Routes
+- [Routes](/docs/routes.md) 
+
+
 ---
 
 ### Security & Privacy
 - [Security](/docs/security.md) 
 ---
 
-### Routes
-- [Security](/docs/routes.md) 
----
+
 
 
 
