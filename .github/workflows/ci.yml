@@ -1,3 +1,5 @@
+# .github/workflows/ci.yml
+
 name: Lint, Test, Build, and Publish Docker Images
 
 on:
@@ -11,8 +13,8 @@ on:
       - master
 
 permissions:
-  contents: write
-  packages: write
+  contents: write # Needed for semantic-release to push tags/releases/changelog AND for black auto-format commit (if enabled later)
+  packages: write # Needed for Docker Hub push via GH Actions token (or GHCR)
 
 jobs:
   lint:
@@ -25,12 +27,13 @@ jobs:
       - name: 🐍 Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.11' # Consistent version for linting
 
       - name: 📦 Cache pip dependencies
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
+          # Include specific filenames for better cache key generation
           key: ${{ runner.os }}-pip-lint-${{ hashFiles('**/requirements.txt', '**/pyproject.toml') }}
           restore-keys: |
             ${{ runner.os }}-pip-lint-
@@ -38,31 +41,55 @@ jobs:
       - name: 🔧 Install Linting Tools
         run: |
           python -m pip install --upgrade pip
+          # Pinning ruff version as seen in user input, adjust if needed
           pip install "ruff==0.4.0" black
+          # Install Hadolint
           sudo wget -O /usr/local/bin/hadolint https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64
           sudo chmod +x /usr/local/bin/hadolint
 
       - name: ✨ Run Ruff Linter
         run: |
           if [ "${{ github.event_name }}" == "pull_request" ]; then
+            echo "Running Ruff check for PR..."
             ruff check . --output-format=github
           else
+            echo "Running Ruff check --fix for push..."
+            # Run with fix, use || true to prevent failure if *only* fixes were applied but exit code is non-zero
+            # Note: Default `ruff check --fix` exits 0 if no errors remain after fixing.
+            # This `|| true` might mask underlying errors ruff couldn't fix. Consider removing it if you want the job to fail on unfixable ruff errors.
             ruff check . --fix --output-format=github || true
           fi
 
-      - name: ⚫️ Run Black Formatter (Auto Fix)
+      - name: ⚫️ Run Black Formatter Check / Apply
+        # On PRs, just check. On push, apply fixes.
+        # Note: This doesn't automatically commit changes made by black on push.
         run: |
-          black .
-          git diff --exit-code || true  # Prevent exit 1 on auto-format diff
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            echo "Running Black check for PR..."
+            black --check .
+          else
+            echo "Running Black format for push..."
+            black .
+            # Check if black made changes. Exit 0 regardless to not fail the build just for formatting.
+            # If you WANT the build to fail if black makes changes on push (requiring a separate commit), remove `|| true`.
+            echo "Checking for formatting changes..."
+            git diff --exit-code || true
+          fi
+
+      - name: 🐳 Lint Dockerfiles
+        run: |
+          hadolint docker/api/Dockerfile
+          hadolint docker/sandbox/Dockerfile
+          # Add other Dockerfiles if needed
 
   test:
     name: ✅ Run Unit Tests
     runs-on: ubuntu-latest
-    needs: lint
+    needs: lint # Run after linting
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12"] # Adjust as needed
 
     steps:
       - name: 🧾 Checkout repository
@@ -84,47 +111,57 @@ jobs:
       - name: 🔧 Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-cov
+          # Adapt based on your dependency management (requirements.txt vs pyproject.toml):
+          pip install -r requirements.txt # Assumes requirements.txt contains ALL necessary deps including test tools
+          pip install pytest pytest-cov   # Install test runners separately for clarity or if not in requirements.txt
+          # Example if using pyproject.toml:
+          # pip install -e "./src/api/entities_api[dev]" -e "./src/api/sandbox[dev]" # Install both packages editable with dev extras
+          # pip install pytest pytest-cov
 
       - name: ✅ Run Pytest with Coverage
+        # Point to root 'tests/' directory
         run: pytest tests/ --cov=src --cov-report=xml --cov-report=term-missing
 
+      # Optional: Upload coverage report
       - name: ⬆️ Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v4.0.1
+        # Use specific version of the action
+        uses: codecov/codecov-action@v4.0.1 # Use v4.0.1 or later as specified
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }} # Add CODECOV_TOKEN secret if using Codecov
+          fail_ci_if_error: false # Optional: Prevents CI failure if Codecov upload fails
+        # Consider adding condition: if: secrets.CODECOV_TOKEN != ''
 
   build_and_publish:
     name: 🚀 Build, Tag, and Publish Images to Docker Hub
     runs-on: ubuntu-latest
-    needs: test
+    needs: test # Run only if all test jobs succeed
+    # Only run on pushes to main/master, not on PRs
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
 
     steps:
       - name: 🧾 Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          persist-credentials: true
+          fetch-depth: 0 # Needed for semantic-release
+          persist-credentials: true # Needed for semantic-release to push tags
 
       - name: ⚙️ Setup QEMU
         uses: docker/setup-qemu-action@v3
 
       - name: ⚙️ Setup Docker Buildx
+        # Installs and configures docker buildx
         uses: docker/setup-buildx-action@v3
 
       - name: 🔑 Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: thanosprime
-          password: ${{ secrets.DOCKERHUB_THANOSPRIME }}
+          username: thanosprime # Your Docker Hub username
+          password: ${{ secrets.DOCKERHUB_THANOSPRIME }} # Secret PAT stored in GitHub secrets
 
       - name: 🚀 Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '20' # Use an LTS version
 
       - name: 🔧 Install semantic-release and plugins
         run: |
@@ -135,59 +172,89 @@ jobs:
             @semantic-release/exec \
             @semantic-release/git \
             @semantic-release/github
+            # Ensure these match plugins in .releaserc.json
 
       - name: 🚀 Run semantic-release
-        id: semantic
+        # This determines version, creates tag, updates CHANGELOG.md, runs exec command (updates pyproject.toml), creates GitHub release
+        id: semantic # Give step an ID
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Provided by Actions automatically
         run: npx semantic-release
+        # Assumes .releaserc.json exists and is configured correctly, including the prepareCmd for updating BOTH pyproject.toml files
+        # e.g., prepareCmd: "python scripts/update_pyproject_version.py ${nextRelease.version} src/api/entities_api/pyproject.toml && python scripts/update_pyproject_version.py ${nextRelease.version} src/api/sandbox/pyproject.toml"
 
-      - name: 🏷️ Extract Git Tag Version
+      # --- Get Version ---
+      - name: 🏷️ Extract Git Tag Version created by semantic-release
+        # This step runs only if semantic-release succeeded and presumably created a tag
         id: get_version
+        if: success() # Check if previous step (semantic-release) succeeded
         run: |
-          git fetch --tags
-          VERSION=$(git describe --tags --abbrev=0)
+          # Fetch tags pushed by semantic-release
+          git fetch --tags origin
+          # Get the exact tag on the current commit first, fallback to most recent reachable tag
+          VERSION=$(git describe --tags --exact-match HEAD 2>/dev/null || git describe --tags --abbrev=0 HEAD 2>/dev/null)
           if [ -z "$VERSION" ]; then
-            VERSION="0.1.0"
+            # This shouldn't happen if semantic-release determined a release and tagged it
+            echo "::error::Could not determine version tag after semantic-release ran successfully. Check semantic-release logs and git tags."
+            exit 1
           fi
+          # Remove 'v' prefix if present
           VERSION=${VERSION#v}
-          echo "Detected version: $VERSION"
+          echo "Detected version from tag: $VERSION"
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: 🔧 Define Image Metadata
-        id: meta
+      # --- Metadata for API Image (Corrected) ---
+      - name: 🔧 Define API Image Metadata
+        id: meta_api # Unique ID for API metadata
+        if: steps.get_version.outputs.VERSION # Check if version was extracted
         uses: docker/metadata-action@v5
         with:
-          images: |
-            thanosprime/entities-api-api
-            thanosprime/entities-api-sandbox
+          images: thanosprime/entities-api-api # ONLY the API image
           tags: |
             type=semver,pattern={{version}},value=${{ steps.get_version.outputs.VERSION }}
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') || github.ref == format('refs/heads/{0}', 'master') }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
             type=sha,prefix=sha-
 
-      - name: 🏗️ Build and Push API Image
-        uses: docker/build-push-action@v5
+      # --- Metadata for Sandbox Image (Corrected) ---
+      - name: 🔧 Define Sandbox Image Metadata
+        id: meta_sandbox # Unique ID for Sandbox metadata
+        if: steps.get_version.outputs.VERSION # Check if version was extracted
+        uses: docker/metadata-action@v5
         with:
-          context: .
-          file: ./docker/api/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          target: thanosprime/entities-api-api
+          images: thanosprime/entities-api-sandbox # ONLY the Sandbox image
+          tags: |
+            type=semver,pattern={{version}},value=${{ steps.get_version.outputs.VERSION }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
+            type=sha,prefix=sha-
 
-      - name: 🏗️ Build and Push Sandbox Image
+      # --- Build API Image (Corrected) ---
+      - name: 🏗️ Build and Push API Image
+        if: steps.meta_api.outputs.tags != '' # Check if API metadata was generated
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./docker/sandbox/Dockerfile
+          file: ./docker/api/Dockerfile # Path to the API Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64
+          tags: ${{ steps.meta_api.outputs.tags }}    # Use API-specific tags
+          labels: ${{ steps.meta_api.outputs.labels }} # Use API-specific labels
+          platforms: linux/amd64 # Specify desired platforms
+          # Enable Docker layer caching using GitHub Actions cache
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          target: thanosprime/entities-api-sandbox
+          # REMOVED target: parameter
+
+      # --- Build Sandbox Image (Corrected) ---
+      - name: 🏗️ Build and Push Sandbox Image
+        if: steps.meta_sandbox.outputs.tags != '' # Check if Sandbox metadata was generated
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/sandbox/Dockerfile # Path to the Sandbox Dockerfile
+          push: true
+          tags: ${{ steps.meta_sandbox.outputs.tags }}    # Use Sandbox-specific tags
+          labels: ${{ steps.meta_sandbox.outputs.labels }} # Use Sandbox-specific labels
+          platforms: linux/amd64 # Specify desired platforms
+          # Enable Docker layer caching using GitHub Actions cache
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # REMOVED target: parameter
