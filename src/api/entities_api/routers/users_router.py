@@ -7,10 +7,12 @@ from sqlalchemy.orm import Session
 
 # --- Updated Imports ---
 from entities_api.dependencies import get_api_key, get_db  # Added get_api_key
-from entities_api.models.models import \
-    ApiKey as ApiKeyModel  # Added ApiKeyModel for type hint
-from entities_api.models.models import \
-    User as UserModel  # Added UserModel for authorization check
+from entities_api.models.models import (
+    ApiKey as ApiKeyModel,
+)  # Added ApiKeyModel for type hint
+from entities_api.models.models import (
+    User as UserModel,
+)  # Added UserModel for authorization check
 from entities_api.serializers import UserUpdate
 from entities_api.services.user_service import UserService
 
