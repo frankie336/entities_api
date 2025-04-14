@@ -2051,7 +2051,6 @@ class BaseInference(ABC):
 
         tool_name = fc_state.get("name")
         arguments_dict = fc_state.get("arguments")
-        processed = False  # Track if a tool was processed
 
         # --- Specific Platform Tool Handling ---
         if tool_name == "code_interpreter":
