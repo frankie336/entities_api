@@ -9,17 +9,14 @@ import time
 from typing import Dict, List, Optional
 
 from projectdavid_common import UtilsInterface, ValidationInterface
-
-# Import common validation models and StatusEnum
-
-
-StatusEnum = ValidationInterface.StatusEnum  # Use the one from ValidationInterface
-
 from sqlalchemy.exc import IntegrityError  # To catch duplicate key errors
 from sqlalchemy.orm import Session, joinedload
 
 # Import specific DB Models
 from entities_api.models.models import Assistant, VectorStore, VectorStoreFile
+
+StatusEnum = ValidationInterface.StatusEnum  # Use the one from ValidationInterface
+
 
 # Get the logger instance
 logging_utility = UtilsInterface.LoggingUtility()

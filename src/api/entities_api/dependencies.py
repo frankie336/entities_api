@@ -57,11 +57,12 @@ async def get_api_key(
         )
 
     provided_prefix = api_key_header[:prefix_length]
+
     potential_key = (
         db.query(ApiKey)
         .filter(
             ApiKey.prefix == provided_prefix,
-            ApiKey.is_active == True,
+            ApiKey.is_active.is_(True),  # ✅ Fixes E712
         )
         .first()
     )

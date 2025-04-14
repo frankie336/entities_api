@@ -1544,11 +1544,6 @@ class BaseInference(ABC):
             logging_utility.info(
                 "Streaming base64 previews for %d files...", len(uploaded_files)
             )
-            # Assuming EntitiesInternalInterface provides file access
-            # Ensure base URL is correctly configured
-            entities_base_url = os.getenv(
-                "ENTITIES_BASE_URL", "http://fastapi_cosmic_catalyst:9000"
-            )
 
             for file_meta in uploaded_files:  # Use file_meta again
                 file_id = file_meta.get("id")
@@ -1708,7 +1703,6 @@ class BaseInference(ABC):
 
         # Extract commands from the arguments dictionary
         commands = arguments_dict.get("commands", [])
-        bash_buffer = []
 
         accumulated_content = ""
 
@@ -1962,8 +1956,6 @@ class BaseInference(ABC):
 
         assistant = client.assistants.retrieve_assistant(assistant_id=assistant_id)
 
-        associated_tools = self.tool_service.list_tools(assistant_id=assistant_id)
-
         tools = self.tool_service.list_tools(
             assistant_id=assistant_id, restructure=True
         )
@@ -2104,7 +2096,7 @@ class BaseInference(ABC):
         # --- Consumer Tool Handling ---
         else:
             # Non-platform (consumer) tools
-            processed = True
+
             self._process_tool_calls(
                 thread_id=thread_id,
                 assistant_id=assistant_id,

@@ -14,7 +14,6 @@ from projectdavid_common.constants.mime_types import (SUPPORTED_MIME_TYPES,
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.orm import Session
 
-from entities_api.constants.platform import SUPPORTED_MIME_TYPES, get_mime_type
 from entities_api.models.models import File, FileStorage, User
 from entities_api.utils.samba_client import SambaClient
 
@@ -70,7 +69,6 @@ class FileService:
         """
         Handles file upload logic with unique filenames for Samba storage.
         """
-        user = self.validate_user(request.user_id)
         mime_type = self.validate_file_type(
             file.filename, getattr(file, "content_type", None)
         )

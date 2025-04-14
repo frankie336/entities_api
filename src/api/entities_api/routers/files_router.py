@@ -51,7 +51,6 @@ def download_file(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Signed URL has expired"
         )
 
-    data = f"{file_id}:{expires}:{use_real_filename}"
     if not verify_signature(file_id, expires, signature, use_real_filename):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Invalid signature"

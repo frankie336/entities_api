@@ -8,15 +8,13 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from entities_api.models.models import Action, Tool
+from entities_api.models.models import Action, Run, Tool
 from entities_api.utils.conversion_utils import datetime_to_iso
 
 client = Entity()
 
 validator = ValidationInterface()
 
-
-from entities_api.models.models import Run  # Ensure Run is imported
 
 logging_utility = LoggingUtility()
 

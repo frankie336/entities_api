@@ -7,12 +7,9 @@ from projectdavid_common import UtilsInterface, ValidationInterface
 from sqlalchemy.orm import Session
 
 from entities_api.models.models import Message, Thread
-
-validator = ValidationInterface()
 from entities_api.services.logging_service import LoggingUtility
 
-# Initialize logging
-
+validator = ValidationInterface()
 logging_utility = LoggingUtility()
 
 

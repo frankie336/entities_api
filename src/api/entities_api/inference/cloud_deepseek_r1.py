@@ -104,7 +104,7 @@ class DeepSeekR1Cloud(BaseInference):
             return
 
         if assistant_reply:
-            assistant_message = self.finalize_conversation(
+            self.finalize_conversation(
                 assistant_reply=assistant_reply,
                 thread_id=thread_id,
                 assistant_id=assistant_id,

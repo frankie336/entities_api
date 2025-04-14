@@ -154,7 +154,7 @@ class ApiKeyService:
 
         query = self.db.query(ApiKey).filter(ApiKey.user_id == user_id)
         if not include_inactive:
-            query = query.filter(ApiKey.is_active == True)
+            query = query.filter(ApiKey.is_active.is_(True))  # ✅ FIXED
 
         keys = query.order_by(ApiKey.created_at.desc()).all()
         return keys

@@ -1,4 +1,3 @@
-import logging
 import secrets
 import time
 from datetime import datetime
@@ -122,15 +121,6 @@ class ApiKey(Base):
 
     def verify_key(self, plain_key: str) -> bool:
         return pwd_context.verify(plain_key, self.hashed_key)
-
-
-# models.py (portion)
-
-from datetime import datetime
-
-from sqlalchemy import (Boolean, Column, DateTime, ForeignKey, Index, Integer,
-                        String, Table, Text, UniqueConstraint)
-from sqlalchemy.orm import relationship
 
 
 class User(Base):
