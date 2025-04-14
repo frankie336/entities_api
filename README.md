@@ -10,8 +10,6 @@ This enables rapid and flexible deployment of advanced features such as conversa
 
 ![Network Diagram](assets/docker_containers.png)
 
-
-
 ---
 
 
@@ -123,8 +121,17 @@ New REGULAR user created successfully by admin:
 
 **4. Run the scrip that creates the default Assistant**
 
-`python/scripts/bootstrap_default_assistant.py`
+**Reccomended:**
 
+- Use your admin  user credentials 
+
+`python scripts/bootstrap_default_assistant.py`
+
+**5. Install the projectdavid sdk**
+
+`pip install projectdavid`
+
+See here for usage consumer use documentation:
 
 [**Use the regular user API key consumer side operations**](https://github.com/frankie336/projectdavid)  
 ---
