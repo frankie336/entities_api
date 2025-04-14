@@ -1,161 +1,168 @@
 # scripts/create_user.py
+import argparse
 import os
 import sys
-import time  # Import time for potential delays/debugging
+import time
 
 from dotenv import load_dotenv
 
 # Assuming projectdavid.Entity correctly initializes ApiKeysClient under .keys
-from projectdavid import Entity
-
-# Add project root to path to find projectdavid module if needed
-# project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-# sys.path.insert(0, project_root)
-
-
-# --- Load Environment Variables ---
-load_dotenv()
-
-# --- Get Admin API Key ---
-admin_api_key = os.getenv("ADMIN_API_KEY")
-if not admin_api_key:
-    creds_file = "admin_credentials.txt"
-    if os.path.exists(creds_file):
-        print(f"ADMIN_API_KEY not found in env, attempting to read from {creds_file}")
-        with open(creds_file, "r") as f:
-            for line in f:
-                if line.startswith("ADMIN_API_KEY="):
-                    admin_api_key = line.strip().split("=", 1)[1]
-                    break
-    if not admin_api_key:
-        raise ValueError(
-            "ADMIN_API_KEY not found. "
-            "Please run 'scripts/bootstrap_admin.py' and ensure the key is available "
-            "either in your environment variables or in admin_credentials.txt."
-        )
-
-print(f"Using Admin API Key starting with: {admin_api_key[:4]}...{admin_api_key[-4:]}")
-
-# --- Initialize Client WITH Admin Key ---
-# This client instance is authenticated as the Admin
-admin_client = Entity(base_url="http://localhost:9000", api_key=admin_api_key)
-
-# --- Variables ---
-new_regular_user = None  # Initialize variable to hold the user object
-
-# --- Create a NEW REGULAR User using the Admin Client ---
-print("\nAttempting to create a NEW REGULAR user using the Admin API Key...")
-
+# Make sure this import works based on your project structure.
+# If running from the 'scripts' directory, you might need to adjust sys.path
 try:
-    # Generate a unique email using timestamp to avoid conflicts on reruns
-    regular_user_email = f"test_regular_user_{int(time.time())}@example.com"
-    regular_user_full_name = "Regular User Test"
-
-    # Call the create_user method via the admin-authenticated client
-    # Assumes this uses POST /v1/admin/users or similar admin-privileged route
-    new_regular_user = admin_client.users.create_user(
-        full_name=regular_user_full_name,
-        email=regular_user_email,
-        is_admin=False,  # Explicitly set to False
-    )
-
-    print("\nNew REGULAR user created successfully by admin:")
-    print(f"  User ID:    {getattr(new_regular_user, 'id', 'N/A')}")
-    print(f"  User Email: {getattr(new_regular_user, 'email', 'N/A')}")
-    # Ensure your user creation endpoint/SDK actually returns is_admin
-    print(f"  Is Admin:   {getattr(new_regular_user, 'is_admin', 'N/A')}")
+    from projectdavid import Entity
+except ImportError:
+    # Add project root to path if 'projectdavid' is not found directly
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+    try:
+        from projectdavid import Entity
+    except ImportError:
+        print(
+            "Error: Could not import 'projectdavid'. "
+            "Make sure the package is installed or the project root is in PYTHONPATH."
+        )
+        sys.exit(1)
 
 
-except Exception as e:
-    print(f"\nError creating regular user: {e}")
-    error_response = getattr(e, "response", None)
-    if error_response is not None:
-        print(f"Status Code: {error_response.status_code}")
-        try:
-            error_detail = error_response.json()
-        except Exception:
-            error_detail = error_response.text
-        print(f"Response Body: {error_detail}")
-    print("\nSkipping API key generation due to user creation failure.")
-    new_regular_user = None
+# --- Constants ---
+DEFAULT_BASE_URL = "http://localhost:9000"
+DEFAULT_CREDS_FILE = "admin_credentials.txt"
+DEFAULT_KEY_NAME = "Default Initial Key"
 
-# --- Generate Initial Key for the NEW Regular User (If User Creation Succeeded) ---
-if new_regular_user and hasattr(new_regular_user, "id"):
-    target_user_id = new_regular_user.id
+
+# --- Helper Functions ---
+def load_admin_key(env_var="ADMIN_API_KEY", creds_file=DEFAULT_CREDS_FILE):
+    """Loads the Admin API key from environment or a credentials file."""
+    admin_api_key = os.getenv(env_var)
+    if not admin_api_key:
+        if os.path.exists(creds_file):
+            print(
+                f"{env_var} not found in env, attempting to read from {creds_file}"
+            )
+            try:
+                with open(creds_file, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith(f"{env_var}="):
+                            admin_api_key = line.split("=", 1)[1]
+                            break
+            except Exception as e:
+                print(f"Error reading {creds_file}: {e}")
+                admin_api_key = None  # Ensure it's None if reading fails
+
+        if not admin_api_key:
+            raise ValueError(
+                f"{env_var} not found. "
+                f"Please set it as an environment variable or ensure it's in {creds_file}. "
+                "You might need to run 'scripts/bootstrap_admin.py' first."
+            )
+    print(f"Using Admin API Key starting with: {admin_api_key[:4]}...{admin_api_key[-4:]}")
+    return admin_api_key
+
+
+def create_api_client(base_url, api_key):
+    """Initializes the API client."""
+    try:
+        client = Entity(base_url=base_url, api_key=api_key)
+        # Simple check if client has expected attributes (optional but good practice)
+        if not hasattr(client, "users") or not hasattr(client, "keys"):
+             print("Warning: API client might not be fully initialized. Missing 'users' or 'keys' attribute.")
+        return client
+    except Exception as e:
+        print(f"Error initializing API client for base URL {base_url}: {e}")
+        sys.exit(1)
+
+
+def create_user(client, full_name, email):
+    """Creates a new regular user using the admin client."""
+    print(f"\nAttempting to create user '{full_name}' ({email})...")
+    try:
+        # Assumes admin_client.users.create_user handles the API call
+        new_user = client.users.create_user(
+            full_name=full_name,
+            email=email,
+            is_admin=False,  # Explicitly creating a regular user
+        )
+        print("\nNew REGULAR user created successfully:")
+        print(f"  User ID:    {getattr(new_user, 'id', 'N/A')}")
+        print(f"  User Email: {getattr(new_user, 'email', 'N/A')}")
+        print(f"  Is Admin:   {getattr(new_user, 'is_admin', 'N/A')}")
+        return new_user
+    except Exception as e:
+        print(f"\nError creating regular user: {e}")
+        error_response = getattr(e, "response", None)
+        if error_response is not None:
+            print(f"Status Code: {error_response.status_code}")
+            try:
+                error_detail = error_response.json()
+            except Exception:
+                error_detail = error_response.text
+            print(f"Response Body: {error_detail}")
+        return None # Indicate failure
+
+
+def generate_user_key(admin_client, user, key_name=DEFAULT_KEY_NAME):
+    """Generates an initial API key for the specified user using admin credentials."""
+    if not user or not hasattr(user, "id"):
+        print("\nSkipped API key generation because user object is invalid or missing ID.")
+        return None
+
+    target_user_id = user.id
+    user_email = getattr(user, 'email', 'N/A') # For logging
+
     print(
-        f"\nAttempting to generate initial API key for user {target_user_id} using admin credentials..."
+        f"\nAttempting to generate initial API key for user {target_user_id} ({user_email})..."
     )
+
     try:
         # Define optional payload for the key creation
         key_payload = {
-            "key_name": "Default Initial Key"
+            "key_name": key_name
             # "expires_in_days": 365 # Optional: Example
         }
 
-        # *** CORRECTED METHOD CALL: Use the actual method name from the SDK ***
-        # Calls the `create_key_for_user` method in ApiKeysClient, which targets
-        # the ADMIN endpoint POST /v1/admin/users/{target_user_id}/keys
+        # Use the create_key_for_user method via the admin client's keys interface
         print(
-            f"Calling SDK method 'create_key_for_user' targeting ADMIN endpoint: POST /v1/admin/users/{target_user_id}/keys"
+            f"Calling SDK method 'create_key_for_user' on admin client for user ID {target_user_id}"
         )
-        key_creation_response = admin_client.keys.create_key_for_user(  # <--- FIXED METHOD NAME
-            target_user_id=target_user_id,  # Pass the ID of the user to create the key for
-            **key_payload,  # Pass optional name/expiration
+        key_creation_response = admin_client.keys.create_key_for_user(
+            target_user_id=target_user_id,
+            **key_payload,
         )
-        # *** END CORRECTION ***
 
-        # Process the response (assuming it follows ApiKeyCreateResponse schema)
-        if (
-            hasattr(key_creation_response, "plain_key")
-            and key_creation_response.plain_key
-        ):
-            plain_text_key_for_regular_user = key_creation_response.plain_key
-
+        # Process the response
+        plain_text_key = getattr(key_creation_response, "plain_key", None)
+        if plain_text_key:
             print("\n" + "=" * 50)
             print("  Initial API Key Generated for Regular User (by Admin)!")
             print(f"  User ID:    {target_user_id}")
-            print(
-                f"  User Email: {getattr(new_regular_user, 'email', 'N/A')}"
-            )  # Get email again for clarity
+            print(f"  User Email: {user_email}")
             key_details = getattr(key_creation_response, "details", None)
             if key_details and hasattr(key_details, "prefix"):
                 print(f"  Key Prefix: {key_details.prefix}")
+                print(f"  Key Name:   {getattr(key_details, 'name', 'N/A')}") # Assuming name is in details
             print("-" * 50)
-            print(f"  PLAIN TEXT API KEY: {plain_text_key_for_regular_user}")
+            print(f"  PLAIN TEXT API KEY: {plain_text_key}")
             print("-" * 50)
-            print("  Provide this key to the regular user. They can use it")
-            print("  to authenticate and manage their own keys via the API")
-            print(
-                f"  (e.g., using their key with POST /v1/users/{target_user_id}/apikeys)."
-            )  # User self-service endpoint
+            print("  Provide this key to the regular user for API access.")
             print("=" * 50 + "\n")
+            return plain_text_key
         else:
-            print(
-                "\nAdmin key generation API call successful, but plain text key not found in the response."
-            )
-            print(
-                f"Check the API endpoint (POST /v1/admin/users/{target_user_id}/keys) response structure."
-            )
+            print("\nAPI call successful, but plain text key not found in the response.")
             print(f"Response details received: {key_creation_response}")
+            return None
 
     except AttributeError as ae:
-        # This error should now be resolved if the SDK client is correctly imported/attached
         print("\n--- SDK ERROR ---")
         print(f"AttributeError: {ae}")
-        print("Could not find the required method on the SDK client.")
-        print(
-            "Verify the SDK structure is correctly initialized (e.g., `admin_client.keys` exists)"
-        )
-        print("and the method `create_key_for_user` exists in the `ApiKeysClient`.")
-        print(
-            "Ensure your `projectdavid.Entity` properly attaches the `ApiKeysClient` as `.keys`."
-        )
+        print("Could not find the required method (e.g., `create_key_for_user`) on the SDK client.")
+        print("Verify that `projectdavid.Entity` correctly initializes and attaches the `ApiKeysClient` as `.keys`.")
         print("--- END SDK ERROR ---")
+        return None
     except Exception as key_gen_e:
-        # Handle other errors (e.g., HTTP errors from API like 403 Forbidden if admin key lacks permission, 404 if endpoint wrong)
-        print(
-            f"\nError generating key for user {target_user_id} via admin endpoint: {key_gen_e}"
-        )
+        print(f"\nError generating key for user {target_user_id}: {key_gen_e}")
         error_response = getattr(key_gen_e, "response", None)
         if error_response is not None:
             print(f"Status Code: {error_response.status_code}")
@@ -164,29 +171,84 @@ if new_regular_user and hasattr(new_regular_user, "id"):
             except Exception:
                 error_detail = error_response.text
             print(f"Response Body: {error_detail}")
+            # Add hints based on status code
             if error_response.status_code == 404:
-                print(
-                    f"Hint: Ensure the admin endpoint (POST /v1/admin/users/{target_user_id}/keys) exists in your API and is correctly mapped."
-                )
+                print(f"Hint: Check API endpoint POST /v1/admin/users/{target_user_id}/keys")
             elif error_response.status_code == 403:
-                print(
-                    "Hint: Ensure the ADMIN_API_KEY used has the necessary admin permissions configured in the API backend."
-                )
+                print("Hint: Ensure the ADMIN_API_KEY has permission.")
             elif error_response.status_code == 422:
-                print(
-                    "Hint: Check the payload being sent (key_name, expires_in_days) against the API's expectations."
-                )
+                print("Hint: Check the key_payload against API expectations.")
         else:
-            # Print general exception if it's not an httpx error with a response
             print(f"An unexpected error occurred: {key_gen_e}")
-
-else:
-    if not new_regular_user:
-        print("\nSkipped API key generation because user creation failed.")
-    elif not hasattr(new_regular_user, "id"):
-        print(
-            "\nSkipped API key generation because the created user object is missing an 'id' attribute."
-        )
+        return None
 
 
-print("\nScript finished.")
+def main():
+    """Main script execution function."""
+    parser = argparse.ArgumentParser(
+        description="Create a new regular user and generate an initial API key using admin credentials."
+    )
+    parser.add_argument(
+        "-e",
+        "--email",
+        type=str,
+        help="Email address for the new user. If omitted, a unique default is generated.",
+    )
+    parser.add_argument(
+        "-n",
+        "--name",
+        type=str,
+        help="Full name for the new user. If omitted, a default name is used.",
+    )
+    parser.add_argument(
+        "--base-url",
+        type=str,
+        default=DEFAULT_BASE_URL,
+        help=f"Base URL for the API. Default: {DEFAULT_BASE_URL}",
+    )
+    parser.add_argument(
+        "--creds-file",
+        type=str,
+        default=DEFAULT_CREDS_FILE,
+        help=f"Path to the admin credentials file. Default: {DEFAULT_CREDS_FILE}",
+    )
+    parser.add_argument(
+        "--key-name",
+        type=str,
+        default=DEFAULT_KEY_NAME,
+        help=f"Name for the initial API key generated for the user. Default: '{DEFAULT_KEY_NAME}'",
+    )
+
+    args = parser.parse_args()
+
+    # --- Load Environment Variables ---
+    load_dotenv()
+
+    # --- Get Admin API Key ---
+    try:
+        admin_api_key = load_admin_key(creds_file=args.creds_file)
+    except ValueError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
+    # --- Initialize Admin Client ---
+    admin_client = create_api_client(args.base_url, admin_api_key)
+
+    # --- Determine User Details ---
+    user_email = args.email or f"test_regular_user_{int(time.time())}@example.com"
+    user_full_name = args.name or "Regular User Test"
+
+    # --- Create User ---
+    new_user = create_user(admin_client, user_full_name, user_email)
+
+    # --- Generate Key (if user created) ---
+    if new_user:
+        generate_user_key(admin_client, new_user, key_name=args.key_name)
+    else:
+        print("\nSkipping API key generation due to user creation failure.")
+
+    print("\nScript finished.")
+
+
+if __name__ == "__main__":
+    main()

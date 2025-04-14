@@ -44,6 +44,95 @@ You **register tools, trigger runs, stream thoughts, and command vector memory.*
 
 ---
 
+
+## Quick Start
+
+**1. Run the start script. See Starting Docker Containers:**
+   
+   [#starting-docker-containers-](#starting-docker-containers-)
+
+**2. Run the script to generate the default admin user**
+
+
+**Create an admin user with default example values**:`python scripts/bootstrap_admin.py`
+
+**Create an admin user with specific values**:
+
+`python scripts/bootstrap_admin.py \
+    --email "superuser@mycompany.com" \
+    --name "Super Admin" \
+    --key-name "Initial SuperAdmin Key"`
+    
+
+The default admin script will give you something like this:
+
+```bash
+
+
+==================================================
+  Initial API Key Generated for Regular User (by Admin)!
+  User ID:    user_kUKV8octgG2aMc7kxAcD3i
+  User Email: test_regular_user_1744525927@example.com
+  Key Prefix: ea_6zZiZ
+--------------------------------------------------
+  PLAIN TEXT API KEY: ea_6zZiZEsLXftvlC9UbyKRyQsuanWkkHzqeFymXFjLzuQ
+--------------------------------------------------
+  Provide this key to the regular user. They can use it
+  to authenticate and manage their own keys via the API
+  (e.g., using their key with POST /v1/users/user_kUKV8octgG2aMc7kxAcD3i/apikeys).
+==================================================
+
+```
+
+**3. Run the script that creates users:**
+
+
+
+**Create a user with default timestamped values**: `python scripts/create_user.py`
+
+**Create a user with partial real values**: `python scripts/create_user.py --name "Bob Smith"`
+
+**Create a user with specific real values**: `python scripts/create_user.py --email bob.smith@company.com --name "Bob Smith"`
+
+
+
+
+The script will give you something like this:
+
+```bash
+New REGULAR user created successfully by admin:
+  User ID:    user_E2dVsAJPSleg5tPIq7QFC0
+  User Email: test_regular_user_1744587566@example.com
+  Is Admin:   N/A
+
+
+==================================================
+  Initial API Key Generated for Regular User (by Admin)!
+  User ID:    user_E2dVsAJPSleg5tPIq7QFC0
+  User Email: test_regular_user_1744587566@example.com
+  Key Prefix: ea_SaT0Q
+--------------------------------------------------
+  PLAIN TEXT API KEY: ea_SaT0Q8CP4tZBAVHJzA9u0rcZZiYggyjk03dQEjV9N3c
+--------------------------------------------------
+  Provide this key to the regular user. They can use it
+  to authenticate and manage their own keys via the API
+  (e.g., using their key with POST /v1/users/user_E2dVsAJPSleg5tPIq7QFC0/apikeys).
+==================================================
+
+```
+
+**4. Run the scrip that creates the default Assistant**
+
+`python/scripts/bootstrap_default_assistant.py`
+
+
+[**Use the regular user API key consumer side operations**](https://github.com/frankie336/projectdavid)  
+---
+
+
+
+
+
 ## Supported Inference Providers
 
 | Provider                                        | Type                        |
@@ -137,6 +226,8 @@ Example dialogue array:
 - [Swagger](http://your-domain/mydocs#/)
 
 ---
+
+
 
 ## Starting Docker Containers 🐳
 
