@@ -5,7 +5,7 @@ from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.orm import Session
 
-from entities_api.dependencies import get_db, get_api_key
+from entities_api.dependencies import get_api_key, get_db
 from entities_api.models.models import ApiKey as ApiKeyModel
 from entities_api.services.message_service import MessageService
 

@@ -9,7 +9,8 @@ from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from entities_api.inference.inference_arbiter import InferenceArbiter
-from entities_api.inference.inference_provider_selector import InferenceProviderSelector
+from entities_api.inference.inference_provider_selector import \
+    InferenceProviderSelector
 
 router = APIRouter()
 logging_utility = LoggingUtility()

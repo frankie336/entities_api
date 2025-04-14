@@ -38,9 +38,7 @@ def load_admin_key(env_var="ADMIN_API_KEY", creds_file=DEFAULT_CREDS_FILE):
     admin_api_key = os.getenv(env_var)
     if not admin_api_key:
         if os.path.exists(creds_file):
-            print(
-                f"{env_var} not found in env, attempting to read from {creds_file}"
-            )
+            print(f"{env_var} not found in env, attempting to read from {creds_file}")
             try:
                 with open(creds_file, "r") as f:
                     for line in f:
@@ -58,7 +56,9 @@ def load_admin_key(env_var="ADMIN_API_KEY", creds_file=DEFAULT_CREDS_FILE):
                 f"Please set it as an environment variable or ensure it's in {creds_file}. "
                 "You might need to run 'scripts/bootstrap_admin.py' first."
             )
-    print(f"Using Admin API Key starting with: {admin_api_key[:4]}...{admin_api_key[-4:]}")
+    print(
+        f"Using Admin API Key starting with: {admin_api_key[:4]}...{admin_api_key[-4:]}"
+    )
     return admin_api_key
 
 
@@ -68,7 +68,9 @@ def create_api_client(base_url, api_key):
         client = Entity(base_url=base_url, api_key=api_key)
         # Simple check if client has expected attributes (optional but good practice)
         if not hasattr(client, "users") or not hasattr(client, "keys"):
-             print("Warning: API client might not be fully initialized. Missing 'users' or 'keys' attribute.")
+            print(
+                "Warning: API client might not be fully initialized. Missing 'users' or 'keys' attribute."
+            )
         return client
     except Exception as e:
         print(f"Error initializing API client for base URL {base_url}: {e}")
@@ -100,17 +102,19 @@ def create_user(client, full_name, email):
             except Exception:
                 error_detail = error_response.text
             print(f"Response Body: {error_detail}")
-        return None # Indicate failure
+        return None  # Indicate failure
 
 
 def generate_user_key(admin_client, user, key_name=DEFAULT_KEY_NAME):
     """Generates an initial API key for the specified user using admin credentials."""
     if not user or not hasattr(user, "id"):
-        print("\nSkipped API key generation because user object is invalid or missing ID.")
+        print(
+            "\nSkipped API key generation because user object is invalid or missing ID."
+        )
         return None
 
     target_user_id = user.id
-    user_email = getattr(user, 'email', 'N/A') # For logging
+    user_email = getattr(user, "email", "N/A")  # For logging
 
     print(
         f"\nAttempting to generate initial API key for user {target_user_id} ({user_email})..."
@@ -142,7 +146,9 @@ def generate_user_key(admin_client, user, key_name=DEFAULT_KEY_NAME):
             key_details = getattr(key_creation_response, "details", None)
             if key_details and hasattr(key_details, "prefix"):
                 print(f"  Key Prefix: {key_details.prefix}")
-                print(f"  Key Name:   {getattr(key_details, 'name', 'N/A')}") # Assuming name is in details
+                print(
+                    f"  Key Name:   {getattr(key_details, 'name', 'N/A')}"
+                )  # Assuming name is in details
             print("-" * 50)
             print(f"  PLAIN TEXT API KEY: {plain_text_key}")
             print("-" * 50)
@@ -150,15 +156,21 @@ def generate_user_key(admin_client, user, key_name=DEFAULT_KEY_NAME):
             print("=" * 50 + "\n")
             return plain_text_key
         else:
-            print("\nAPI call successful, but plain text key not found in the response.")
+            print(
+                "\nAPI call successful, but plain text key not found in the response."
+            )
             print(f"Response details received: {key_creation_response}")
             return None
 
     except AttributeError as ae:
         print("\n--- SDK ERROR ---")
         print(f"AttributeError: {ae}")
-        print("Could not find the required method (e.g., `create_key_for_user`) on the SDK client.")
-        print("Verify that `projectdavid.Entity` correctly initializes and attaches the `ApiKeysClient` as `.keys`.")
+        print(
+            "Could not find the required method (e.g., `create_key_for_user`) on the SDK client."
+        )
+        print(
+            "Verify that `projectdavid.Entity` correctly initializes and attaches the `ApiKeysClient` as `.keys`."
+        )
         print("--- END SDK ERROR ---")
         return None
     except Exception as key_gen_e:
@@ -173,7 +185,9 @@ def generate_user_key(admin_client, user, key_name=DEFAULT_KEY_NAME):
             print(f"Response Body: {error_detail}")
             # Add hints based on status code
             if error_response.status_code == 404:
-                print(f"Hint: Check API endpoint POST /v1/admin/users/{target_user_id}/keys")
+                print(
+                    f"Hint: Check API endpoint POST /v1/admin/users/{target_user_id}/keys"
+                )
             elif error_response.status_code == 403:
                 print("Hint: Ensure the ADMIN_API_KEY has permission.")
             elif error_response.status_code == 422:

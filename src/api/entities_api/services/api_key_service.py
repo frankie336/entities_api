@@ -6,9 +6,7 @@ from typing import List, Optional, Tuple  # Added List
 
 from fastapi import HTTPException, status
 from projectdavid_common import (  # Assuming common contains ValidationInterface
-    UtilsInterface,
-    ValidationInterface,
-)
+    UtilsInterface, ValidationInterface)
 from sqlalchemy.orm import Session
 
 # Assuming models and ValidationInterface are accessible

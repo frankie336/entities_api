@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
+from projectdavid_common import UtilsInterface, ValidationInterface
 from sqlalchemy.orm import Session
-from projectdavid_common import ValidationInterface, UtilsInterface
-from entities_api.dependencies import get_db, get_api_key
+
+from entities_api.dependencies import get_api_key, get_db
 from entities_api.models.models import ApiKey as ApiKeyModel
 from entities_api.services.threads import ThreadService
 
