@@ -3,16 +3,18 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+
 # Assuming schemas are correctly located now
-from projectdavid_common.schemas.api_key_schemas import (ApiKeyCreateRequest,
-                                                         ApiKeyCreateResponse,
-                                                         ApiKeyDetails,
-                                                         ApiKeyListResponse)
+from projectdavid_common.schemas.api_key_schemas import (
+    ApiKeyCreateRequest,
+    ApiKeyCreateResponse,
+    ApiKeyDetails,
+    ApiKeyListResponse,
+)
 from sqlalchemy.orm import Session
 
 from ..dependencies import get_api_key, get_db  # Import your dependencies
-from ..models.models import \
-    ApiKey as ApiKeyModel  # Rename to avoid schema conflict
+from ..models.models import ApiKey as ApiKeyModel  # Rename to avoid schema conflict
 from ..services.api_key_service import ApiKeyService
 
 # --- FIX: Add the prefix and tags ---

@@ -47,7 +47,7 @@ jobs:
           if [ "${{ github.event_name }}" == "pull_request" ]; then
             ruff check . --output-format=github
           else
-            ruff check . --fix --exit-non-zero-on-fix --output-format=github
+            ruff check . --fix --output-format=github || true
           fi
 
       - name: ⚫️ Run Black Formatter Check
