@@ -60,8 +60,6 @@ class DeepSeekR1Local(BaseInference):
                 if not tool_record:
                     raise ValueError(f"Tool with name '{function_name}' not found")
 
-                tool_id = tool_record.id  # Use tool_id
-
                 # Create the action for the tool call
                 action_response = self.action_client.create_action(
                     tool_name=function_name, run_id=run_id, function_args=function_args

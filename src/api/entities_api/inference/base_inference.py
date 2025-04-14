@@ -2074,7 +2074,7 @@ class BaseInference(ABC):
 
         # --- General Platform Tool Handling ---
         elif tool_name in PLATFORM_TOOLS:  # Assumes PLATFORM_TOOLS is defined
-            processed = True
+
             # Assumes SPECIAL_CASE_TOOL_HANDLING is defined
             if tool_name not in SPECIAL_CASE_TOOL_HANDLING:
                 # Standard platform tools
