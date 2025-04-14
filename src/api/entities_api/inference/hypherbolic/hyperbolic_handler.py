@@ -4,13 +4,20 @@ from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.inference.hypherbolic.hyperbolic_deepseek_r1 import \
-    HyperbolicR1Inference
-from entities_api.inference.hypherbolic.hyperbolic_deepseek_v3 import \
-    HyperbolicDeepSeekV3Inference
-from entities_api.inference.hypherbolic.hyperbolic_llama_3_3 import \
-    HyperbolicLlama33Inference
+from entities_api.inference.hypherbolic.hyperbolic_deepseek_r1 import (
+    HyperbolicR1Inference,
+)
+from entities_api.inference.hypherbolic.hyperbolic_deepseek_v3 import (
+    HyperbolicDeepSeekV3Inference,
+)
+from entities_api.inference.hypherbolic.hyperbolic_llama_3_3 import (
+    HyperbolicLlama33Inference,
+)
 from entities_api.inference.inference_arbiter import InferenceArbiter
+
+from entities_api.inference.hypherbolic.hyperbolic_quen_qwq_32b import (
+    HyperbolicQuenQwq32bInference,
+)
 
 logging_utility = LoggingUtility()
 
@@ -26,6 +33,7 @@ class HyperbolicHandler:
         "deepseek-ai/DeepSeek-V3-0324": HyperbolicDeepSeekV3Inference,
         "deepseek-r1": HyperbolicR1Inference,
         "meta-llama/": HyperbolicLlama33Inference,
+        "Qwen/QwQ-32B-Preview": HyperbolicQuenQwq32bInference,
     }
 
     def __init__(self, arbiter: InferenceArbiter):

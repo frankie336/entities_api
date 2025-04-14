@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, Generator, Optional
 
 import httpx
 from openai import OpenAI
+from together import Together
 from projectdavid import Entity
 from projectdavid.clients.actions_client import ActionsClient
 from projectdavid.clients.assistants_client import AssistantsClient
@@ -27,18 +28,19 @@ from projectdavid.clients.users_client import UsersClient
 from projectdavid.clients.vectors import VectorStoreClient
 from projectdavid_common import ValidationInterface
 from projectdavid_common.constants.ai_model_map import MODEL_MAP
-from together import Together
 
 from entities_api.constants.assistant import (
-    CODE_ANALYSIS_TOOL_MESSAGE, CODE_INTERPRETER_MESSAGE,
-    DEFAULT_REMINDER_MESSAGE, PLATFORM_TOOLS,
-    WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS)
-from entities_api.constants.platform import (ERROR_NO_CONTENT,
-                                             SPECIAL_CASE_TOOL_HANDLING)
-from entities_api.platform_tools.code_interpreter.code_execution_client import \
-    StreamOutput
-from entities_api.platform_tools.platform_tool_service import \
-    PlatformToolService
+    CODE_ANALYSIS_TOOL_MESSAGE,
+    CODE_INTERPRETER_MESSAGE,
+    DEFAULT_REMINDER_MESSAGE,
+    PLATFORM_TOOLS,
+    WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS,
+)
+from entities_api.constants.platform import ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING
+from entities_api.platform_tools.code_interpreter.code_execution_client import (
+    StreamOutput,
+)
+from entities_api.platform_tools.platform_tool_service import PlatformToolService
 from entities_api.services.conversation_truncator import ConversationTruncator
 from entities_api.services.logging_service import LoggingUtility
 
@@ -98,7 +100,23 @@ class BaseInference(ABC):
             )
             self.openai_client = None
 
-        # 2. Initialize the default project_david client (INDEPENDENTLY)
+        # Instantiate the default Together client
+        try:
+            self.together_client = Together(
+                api_key=os.getenv("TOGETHER_API_KEY"),
+
+            )
+
+
+
+        except Exception as e:
+            logging_utility.error(
+                "Failed to initialize default OpenAI client: %s", e, exc_info=True
+            )
+            self.openai_client = None
+
+
+        # 2. Initialize the default project_david client
         project_david_api_key = os.getenv("ENTITIES_API_KEY")
 
         project_david_base_url = self.base_url
@@ -210,6 +228,45 @@ class BaseInference(ABC):
                 raise AuthenticationError(f"Credential validation failed: {str(e)}")
 
     @lru_cache(maxsize=32)
+    def _get_together_client(
+        self, api_key: Optional[str], base_url: Optional[str] = None
+    ) -> Together:
+        """
+        Retrieves or creates a Project David client for the given API key.
+        Uses an LRU cache for reuse. If api_key is None, returns the default client.
+        """
+        if api_key:
+            logging_utility.debug("Creating client for specific key (not cached).")
+            try:
+                return Together(
+                    api_key=api_key,
+                    # base_url=base_url,
+                )
+            except Exception as e:
+                logging_utility.error(
+                    "Failed to create specific TogetherAI client: %s",
+                    e,
+                    exc_info=True,
+                )
+                if self.together_client:
+                    logging_utility.warning(
+                        "Falling back to default client due to error."
+                    )
+                    return self.together_client
+                else:
+                    raise RuntimeError(
+                        "Default TogetherAI client is not initialized, and specific client creation failed."
+                    )
+        else:
+            if self.together_client:
+                logging_utility.debug(
+                    "Using default project_david client (no specific key provided)."
+                )
+                return self.together_client
+            else:
+                raise RuntimeError("Default TogetherAI client is not initialized.")
+
+    @lru_cache(maxsize=32)
     def _get_project_david_client(
         self, api_key: Optional[str], base_url: Optional[str] = None
     ) -> Entity:
@@ -246,7 +303,7 @@ class BaseInference(ABC):
                 )
                 return self.project_david_client
             else:
-                raise RuntimeError("Default OpenAI client is not initialized.")
+                raise RuntimeError("Default project_david client is not initialized.")
 
     @lru_cache(maxsize=32)
     def _get_openai_client(
@@ -1647,8 +1704,9 @@ class BaseInference(ABC):
     def handle_shell_action(self, thread_id, run_id, assistant_id, arguments_dict):
         import json
 
-        from entities_api.platform_tools.computer.shell_command_interface import \
-            run_shell_commands
+        from entities_api.platform_tools.computer.shell_command_interface import (
+            run_shell_commands,
+        )
 
         # Create an action for the computer command execution
         action = self.action_client.create_action(
