@@ -291,10 +291,6 @@ class DeepSeekR1Cloud(BaseInference):
         ):
             yield chunk
 
-        # print("The Tool response state is:")
-        # print(self.get_tool_response_state())
-        # print(self.get_function_call_state())
-
         if self.get_function_call_state():
             if self.get_function_call_state():
                 if self.get_function_call_state().get("name") in PLATFORM_TOOLS:
