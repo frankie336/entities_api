@@ -50,15 +50,23 @@ You don’t “add a tool to a chain.”
 You **register tools, trigger runs, stream thoughts, and command vector memory.**
 
 ---
-
+👇
 
 ## Quick Start
 
-**1. Run the start script. See Starting Docker Containers:**
-   
-   [#starting-docker-containers-](#starting-docker-containers-)
+**1. First-time start (generates .env, pulls images, starts detached)**
 
-**2. Run the script to generate the default admin user**
+``python start.py``
+
+**2. Stop all services**
+
+```python start.py --mode down_only```
+
+
+Refer to [Extended commands](#starting-docker-containers) for additional options.
+
+---
+👇
 
 
 **Create an admin user with default example values**:`python scripts/bootstrap_admin.py`
@@ -90,19 +98,17 @@ The default admin script will give you something like this:
 ==================================================
 
 ```
+---
+
+👇
 
 **3. Run the script that creates users:**
-
-
 
 **Create a user with default timestamped values**: `python scripts/create_user.py`
 
 **Create a user with partial real values**: `python scripts/create_user.py --name "Bob Smith"`
 
 **Create a user with specific real values**: `python scripts/create_user.py --email bob.smith@company.com --name "Bob Smith"`
-
-
-
 
 The script will give you something like this:
 
@@ -128,6 +134,10 @@ New REGULAR user created successfully by admin:
 
 ```
 
+---
+
+👇
+
 **4. Run the scrip that creates the default Assistant**
 
 **Reccomended:**
@@ -143,9 +153,17 @@ New REGULAR user created successfully by admin:
 See here for usage consumer use documentation:
 
 [**Use the regular user API key consumer side operations**](https://github.com/frankie336/projectdavid)  
+
 ---
 
+👇
 
+## 🎯 You’re Ready to Launch
+
+You are now ready to deploy the advanced features of **Entities**.
+
+Please see the full documentation here:  
+👉 [https://github.com/frankie336/projectdavid/blob/master/README.md](https://github.com/frankie336/projectdavid/blob/master/README.md)
 
 
 
