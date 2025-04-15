@@ -1,3 +1,11 @@
+# [1.1.0](https://github.com/frankie336/entities_api/compare/v1.0.0...v1.1.0) (2025-04-15)
+
+
+### Features
+
+* New CI flow18! ([ff06107](https://github.com/frankie336/entities_api/commit/ff061078e69d5fb75f3abf739ed1ba8eaccb3888))
+* New CI flow19! ([05e2bd3](https://github.com/frankie336/entities_api/commit/05e2bd36a3c125276e15d0de35e2402ba0f18e39))
+
 # 1.0.0 (2025-04-14)
 
 
