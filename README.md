@@ -1,4 +1,9 @@
-#  Entities V1
+# Entities V1
+
+[![Docker Pulls](https://img.shields.io/docker/pulls/thanosprime/entities-api-api?label=API%20Pulls&logo=docker&style=flat-square)](https://hub.docker.com/r/thanosprime/entities-api-api)
+[![Docker Image Version](https://img.shields.io/docker/v/thanosprime/entities-api-api?sort=semver&label=API%20Version&style=flat-square)](https://hub.docker.com/r/thanosprime/entities-api-api/tags)
+[![CI](https://github.com/frankie336/entities_api/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/frankie336/entities_api/actions/workflows/ci.yml)
+
 
 The **Entities API** is for developing projects that interact with LLMs.  
 It aggregates inference calls to multiple providers as well as local using the [Ollama](https://github.com/ollama) library.

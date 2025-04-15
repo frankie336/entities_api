@@ -28,7 +28,7 @@ class HyperbolicHandler:
         "deepseek-ai/DeepSeek-V3-0324": HyperbolicDeepSeekV3Inference,
         "deepseek-r1": HyperbolicR1Inference,
         "meta-llama/": HyperbolicLlama33Inference,
-        "Qwen/QwQ-32B-Preview": HyperbolicQuenQwq32bInference,
+        "Qwen/": HyperbolicQuenQwq32bInference,
     }
 
     def __init__(self, arbiter: InferenceArbiter):

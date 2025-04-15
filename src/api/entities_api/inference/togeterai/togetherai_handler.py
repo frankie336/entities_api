@@ -17,7 +17,7 @@ from entities_api.inference.inference_arbiter import InferenceArbiter
 logging_utility = LoggingUtility()
 
 
-class TogetherHandler:
+class TogetherAIHandler:
     """
     Pure synchronous dispatcher for Hyperbolic model requests. Delegates to
     concrete handler classes based on model ID. Contains no business logic.

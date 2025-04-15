@@ -61,6 +61,8 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)
 
+
+
         messages = self._set_up_context_window(assistant_id, thread_id, trunk=True)
         request_payload = {
             "model": model,
