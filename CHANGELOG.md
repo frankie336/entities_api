@@ -1,3 +1,15 @@
+# [1.2.0](https://github.com/frankie336/entities_api/compare/v1.1.0...v1.2.0) (2025-04-15)
+
+
+### Bug Fixes
+
+* env generate_docker_compose.py ([9ddde9f](https://github.com/frankie336/entities_api/commit/9ddde9f170f1f3624585baf3fdab29e61dd1023d))
+
+
+### Features
+
+* dynamic-unique-env-secrets ([13b556f](https://github.com/frankie336/entities_api/commit/13b556fdbca04bfdf65de44263345f45dafd0bea))
+
 # [1.1.0](https://github.com/frankie336/entities_api/compare/v1.0.0...v1.1.0) (2025-04-15)
 
 
