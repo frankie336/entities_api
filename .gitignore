@@ -1,4 +1,6 @@
-admin_credentials.txt
+docker-compose.yml
+!docker-compose.dev.example.yml
+OLD-admin_credentials.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

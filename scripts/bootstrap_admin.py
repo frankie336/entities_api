@@ -45,7 +45,7 @@ DEFAULT_CREDENTIALS_FILENAME = "admin_credentials.txt"
 DEFAULT_DOTENV_FILENAME = ".env"
 ENV_VAR_API_KEY_ADMIN = "ADMIN_API_KEY"  # New primary key name for admin
 ENV_VAR_API_KEY_ENTITIES = "ENTITIES_API_KEY"  # Legacy/alternative key name
-ENV_VAR_DB_URL = "SPECIAL_DB_URL"  # Environment variable for DB URL
+ENV_VAR_DB_URL = "SPECIAL_DB_URL"
 
 
 # --- Setup ---
