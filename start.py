@@ -38,13 +38,16 @@ log = logging.getLogger(__name__)
 DEFAULT_DB_CONTAINER_PORT = "3306"
 DEFAULT_DB_SERVICE_NAME = "db"  # Default service name for database in compose
 
+
 class DockerManager:
     """Manages Docker Compose stack operations, env setup, and optional Ollama integration."""
 
     # --- Class Attributes ---
     _ENV_EXAMPLE_FILE = ".env.example"  # Keep example for reference
     _ENV_FILE = ".env"
-    _DOCKER_COMPOSE_FILE = "docker-compose.yml"  # Updated to read the generated file in the project root
+    _DOCKER_COMPOSE_FILE = (
+        "docker-compose.yml"  # Updated to read the generated file in the project root
+    )
 
     _OLLAMA_IMAGE = "ollama/ollama"
     _OLLAMA_CONTAINER = "ollama"
@@ -170,12 +173,27 @@ class DockerManager:
         self._configure_shared_path()
         self._ensure_dockerignore()
 
-    def _run_command(self, cmd_list, check=True, capture_output=False, text=True, suppress_logs=False, **kwargs):
+    def _run_command(
+        self,
+        cmd_list,
+        check=True,
+        capture_output=False,
+        text=True,
+        suppress_logs=False,
+        **kwargs,
+    ):
         """Runs shell commands using subprocess."""
         if not suppress_logs:
             self.log.info("Running command: %s", " ".join(cmd_list))
         try:
-            result = subprocess.run(cmd_list, check=check, capture_output=capture_output, text=text, shell=self.is_windows, **kwargs)
+            result = subprocess.run(
+                cmd_list,
+                check=check,
+                capture_output=capture_output,
+                text=text,
+                shell=self.is_windows,
+                **kwargs,
+            )
             if not suppress_logs:
                 self.log.debug("Command finished: %s", " ".join(cmd_list))
                 if result.stdout:
@@ -194,7 +212,10 @@ class DockerManager:
                 raise
             return e
         except Exception as e:
-            self.log.error(f"Error running command {' '.join(cmd_list)}: {e}", exc_info=self.args.verbose)
+            self.log.error(
+                f"Error running command {' '.join(cmd_list)}: {e}",
+                exc_info=self.args.verbose,
+            )
             raise
 
     def _ensure_dockerignore(self):
@@ -202,14 +223,18 @@ class DockerManager:
         dockerignore = Path(".dockerignore")
         if not dockerignore.exists():
             self.log.warning(".dockerignore not found. Generating default...")
-            dockerignore.write_text("__pycache__/\n.venv/\nnode_modules/\n*.log\n*.pyc\n.git/\n.env*\n.env\n*.sqlite\ndist/\nbuild/\ncoverage/\ntmp/\n*.egg-info/\n")
+            dockerignore.write_text(
+                "__pycache__/\n.venv/\nnode_modules/\n*.log\n*.pyc\n.git/\n.env*\n.env\n*.sqlite\ndist/\nbuild/\ncoverage/\ntmp/\n*.egg-info/\n"
+            )
             self.log.info("Generated default .dockerignore.")
 
     def _load_compose_config(self):
         """Loads and parses the docker-compose.yml file."""
         compose_path = Path(self._DOCKER_COMPOSE_FILE)
         if not compose_path.is_file():
-            self.log.warning(f"Docker compose file '{self._DOCKER_COMPOSE_FILE}' not found. Cannot extract env vars or ports.")
+            self.log.warning(
+                f"Docker compose file '{self._DOCKER_COMPOSE_FILE}' not found. Cannot extract env vars or ports."
+            )
             return None
         try:
             self.log.debug(f"Reading docker compose file: {compose_path}")
@@ -236,7 +261,9 @@ class DockerManager:
 
             environment = service_data.get("environment")
             if not environment:
-                self.log.debug(f"No 'environment' section found for service '{service_name}'.")
+                self.log.debug(
+                    f"No 'environment' section found for service '{service_name}'."
+                )
                 return None
 
             if isinstance(environment, dict):
@@ -249,10 +276,14 @@ class DockerManager:
                         return match.group(1) if match.group(1) is not None else ""
                 return None
             else:
-                self.log.warning(f"Unexpected format for 'environment' in service '{service_name}': {type(environment)}")
+                self.log.warning(
+                    f"Unexpected format for 'environment' in service '{service_name}': {type(environment)}"
+                )
                 return None
         except Exception as e:
-            self.log.error(f"Error accessing compose env for {service_name}/{env_var_name}: {e}")
+            self.log.error(
+                f"Error accessing compose env for {service_name}/{env_var_name}: {e}"
+            )
             return None
 
     def _get_host_port_from_compose_service(self, service_name, container_port):
@@ -273,14 +304,20 @@ class DockerManager:
                 if len(parts) == 2:
                     host_port, cont_port = parts
                     if cont_port == container_port_str:
-                        self.log.debug(f"Found host port mapping: {host_port}:{cont_port} for service {service_name}")
+                        self.log.debug(
+                            f"Found host port mapping: {host_port}:{cont_port} for service {service_name}"
+                        )
                         return host_port.strip()
                 elif len(parts) == 3:
                     _, host_port, cont_port = parts
                     if cont_port == container_port_str:
-                        self.log.debug(f"Found host port mapping: {host_port}:{cont_port} for service {service_name}")
+                        self.log.debug(
+                            f"Found host port mapping: {host_port}:{cont_port} for service {service_name}"
+                        )
                         return host_port.strip()
-            self.log.debug(f"No host port found mapped to container port {container_port_str} for service {service_name}")
+            self.log.debug(
+                f"No host port found mapped to container port {container_port_str} for service {service_name}"
+            )
             return None
         except Exception as e:
             self.log.error(f"Error parsing ports for service {service_name}: {e}")
@@ -296,7 +333,9 @@ class DockerManager:
             value = self._get_env_from_compose_service(service_name, compose_key)
             if value is not None:
                 env_values[env_key] = str(value)
-                generation_log[env_key] = f"Value from {self._DOCKER_COMPOSE_FILE} ({service_name}/{compose_key})"
+                generation_log[env_key] = (
+                    f"Value from {self._DOCKER_COMPOSE_FILE} ({service_name}/{compose_key})"
+                )
 
         # 2. Fill in missing values with defaults.
         for key, default_value in self._DEFAULT_VALUES.items():
@@ -324,17 +363,29 @@ class DockerManager:
         db_name = env_values.get("MYSQL_DATABASE")
         if all([db_user, db_pass is not None, db_host, db_port, db_name]):
             escaped_pass = quote_plus(str(db_pass))
-            env_values["DATABASE_URL"] = f"mysql+pymysql://{db_user}:{escaped_pass}@{db_host}:{db_port}/{db_name}"
+            env_values["DATABASE_URL"] = (
+                f"mysql+pymysql://{db_user}:{escaped_pass}@{db_host}:{db_port}/{db_name}"
+            )
             generation_log["DATABASE_URL"] = "Constructed from DB components"
-            host_db_port = self._get_host_port_from_compose_service(DEFAULT_DB_SERVICE_NAME, DEFAULT_DB_CONTAINER_PORT)
+            host_db_port = self._get_host_port_from_compose_service(
+                DEFAULT_DB_SERVICE_NAME, DEFAULT_DB_CONTAINER_PORT
+            )
             if host_db_port:
-                env_values["SPECIAL_DB_URL"] = f"mysql+pymysql://{db_user}:{escaped_pass}@localhost:{host_db_port}/{db_name}"
-                generation_log["SPECIAL_DB_URL"] = f"Constructed using host port ({host_db_port})"
+                env_values["SPECIAL_DB_URL"] = (
+                    f"mysql+pymysql://{db_user}:{escaped_pass}@localhost:{host_db_port}/{db_name}"
+                )
+                generation_log["SPECIAL_DB_URL"] = (
+                    f"Constructed using host port ({host_db_port})"
+                )
             else:
-                log.warning(f"Could not find host port mapping for service '{DEFAULT_DB_SERVICE_NAME}'.")
+                log.warning(
+                    f"Could not find host port mapping for service '{DEFAULT_DB_SERVICE_NAME}'."
+                )
                 generation_log["SPECIAL_DB_URL"] = "Skipped: Host port not found"
         else:
-            log.warning("Missing one or more DB components; skipping DATABASE_URL construction.")
+            log.warning(
+                "Missing one or more DB components; skipping DATABASE_URL construction."
+            )
             generation_log["DATABASE_URL"] = "Skipped: Missing DB components"
             generation_log["SPECIAL_DB_URL"] = "Skipped: Missing DB components"
 
@@ -382,7 +433,9 @@ class DockerManager:
                 for key, comment in sorted(generation_log.items()):
                     if key in env_values:
                         self.log.debug(f"  - {key}: {comment}")
-                self.log.debug(f"Generated {self._ENV_FILE} content:\n---\n{content}\n---")
+                self.log.debug(
+                    f"Generated {self._ENV_FILE} content:\n---\n{content}\n---"
+                )
         except IOError as e:
             self.log.error(f"Failed to write {self._ENV_FILE}: {e}")
             sys.exit(1)
@@ -406,9 +459,13 @@ class DockerManager:
             if system == "windows":
                 shared_path = os.path.join(default_base, "entities_share")
             elif system == "linux":
-                shared_path = os.path.join(default_base, ".local", "share", "entities_share")
+                shared_path = os.path.join(
+                    default_base, ".local", "share", "entities_share"
+                )
             elif system == "darwin":
-                shared_path = os.path.join(default_base, "Library", "Application Support", "entities_share")
+                shared_path = os.path.join(
+                    default_base, "Library", "Application Support", "entities_share"
+                )
             else:
                 self.log.error("Unsupported OS: %s", system)
                 raise RuntimeError("Unsupported OS")
@@ -425,7 +482,13 @@ class DockerManager:
 
     def _is_container_running(self, container_name):
         try:
-            result = self._run_command(["docker", "ps", "--filter", f"name=^{container_name}$", "--quiet"], capture_output=True, text=True, check=False, suppress_logs=True)
+            result = self._run_command(
+                ["docker", "ps", "--filter", f"name=^{container_name}$", "--quiet"],
+                capture_output=True,
+                text=True,
+                check=False,
+                suppress_logs=True,
+            )
             return bool(result.stdout.strip())
         except Exception as e:
             self.log.warning("Could not check container '%s': %s", container_name, e)
@@ -433,7 +496,13 @@ class DockerManager:
 
     def _is_image_present(self, image_name):
         try:
-            result = self._run_command(["docker", "images", image_name, "--quiet"], capture_output=True, text=True, check=False, suppress_logs=True)
+            result = self._run_command(
+                ["docker", "images", image_name, "--quiet"],
+                capture_output=True,
+                text=True,
+                check=False,
+                suppress_logs=True,
+            )
             return bool(result.stdout.strip())
         except Exception as e:
             self.log.warning("Could not check image '%s': %s", image_name, e)
@@ -442,7 +511,9 @@ class DockerManager:
     def _has_nvidia_support(self):
         if shutil.which("nvidia-smi"):
             try:
-                self._run_command(["nvidia-smi"], check=True, capture_output=True, suppress_logs=True)
+                self._run_command(
+                    ["nvidia-smi"], check=True, capture_output=True, suppress_logs=True
+                )
                 return True
             except Exception:
                 self.log.debug("nvidia-smi failed; assuming no NVIDIA GPU.")
@@ -466,26 +537,51 @@ class DockerManager:
                 self.log.error("Failed to pull '%s': %s", image_name, e)
                 return False
         self.log.info("Starting external Ollama container '%s'...", container_name)
-        cmd = ["docker", "run", "-d", "--rm", "-v", "ollama:/root/.ollama", "-p", f"{self._OLLAMA_PORT}:{self._OLLAMA_PORT}", "--name", container_name]
+        cmd = [
+            "docker",
+            "run",
+            "-d",
+            "--rm",
+            "-v",
+            "ollama:/root/.ollama",
+            "-p",
+            f"{self._OLLAMA_PORT}:{self._OLLAMA_PORT}",
+            "--name",
+            container_name,
+        ]
         if not cpu_only and self._has_nvidia_support():
             self.log.info("Adding '--gpus=all' for NVIDIA GPU support.")
             cmd.insert(2, "--gpus=all")
         elif not cpu_only:
-            self.log.warning("GPU requested but NVIDIA support not available. Starting CPU-only.")
+            self.log.warning(
+                "GPU requested but NVIDIA support not available. Starting CPU-only."
+            )
         cmd.append(image_name)
         try:
             self._run_command(cmd, check=True)
             self.log.info("Waiting for '%s' to initialize...", container_name)
             time.sleep(3)
             if self._is_container_running(container_name):
-                self.log.info("External Ollama container '%s' started successfully.", container_name)
+                self.log.info(
+                    "External Ollama container '%s' started successfully.",
+                    container_name,
+                )
                 return True
             else:
-                self.log.error("External Ollama '%s' failed to start. Checking logs...", container_name)
+                self.log.error(
+                    "External Ollama '%s' failed to start. Checking logs...",
+                    container_name,
+                )
                 try:
-                    self._run_command(["docker", "logs", container_name], check=False, suppress_logs=False)
+                    self._run_command(
+                        ["docker", "logs", container_name],
+                        check=False,
+                        suppress_logs=False,
+                    )
                 except Exception as le:
-                    self.log.error("Could not retrieve logs for '%s': %s", container_name, le)
+                    self.log.error(
+                        "Could not retrieve logs for '%s': %s", container_name, le
+                    )
                 return False
         except Exception as e:
             self.log.error("Failed to execute docker run for Ollama: %s", e)
@@ -497,10 +593,14 @@ class DockerManager:
             return True
         self.log.info("--- External Ollama Setup ---")
         if os.path.exists("/.dockerenv") or os.environ.get("DOCKER_HOST"):
-            self.log.warning("Running inside a container or remote Docker daemon; skipping external Ollama.")
+            self.log.warning(
+                "Running inside a container or remote Docker daemon; skipping external Ollama."
+            )
             return True
         if platform.system() == "Darwin":
-            self.log.warning("macOS detected; GPU passthrough is limited. Proceeding with caution.")
+            self.log.warning(
+                "macOS detected; GPU passthrough is limited. Proceeding with caution."
+            )
         if not self._has_docker():
             self.log.error("Docker not found. Cannot manage external Ollama.")
             return False
@@ -508,7 +608,9 @@ class DockerManager:
         attempt_gpu = use_gpu and gpu_available
         mode_str = "GPU" if attempt_gpu else "CPU"
         if use_gpu and not gpu_available and platform.system() != "Darwin":
-            self.log.warning("GPU requested but NVIDIA support check failed; using CPU.")
+            self.log.warning(
+                "GPU requested but NVIDIA support check failed; using CPU."
+            )
         self.log.info("Starting external Ollama container in %s mode...", mode_str)
         success = self._start_ollama(cpu_only=not attempt_gpu)
         self.log.info("--- End External Ollama Setup ---")
@@ -533,7 +635,13 @@ class DockerManager:
             self.log.info("Build context size: %.2f MB", context_size_mb)
             if context_size_mb > 500:
                 self.log.warning("Large context size (> 500MB). Check .dockerignore.")
-            ps_config = self._run_command(["docker", "compose", "config", "--services"], capture_output=True, text=True, check=False, suppress_logs=True)
+            ps_config = self._run_command(
+                ["docker", "compose", "config", "--services"],
+                capture_output=True,
+                text=True,
+                check=False,
+                suppress_logs=True,
+            )
             if ps_config.returncode != 0 or not ps_config.stdout.strip():
                 self.log.warning("Could not retrieve services. Diagnostics limited.")
                 services = []
@@ -544,8 +652,21 @@ class DockerManager:
                 for service in services:
                     self.log.info("--- Checking image history for '%s' ---", service)
                     try:
-                        history_cmd = ["docker", "history", service, "--no-trunc", "--format", '{{.ID}}: {{.Size | printf "%-10s"}} {{.CreatedBy}}']
-                        history = self._run_command(history_cmd, check=False, capture_output=True, text=True, suppress_logs=True)
+                        history_cmd = [
+                            "docker",
+                            "history",
+                            service,
+                            "--no-trunc",
+                            "--format",
+                            '{{.ID}}: {{.Size | printf "%-10s"}} {{.CreatedBy}}',
+                        ]
+                        history = self._run_command(
+                            history_cmd,
+                            check=False,
+                            capture_output=True,
+                            text=True,
+                            suppress_logs=True,
+                        )
                         if history.returncode == 0 and history.stdout.strip():
                             self.log.info("History:\n%s", history.stdout.strip())
                         else:
@@ -555,13 +676,19 @@ class DockerManager:
             else:
                 self.log.info("No services; skipping image history check.")
         except Exception as e:
-            self.log.error("Error during Docker cache diagnostics: %s", e, exc_info=self.args.verbose)
+            self.log.error(
+                "Error during Docker cache diagnostics: %s",
+                e,
+                exc_info=self.args.verbose,
+            )
         finally:
             self.log.info("--- End Docker Cache Diagnostics ---")
 
     def _handle_nuke(self):
         self.log.warning("!!! NUKE MODE ACTIVATED !!!")
-        self.log.warning("This will remove all project containers, volumes, and prune unused Docker data.")
+        self.log.warning(
+            "This will remove all project containers, volumes, and prune unused Docker data."
+        )
         try:
             confirm = input("Type 'confirm nuke' to proceed: ")
         except EOFError:
@@ -572,11 +699,16 @@ class DockerManager:
             sys.exit(0)
         self.log.info("Proceeding with Docker nuke...")
         try:
-            self._run_command(["docker", "compose", "down", "--volumes", "--remove-orphans"], check=False)
+            self._run_command(
+                ["docker", "compose", "down", "--volumes", "--remove-orphans"],
+                check=False,
+            )
         except Exception as e:
             self.log.warning("Error during 'docker compose down': %s. Continuing...", e)
         try:
-            self._run_command(["docker", "system", "prune", "-a", "--volumes", "--force"], check=True)
+            self._run_command(
+                ["docker", "system", "prune", "-a", "--volumes", "--force"], check=True
+            )
         except Exception as e:
             self.log.critical("Critical error during 'docker system prune': %s", e)
             sys.exit(1)
@@ -584,17 +716,33 @@ class DockerManager:
 
     def _handle_down(self):
         target_services = self.args.services or []
-        target_desc = f" for services: {', '.join(target_services)}" if target_services else " for all project services"
-        action = "Stopping containers & removing volumes" if self.args.clear_volumes else "Stopping containers"
+        target_desc = (
+            f" for services: {', '.join(target_services)}"
+            if target_services
+            else " for all project services"
+        )
+        action = (
+            "Stopping containers & removing volumes"
+            if self.args.clear_volumes
+            else "Stopping containers"
+        )
         self.log.info(f"{action}{target_desc}...")
         if self.args.clear_volumes:
             try:
-                confirm = input(f"Remove volumes for {target_services or 'ALL services'}? (yes/no): ").lower().strip()
+                confirm = (
+                    input(
+                        f"Remove volumes for {target_services or 'ALL services'}? (yes/no): "
+                    )
+                    .lower()
+                    .strip()
+                )
             except EOFError:
                 self.log.error("Volume deletion confirmation required. Aborting.")
                 sys.exit(1)
             if confirm != "yes":
-                self.log.info("Volume deletion cancelled. Proceeding to stop containers only.")
+                self.log.info(
+                    "Volume deletion cancelled. Proceeding to stop containers only."
+                )
                 self.args.clear_volumes = False
         down_cmd = ["docker", "compose", "down"]
         if self.args.clear_volumes:
@@ -610,7 +758,11 @@ class DockerManager:
 
     def _handle_build(self):
         target_services = self.args.services or []
-        target_desc = f" for services: {', '.join(target_services)}" if target_services else " for all services"
+        target_desc = (
+            f" for services: {', '.join(target_services)}"
+            if target_services
+            else " for all services"
+        )
         cache_desc = " (using --no-cache)" if self.args.no_cache else ""
         parallel_desc = " (using --parallel)" if self.args.parallel else ""
         self.log.info(f"Building images{target_desc}{cache_desc}{parallel_desc}...")
@@ -638,12 +790,19 @@ class DockerManager:
             return
         self.log.info(f"Tagging images with tag: '{tag}'")
         try:
-            config_json_output = self._run_command(["docker", "compose", "config", "--format", "json"],
-                                                   capture_output=True, check=True, text=True, suppress_logs=True).stdout
+            config_json_output = self._run_command(
+                ["docker", "compose", "config", "--format", "json"],
+                capture_output=True,
+                check=True,
+                text=True,
+                suppress_logs=True,
+            ).stdout
             compose_config = json.loads(config_json_output)
             services = compose_config.get("services", {})
             if not services:
-                self.log.warning("No services found in compose config. Skipping tagging.")
+                self.log.warning(
+                    "No services found in compose config. Skipping tagging."
+                )
                 return
             tagged_count, skipped_count = 0, 0
             for service_name, service_config in services.items():
@@ -659,37 +818,57 @@ class DockerManager:
                 source_tag_options.append(f"{base_image}:latest")
                 source_image_ref = None
                 for option in source_tag_options:
-                    inspect_res = self._run_command(["docker", "image", "inspect", option],
-                                                    check=False, capture_output=True, suppress_logs=True)
+                    inspect_res = self._run_command(
+                        ["docker", "image", "inspect", option],
+                        check=False,
+                        capture_output=True,
+                        suppress_logs=True,
+                    )
                     if inspect_res.returncode == 0:
                         source_image_ref = option
                         break
                 if not source_image_ref:
-                    self.log.warning(f"Skipping tagging for '{service_name}'; no source image found among {source_tag_options}.")
+                    self.log.warning(
+                        f"Skipping tagging for '{service_name}'; no source image found among {source_tag_options}."
+                    )
                     skipped_count += 1
                     continue
                 new_image_tag = f"{base_image}:{tag}"
                 self.log.info(f"Tagging: {source_image_ref} -> {new_image_tag}")
                 try:
-                    self._run_command(["docker", "tag", source_image_ref, new_image_tag], check=True)
+                    self._run_command(
+                        ["docker", "tag", source_image_ref, new_image_tag], check=True
+                    )
                     tagged_count += 1
                 except Exception as tag_e:
                     self.log.error(f"Failed to tag {source_image_ref}: {tag_e}")
-            self.log.info(f"Tagging complete. {tagged_count} tagged, {skipped_count} skipped.")
+            self.log.info(
+                f"Tagging complete. {tagged_count} tagged, {skipped_count} skipped."
+            )
         except Exception as e:
             self.log.error("Error during tagging: %s", e, exc_info=self.args.verbose)
 
     def _handle_up(self):
         if not os.path.exists(self._ENV_FILE):
-            self.log.error(f"Required '{self._ENV_FILE}' file is missing. Generate it first.")
+            self.log.error(
+                f"Required '{self._ENV_FILE}' file is missing. Generate it first."
+            )
             sys.exit(1)
         self.log.debug(f"Verified '{self._ENV_FILE}' exists.")
         mode = "attached" if self.args.attached else "detached (-d)"
         target_services = self.args.services or []
-        target_desc = f" for services: {', '.join(target_services)}" if target_services else " all services"
+        target_desc = (
+            f" for services: {', '.join(target_services)}"
+            if target_services
+            else " all services"
+        )
         build_opt = " (with --build)" if self.args.build_before_up else ""
-        force_recreate_opt = " (with --force-recreate)" if self.args.force_recreate else ""
-        self.log.info(f"Starting containers{target_desc} in {mode} mode{build_opt}{force_recreate_opt}...")
+        force_recreate_opt = (
+            " (with --force-recreate)" if self.args.force_recreate else ""
+        )
+        self.log.info(
+            f"Starting containers{target_desc} in {mode} mode{build_opt}{force_recreate_opt}..."
+        )
         up_cmd = ["docker", "compose", "up"]
         if not self.args.attached:
             up_cmd.append("-d")
@@ -719,7 +898,9 @@ class DockerManager:
                 self.log.error("Could not fetch logs: %s", log_e)
             sys.exit(1)
         except Exception as e:
-            self.log.critical("Unexpected error during 'up': %s", e, exc_info=self.args.verbose)
+            self.log.critical(
+                "Unexpected error during 'up': %s", e, exc_info=self.args.verbose
+            )
             sys.exit(1)
 
     def run(self):
@@ -733,7 +914,9 @@ class DockerManager:
         if self.args.with_ollama:
             ollama_ok = self._ensure_ollama(opt_in=True, use_gpu=self.args.ollama_gpu)
             if not ollama_ok:
-                self.log.warning("External Ollama setup failed or skipped. Continuing...")
+                self.log.warning(
+                    "External Ollama setup failed or skipped. Continuing..."
+                )
         mode = self.args.mode
         if self.args.down or self.args.clear_volumes:
             self._handle_down()
@@ -753,37 +936,109 @@ class DockerManager:
             description="Manage Docker Compose stack: build, run, set up .env, and optionally manage external Ollama.",
             formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         )
-        parser.add_argument("--mode", choices=["up", "build", "both", "down_only"], default="up", help="Primary action")
-        parser.add_argument("--services", nargs="+", metavar="SERVICE", help="Target specific service(s)")
-        parser.add_argument("--no-cache", action="store_true", help="Build without cache")
-        parser.add_argument("--parallel", action="store_true", help="Build images in parallel")
+        parser.add_argument(
+            "--mode",
+            choices=["up", "build", "both", "down_only"],
+            default="up",
+            help="Primary action",
+        )
+        parser.add_argument(
+            "--services",
+            nargs="+",
+            metavar="SERVICE",
+            help="Target specific service(s)",
+        )
+        parser.add_argument(
+            "--no-cache", action="store_true", help="Build without cache"
+        )
+        parser.add_argument(
+            "--parallel", action="store_true", help="Build images in parallel"
+        )
         parser.add_argument("--tag", type=str, metavar="TAG", help="Tag built image(s)")
         parser.add_argument("--attached", action="store_true", help="Run 'up' attached")
-        parser.add_argument("--build-before-up", "--build", dest="build_before_up", action="store_true", help="Run 'up --build'")
-        parser.add_argument("--force-recreate", action="store_true", help="Run 'up --force-recreate'")
-        parser.add_argument("--down", action="store_true", help="Run 'down' before other actions")
-        parser.add_argument("--clear-volumes", "-v", action="store_true", help="With --down, remove volumes (prompts)")
-        parser.add_argument("--nuke", action="store_true", help="DANGER: Prune ALL Docker resources!")
-        parser.add_argument("--with-ollama", action="store_true", help="Manage external Ollama container")
-        parser.add_argument("--ollama-gpu", action="store_true", help="Attempt GPU for external Ollama")
-        parser.add_argument("--verbose", "--debug", dest="verbose", action="store_true", help="Enable debug logging")
-        parser.add_argument("--debug-cache", action="store_true", help="Run cache diagnostics and exit")
+        parser.add_argument(
+            "--build-before-up",
+            "--build",
+            dest="build_before_up",
+            action="store_true",
+            help="Run 'up --build'",
+        )
+        parser.add_argument(
+            "--force-recreate", action="store_true", help="Run 'up --force-recreate'"
+        )
+        parser.add_argument(
+            "--down", action="store_true", help="Run 'down' before other actions"
+        )
+        parser.add_argument(
+            "--clear-volumes",
+            "-v",
+            action="store_true",
+            help="With --down, remove volumes (prompts)",
+        )
+        parser.add_argument(
+            "--nuke", action="store_true", help="DANGER: Prune ALL Docker resources!"
+        )
+        parser.add_argument(
+            "--with-ollama",
+            action="store_true",
+            help="Manage external Ollama container",
+        )
+        parser.add_argument(
+            "--ollama-gpu", action="store_true", help="Attempt GPU for external Ollama"
+        )
+        parser.add_argument(
+            "--verbose",
+            "--debug",
+            dest="verbose",
+            action="store_true",
+            help="Enable debug logging",
+        )
+        parser.add_argument(
+            "--debug-cache", action="store_true", help="Run cache diagnostics and exit"
+        )
         args = parser.parse_args()
         if args.clear_volumes:
             args.down = True
-        if args.down and args.mode == "up" and not (args.build_before_up or args.tag or args.no_cache or args.parallel or args.attached or args.force_recreate):
+        if (
+            args.down
+            and args.mode == "up"
+            and not (
+                args.build_before_up
+                or args.tag
+                or args.no_cache
+                or args.parallel
+                or args.attached
+                or args.force_recreate
+            )
+        ):
             args.mode = "down_only"
             log.debug("Implied mode 'down_only' from --down/--clear-volumes flags.")
         build_flags_set = args.tag or args.no_cache or args.parallel
         if build_flags_set and args.mode == "up" and not args.build_before_up:
-            log.warning("Build flags used with --mode=up without --build-before-up/--build. Ignoring build flags.")
+            log.warning(
+                "Build flags used with --mode=up without --build-before-up/--build. Ignoring build flags."
+            )
         if args.build_before_up and args.mode in ["build", "down_only"]:
             parser.error(f"--build-before-up flag is invalid with --mode={args.mode}")
-        if args.nuke and (args.mode != "up" or args.down or args.clear_volumes or build_flags_set or args.with_ollama):
+        if args.nuke and (
+            args.mode != "up"
+            or args.down
+            or args.clear_volumes
+            or build_flags_set
+            or args.with_ollama
+        ):
             log.debug("--nuke is exclusive. Other flags ignored.")
-        if args.debug_cache and (args.mode != "up" or args.down or args.clear_volumes or build_flags_set or args.with_ollama or args.nuke):
+        if args.debug_cache and (
+            args.mode != "up"
+            or args.down
+            or args.clear_volumes
+            or build_flags_set
+            or args.with_ollama
+            or args.nuke
+        ):
             log.debug("--debug-cache is exclusive. Other flags ignored.")
         return args
+
 
 if __name__ == "__main__":
     # Generate docker-compose.yml first.

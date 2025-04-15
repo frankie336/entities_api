@@ -1,4 +1,37 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 # [1.2.0](https://github.com/frankie336/entities_api/compare/v1.1.0...v1.2.0) (2025-04-15)
+
+
+### ✨ Added
+- Introduced `scripts/generate_docker_compose.py` and `scripts/generate_docker_compose_dev.py`:
+  - Automatically generate `docker-compose.yml` and `.env` files if they do not exist.
+  - Inject unique, secure values for `MYSQL_ROOT_PASSWORD`, `MYSQL_PASSWORD`, and `DEFAULT_SECRET_KEY`.
+  - Generate and map a `unique_secret` for custom Docker network binding.
+
+- Added fallback `.example` templates:
+  - `docker-compose.dev.example.yml` – now tracked in source control.
+  - Redacts all secrets and replaces them with `REPLACE_ME` tokens for dev visibility and safety.
+
+### 🔧 Changed
+- `start.py` (DockerManager):
+  - Aligned `.env` generation to source values directly from `docker-compose.yml` (or fallback defaults).
+  - Dynamically constructs `DATABASE_URL` and `SPECIAL_DB_URL` using parsed credentials.
+  - Added logic to detect `docker-compose.yml` presence and skip regeneration if already defined.
+  - Ensured platform-aware path handling for mounted volumes (`SHARED_PATH` detection).
+  - Added validation for `docker-compose.dev.yml` parsing via PyYAML.
+
+### 🧪 Improved
+- Hardened Docker secret management:
+  - Secrets are never committed to source control.
+  - All auto-generated credentials use `uuid.uuid4().hex` or `secrets.token_urlsafe(...)` for high entropy.
+  - `.dockerignore` and `.gitignore` now explicitly exclude sensitive runtime files.
+
 
 
 ### Bug Fixes
