@@ -111,13 +111,13 @@ class BaseInference(ABC):
             self.openai_client = None
 
         # 2. Initialize the default project_david client
-        project_david_api_key = os.getenv("ENTITIES_API_KEY")
+        project_david_api_key = os.getenv("ADMIN_API_KEY")
 
         project_david_base_url = self.base_url
 
         try:
             if not project_david_api_key:
-                raise ConfigurationError("ENTITIES_API_KEY is not set.")
+                raise ConfigurationError("ADMIN_API_KEY is not set.")
             if not project_david_base_url:
                 raise ConfigurationError(
                     "Base URL for Project David client is not set."
@@ -893,7 +893,7 @@ class BaseInference(ABC):
         if assistant_reply:
 
             client = self._get_project_david_client(
-                api_key=os.getenv("ENTITIES_API_KEY"), base_url=os.getenv("BASE_URL")
+                api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
             )
 
             client.messages.save_assistant_message_chunk(
@@ -907,7 +907,7 @@ class BaseInference(ABC):
             logging_utility.info("Partial assistant response stored successfully.")
 
             client = self._get_project_david_client(
-                api_key=os.getenv("ENTITIES_API_KEY"), base_url=os.getenv("BASE_URL")
+                api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
             )
 
             client.runs.update_run_status(run_id, validator.StatusEnum.failed)
@@ -918,7 +918,7 @@ class BaseInference(ABC):
         if assistant_reply:
 
             client = self._get_project_david_client(
-                api_key=os.getenv("ENTITIES_API_KEY"), base_url=os.getenv("BASE_URL")
+                api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
             )
 
             message = client.messages.save_assistant_message_chunk(
@@ -933,7 +933,7 @@ class BaseInference(ABC):
             logging_utility.info("Assistant response stored successfully.")
 
             client = self._get_project_david_client(
-                api_key=os.getenv("ENTITIES_API_KEY"), base_url=os.getenv("BASE_URL")
+                api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
             )
 
             client.runs.update_run_status(run_id, validator.StatusEnum.completed)
@@ -985,7 +985,7 @@ class BaseInference(ABC):
                 return "cancelled"
 
         client = self._get_project_david_client(
-            api_key=os.getenv("ENTITIES_API_KEY"), base_url=os.getenv("BASE_URL")
+            api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
         )
 
         def listen_for_cancellation():
@@ -1025,7 +1025,7 @@ class BaseInference(ABC):
 
         # Update run status to 'action_required'
         client = self._get_project_david_client(
-            api_key=os.getenv("ENTITIES_API_KEY"), base_url=os.getenv("BASE_URL")
+            api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
         )
 
         client.runs.update_run_status(
@@ -1037,7 +1037,7 @@ class BaseInference(ABC):
         while True:
 
             client = self._get_project_david_client(
-                api_key=os.getenv("ENTITIES_API_KEY"), base_url=os.getenv("BASE_URL")
+                api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
             )
 
             run = client.runs.retrieve_run(run_id)
@@ -1149,7 +1149,7 @@ class BaseInference(ABC):
         try:
 
             client = self._get_project_david_client(
-                api_key=os.getenv("ENTITIES_API_KEY"), base_url=os.getenv("BASE_URL")
+                api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
             )
 
             client.messages.submit_tool_output(
@@ -1197,7 +1197,7 @@ class BaseInference(ABC):
 
             # Update run status
             client = self._get_project_david_client(
-                api_key=os.getenv("ENTITIES_API_KEY"), base_url=os.getenv("BASE_URL")
+                api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
             )
 
             client.runs.update_run_status(
@@ -1271,7 +1271,7 @@ class BaseInference(ABC):
         try:
 
             client = self._get_project_david_client(
-                api_key=os.getenv("ENTITIES_API_KEY"), base_url=os.getenv("BASE_URL")
+                api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
             )
 
             client.messages.submit_tool_output(
@@ -1294,7 +1294,7 @@ class BaseInference(ABC):
             )
 
             client = self._get_project_david_client(
-                api_key=os.getenv("ENTITIES_API_KEY"), base_url=os.getenv("BASE_URL")
+                api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
             )
 
             # Send the error message to the user
@@ -1809,7 +1809,7 @@ class BaseInference(ABC):
         # Inject system reminder into context
 
         client = self._get_project_david_client(
-            api_key=os.getenv("ENTITIES_API_KEY"), base_url=os.getenv("BASE_URL")
+            api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
         )
 
         client.messages.create_message(
@@ -1951,7 +1951,7 @@ class BaseInference(ABC):
         """
 
         client = self._get_project_david_client(
-            api_key=os.getenv("ENTITIES_API_KEY"), base_url=os.getenv("BASE_URL")
+            api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
         )
 
         assistant = client.assistants.retrieve_assistant(assistant_id=assistant_id)

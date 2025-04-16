@@ -45,7 +45,7 @@ You have **two clean options** for passing your API key.
 Place this in your `.env` file:
 
 ```env
-ENTITIES_API_KEY=us_8slj8dKf39x...ZmwtYeS
+ADMIN_API_KEY=us_8slj8dKf39x...ZmwtYeS
 ```
 
 Then simply initialize:
@@ -53,7 +53,7 @@ Then simply initialize:
 ```python
 from projectdavid import Entity
 
-client = Entity()  # uses ENTITIES_API_KEY from environment
+client = Entity()  # uses ADMIN_API_KEY from environment
 ```
 
 No need to manually pass the key if your environment is configured correctly.

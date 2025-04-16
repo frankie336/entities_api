@@ -1,13 +1,11 @@
 # Entities V1
+
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue.svg)](https://polyformproject.org/licenses/noncommercial/1.0.0/)
 [![Docker Pulls](https://img.shields.io/docker/pulls/thanosprime/entities-api-api?label=API%20Pulls&logo=docker&style=flat-square)](https://hub.docker.com/r/thanosprime/entities-api-api)
 [![Docker Image Version](https://img.shields.io/docker/v/thanosprime/entities-api-api?sort=semver&label=API%20Version&style=flat-square)](https://hub.docker.com/r/thanosprime/entities-api-api/tags)
 [![CI](https://github.com/frankie336/entities_api/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/frankie336/entities_api/actions/workflows/ci.yml)
 
-
 ![Entities Emblem](https://raw.githubusercontent.com/frankie336/entities_api/master/assets/entities_emblem_green.png)
-
-
 
 The **Entities API** is for developing projects that interact with LLMs.  
 It aggregates inference calls to multiple providers as well as local using the [Ollama](https://github.com/ollama) library.
@@ -20,7 +18,6 @@ This enables rapid and flexible deployment of advanced features such as conversa
 ![Network Diagram](assets/docker_containers.png)
 
 ---
-
 
 ## 🔍 Entities vs. LangChain (and Friends)
 
@@ -38,139 +35,57 @@ This enables rapid and flexible deployment of advanced features such as conversa
 
 ---
 
-##  Why Entities?
+## 💡 Why Entities?
 
 > Entities is a **developer-native**, **security-conscious**, and **deeply composable AI framework** built for:
 >
 > - People who want to **own their stack**
 > - Teams building **real-world intelligent assistants**
 > - Engineers who prefer **systems control over chained magic**
+> - Architects working **inside secure, disconnected, or trust-minimized environments**
 
 You don’t “add a tool to a chain.”  
 You **register tools, trigger runs, stream thoughts, and command vector memory.**
 
----
-👇
+> Whether you're building in the open or operating behind the firewall —  
+> **Entities is engineered for autonomy, auditability, and absolute control.**
 
-## Quick Start
+A quiet revolution for those who’ve dreamed of an **OpenAI-class Assistants platform**,  
+but **on their own terms**, **at near-zero cost**, and deployable against **any LLM model** — cloud or local.
 
-**1. First-time start (generates .env, pulls images, starts detached)**
-
-``python start.py``
-
-**2. Stop all services**
-
-```python start.py --mode down_only```
-
-
-Refer to [Extended commands](#starting-docker-containers) for additional options.
-
----
-👇
-
-
-**Create an admin user with default example values**:`python scripts/bootstrap_admin.py`
-
-**Create an admin user with specific values**:
-
-`python scripts/bootstrap_admin.py \
-    --email "superuser@mycompany.com" \
-    --name "Super Admin" \
-    --key-name "Initial SuperAdmin Key"`
-    
-
-The default admin script will give you something like this:
-
-```bash
-
-
-==================================================
-  Initial API Key Generated for Regular User (by Admin)!
-  User ID:    user_kUKV8octgG2aMc7kxAcD3i
-  User Email: test_regular_user_1744525927@example.com
-  Key Prefix: ea_6zZiZ
---------------------------------------------------
-  PLAIN TEXT API KEY: ea_6zZiZEsLXftvlC9UbyKRyQsuanWkkHzqeFymXFjLzuQ
---------------------------------------------------
-  Provide this key to the regular user. They can use it
-  to authenticate and manage their own keys via the API
-  (e.g., using their key with POST /v1/users/user_kUKV8octgG2aMc7kxAcD3i/apikeys).
-==================================================
-
-```
----
-
-👇
-
-**3. Run the script that creates users:**
-
-**Create a user with default timestamped values**: `python scripts/create_user.py`
-
-**Create a user with partial real values**: `python scripts/create_user.py --name "Bob Smith"`
-
-**Create a user with specific real values**: `python scripts/create_user.py --email bob.smith@company.com --name "Bob Smith"`
-
-The script will give you something like this:
-
-```bash
-New REGULAR user created successfully by admin:
-  User ID:    user_E2dVsAJPSleg5tPIq7QFC0
-  User Email: test_regular_user_1744587566@example.com
-  Is Admin:   N/A
-
-
-==================================================
-  Initial API Key Generated for Regular User (by Admin)!
-  User ID:    user_E2dVsAJPSleg5tPIq7QFC0
-  User Email: test_regular_user_1744587566@example.com
-  Key Prefix: ea_SaT0Q
---------------------------------------------------
-  PLAIN TEXT API KEY: ea_SaT0Q8CP4tZBAVHJzA9u0rcZZiYggyjk03dQEjV9N3c
---------------------------------------------------
-  Provide this key to the regular user. They can use it
-  to authenticate and manage their own keys via the API
-  (e.g., using their key with POST /v1/users/user_E2dVsAJPSleg5tPIq7QFC0/apikeys).
-==================================================
-
-```
+This is **AI orchestration for the rest of us.**
 
 ---
 
-👇
+## ⚙️ Bootstrap Setup
 
-**4. Run the scrip that creates the default Assistant**
+For a full admin setup and assistant provisioning guide, see:
 
-**Reccomended:**
+👉 [`docs/bootstrap.md`](https://github.com/frankie336/entities/blob/master/docs/bootstrap.md)
 
-- Use your admin  user credentials 
+This includes:
+- Admin user creation
+- Initial API key generation
+- Regular user creation
+- Default assistant setup
 
-`python scripts/bootstrap_default_assistant.py`
-
-**5. Install the projectdavid sdk**
-
-`pip install projectdavid`
-
-See here for usage consumer use documentation:
-
-[**Use the regular user API key consumer side operations**](https://github.com/frankie336/projectdavid)  
+These scripts can be run directly in development (e.g., `python scripts/bootstrap_admin.py`)  
+or invoked inside containers using the orchestration tools.
 
 ---
 
-👇
+## 🐳 Docker Lifecycle Commands
 
-## 🎯 You’re Ready to Launch
+Entities provides a unified orchestration script for building, running, and tearing down your container environment.
 
-You are now ready to deploy the advanced features of **Entities**.
+👉 [`docs/docker_commands.md`](https://github.com/frankie336/entities/blob/master/docs/docker_commands.md)
 
-Please see the full documentation here:  
-👉 [https://github.com/frankie336/projectdavid/blob/master/README.md](https://github.com/frankie336/projectdavid/blob/master/README.md)
-
-
+---
 
 ## Supported Inference Providers
 
 | Provider                                        | Type                        |
-|-------------------------------------------------|-----------------------------|
+|------------------------------------------------|-----------------------------|
 | [Ollama](https://github.com/ollama)             | **Local** (Self-Hosted)     |
 | [DeepSeek](https://platform.deepseek.com/)      | **Cloud** (Open-Source)     |
 | [Hyperbolic](https://hyperbolic.xyz/)           | **Cloud** (Proprietary)     |
@@ -180,23 +95,18 @@ Please see the full documentation here:
 
 ---
 
-## Security Model 
+## 🔐 Security Model
 
 Entities places security at the forefront, employing:
 
 - **Firejail Sandboxing**: Limits system access during code interpretation and local execution.
 - **Subprocess Isolation**: Ensures code executions cannot interfere with core API logic, providing robust protection in multi-user environments.
 
-This combination makes Entities highly suitable for secure deployments in sensitive, regulated environments.
-
 ---
 
-## State Management
+## 🧠 State Management
 
-Advanced LLM applications require state management, which isn't always trivial.  
-Entities simplifies dialogue management with the [Threads](/docs/threads.md) endpoint by standardizing storage and retrieval procedures.
-
-Example dialogue array:
+Entities simplifies dialogue management with the [Threads](/docs/threads.md) endpoint.
 
 ```json
 [
@@ -210,13 +120,13 @@ Example dialogue array:
 
 ---
 
-![Network Diagram](assets/quik_start-work_flow.png)
+![Workflow](assets/quik_start-work_flow.png)
 
 ---
 
-## Documentation
+## 📚 Documentation Index
 
-### Getting Started & Basic Concepts
+### Core Concepts
 
 - [Assistants](https://github.com/frankie336/projectdavid/blob/master/docs/assistants.md)  
 - [Threads](https://github.com/frankie336/projectdavid/blob/master/docs/threads.md)  
@@ -225,93 +135,58 @@ Example dialogue array:
 - [Inference](https://github.com/frankie336/projectdavid/blob/master/docs/inference.md)  
 - [Streaming](https://github.com/frankie336/projectdavid/blob/master/docs/streams.md)  
 
+### Internals
 
-
-### Routes
-- [Routes](/docs/routes.md) 
-
-
----
-
-### Security & Privacy
-- [Security](/docs/security.md) 
----
-
-
-
-
-
-### Integration Status 
-- [Integration](/docs/model_integration_status.md) 
-
+- [Routes](/docs/routes.md)  
+- [Security](/docs/security.md)  
+- [Integration Status](/docs/model_integration_status.md)  
+- [Files](/docs/files.md)  
+- [Vector Store](https://github.com/frankie336/projectdavid/blob/master/docs/vector_store.md)  
+- [Database](/docs/database.md)  
+- [Tools](/docs/tools.md)  
+- [Users](/docs/users.md)
 
 ### Advanced Features
 
 - [Function Calling](https://github.com/frankie336/projectdavid/blob/master/docs/function_calling.md)  
 - [Code Interpretation](https://github.com/frankie336/projectdavid/blob/master/docs/code_interpretation.md)  
 
-### Data & Vector Storage
+---
 
-- [Files](/docs/files.md)  
-- [Vector Store](https://github.com/frankie336/projectdavid/blob/master/docs/vector_store.md)  
+## 🧪 Local Dev
 
-### Infrastructure & Management
+To run setup scripts directly during local development:
 
-- [Database](/docs/database.md)  
-- [Docker Containers](/docs/docker_containers.md)  
-- [Tools](/docs/tools.md)  
-- [Users](/docs/users.md)
+```bash
+# Bootstrap admin user with defaults
+python scripts/bootstrap_admin.py
 
+# Create regular user
+python scripts/create_user.py --name "Bob" --email "bob@example.com"
 
-## Endpoint Documentation 🌐
+# Setup assistant (using admin API key + user ID)
+python scripts/bootstrap_default_assistant.py
+```
 
-- [altredoc](http://your-domain/altredoc/)
-- [Swagger](http://your-domain/mydocs#/)
+Install the SDK:
+
+```bash
+pip install projectdavid
+```
+
+Then follow usage docs at:  
+👉 [`https://github.com/frankie336/projectdavid`](https://github.com/frankie336/projectdavid)
 
 ---
 
+## API Explorer
 
+- [`/altredoc`](http://your-domain/altredoc/)
+- [`/mydocs`](http://your-domain/mydocs#/)
 
-## Starting Docker Containers 🐳
-
-Use `start.py` to simplify building images, starting/stopping containers, and managing volumes.
-
-Default orchestration:
-```bash
-python start.py
-```
-
-Skip orchestration:
-```bash
-python start.py --no-orchestrate
-```
-
-**Run with Ollama** (optional local inference):
-
-```bash
-python start.py --with-ollama
-# GPU acceleration
-python start.py --with-ollama --ollama-gpu
-```
-
-**Docker lifecycle commands**:
-
-- **Bring up containers**: `python start.py --mode up`
-- **Build Docker images**: `python start.py --mode build`
-- **Build & bring up**: `python start.py --mode both`
-- **No-cache build**: `python start.py --mode build --no-cache`
-- **No-cache build & up**: `python start.py --mode both --no-cache`
-- **Clear volumes & restart**: `python start.py --mode up --clear-volumes`
-- **Stop containers**: `python start.py --down`
-- **Stop & clear all data**: `python start.py --down --clear-volumes`
-- **Debug cache/docker health**: `python start.py --debug-cache`
-
-#### Build specific servies
-
-- **Build the main api**:`python start.py --mode build --services api`
-- **Build the main db**:`python start.py --mode build --services db`
-- **Build the vector db**:`python start.py --mode build --services qdrant`
-- **Build the sandbox**:`python start.py --mode build --services sandbox`
-- **Build the file server**:`python start.py --mode build --services samba`
 ---
 
+## 📜 License
+
+Distributed under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/).  
+Commercial licensing available upon request.
