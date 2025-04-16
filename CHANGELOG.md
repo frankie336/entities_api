@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/frankie336/entities_api/compare/v1.2.0...v1.2.1) (2025-04-16)
+
+
+### Bug Fixes
+
+* Moved admin .env ([3c2834e](https://github.com/frankie336/entities_api/commit/3c2834eb90256349c22c24ea9146c750013f1c36))
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
