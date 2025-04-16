@@ -6,18 +6,82 @@
 [![CI](https://github.com/frankie336/entities_api/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/frankie336/entities_api/actions/workflows/ci.yml)
 
 ![Entities Emblem](https://raw.githubusercontent.com/frankie336/entities_api/master/assets/entities_emblem_green.png)
-
+---
 The **Entities API** is for developing projects that interact with LLMs.  
 It aggregates inference calls to multiple providers as well as local using the [Ollama](https://github.com/ollama) library.
 
 This enables rapid and flexible deployment of advanced features such as conversation management,  
 [function calling](/docs/function_calling.md), [code interpretation](/docs/code_interpretation.md), and more through easy-to-use API endpoints.
 
+
+---
+
+## 🔍 Supported Models
+
+> These are the primary models supported or targeted in Entities.  
+> Availability may depend on provider integration status.
+
+![DeepSeek-V3](https://img.shields.io/badge/DeepSeek--V3-✅%20Ready-brightgreen)
+![DeepSeek-R1](https://img.shields.io/badge/DeepSeek--R1-✅%20Ready-brightgreen)
+![LLaMA-3.3](https://img.shields.io/badge/LLaMA--3.3-✅%20Ready-brightgreen)
+
+![Gemini-1.5-Pro](https://img.shields.io/badge/Gemini--1.5--Pro-🟡%20In%20Progress-yellow)
+![Gemini-1.5-Flash](https://img.shields.io/badge/Gemini--1.5--Flash-🟡%20In%20Progress-yellow)
+![Gemini-2.0-Pro](https://img.shields.io/badge/Gemini--2.0--Pro-🟡%20In%20Progress-yellow)
+![Gemini-2.0-Flash](https://img.shields.io/badge/Gemini--2.0--Flash-🟡%20In%20Progress-yellow)
+![Gemini-2.5-Pro](https://img.shields.io/badge/Gemini--2.5--Pro-🟡%20In%20Progress-yellow)
+
+![LearnLM-1.5-Pro](https://img.shields.io/badge/LearnLM--1.5--Pro-⚠️%20Experimental-orange)
+
+![Claude-3](https://img.shields.io/badge/Claude--3-❌%20Pending-lightgrey)
+![GPT-4](https://img.shields.io/badge/GPT--4-⚠️%20Beta-orange)
+
+---
+
+## 🔌 Inference Providers
+
+> The following vendors are integrated or under development for use within the Entities API platform.  
+> Providers may serve multiple models; model support varies by integration phase.
+
+| Provider        | Status Badge |
+|-----------------|--------------|
+| ![Hyperbolic](https://img.shields.io/badge/Hyperbolic-✅%20Integrated-brightgreen) | |
+| ![Together AI](https://img.shields.io/badge/Together%20AI-🟡%20In%20Progress-yellow) | |
+| ![DeepSeek](https://img.shields.io/badge/DeepSeek-✅%20Integrated-brightgreen) | |
+| ![Google](https://img.shields.io/badge/Google%20(Gemini%2FGemma)-🟡%20In%20Progress-yellow) | |
+| ![Ollama (Local)](https://img.shields.io/badge/Ollama%20(Local)-🟡%20In%20Progress-yellow) | |
+| ![OpenAI](https://img.shields.io/badge/OpenAI-🔲%20Planned-lightgrey) | |
+| ![Anthropic](https://img.shields.io/badge/Anthropic-🔲%20Planned-lightgrey) | |
+
+
+| Badge         | Meaning                            |
+|---------------|------------------------------------|
+| ✅ Integrated  | Fully integrated, streaming-ready  |
+| 🟡 In Progress | In development or partially working |
+| 🔲 Planned     | On roadmap, not yet implemented     |
+
+
 ---
 
 ![Network Diagram](assets/docker_containers.png)
 
 ---
+
+# 🗂 Table of Contents
+
+- [Supported Models](#-supported-models)
+- [Supported Inference Providers](#-supported-inference-providers)
+- [Entities vs LangChain](#-entities-vs-langchain-and-friends)
+- [Why Entities](#-why-entities)
+- [Bootstrap Setup](#-bootstrap-setup)
+- [Docker Lifecycle](#-docker-lifecycle-commands)
+- [Security Model](#-security-model)
+- [State Management](#-state-management)
+- [Documentation Index](#-documentation-index)
+- [Local Dev](#-local-dev)
+- [API Explorer](#-api-explorer)
+- [License](#-license)
+
 
 ## 🔍 Entities vs. LangChain (and Friends)
 
