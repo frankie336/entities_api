@@ -24,25 +24,11 @@ class HyperbolicHandler:
     """
 
     SUBMODEL_CLASS_MAP: dict[str, Type[Any]] = {
-        # DeepSeek variants
-        "deepseek-ai/DeepSeek-V3": HyperbolicDeepSeekV3Inference,
+        "deepseek-v3": HyperbolicDeepSeekV3Inference,
         "deepseek-ai/DeepSeek-V3-0324": HyperbolicDeepSeekV3Inference,
-        "deepseek-ai/DeepSeek-R1": HyperbolicR1Inference,
-
-        # Meta‑Llama variants (all to HyperbolicLlama33Inference)
-        "meta-llama/Llama-3.3-70B-Instruct": HyperbolicLlama33Inference,
-        "meta-llama/Meta-Llama-3.1-70B-Instruct": HyperbolicLlama33Inference,
-        "meta-llama/Llama-3.2-3B-Instruct": HyperbolicLlama33Inference,
-        "meta-llama/Meta-Llama-3-70B-Instruct": HyperbolicLlama33Inference,
-        "meta-llama/Meta-Llama-3.1-405B-Instruct": HyperbolicLlama33Inference,
-        "meta-llama/Meta-Llama-3.1-8B-Instruct": HyperbolicLlama33Inference,
-
-        # Qwen variant
-        "Qwen/QwQ-32B-Preview": HyperbolicQuenQwq32bInference,
-        "Qwen/QwQ-32B": HyperbolicQuenQwq32bInference,
-        "Qwen/Qwen2.5-Coder-32B-Instruct": HyperbolicQuenQwq32bInference,
-        "Qwen/Qwen2.5-72B-Instruct": HyperbolicQuenQwq32bInference,
-
+        "deepseek-r1": HyperbolicR1Inference,
+        "meta-llama/": HyperbolicLlama33Inference,
+        "Qwen/": HyperbolicQuenQwq32bInference,
     }
 
     def __init__(self, arbiter: InferenceArbiter):
@@ -54,30 +40,27 @@ class HyperbolicHandler:
 
     def _get_specific_handler_instance(self, unified_model_id: str) -> Any:
         prefix = "hyperbolic/"
-        lower_id = unified_model_id.lower()
+        sub_model_id = (
+            unified_model_id[len(prefix):].lower()
+            if unified_model_id.lower().startswith(prefix)
+            else unified_model_id.lower()
+        )
 
-        # strip off “hyperbolic/” cleanly
-        if lower_id.startswith(prefix):
-            sub_model_id = lower_id[len(prefix):]
-        else:
-            sub_model_id = lower_id
+        if not unified_model_id.lower().startswith(prefix):
             logging_utility.warning(
-                f"Model ID '{unified_model_id}' did not start with '{prefix}'."
+                f"Model ID '{unified_model_id}' did not start with 'hyperbolic/'."
             )
 
         SpecificHandlerClass = None
-        # iterate original keys so your logging still shows the mixed‑case route_key
-        for route_key in self._sorted_sub_routes:
+        for route_key, handler_cls in self.SUBMODEL_CLASS_MAP.items():
             route_key_lc = route_key.lower()
-            # prefix‑style keys (those ending with “/”)
             if route_key_lc.endswith("/") and sub_model_id.startswith(route_key_lc):
                 logging_utility.debug(f"Matched prefix route: '{route_key}'")
-                SpecificHandlerClass = self.SUBMODEL_CLASS_MAP[route_key]
+                SpecificHandlerClass = handler_cls
                 break
-            # substring keys
-            if not route_key_lc.endswith("/") and route_key_lc in sub_model_id:
+            elif not route_key_lc.endswith("/") and route_key_lc in sub_model_id:
                 logging_utility.debug(f"Matched substring route: '{route_key}'")
-                SpecificHandlerClass = self.SUBMODEL_CLASS_MAP[route_key]
+                SpecificHandlerClass = handler_cls
                 break
 
         if not SpecificHandlerClass:
@@ -87,7 +70,17 @@ class HyperbolicHandler:
             raise ValueError(f"Unsupported Hyperbolic model: {unified_model_id}")
 
         logging_utility.debug(f"Dispatching to: {SpecificHandlerClass.__name__}")
-        return self.arbiter.get_provider_instance(SpecificHandlerClass)
+
+        try:
+            return self.arbiter.get_provider_instance(SpecificHandlerClass)
+        except Exception as e:
+            logging_utility.error(
+                f"Failed to obtain handler instance: {SpecificHandlerClass.__name__}",
+                exc_info=True,
+            )
+            raise ValueError(
+                f"Handler resolution failed for model: {unified_model_id}"
+            ) from e
 
     def process_conversation(
         self,

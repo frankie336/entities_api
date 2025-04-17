@@ -1,4 +1,4 @@
-# Entities V1
+# Entities
 
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue.svg)](https://polyformproject.org/licenses/noncommercial/1.0.0/)
 [![Docker Pulls](https://img.shields.io/docker/pulls/thanosprime/entities-api-api?label=API%20Pulls&logo=docker&style=flat-square)](https://hub.docker.com/r/thanosprime/entities-api-api)
@@ -113,6 +113,9 @@ Entities bridges both — automatically.
 
 # 🗂 Table of Contents
 
+<details>
+<summary><strong>🗂 Table of Contents</strong></summary>
+
 - [Supported Models](#-supported-models)
 - [Supported Inference Providers](#-supported-inference-providers)
 - [Entities vs LangChain](#-entities-vs-langchain-and-friends)
@@ -121,10 +124,55 @@ Entities bridges both — automatically.
 - [Docker Lifecycle](#-docker-lifecycle-commands)
 - [Security Model](#-security-model)
 - [State Management](#-state-management)
+- [Entities V1 Cookbook](#-entities-v1-cookbook)
+- [Docker Orchestration](#-entities-docker-orchestration)
 - [Documentation Index](#-documentation-index)
 - [Local Dev](#-local-dev)
-- [API Explorer](#-api-explorer)
+- [API Explorer](#api-explorer)
 - [License](#-license)
+
+</details>
+
+
+
+---
+
+
+## 📘 Entities  Cookbook
+
+Looking for real examples and hands-on recipes?
+
+The [Entities  Cookbook](https://github.com/frankie336/entities_cook_book) is a companion project containing:
+
+- Standalone scripts for function calling, inference, file handling
+- RAG demos and vector search examples
+- Streaming and code interpretation patterns
+- Local + remote inference setup walkthroughs
+
+> 🧪 It's where the *how-to* lives — fork it, clone it, and run it today.
+
+👉 [Visit the Cookbook](https://github.com/frankie336/entities_cook_book)
+
+
+---
+
+## 🐳 Entities Docker Orchestration
+
+Looking to run the full system in a containerized environment?
+
+The [Entities Docker Orchestration Repository](https://github.com/frankie336/entities) contains:
+
+- Full Docker Compose stack (API, Sandbox, MySQL, Qdrant, Samba)
+- Secure file-sharing and Firejail sandboxing
+- Local `.env` scaffolding with secret generation
+- Smart CLI tooling (`start.py`) for lifecycle commands
+- Optional GPU-ready Ollama container for local LLMs
+
+> ⚙️ Built for rapid deployment in both development and production.
+
+👉 [Visit the Orchestration Repo](https://github.com/frankie336/entities)
+
+---
 
 
 ## 🔍 Entities vs. LangChain (and Friends)
