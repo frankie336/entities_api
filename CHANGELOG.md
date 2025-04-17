@@ -1,3 +1,15 @@
+# [1.3.0](https://github.com/frankie336/entities_api/compare/v1.2.1...v1.3.0) (2025-04-17)
+
+
+### Bug Fixes
+
+* Normalize your route keys to lowercase in SUBMODEL_CLASS_MAP ([a8d1f51](https://github.com/frankie336/entities_api/commit/a8d1f51719e3c9f79527145ead9329562db6e9ce))
+
+
+### Features
+
+* Add support for new models ([4523191](https://github.com/frankie336/entities_api/commit/45231911a3f24f0af7989197c6e4fb0bd017551b))
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
