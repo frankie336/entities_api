@@ -1,15 +1,10 @@
 import json
-import os
 from abc import ABC
 from typing import Any, Generator, Optional
 
 from dotenv import load_dotenv
 from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
-from entities_api.inference.hypherbolic.hyperbolic_async_client import AsyncHyperbolicClient
-from entities_api.utils.async_to_sync import async_to_sync_stream
-
-
 
 from entities_api.inference.base_inference import BaseInference
 
@@ -17,11 +12,11 @@ load_dotenv()
 logging_utility = LoggingUtility()
 
 
-class HyperbolicQuenQwq32bInference(BaseInference, ABC):
+class TogetherDeepSeekR1Inference(BaseInference, ABC):
 
     def setup_services(self):
         logging_utility.debug(
-            "HyperbolicDeepSeekV3Inference specific setup completed (if any)."
+            "TogetherDeepSeekV3Inference specific setup completed (if any)."
         )
 
     def stream_function_call_output(
@@ -35,7 +30,6 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
         stream_reasoning=False,
         api_key: Optional[str] = None,
     ):
-
         return super().stream_function_call_output(
             thread_id=thread_id,
             run_id=run_id,
@@ -62,35 +56,51 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)
 
-        messages = self._set_up_context_window(assistant_id, thread_id, trunk=True)
         request_payload = {
             "model": model,
-            "messages": messages,
+            "messages": self._set_up_context_window(
+                assistant_id, thread_id, trunk=True
+            ),
             "max_tokens": None,
             "temperature": 0.6,
-            "top_p": 0.9,
             "stream": True,
         }
 
-        if not api_key:
-            logging_utility.error(f"Run {run_id}: No API key provided.")
+        client_to_use = None
+        key_source_log = "default configured"
+
+        if api_key:
+            key_source_log = "provided"
+            logging_utility.debug(
+                f"Run {run_id}: Creating temporary TogetherAI client with provided API key."
+            )
+            try:
+                client_to_use = self._get_together_client(api_key=api_key)
+            except Exception as client_init_error:
+                logging_utility.error(
+                    f"Run {run_id}: Failed to create TogetherAI client: {client_init_error}",
+                    exc_info=True,
+                )
+                yield json.dumps(
+                    {
+                        "type": "error",
+                        "content": f"Failed to initialize client for request: {client_init_error}",
+                    }
+                )
+                return
+        else:
+            logging_utility.debug(
+                f"Run {run_id}: Using default configured TogetherAI client."
+            )
+
+        if not client_to_use:
+            logging_utility.error(
+                f"Run {run_id}: No valid TogetherAI client available."
+            )
             yield json.dumps(
-                {"type": "error", "content": "Missing API key for Hyperbolic."}
+                {"type": "error", "content": "TogetherAI client configuration error."}
             )
             return
-
-        hyperbolic_base_url = os.getenv("HYPERBOLIC_BASE_URL")
-        if not hyperbolic_base_url:
-            logging_utility.error(f"Run {run_id}: Missing HYPERBOLIC_BASE_URL.")
-            yield json.dumps(
-                {
-                    "type": "error",
-                    "content": "Hyperbolic service not configured. Contact support.",
-                }
-            )
-            return
-
-        client = AsyncHyperbolicClient(api_key=api_key, base_url=hyperbolic_base_url)
 
         assistant_reply = ""
         accumulated_content = ""
@@ -100,26 +110,33 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
         code_buffer = ""
 
         try:
-            async_stream = client.stream_chat_completion(
-                prompt=messages[-1]["content"],
-                model=model,
-                temperature=request_payload["temperature"],
-                top_p=request_payload["top_p"],
-                max_tokens=request_payload["max_tokens"],
-            )
+            response = client_to_use.chat.completions.create(**request_payload)
 
-            for token in async_to_sync_stream(async_stream):
+            for token in response:
                 if self.check_cancellation_flag():
                     logging_utility.warning(f"Run {run_id} cancelled mid-stream")
                     yield json.dumps({"type": "error", "content": "Run cancelled"})
                     break
 
-                segments = (
-                    self.REASONING_PATTERN.split(token)
-                    if hasattr(self, "REASONING_PATTERN")
-                    else [token]
-                )
+                if not token.choices or not token.choices[0]:
+                    continue
 
+                delta = token.choices[0].delta
+                delta_reasoning = getattr(delta, "reasoning_content", "")
+                delta_content = getattr(delta, "content", "")
+
+                if delta_reasoning and stream_reasoning:
+                    reasoning_content += delta_reasoning
+                    yield json.dumps({"type": "reasoning", "content": delta_reasoning})
+
+                if not delta_content:
+                    continue
+
+                segments = (
+                    self.REASONING_PATTERN.split(delta_content)
+                    if hasattr(self, "REASONING_PATTERN")
+                    else [delta_content]
+                )
                 for seg in segments:
                     if not seg:
                         continue
@@ -145,12 +162,11 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
                         assistant_reply += seg
                         accumulated_content += seg
 
-                        if hasattr(self, "parse_code_interpreter_partial"):
-                            partial_match = self.parse_code_interpreter_partial(
-                                accumulated_content
-                            )
-                        else:
-                            partial_match = None
+                        partial_match = (
+                            self.parse_code_interpreter_partial(accumulated_content)
+                            if hasattr(self, "parse_code_interpreter_partial")
+                            else None
+                        )
 
                         if not code_mode and partial_match:
                             full_match = partial_match.get("full_match")
@@ -160,12 +176,14 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
                                     accumulated_content = accumulated_content[
                                         match_index + len(full_match) :
                                     ]
+
                             code_mode = True
                             code_buffer = partial_match.get("code", "")
                             self.code_mode = True
                             yield json.dumps(
                                 {"type": "hot_code", "content": "```python\n"}
                             )
+
                             if code_buffer and hasattr(
                                 self, "_process_code_interpreter_chunks"
                             ):
@@ -205,7 +223,7 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
                             yield json.dumps({"type": "content", "content": seg})
 
         except Exception as e:
-            error_msg = f"Hyperbolic client stream error: {str(e)}"
+            error_msg = f"TogetherAI SDK error (using {key_source_log} key): {str(e)}"
             logging_utility.error(f"Run {run_id}: {error_msg}", exc_info=True)
             if hasattr(self, "handle_error"):
                 self.handle_error(
@@ -250,7 +268,6 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
         model=None,
         api_key: Optional[str] = None,
     ):
-
         return super().process_function_calls(
             thread_id=thread_id,
             run_id=run_id,
@@ -269,11 +286,6 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
         stream_reasoning=False,
         api_key: Optional[str] = None,
     ):
-        """
-        Processes the conversation, passing the api_key down for use
-        in the actual API request via override.
-        """
-
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)
 
@@ -294,7 +306,6 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
 
         fc_state = self.get_function_call_state()
 
-        # Process function calls, passing the api_key if needed by sub-calls
         for chunk in self.process_function_calls(
             thread_id=thread_id,
             run_id=run_id,

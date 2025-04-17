@@ -2,11 +2,9 @@ import threading
 from functools import lru_cache
 
 from entities_api.inference.cloud_azure_r1 import AzureR1Cloud
-from entities_api.inference.cloud_deepseek_r1 import DeepSeekR1Cloud
-from entities_api.inference.cloud_deepseek_v3 import DeepSeekV3Cloud
-from entities_api.inference.cloud_groq_deepseekr1_llama import GroqCloud
-from entities_api.inference.cloud_together_ai_r1 import TogetherR1Inference
-from entities_api.inference.cloud_together_ai_v3 import TogetherV3Inference
+
+
+
 from entities_api.inference.hypherbolic.hyperbolic_deepseek_r1 import \
     HyperbolicR1Inference
 from entities_api.inference.hypherbolic.hyperbolic_deepseek_v3 import \
@@ -39,15 +37,6 @@ class CloudInference:
                 self._provider_cache[class_name] = instance
         return self._provider_cache[class_name]
 
-    # Provider access methods
-    def get_deepseek_r1(self):
-        return self._get_provider(DeepSeekR1Cloud)
-
-    def get_deepseek_v3(self):
-        return self._get_provider(DeepSeekV3Cloud)
-
-    def get_groq_deepseek(self):
-        return self._get_provider(GroqCloud)
 
     def get_azure_deepseek_r1(self):
         return self._get_provider(AzureR1Cloud)
@@ -57,12 +46,6 @@ class CloudInference:
 
     def get_hyperbolic_v3(self):
         return self._get_provider(HyperbolicDeepSeekV3Inference)
-
-    def get_together_ai_r1(self):
-        return self._get_provider(TogetherR1Inference)
-
-    def get_together_ai_v3(self):
-        return self._get_provider(TogetherV3Inference)
 
     # Cache management
     def clear_cache(self):

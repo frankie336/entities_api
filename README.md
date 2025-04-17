@@ -14,6 +14,22 @@ This enables rapid and flexible deployment of advanced features such as conversa
 [function calling](/docs/function_calling.md), [code interpretation](/docs/code_interpretation.md), and more through easy-to-use API endpoints.
 
 
+### 💎 Universal Tool Use.  
+Tool calling works the same — across all models, all vendors, and all threads.  
+We’re not shouting about it. It just works.
+
+This enables rapid and flexible deployment of advanced features such as conversation management,  
+[function calling](/docs/function_calling.md), [code interpretation](/docs/code_interpretation.md), and more through easy-to-use API endpoints.
+
+### 🛠️ Tools. 🧠 Function Calls. Same Thing.
+
+From the model’s point of view: **they’re functions**.  
+From your point of view: **they’re tools**.  
+Entities bridges both — automatically.
+
+
+
+
 ---
 
 ## 🔍 Supported Models
@@ -21,20 +37,48 @@ This enables rapid and flexible deployment of advanced features such as conversa
 > These are the primary models supported or targeted in Entities.  
 > Availability may depend on provider integration status.
 
+<!-- ✅ Supported Models -->
 ![DeepSeek-V3](https://img.shields.io/badge/DeepSeek--V3-✅%20Ready-brightgreen)
 ![DeepSeek-R1](https://img.shields.io/badge/DeepSeek--R1-✅%20Ready-brightgreen)
-![LLaMA-3.3](https://img.shields.io/badge/LLaMA--3.3-✅%20Ready-brightgreen)
+![DeepSeek-V3-0324](https://img.shields.io/badge/DeepSeek--V3--0324-✅%20Ready-brightgreen)
+![DeepSeek-R1-Distill-Qwen-1.5B](https://img.shields.io/badge/DeepSeek--R1--Distill--Qwen--1.5B-✅%20Ready-brightgreen)
+![DeepSeek-R1-Distill-Qwen-14B](https://img.shields.io/badge/DeepSeek--R1--Distill--Qwen--14B-✅%20Ready-brightgreen)
+![DeepSeek-R1-Distill-Llama-70B-free](https://img.shields.io/badge/DeepSeek--R1--Distill--Llama--70B--free-✅%20Ready-brightgreen)
 
+![LLaMA-3.3](https://img.shields.io/badge/LLaMA--3.3-✅%20Ready-brightgreen)
+![LLaMA-3.3-Turbo](https://img.shields.io/badge/LLaMA--3.3--Turbo-✅%20Ready-brightgreen)
+![LLaMA-3.2](https://img.shields.io/badge/LLaMA--3.2-✅%20Ready-brightgreen)
+![Meta-LLaMA-3.1-70B](https://img.shields.io/badge/Meta--LLaMA--3.1--70B-✅%20Ready-brightgreen)
+![Meta-LLaMA-3.1-405B](https://img.shields.io/badge/Meta--LLaMA--3.1--405B-✅%20Ready-brightgreen)
+![Meta-LLaMA-3.1-8B](https://img.shields.io/badge/Meta--LLaMA--3.1--8B-✅%20Ready-brightgreen)
+![Meta-LLaMA-3-70B](https://img.shields.io/badge/Meta--LLaMA--3--70B-✅%20Ready-brightgreen)
+![LLaMA-3.2-11B-Vision-Turbo](https://img.shields.io/badge/LLaMA--3.2--11B--Vision--Turbo-✅%20Ready-brightgreen)
+![LLaMA-3.2-90B-Vision-Turbo](https://img.shields.io/badge/LLaMA--3.2--90B--Vision--Turbo-✅%20Ready-brightgreen)
+![LLaMA-Vision-Free](https://img.shields.io/badge/LLaMA--Vision--Free-✅%20Ready-brightgreen)
+![LLaMA-Guard-2-8B](https://img.shields.io/badge/LLaMA--Guard--2--8B-✅%20Ready-brightgreen)
+
+![Qwen-QwQ-32B](https://img.shields.io/badge/Qwen--QwQ--32B-✅%20Ready-brightgreen)
+![Qwen-QwQ-32B-Preview](https://img.shields.io/badge/Qwen--QwQ--32B--Preview-✅%20Ready-brightgreen)
+![Qwen2.5-72B-Instruct](https://img.shields.io/badge/Qwen2.5--72B--Instruct-✅%20Ready-brightgreen)
+![Qwen2.5-Coder-32B](https://img.shields.io/badge/Qwen2.5--Coder--32B-✅%20Ready-brightgreen)
+![Qwen2-VL-72B-Instruct](https://img.shields.io/badge/Qwen2--VL--72B--Instruct-✅%20Ready-brightgreen)
+
+![Gemma-2-9B-IT](https://img.shields.io/badge/Gemma--2--9B--IT-✅%20Ready-brightgreen)
+
+![Mistral-7B-V0.2](https://img.shields.io/badge/Mistral--7B--V0.2-✅%20Ready-brightgreen)
+![Mistral-7B-V0.3](https://img.shields.io/badge/Mistral--7B--V0.3-✅%20Ready-brightgreen)
+
+<!-- 🟡 In Progress Models -->
 ![Gemini-1.5-Pro](https://img.shields.io/badge/Gemini--1.5--Pro-🟡%20In%20Progress-yellow)
 ![Gemini-1.5-Flash](https://img.shields.io/badge/Gemini--1.5--Flash-🟡%20In%20Progress-yellow)
 ![Gemini-2.0-Pro](https://img.shields.io/badge/Gemini--2.0--Pro-🟡%20In%20Progress-yellow)
 ![Gemini-2.0-Flash](https://img.shields.io/badge/Gemini--2.0--Flash-🟡%20In%20Progress-yellow)
 ![Gemini-2.5-Pro](https://img.shields.io/badge/Gemini--2.5--Pro-🟡%20In%20Progress-yellow)
 
+<!-- ⚠️ Experimental / Beta / Pending -->
 ![LearnLM-1.5-Pro](https://img.shields.io/badge/LearnLM--1.5--Pro-⚠️%20Experimental-orange)
-
-![Claude-3](https://img.shields.io/badge/Claude--3-❌%20Pending-lightgrey)
 ![GPT-4](https://img.shields.io/badge/GPT--4-⚠️%20Beta-orange)
+![Claude-3](https://img.shields.io/badge/Claude--3-❌%20Pending-lightgrey)
 
 ---
 

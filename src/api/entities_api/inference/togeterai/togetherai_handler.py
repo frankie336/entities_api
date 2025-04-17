@@ -1,21 +1,13 @@
 # src/api/entities_api/inference/togeterai/togetherai_handler.py
-
 from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.inference.hypherbolic.hyperbolic_deepseek_r1 import \
-    HyperbolicR1Inference
-from entities_api.inference.hypherbolic.hyperbolic_deepseek_v3 import \
-    HyperbolicDeepSeekV3Inference
-from entities_api.inference.hypherbolic.hyperbolic_llama_3_3 import \
-    HyperbolicLlama33Inference
-from entities_api.inference.hypherbolic.hyperbolic_quen_qwq_32b import \
-    HyperbolicQuenQwq32bInference
 from entities_api.inference.inference_arbiter import InferenceArbiter
+from entities_api.inference.togeterai.together_deepseek_R1 import TogetherDeepSeekR1Inference
+from entities_api.inference.togeterai.together_deepseek_v3 import TogetherDeepSeekV3Inference
 
 logging_utility = LoggingUtility()
-
 
 class TogetherAIHandler:
     """
@@ -24,11 +16,33 @@ class TogetherAIHandler:
     """
 
     SUBMODEL_CLASS_MAP: dict[str, Type[Any]] = {
-        "deepseek-v3": HyperbolicDeepSeekV3Inference,
-        "deepseek-ai/DeepSeek-V3-0324": HyperbolicDeepSeekV3Inference,
-        "deepseek-r1": HyperbolicR1Inference,
-        "meta-llama/": HyperbolicLlama33Inference,
-        "Qwen/QwQ-32B-Preview": HyperbolicQuenQwq32bInference,
+        # DeepSeek@TogetherAI
+        "deepseek-ai/DeepSeek-R1": TogetherDeepSeekR1Inference,
+        "deepseek-ai/DeepSeek-V3": TogetherDeepSeekV3Inference,
+        "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B": TogetherDeepSeekR1Inference,
+        "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B": TogetherDeepSeekR1Inference,
+        "deepseek-ai/DeepSeek-R1-Distill-Llama-70B-free": TogetherDeepSeekR1Inference,
+
+        # Llama@TogetherAI
+        "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": TogetherDeepSeekV3Inference,
+        "meta-llama/Llama-4-Scout-17B-16E-Instruct": TogetherDeepSeekV3Inference,
+        "meta-llama/Llama-3.3-70B-Instruct-Turbo": TogetherDeepSeekV3Inference,
+        "meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo": TogetherDeepSeekV3Inference,
+        "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo": TogetherDeepSeekV3Inference,
+        "meta-llama/Llama-Vision-Free": TogetherDeepSeekV3Inference,
+        "meta-llama/LlamaGuard-2-8b": TogetherDeepSeekV3Inference,
+
+        # Google/Gemma@TogetherAI
+        "google/gemma-2-9b-it": TogetherDeepSeekV3Inference,
+
+        # Mistral@TogetherAI
+        "mistralai/Mistral-7B-Instruct-v0.2": TogetherDeepSeekV3Inference,
+        "mistralai/Mistral-7B-Instruct-v0.3": TogetherDeepSeekV3Inference,
+
+        # Qwen@TogetherAI
+        "Qwen/QwQ-32B": TogetherDeepSeekV3Inference,
+        "Qwen/Qwen2.5-Coder-32B-Instruct": TogetherDeepSeekV3Inference,
+        "Qwen/Qwen2-VL-72B-Instruct": TogetherDeepSeekV3Inference,
     }
 
     def __init__(self, arbiter: InferenceArbiter):
@@ -39,27 +53,31 @@ class TogetherAIHandler:
         logging_utility.info("HyperbolicHandler dispatcher initialized.")
 
     def _get_specific_handler_instance(self, unified_model_id: str) -> Any:
-        prefix = "hyperbolic/"
-        sub_model_id = (
-            unified_model_id[len(prefix) :].lower()
-            if unified_model_id.lower().startswith(prefix)
-            else unified_model_id.lower()
-        )
+        prefix = "together-ai/"
+        lower_id = unified_model_id.lower()
 
-        if not unified_model_id.lower().startswith(prefix):
+        # strip off “hyperbolic/” cleanly
+        if lower_id.startswith(prefix):
+            sub_model_id = lower_id[len(prefix):]
+        else:
+            sub_model_id = lower_id
             logging_utility.warning(
-                f"Model ID '{unified_model_id}' did not start with 'hyperbolic/'."
+                f"Model ID '{unified_model_id}' did not start with '{prefix}'."
             )
 
         SpecificHandlerClass = None
+        # iterate original keys so your logging still shows the mixed‑case route_key
         for route_key in self._sorted_sub_routes:
-            if route_key.endswith("/") and sub_model_id.startswith(route_key):
-                SpecificHandlerClass = self.SUBMODEL_CLASS_MAP[route_key]
+            route_key_lc = route_key.lower()
+            # prefix‑style keys (those ending with “/”)
+            if route_key_lc.endswith("/") and sub_model_id.startswith(route_key_lc):
                 logging_utility.debug(f"Matched prefix route: '{route_key}'")
-                break
-            elif not route_key.endswith("/") and route_key in sub_model_id:
                 SpecificHandlerClass = self.SUBMODEL_CLASS_MAP[route_key]
+                break
+            # substring keys
+            if not route_key_lc.endswith("/") and route_key_lc in sub_model_id:
                 logging_utility.debug(f"Matched substring route: '{route_key}'")
+                SpecificHandlerClass = self.SUBMODEL_CLASS_MAP[route_key]
                 break
 
         if not SpecificHandlerClass:
@@ -69,17 +87,7 @@ class TogetherAIHandler:
             raise ValueError(f"Unsupported Hyperbolic model: {unified_model_id}")
 
         logging_utility.debug(f"Dispatching to: {SpecificHandlerClass.__name__}")
-
-        try:
-            return self.arbiter.get_provider_instance(SpecificHandlerClass)
-        except Exception as e:
-            logging_utility.error(
-                f"Failed to obtain handler instance: {SpecificHandlerClass.__name__}",
-                exc_info=True,
-            )
-            raise ValueError(
-                f"Handler resolution failed for model: {unified_model_id}"
-            ) from e
+        return self.arbiter.get_provider_instance(SpecificHandlerClass)
 
     def process_conversation(
         self,
@@ -141,3 +149,9 @@ class TogetherAIHandler:
             model=model,
             api_key=api_key,
         )
+
+
+
+
+
+
