@@ -41,7 +41,7 @@ class HyperbolicHandler:
     def _get_specific_handler_instance(self, unified_model_id: str) -> Any:
         prefix = "hyperbolic/"
         sub_model_id = (
-            unified_model_id[len(prefix) :].lower()
+            unified_model_id[len(prefix):].lower()
             if unified_model_id.lower().startswith(prefix)
             else unified_model_id.lower()
         )
@@ -52,14 +52,15 @@ class HyperbolicHandler:
             )
 
         SpecificHandlerClass = None
-        for route_key in self._sorted_sub_routes:
-            if route_key.endswith("/") and sub_model_id.startswith(route_key):
-                SpecificHandlerClass = self.SUBMODEL_CLASS_MAP[route_key]
+        for route_key, handler_cls in self.SUBMODEL_CLASS_MAP.items():
+            route_key_lc = route_key.lower()
+            if route_key_lc.endswith("/") and sub_model_id.startswith(route_key_lc):
                 logging_utility.debug(f"Matched prefix route: '{route_key}'")
+                SpecificHandlerClass = handler_cls
                 break
-            elif not route_key.endswith("/") and route_key in sub_model_id:
-                SpecificHandlerClass = self.SUBMODEL_CLASS_MAP[route_key]
+            elif not route_key_lc.endswith("/") and route_key_lc in sub_model_id:
                 logging_utility.debug(f"Matched substring route: '{route_key}'")
+                SpecificHandlerClass = handler_cls
                 break
 
         if not SpecificHandlerClass:

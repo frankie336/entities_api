@@ -1,0 +1,31 @@
+# Ensure Unix (LF) line endings across all relevant files
+*.py           text eol=lf
+*.sh           text eol=lf
+*.env          text eol=lf
+*.md           text eol=lf
+Dockerfile     text eol=lf
+*.yml          text eol=lf
+*.yaml         text eol=lf
+*.toml         text eol=lf
+
+# Treat shell scripts as executable (Windows Git won't mess with them)
+*.sh           text eol=lf diff=default
+
+# Treat JSON files cleanly
+*.json         text eol=lf
+
+# Treat CSV/TSV cleanly for data ingestion
+*.csv          text eol=lf
+*.tsv          text eol=lf
+
+# Prevent accidental CRLF conversion back to Windows
+# (Useful if contributors use Git on Windows with wrong config)
+*              text=auto
+
+# Assets (images, binaries) — binary-safe
+*.png          binary
+*.jpg          binary
+*.jpeg         binary
+*.gif          binary
+*.pdf          binary
+*.woff2        binary
