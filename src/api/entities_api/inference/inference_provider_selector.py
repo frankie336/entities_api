@@ -6,9 +6,9 @@ from typing import Any, Type
 from projectdavid_common.constants.ai_model_map import MODEL_MAP
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.inference.azure.azure_handler import AzureHandler  # Example
-from entities_api.inference.deepseek.deepseek_handler import \
-    DeepseekHandler  # Example
+from entities_api.inference.azure.azure_handler import AzureHandler
+from entities_api.inference.deepseek.deep_seek_handler import DeepseekHandler
+
 from entities_api.inference.google.google_handler import GoogleHandler
 from entities_api.inference.groq.groq_handler import GroqHandler  # Example
 # --- Import General Handler Classes ---
