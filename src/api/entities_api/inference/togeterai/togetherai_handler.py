@@ -1,20 +1,24 @@
-# src/api/entities_api/inference/togeterai/togetherai_handler.py
+# entities_api/inference/togetherai/togetherai_handler.py
 from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
-
 from entities_api.inference.inference_arbiter import InferenceArbiter
 from entities_api.inference.togeterai.together_deepseek_R1 import TogetherDeepSeekR1Inference
 from entities_api.inference.togeterai.together_deepseek_v3 import TogetherDeepSeekV3Inference
 
 logging_utility = LoggingUtility()
 
+
 class TogetherAIHandler:
     """
-    Pure synchronous dispatcher for Hyperbolic model requests. Delegates to
-    concrete handler classes based on model ID. Contains no business logic.
+    Pure synchronous dispatcher for **TogetherAI** model requests.
+    It decides which concrete inference class to use based on the
+    canonical model id and then streams / processes via that class.
     """
 
+    # ------------------------------------------------------------------ #
+    # Mapping: canonical‑model‑id  ➜  concrete inference class
+    # ------------------------------------------------------------------ #
     SUBMODEL_CLASS_MAP: dict[str, Type[Any]] = {
         # DeepSeek@TogetherAI
         "deepseek-ai/DeepSeek-R1": TogetherDeepSeekR1Inference,
@@ -32,7 +36,7 @@ class TogetherAIHandler:
         "meta-llama/Llama-Vision-Free": TogetherDeepSeekV3Inference,
         "meta-llama/LlamaGuard-2-8b": TogetherDeepSeekV3Inference,
 
-        # Google/Gemma@TogetherAI
+        # Google Gemma@TogetherAI
         "google/gemma-2-9b-it": TogetherDeepSeekV3Inference,
 
         # Mistral@TogetherAI
@@ -50,13 +54,20 @@ class TogetherAIHandler:
         self._sorted_sub_routes = sorted(
             self.SUBMODEL_CLASS_MAP.keys(), key=len, reverse=True
         )
-        logging_utility.info("HyperbolicHandler dispatcher initialized.")
+        logging_utility.info("TogetherAIHandler dispatcher initialized.")
 
+    # ------------------------------------------------------------------ #
+    #  Dispatcher internals
+    # ------------------------------------------------------------------ #
     def _get_specific_handler_instance(self, unified_model_id: str) -> Any:
+        """
+        Returns the correct concrete inference class instance
+        for a given TogetherAI model id.
+        """
         prefix = "together-ai/"
         lower_id = unified_model_id.lower()
 
-        # strip off “hyperbolic/” cleanly
+        # strip off "together-ai/" prefix
         if lower_id.startswith(prefix):
             sub_model_id = lower_id[len(prefix):]
         else:
@@ -65,30 +76,30 @@ class TogetherAIHandler:
                 f"Model ID '{unified_model_id}' did not start with '{prefix}'."
             )
 
-        SpecificHandlerClass = None
-        # iterate original keys so your logging still shows the mixed‑case route_key
+        specific_cls: Optional[Type[Any]] = None
         for route_key in self._sorted_sub_routes:
-            route_key_lc = route_key.lower()
-            # prefix‑style keys (those ending with “/”)
-            if route_key_lc.endswith("/") and sub_model_id.startswith(route_key_lc):
-                logging_utility.debug(f"Matched prefix route: '{route_key}'")
-                SpecificHandlerClass = self.SUBMODEL_CLASS_MAP[route_key]
+            key_lc = route_key.lower()
+
+            if key_lc.endswith("/") and sub_model_id.startswith(key_lc):
+                specific_cls = self.SUBMODEL_CLASS_MAP[route_key]
                 break
-            # substring keys
-            if not route_key_lc.endswith("/") and route_key_lc in sub_model_id:
-                logging_utility.debug(f"Matched substring route: '{route_key}'")
-                SpecificHandlerClass = self.SUBMODEL_CLASS_MAP[route_key]
+            if not key_lc.endswith("/") and key_lc in sub_model_id:
+                specific_cls = self.SUBMODEL_CLASS_MAP[route_key]
                 break
 
-        if not SpecificHandlerClass:
+        if specific_cls is None:
             logging_utility.error(
-                f"No handler found for model ID '{sub_model_id}' (original: '{unified_model_id}')"
+                f"No handler found for model ID '{sub_model_id}' "
+                f"(original: '{unified_model_id}')"
             )
-            raise ValueError(f"Unsupported Hyperbolic model: {unified_model_id}")
+            raise ValueError(f"Unsupported TogetherAI model: {unified_model_id}")
 
-        logging_utility.debug(f"Dispatching to: {SpecificHandlerClass.__name__}")
-        return self.arbiter.get_provider_instance(SpecificHandlerClass)
+        logging_utility.debug(f"Dispatching to: {specific_cls.__name__}")
+        return self.arbiter.get_provider_instance(specific_cls)
 
+    # ------------------------------------------------------------------ #
+    #  Public streaming / processing methods
+    # ------------------------------------------------------------------ #
     def process_conversation(
         self,
         thread_id,
@@ -96,11 +107,10 @@ class TogetherAIHandler:
         run_id,
         assistant_id,
         model,
-        stream_reasoning=False,
+        stream_reasoning: bool = False,
         api_key: Optional[str] = None,
         **kwargs,
     ) -> Generator[str, None, None]:
-        logging_utility.debug(f"Dispatching process_conversation for: {model}")
         handler = self._get_specific_handler_instance(model)
         yield from handler.process_conversation(
             thread_id=thread_id,
@@ -124,7 +134,6 @@ class TogetherAIHandler:
         api_key: Optional[str] = None,
         **kwargs,
     ) -> Generator[str, None, None]:
-        logging_utility.debug(f"Dispatching stream for: {model}")
         handler = self._get_specific_handler_instance(model)
         yield from handler.stream(
             thread_id=thread_id,
@@ -138,9 +147,13 @@ class TogetherAIHandler:
         )
 
     def process_function_calls(
-        self, thread_id, run_id, assistant_id, model=None, api_key=None
+        self,
+        thread_id,
+        run_id,
+        assistant_id,
+        model=None,
+        api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
-        logging_utility.debug(f"Dispatching process_function_calls for: {model}")
         handler = self._get_specific_handler_instance(model)
         yield from handler.process_function_calls(
             thread_id=thread_id,
@@ -149,9 +162,3 @@ class TogetherAIHandler:
             model=model,
             api_key=api_key,
         )
-
-
-
-
-
-
