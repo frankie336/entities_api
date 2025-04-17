@@ -1,3 +1,10 @@
+## [1.3.2](https://github.com/frankie336/entities_api/compare/v1.3.1...v1.3.2) (2025-04-17)
+
+
+### Bug Fixes
+
+* upgrade pd client. ([ae0569b](https://github.com/frankie336/entities_api/commit/ae0569bece4174112225fa5ed2181160f2f5961f))
+
 ## [1.3.1](https://github.com/frankie336/entities_api/compare/v1.3.0...v1.3.1) (2025-04-17)
 
 
