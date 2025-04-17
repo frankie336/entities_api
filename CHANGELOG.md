@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/frankie336/entities_api/compare/v1.3.0...v1.3.1) (2025-04-17)
+
+
+### Bug Fixes
+
+* TogetherAIHandler routing issues. ([be6c386](https://github.com/frankie336/entities_api/commit/be6c38684f81ddd5759c1adad7e636f873d08dbc))
+
 # [1.3.0](https://github.com/frankie336/entities_api/compare/v1.2.1...v1.3.0) (2025-04-17)
 
 
