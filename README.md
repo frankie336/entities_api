@@ -87,15 +87,17 @@ Entities bridges both — automatically.
 > The following vendors are integrated or under development for use within the Entities API platform.  
 > Providers may serve multiple models; model support varies by integration phase.
 
-| Provider | Status Badge |
-|----------|--------------|
-| ![Hyperbolic](https://img.shields.io/badge/Hyperbolic-✅%20Integrated-brightgreen) | |
-| ![Together AI](https://img.shields.io/badge/Together%20AI-✅%20Integrated-brightgreen) | |
-| ![DeepSeek](https://img.shields.io/badge/DeepSeek-🟡%20In%20Progress-yellow) | |
-| ![Google](https://img.shields.io/badge/Google%20(Gemini%2FGemma)-🟡%20In%20Progress-yellow) | |
-| ![Ollama (Local)](https://img.shields.io/badge/Ollama%20(Local)-🟡%20In%20Progress-yellow) | |
-| ![OpenAI](https://img.shields.io/badge/OpenAI-🔲%20Planned-lightgrey) | |
-| ![Anthropic](https://img.shields.io/badge/Anthropic-🔲%20Planned-lightgrey) | |
+<!-- Repurposed column: shows that Entities can successfully handle function / tool calls for that provider -->
+
+| Provider | Tool‑call Ready |
+|----------|----------------|
+| ![Hyperbolic](https://img.shields.io/badge/Hyperbolic-✅%20Integrated-brightgreen) | ![Tools OK](https://img.shields.io/badge/Tool%20Calls-✅%20Via%20Entities-brightgreen) |
+| ![Together AI](https://img.shields.io/badge/Together%20AI-✅%20Integrated-brightgreen) | ![Tools OK](https://img.shields.io/badge/Tool%20Calls-✅%20Via%20Entities-brightgreen) |
+| ![DeepSeek](https://img.shields.io/badge/DeepSeek-🟡%20In%20Progress-yellow) | ![Tools OK](https://img.shields.io/badge/Tool%20Calls-✅%20Via%20Entities-brightgreen) |
+| ![Google (Gemini/Gemma)](https://img.shields.io/badge/Google%20(Gemini%2FGemma)-🟡%20In%20Progress-yellow) | ![Tools OK](https://img.shields.io/badge/Tool%20Calls-✅%20Via%20Entities-brightgreen) |
+| ![Ollama (Local)](https://img.shields.io/badge/Ollama%20(Local)-🟡%20In%20Progress-yellow) | ![Tools OK](https://img.shields.io/badge/Tool%20Calls-✅%20Via%20Entities-brightgreen) |
+| ![OpenAI](https://img.shields.io/badge/OpenAI-🔲%20Planned-lightgrey) | ![Tools Pending](https://img.shields.io/badge/Tool%20Calls-🔲%20Pending-lightgrey) |
+| ![Anthropic](https://img.shields.io/badge/Anthropic-🔲%20Planned-lightgrey) | ![Tools Pending](https://img.shields.io/badge/Tool%20Calls-🔲%20Pending-lightgrey) |
 
 
 | Badge         | Meaning                            |
