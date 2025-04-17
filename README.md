@@ -231,7 +231,6 @@ These scripts can be run directly in development (e.g., `python scripts/bootstra
 or invoked inside containers using the orchestration tools.
 
 ---
-
 ## 🐳 Docker Lifecycle Commands
 
 Entities provides a unified orchestration script for building, running, and tearing down your container environment.
