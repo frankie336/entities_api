@@ -87,11 +87,11 @@ Entities bridges both — automatically.
 > The following vendors are integrated or under development for use within the Entities API platform.  
 > Providers may serve multiple models; model support varies by integration phase.
 
-| Provider        | Status Badge |
-|-----------------|--------------|
+| Provider | Status Badge |
+|----------|--------------|
 | ![Hyperbolic](https://img.shields.io/badge/Hyperbolic-✅%20Integrated-brightgreen) | |
-| ![Together AI](https://img.shields.io/badge/Together%20AI-🟡%20In%20Progress-yellow) | |
-| ![DeepSeek](https://img.shields.io/badge/DeepSeek-✅%20Integrated-brightgreen) | |
+| ![Together AI](https://img.shields.io/badge/Together%20AI-✅%20Integrated-brightgreen) | |
+| ![DeepSeek](https://img.shields.io/badge/DeepSeek-🟡%20In%20Progress-yellow) | |
 | ![Google](https://img.shields.io/badge/Google%20(Gemini%2FGemma)-🟡%20In%20Progress-yellow) | |
 | ![Ollama (Local)](https://img.shields.io/badge/Ollama%20(Local)-🟡%20In%20Progress-yellow) | |
 | ![OpenAI](https://img.shields.io/badge/OpenAI-🔲%20Planned-lightgrey) | |
