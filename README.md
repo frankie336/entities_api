@@ -27,6 +27,32 @@ From the model’s point of view: **they’re functions**.
 From your point of view: **they’re tools**.  
 Entities bridges both — automatically.
 
+---
+
+##  Vector Memory, Reimagined
+
+Most LLM stacks treat vector search as a bolt-on.  
+Entities treats it as **first-class memory.**
+
+We don’t just support RAG — we orchestrate it:
+
+- 💾 **Native Integration**  
+  Built-in, not wrapped. Zero abstraction. Fully optimized.
+
+- 📁 **File-to-Vector Pipeline**  
+  Drop in `.pdf`, `.csv`, `.txt`, or `.docx` — chunked, embedded, and stored instantly.
+
+- 🔍 **Real Search, Not Toy Examples**  
+  Fast, accurate similarity search with rich metadata and filtering support.
+
+- 🔐 **Persistent & Private**  
+  Your vector store lives on your terms — no hidden quotas or deletions.
+
+- 🏷 **Per-Assistant or Per-User Memory**  
+  Attach stores to assistants or keep them user-scoped — all via API or SDK.
+
+> OpenAI charges `$0.10 / GB / day` + `$2.50 per 1,000 vector tool calls`.  
+> **Entities gives you full vector memory control — at near-zero cost.**
 
 
 
