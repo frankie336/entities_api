@@ -3,7 +3,8 @@ from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.inference.deepseek.deepseek_chat_inference import DeepSeekChatInference
+from entities_api.inference.deepseek.deepseek_chat_inference import \
+    DeepSeekChatInference
 from entities_api.inference.inference_arbiter import InferenceArbiter
 
 logging_utility = LoggingUtility()
@@ -19,8 +20,6 @@ class DeepseekHandler:
         "deepseek-chat": DeepSeekChatInference,
         "DeepSeek-V3-0324": DeepSeekChatInference,
         "deepseek-reasoner": DeepSeekChatInference,
-
-
     }
 
     def __init__(self, arbiter: InferenceArbiter):
@@ -33,7 +32,7 @@ class DeepseekHandler:
     def _get_specific_handler_instance(self, unified_model_id: str) -> Any:
         prefix = "deepseek-ai/"
         sub_model_id = (
-            unified_model_id[len(prefix):].lower()
+            unified_model_id[len(prefix) :].lower()
             if unified_model_id.lower().startswith(prefix)
             else unified_model_id.lower()
         )

@@ -1,7 +1,7 @@
 # deepseek_async_client.py
 import asyncio
 import json
-from typing import AsyncGenerator, List, Dict, Union
+from typing import AsyncGenerator, Dict, List, Union
 
 import httpx
 
@@ -15,7 +15,7 @@ class AsyncDeepSeekClient:
     def __init__(
         self,
         api_key: str,
-        base_url: str = "https://api.deepseek.com/v1",      # note the /v1
+        base_url: str = "https://api.deepseek.com/v1",  # note the /v1
         max_retries: int = 3,
         timeout: int = 20,
     ):
@@ -42,7 +42,7 @@ class AsyncDeepSeekClient:
     # --------------------------------------------------------- #
     @staticmethod
     def _normalise_messages(
-        prompt_or_messages: Union[str, List[Dict[str, str]]]
+        prompt_or_messages: Union[str, List[Dict[str, str]]],
     ) -> List[Dict[str, str]]:
         if isinstance(prompt_or_messages, str):
             return [{"role": "user", "content": prompt_or_messages}]
@@ -74,7 +74,7 @@ class AsyncDeepSeekClient:
             "temperature": temperature,
             "top_p": top_p,
             "max_tokens": max_tokens,
-            "stream": True,                         # ← enable SSE
+            "stream": True,  # ← enable SSE
         }
 
         for attempt in range(1, self.max_retries + 1):
@@ -123,4 +123,3 @@ class AsyncDeepSeekClient:
     # --------------------------------------------------------- #
     async def aclose(self):
         await self.client.aclose()
-

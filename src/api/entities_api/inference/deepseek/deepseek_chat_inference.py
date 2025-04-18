@@ -16,15 +16,13 @@ from abc import ABC
 from typing import Any, Generator, Optional
 
 from dotenv import load_dotenv
-
 from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from entities_api.inference.base_inference import BaseInference
+from entities_api.inference.deepseek.deepseek_async_client import \
+    AsyncDeepSeekClient
 from entities_api.utils.async_to_sync import async_to_sync_stream
-from entities_api.inference.deepseek.deepseek_async_client import (
-    AsyncDeepSeekClient,
-)
 
 load_dotenv()
 log = LoggingUtility()
@@ -67,9 +65,7 @@ class DeepSeekChatInference(BaseInference, ABC):
             model = self._get_model_map(value=model)
 
         # ---------- fetch context window ------------------------------ #
-        messages = self._set_up_context_window(
-            assistant_id, thread_id, trunk=True
-        )
+        messages = self._set_up_context_window(assistant_id, thread_id, trunk=True)
 
         # ---------- client init --------------------------------------- #
         if not api_key:
@@ -155,14 +151,18 @@ class DeepSeekChatInference(BaseInference, ABC):
                         self.code_mode = True
                         yield json.dumps({"type": "hot_code", "content": "```python\n"})
 
-                        if code_buf and hasattr(self, "_process_code_interpreter_chunks"):
+                        if code_buf and hasattr(
+                            self, "_process_code_interpreter_chunks"
+                        ):
                             res, code_buf = self._process_code_interpreter_chunks(
                                 "", code_buf
                             )
                             for r in res:
                                 yield r
                                 assistant_reply += (
-                                    r if isinstance(r, str) else json.loads(r)["content"]
+                                    r
+                                    if isinstance(r, str)
+                                    else json.loads(r)["content"]
                                 )
                         continue
 

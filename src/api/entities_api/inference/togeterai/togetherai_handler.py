@@ -2,9 +2,12 @@
 from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
+
 from entities_api.inference.inference_arbiter import InferenceArbiter
-from entities_api.inference.togeterai.together_deepseek_R1 import TogetherDeepSeekR1Inference
-from entities_api.inference.togeterai.together_deepseek_v3 import TogetherDeepSeekV3Inference
+from entities_api.inference.togeterai.together_deepseek_R1 import \
+    TogetherDeepSeekR1Inference
+from entities_api.inference.togeterai.together_deepseek_v3 import \
+    TogetherDeepSeekV3Inference
 
 logging_utility = LoggingUtility()
 
@@ -26,7 +29,6 @@ class TogetherAIHandler:
         "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B": TogetherDeepSeekR1Inference,
         "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B": TogetherDeepSeekR1Inference,
         "deepseek-ai/DeepSeek-R1-Distill-Llama-70B-free": TogetherDeepSeekR1Inference,
-
         # Llama@TogetherAI
         "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": TogetherDeepSeekV3Inference,
         "meta-llama/Llama-4-Scout-17B-16E-Instruct": TogetherDeepSeekV3Inference,
@@ -35,14 +37,11 @@ class TogetherAIHandler:
         "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo": TogetherDeepSeekV3Inference,
         "meta-llama/Llama-Vision-Free": TogetherDeepSeekV3Inference,
         "meta-llama/LlamaGuard-2-8b": TogetherDeepSeekV3Inference,
-
         # Google Gemma@TogetherAI
         "google/gemma-2-9b-it": TogetherDeepSeekV3Inference,
-
         # Mistral@TogetherAI
         "mistralai/Mistral-7B-Instruct-v0.2": TogetherDeepSeekV3Inference,
         "mistralai/Mistral-7B-Instruct-v0.3": TogetherDeepSeekV3Inference,
-
         # Qwen@TogetherAI
         "Qwen/QwQ-32B": TogetherDeepSeekV3Inference,
         "Qwen/Qwen2.5-Coder-32B-Instruct": TogetherDeepSeekV3Inference,
@@ -69,7 +68,7 @@ class TogetherAIHandler:
 
         # strip off "together-ai/" prefix
         if lower_id.startswith(prefix):
-            sub_model_id = lower_id[len(prefix):]
+            sub_model_id = lower_id[len(prefix) :]
         else:
             sub_model_id = lower_id
             logging_utility.warning(

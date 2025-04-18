@@ -6,7 +6,7 @@ and validation models with the fixes applied to update the file count correctly.
 """
 
 import time
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from projectdavid_common import UtilsInterface, ValidationInterface
 from sqlalchemy.exc import IntegrityError  # To catch duplicate key errors
@@ -314,35 +314,41 @@ class VectorStoreDBService:
             self.db.rollback()
             raise VectorStoreDBError(f"DB error updating file status: {e}") from e
 
-    # --- Assistant Attachment ---
-
+    # ------------------------------------------------------------------- #
+    # Assistant attachment helpers  ← **THIS WAS MISSING**
+    # ------------------------------------------------------------------- #
     def attach_vector_store_to_assistant(
         self, vector_store_id: str, assistant_id: str
     ) -> bool:
-        """Attaches a vector store to an assistant."""
-        vector_store = self.db.get(VectorStore, vector_store_id)
-        if not vector_store or vector_store.status == StatusEnum.deleted:
+        """Attach a vector‑store to an assistant (idempotent)."""
+        store: VectorStore | None = self.db.get(VectorStore, vector_store_id)
+        if not store or store.status == StatusEnum.deleted:
             raise VectorStoreNotFoundError(
-                f"Store '{vector_store_id}' not found/deleted."
+                f"Store '{vector_store_id}' not found or deleted."
             )
-        assistant = self.db.get(Assistant, assistant_id)
+
+        assistant: Assistant | None = self.db.get(Assistant, assistant_id)
         if not assistant:
             raise AssistantNotFoundError(f"Assistant '{assistant_id}' not found.")
-        if vector_store in assistant.vector_stores:
+
+        if store in assistant.vector_stores:  # already attached
             return True
-        assistant.vector_stores.append(vector_store)
+
+        assistant.vector_stores.append(store)
         try:
             self.db.commit()
             return True
         except Exception as e:
             self.db.rollback()
-            raise VectorStoreDBError(f"DB error attaching store: {e}") from e
+            raise VectorStoreDBError(
+                f"DB error attaching store '{vector_store_id}' to assistant '{assistant_id}': {e}"
+            ) from e
 
     def detach_vector_store_from_assistant(
         self, vector_store_id: str, assistant_id: str
     ) -> bool:
-        """Detaches a vector store from an assistant."""
-        assistant = (
+        """Detach a vector‑store from an assistant (idempotent)."""
+        assistant: Assistant | None = (
             self.db.query(Assistant)
             .options(joinedload(Assistant.vector_stores))
             .filter(Assistant.id == assistant_id)
@@ -350,25 +356,28 @@ class VectorStoreDBService:
         )
         if not assistant:
             raise AssistantNotFoundError(f"Assistant '{assistant_id}' not found.")
-        vector_store_to_remove = next(
+
+        match = next(
             (vs for vs in assistant.vector_stores if vs.id == vector_store_id), None
         )
-        if vector_store_to_remove:
-            assistant.vector_stores.remove(vector_store_to_remove)
-            try:
-                self.db.commit()
-                return True
-            except Exception as e:
-                self.db.rollback()
-                raise VectorStoreDBError(f"DB error detaching store: {e}") from e
-        else:
-            return True  # Idempotent
+        if not match:
+            return True  # nothing to do – already detached
+
+        assistant.vector_stores.remove(match)
+        try:
+            self.db.commit()
+            return True
+        except Exception as e:
+            self.db.rollback()
+            raise VectorStoreDBError(
+                f"DB error detaching store '{vector_store_id}' from assistant '{assistant_id}': {e}"
+            ) from e
 
     def get_vector_stores_for_assistant(
         self, assistant_id: str
     ) -> List[ValidationInterface.VectorStoreRead]:
-        """Retrieves all non-deleted vector stores attached to an assistant."""
-        assistant = (
+        """Return non‑deleted vector‑stores attached to an assistant."""
+        assistant: Assistant | None = (
             self.db.query(Assistant)
             .options(joinedload(Assistant.vector_stores))
             .filter(Assistant.id == assistant_id)
@@ -376,10 +385,7 @@ class VectorStoreDBService:
         )
         if not assistant:
             return []
-        active_stores = [
-            vs for vs in assistant.vector_stores if vs.status != StatusEnum.deleted
-        ]
+        active = [vs for vs in assistant.vector_stores if vs.status != StatusEnum.deleted]
         return [
-            ValidationInterface.VectorStoreRead.model_validate(vs)
-            for vs in active_stores
+            ValidationInterface.VectorStoreRead.model_validate(vs) for vs in active
         ]
