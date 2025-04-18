@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/frankie336/entities_api/compare/v1.3.2...v1.4.0) (2025-04-17)
+
+
+### Features
+
+* Integrate DeepSeek API. ([e6c1dae](https://github.com/frankie336/entities_api/commit/e6c1daeb2201ae63d4e07daf67dc923b00e69a2a))
+
 ## [1.3.2](https://github.com/frankie336/entities_api/compare/v1.3.1...v1.3.2) (2025-04-17)
 
 
