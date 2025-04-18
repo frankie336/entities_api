@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/frankie336/entities_api/compare/v1.4.0...v1.5.0) (2025-04-18)
+
+
+### Features
+
+* basic_vector_embeddings_search ([e5def53](https://github.com/frankie336/entities_api/commit/e5def53adbe148f6d0feb843f3458659a8542c91))
+
 # [1.4.0](https://github.com/frankie336/entities_api/compare/v1.3.2...v1.4.0) (2025-04-17)
 
 
