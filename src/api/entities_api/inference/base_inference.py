@@ -13,6 +13,9 @@ from datetime import datetime
 from functools import lru_cache
 from typing import Any, Callable, Dict, Generator, Optional
 
+from projectdavid_common.schemas.enums import StatusEnum
+from redis import Redis
+
 import httpx
 from fastapi import Depends
 from openai import OpenAI
@@ -67,6 +70,8 @@ class BaseInference(ABC):
 
     def __init__(
         self,
+        *,
+        redis: Redis,
         base_url=os.getenv("BASE_URL"),
         api_key=None,
         assistant_id=None,
@@ -78,6 +83,7 @@ class BaseInference(ABC):
         assistant_cache: AssistantCache = Depends(get_assistant_cache),
     ):
         self.assistant_cache = assistant_cache
+        self.redis = redis
         self.base_url = base_url
         self.api_key = api_key
         self.assistant_id = assistant_id
@@ -1017,43 +1023,53 @@ class BaseInference(ABC):
         """Non-blocking check of the cancellation flag."""
         return self._cancelled
 
-    def _process_tool_calls(self, thread_id, assistant_id, content, run_id, api_key):
+    def _process_tool_calls(
+        self,
+        thread_id: str,
+        assistant_id: str,
+        content: Dict[str, Any],
+        run_id: str,
+        api_key: str,
+        poll_interval: float = 1.0,
+        max_wait: float = 60.0,
+    ) -> Dict[str, Any]:
 
-        # Save the tool invocation for state management.
+        # 1) Create the action
         action = self.action_client.create_action(
-            tool_name=content["name"], run_id=run_id, function_args=content["arguments"]
+            tool_name=content["name"],
+            run_id=run_id,
+            function_args=content["arguments"],
         )
+        logging_utility.debug("Created action %s for tool %s", action.id, content["name"])
 
-        logging_utility.debug(
-            "Created action %s for tool %s", action.id, content["name"]
-        )
-
-        # Update run status to 'action_required'
-        client = self._get_project_david_client(
-            api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
-        )
-
-        client.runs.update_run_status(
-            run_id=run_id, new_status=validator.StatusEnum.pending_action
-        )
+        # 2) Flip the run to pending_action
+        pd_client = self._get_project_david_client(api_key=os.getenv("ADMIN_API_KEY"),
+                                                   base_url=os.getenv("BASE_URL"))
+        runs_client = pd_client.runs
+        runs_client.update_run_status(run_id=run_id,
+                                      new_status=validator.StatusEnum.pending_action.value)
         logging_utility.info(f"Run {run_id} status updated to action_required")
 
-        # Now wait for the run's status to change from 'action_required'.
+        # 3) Poll until the action is picked up (i.e. no longer pending)
+        start = time.time()
         while True:
-
-            client = self._get_project_david_client(
-                api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
-            )
-
-            run = client.runs.retrieve_run(run_id)
-            if run.status != "action_required":
+            # 3a) Check for pending actions — if none, we’re done
+            pending = self.action_client.get_pending_actions(run_id)
+            if not pending:
                 break
-            time.sleep(1)
 
-        logging_utility.info(
-            "Action status transition complete. Reprocessing conversation."
-        )
+            # 3b) Optionally also check run status for a terminal state
+            run = runs_client.retrieve_run(run_id)
+            if run.status not in (StatusEnum.pending_action.value,):
+                break
 
+            if time.time() - start > max_wait:
+                logging_utility.warning(f"Timeout waiting for action {action.id} on run {run_id}")
+                break
+
+            time.sleep(poll_interval)
+
+        logging_utility.info("Action status transition complete. Reprocessing conversation.")
         return content
 
     def _handle_web_search(self, thread_id, assistant_id, function_output, action):
@@ -1977,7 +1993,7 @@ class BaseInference(ABC):
         raw_list = self.redis.lrange(redis_key, 0, -1)
         if not raw_list:
             # cold start: fallback to DB once, then repopulate
-            client = Entity(base_url=self.pd_base_url, api_key=self.pd_api_key)
+            client = Entity(base_url=os.getenv("ASSISTANTS_BASE_URL"), api_key=os.getenv("ADMIN_API_KEY"))
             full_hist = client.messages.get_formatted_messages(
                 thread_id, system_message=system_msg["content"]
             )
