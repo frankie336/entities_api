@@ -38,10 +38,20 @@ class AssistantCache:
         # Fallback to one DB call
         client = Entity(base_url=self.pd_base_url, api_key=self.pd_api_key)
         assistant = client.assistants.retrieve_assistant(assistant_id=assistant_id)
-        tools = client.tools.list_tools(assistant_id=assistant_id, restructure=True)
+        tools = client.tools.list_tools(
+            assistant_id=assistant_id, restructure=True
+        )
+
+        # build a JSON‐serializable list of tool definitions:
+        clean_tools = [
+            t if isinstance(t, dict) else t.dict()
+            for t in tools
+        ]
+
         payload = {
             "instructions": assistant.instructions,
-            "tools": [t.dict() for t in tools],
+            "tools": clean_tools,
         }
+
         self.set(assistant_id, payload)
         return payload
