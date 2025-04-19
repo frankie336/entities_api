@@ -6,9 +6,9 @@ from typing import Any, Generator, Optional
 from dotenv import load_dotenv
 from projectdavid_common import ValidationInterface
 
+from entities_api.dependencies import get_redis
 from entities_api.inference.base_inference import BaseInference
 from entities_api.services.logging_service import LoggingUtility
-from entities_api.dependencies import get_redis
 
 load_dotenv()
 logging_utility = LoggingUtility()
@@ -21,12 +21,13 @@ class HyperbolicR1Inference(BaseInference, ABC):
             "HyperbolicDeepSeekV3Inference specific setup completed (if any)."
         )
 
-    def _shunt_to_redis_stream(self, redis, stream_key, chunk_dict, *, maxlen=1000,
-                               ttl_seconds=3600):
+    def _shunt_to_redis_stream(
+        self, redis, stream_key, chunk_dict, *, maxlen=1000, ttl_seconds=3600
+    ):
 
-        return super()._shunt_to_redis_stream(redis, stream_key,
-                                              chunk_dict, maxlen=maxlen,
-                                              ttl_seconds=ttl_seconds)
+        return super()._shunt_to_redis_stream(
+            redis, stream_key, chunk_dict, maxlen=maxlen, ttl_seconds=ttl_seconds
+        )
 
     def stream_function_call_output(
         self,
@@ -93,7 +94,7 @@ class HyperbolicR1Inference(BaseInference, ABC):
                 logging_utility.error(error_msg_log)
                 chunk = {
                     "type": "error",
-                    "content": "Server Configuration Error: Hyperbolic service endpoint is not configured. Please check server logs or contact support."
+                    "content": "Server Configuration Error: Hyperbolic service endpoint is not configured. Please check server logs or contact support.",
                 }
                 yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
@@ -110,7 +111,7 @@ class HyperbolicR1Inference(BaseInference, ABC):
                 )
                 chunk = {
                     "type": "error",
-                    "content": f"Failed to initialize client for request: {client_init_error}"
+                    "content": f"Failed to initialize client for request: {client_init_error}",
                 }
                 yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
@@ -120,7 +121,10 @@ class HyperbolicR1Inference(BaseInference, ABC):
             logging_utility.error(
                 f"Run {run_id}: No valid Hyperbolic client available."
             )
-            chunk = {"type": "error", "content": "Hyperbolic client configuration error."}
+            chunk = {
+                "type": "error",
+                "content": "Hyperbolic client configuration error.",
+            }
             yield json.dumps(chunk)
             self._shunt_to_redis_stream(redis, stream_key, chunk)
             return
@@ -208,7 +212,7 @@ class HyperbolicR1Inference(BaseInference, ABC):
                                 match_index = accumulated_content.find(full_match)
                                 if match_index != -1:
                                     accumulated_content = accumulated_content[
-                                        match_index + len(full_match):
+                                        match_index + len(full_match) :
                                     ]
                             code_mode = True
                             code_buffer = partial_match.get("code", "")
@@ -220,23 +224,35 @@ class HyperbolicR1Inference(BaseInference, ABC):
                             if code_buffer and hasattr(
                                 self, "_process_code_interpreter_chunks"
                             ):
-                                results, code_buffer = self._process_code_interpreter_chunks("", code_buffer)
+                                results, code_buffer = (
+                                    self._process_code_interpreter_chunks(
+                                        "", code_buffer
+                                    )
+                                )
                                 for r in results:
                                     yield r
                                     self._shunt_to_redis_stream(redis, stream_key, r)
                                     assistant_reply += (
-                                        r if isinstance(r, str) else json.loads(r).get("content", "")
+                                        r
+                                        if isinstance(r, str)
+                                        else json.loads(r).get("content", "")
                                     )
                             continue
 
                         if code_mode:
                             if hasattr(self, "_process_code_interpreter_chunks"):
-                                results, code_buffer = self._process_code_interpreter_chunks(seg, code_buffer)
+                                results, code_buffer = (
+                                    self._process_code_interpreter_chunks(
+                                        seg, code_buffer
+                                    )
+                                )
                                 for r in results:
                                     yield r
                                     self._shunt_to_redis_stream(redis, stream_key, r)
                                     assistant_reply += (
-                                        r if isinstance(r, str) else json.loads(r).get("content", "")
+                                        r
+                                        if isinstance(r, str)
+                                        else json.loads(r).get("content", "")
                                     )
                             else:
                                 chunk = {"type": "hot_code", "content": seg}
@@ -253,29 +269,41 @@ class HyperbolicR1Inference(BaseInference, ABC):
             error_msg = f"Hyperbolic SDK error (using {key_source_log} key): {str(e)}"
             logging_utility.error(f"Run {run_id}: {error_msg}", exc_info=True)
             if hasattr(self, "handle_error"):
-                self.handle_error(reasoning_content + assistant_reply, thread_id, assistant_id, run_id)
+                self.handle_error(
+                    reasoning_content + assistant_reply, thread_id, assistant_id, run_id
+                )
             chunk = {"type": "error", "content": error_msg}
             yield json.dumps(chunk)
             self._shunt_to_redis_stream(redis, stream_key, chunk)
             return
 
         if assistant_reply and hasattr(self, "finalize_conversation"):
-            self.finalize_conversation(reasoning_content + assistant_reply, thread_id, assistant_id, run_id)
+            self.finalize_conversation(
+                reasoning_content + assistant_reply, thread_id, assistant_id, run_id
+            )
 
         if accumulated_content and hasattr(self, "parse_and_set_function_calls"):
-            function_call = self.parse_and_set_function_calls(accumulated_content, assistant_reply)
+            function_call = self.parse_and_set_function_calls(
+                accumulated_content, assistant_reply
+            )
         else:
             function_call = False
 
         if function_call:
-            self.run_service.update_run_status(run_id, ValidationInterface.StatusEnum.pending_action)
+            self.run_service.update_run_status(
+                run_id, ValidationInterface.StatusEnum.pending_action
+            )
 
         if hasattr(self, "run_service") and hasattr(ValidationInterface, "StatusEnum"):
             if not self.get_function_call_state():
-                self.run_service.update_run_status(run_id, ValidationInterface.StatusEnum.completed)
+                self.run_service.update_run_status(
+                    run_id, ValidationInterface.StatusEnum.completed
+                )
 
         if reasoning_content:
-            logging_utility.info(f"Run {run_id}: Final reasoning content length: {len(reasoning_content)}")
+            logging_utility.info(
+                f"Run {run_id}: Final reasoning content length: {len(reasoning_content)}"
+            )
 
     def process_function_calls(
         self,
