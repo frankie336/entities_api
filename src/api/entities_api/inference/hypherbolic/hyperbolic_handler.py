@@ -41,7 +41,7 @@ class HyperbolicHandler:
     def _get_specific_handler_instance(self, unified_model_id: str) -> Any:
         prefix = "hyperbolic/"
         sub_model_id = (
-            unified_model_id[len(prefix):].lower()
+            unified_model_id[len(prefix) :].lower()
             if unified_model_id.lower().startswith(prefix)
             else unified_model_id.lower()
         )

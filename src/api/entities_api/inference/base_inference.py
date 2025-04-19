@@ -14,6 +14,7 @@ from functools import lru_cache
 from typing import Any, Callable, Dict, Generator, Optional
 
 import httpx
+from fastapi import Depends
 from openai import OpenAI
 from projectdavid import Entity
 from projectdavid.clients.actions_client import ActionsClient
@@ -35,10 +36,12 @@ from entities_api.constants.assistant import (
     WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS)
 from entities_api.constants.platform import (ERROR_NO_CONTENT,
                                              SPECIAL_CASE_TOOL_HANDLING)
+from entities_api.dependencies import get_assistant_cache
 from entities_api.platform_tools.code_interpreter.code_execution_client import \
     StreamOutput
 from entities_api.platform_tools.platform_tool_service import \
     PlatformToolService
+from entities_api.services.cached_assistant import AssistantCache
 from entities_api.services.conversation_truncator import ConversationTruncator
 from entities_api.services.logging_service import LoggingUtility
 
@@ -72,7 +75,9 @@ class BaseInference(ABC):
         max_context_window=128000,
         threshold_percentage=0.8,
         available_functions=None,
+        assistant_cache: AssistantCache = Depends(get_assistant_cache),
     ):
+        self.assistant_cache = assistant_cache
         self.base_url = base_url
         self.api_key = api_key
         self.assistant_id = assistant_id
@@ -1914,7 +1919,22 @@ class BaseInference(ABC):
 
         return results, code_buffer
 
-    def _set_up_context_window(self, assistant_id, thread_id, trunk=True):
+    def _build_system_message(self, assistant_id: str):
+        cfg = self.assistant_cache.retrieve(assistant_id)
+        today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return {
+            "role": "system",
+            "content": (
+                "tools:\n"
+                f"{json.dumps(cfg['tools'])}\n"
+                f"{cfg['instructions']}\n"
+                f"Today's date and time: {today}"
+            ),
+        }
+
+    def _set_up_context_window(
+        self, assistant_id: str, thread_id: str, trunk: bool = True
+    ):
         """Prepares and optimizes conversation context for model processing.
 
         Constructs the conversation history while ensuring it fits within the model's
@@ -1949,42 +1969,32 @@ class BaseInference(ABC):
             Uses LRU-cached service calls for assistant/message retrieval to optimize
             repeated requests with identical parameters.
         """
+        # 1) get system message
+        system_msg = self._build_system_message(assistant_id)
 
-        client = self._get_project_david_client(
-            api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
-        )
+        # 2) fetch your Redis list
+        redis_key = f"thread:{thread_id}:history"
+        raw_list = self.redis.lrange(redis_key, 0, -1)
+        if not raw_list:
+            # cold start: fallback to DB once, then repopulate
+            client = Entity(base_url=self.pd_base_url, api_key=self.pd_api_key)
+            full_hist = client.messages.get_formatted_messages(
+                thread_id, system_message=system_msg["content"]
+            )
+            # push each into Redis
+            for msg in full_hist[-200:]:
+                self.redis.rpush(redis_key, json.dumps(msg))
+            self.redis.ltrim(redis_key, -200, -1)
+            raw_list = [json.dumps(m) for m in full_hist]
 
-        assistant = client.assistants.retrieve_assistant(assistant_id=assistant_id)
+        # 3) reconstruct
+        msgs = [system_msg] + [json.loads(x) for x in raw_list]
 
-        tools = self.tool_service.list_tools(
-            assistant_id=assistant_id, restructure=True
-        )
+        # 4) normalize roles
+        normalized = self.normalize_roles(msgs)
 
-        # Get the current date and time
-        today = datetime.now()
-
-        # Format the date and time as a string
-        formatted_datetime = today.strftime("%Y-%m-%d %H:%M:%S")
-        # Include the formatted date and time in the system message
-        conversation_history = client.messages.get_formatted_messages(
-            thread_id,
-            system_message="tools:"
-            + str(tools)
-            + "\n"
-            + assistant.instructions
-            + "\n"
-            + f"Today's date and time:, {formatted_datetime}",
-        )
-
-        messages = self.normalize_roles(conversation_history)
-
-        # Sliding Windows Truncation
-        truncated_message = self.conversation_truncator.truncate(messages)
-
-        if trunk:
-            return truncated_message
-        else:
-            return messages
+        # 5) optional truncation
+        return self.conversation_truncator.truncate(normalized) if trunk else normalized
 
     def parse_and_set_function_calls(
         self, accumulated_content: str, assistant_reply: str

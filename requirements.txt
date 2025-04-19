@@ -53,7 +53,7 @@ typing_extensions
 uvicorn[standard]
 validators~=0.34.0
 websockets
-
+redis
 # Azure-specific inference
 azure-core
 azure-ai-inference
