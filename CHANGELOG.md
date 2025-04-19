@@ -1,3 +1,10 @@
+## [1.7.1](https://github.com/frankie336/entities_api/compare/v1.7.0...v1.7.1) (2025-04-19)
+
+
+### Bug Fixes
+
+* generate_dev_docker_compose ([570bda1](https://github.com/frankie336/entities_api/commit/570bda1ce25b66bb08b025899a23da953f4b7870))
+
 # [1.7.0](https://github.com/frankie336/entities_api/compare/v1.6.0...v1.7.0) (2025-04-19)
 
 
