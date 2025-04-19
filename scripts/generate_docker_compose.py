@@ -1,23 +1,27 @@
-from pathlib import Path
+#!/usr/bin/env python3
 import secrets
 import uuid
+from pathlib import Path
 
-def generate_orchestration_docker_compose():
-    # Resolve the project root
+
+def generate_dev_docker_compose():
+    # Get project root (assume script is in /scripts)
     script_dir = Path(__file__).resolve().parent
     project_root = script_dir.parent
     output_path = project_root / "docker-compose.yml"
 
+    # ✅ Skip if docker-compose.yml already exists
     if output_path.exists():
-        print(f"⚠️  {output_path.name} already exists. Skipping generation.")
+        print(f"⚠️  {output_path.name} already exists. Generation skipped.")
         return
 
-    # Generate unique secrets
+    # 🔐 Generate dynamic secrets
     unique_network_secret = str(uuid.uuid4())
-    unique_root_password = uuid.uuid4().hex
-    unique_mysql_password = uuid.uuid4().hex
+    unique_root_password = secrets.token_urlsafe(32)
+    unique_mysql_password = secrets.token_urlsafe(32)
     unique_default_secret = secrets.token_urlsafe(32)
 
+    # 🧱 Compose content
     compose_yaml = f"""version: '3.8'
 
 services:
@@ -27,7 +31,7 @@ services:
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD: {unique_root_password}
-      MYSQL_DATABASE: cosmic_catalyst
+      MYSQL_DATABASE: entities_db
       MYSQL_USER: api_user
       MYSQL_PASSWORD: {unique_mysql_password}
     volumes:
@@ -70,16 +74,18 @@ services:
       - my_custom_network
 
   api:
-    image: thanosprime/entities-api-api:latest
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
     container_name: fastapi_cosmic_catalyst
     restart: always
     env_file:
       - .env
     environment:
-      - DATABASE_URL=mysql+pymysql://api_user:{unique_mysql_password}@db:3306/cosmic_catalyst
-      - DEFAULT_SECRET_KEY={unique_default_secret}
+      - DATABASE_URL=mysql+pymysql://api_user:{unique_mysql_password}@db:3306/entities_db
       - SANDBOX_SERVER_URL=http://sandbox:8000
       - QDRANT_URL=http://qdrant:6333
+      - DEFAULT_SECRET_KEY={unique_default_secret}
       - REDIS_URL=redis://redis:6379/0
     ports:
       - "9000:9000"
@@ -92,18 +98,25 @@ services:
         condition: service_started
       redis:
         condition: service_started
-    volumes:
-      - ./scripts:/app/scripts
-    command: ["./wait-for-it.sh", "db:3306", "--", "uvicorn", "entities_api.app:app", "--host", "0.0.0.0", "--port", "9000"]
+    command:
+      - ./wait-for-it.sh
+      - "db:3306"
+      - --
+      - uvicorn
+      - entities_api.app:app
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "9000"
     networks:
       - my_custom_network
 
   sandbox:
-    image: thanosprime/entities-api-sandbox:latest
+    build:
+      context: .
+      dockerfile: docker/sandbox/Dockerfile
     container_name: sandbox_api
     restart: always
-    env_file:
-      - .env
     cap_add:
       - SYS_ADMIN
     security_opt:
@@ -117,6 +130,8 @@ services:
         condition: service_healthy
     volumes:
       - /tmp/sandbox_logs:/app/logs
+    env_file:
+      - .env
     networks:
       - my_custom_network
 
@@ -154,7 +169,9 @@ networks:
       unique_secret: "{unique_network_secret}"
 """
 
-    output_path.write_text(compose_yaml, encoding="utf-8")
+    # 💾 Write to project root
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(compose_yaml)
 
     print("\n✅ docker-compose.yml generated at project root with:")
     print(f"  - MYSQL_ROOT_PASSWORD:  {unique_root_password}")
@@ -162,4 +179,6 @@ networks:
     print(f"  - DEFAULT_SECRET_KEY:   {unique_default_secret}")
     print(f"  - Network Unique ID:    {unique_network_secret}\n")
 
-generate_orchestration_docker_compose()
+
+if __name__ == "__main__":
+    generate_dev_docker_compose()
