@@ -1,108 +1,120 @@
-# entities_api/inference/inference_arbiter.py (Cleaned)
+# entities_api/inference/inference_arbiter.py
 
-import threading
+import os
+import threading  # Keep for potential future use, though lock removed
 from functools import lru_cache
-from typing import Any, Type  # Added Type hints
+from typing import Any, Type
 
-from projectdavid_common.utilities.logging_service import \
-    LoggingUtility  # Adjusted import path based on previous examples
+from projectdavid_common.utilities.logging_service import LoggingUtility
+from redis import Redis
 
-# --- No specific class imports needed here anymore ---
-
+# Import the actual AssistantCache class, NOT the dependency function
+from entities_api.services.cached_assistant import AssistantCache
 
 logging_utility = LoggingUtility()
 
 
 class InferenceArbiter:
-    def __init__(self):
-        self._provider_cache: dict[str, Any] = {}  # Cache instance per class name
-        self._cache_lock = threading.RLock()  # For thread safety
+    def __init__(self, redis: Redis):
+        """
+        Initializes the InferenceArbiter.
 
-    # Keep the robust caching mechanism for instance creation
-    @lru_cache(
-        maxsize=32
-    )  # Caches the *result* of instantiation for a given class type
-    def _create_provider(self, provider_class: Type[Any]) -> Any:
-        """Factory method with LRU caching for provider instances."""
-        # Type checking is good practice here
-        if not isinstance(provider_class, type):
-            raise TypeError(f"Expected a class type, but got {type(provider_class)}")
-        logging_utility.debug(
-            f"Initializing NEW provider instance via LRU cache: {provider_class.__name__}"
+        Args:
+            redis: The Redis client instance, injected via FastAPI dependency.
+        """
+        if not isinstance(redis, Redis):
+            # Add type check for robustness during initialization
+            raise TypeError(f"Expected a Redis client instance, but got {type(redis)}")
+
+        self._redis = redis  # Store the injected Redis client
+
+        # --- FIX: Create AssistantCache instance directly ---
+        # Create the AssistantCache instance ONCE here, using the provided redis client
+        # and fetching necessary env vars.
+        base_url = os.getenv("BASE_URL")
+        admin_api_key = os.getenv("ADMIN_API_KEY")
+        if not base_url or not admin_api_key:
+            # Log a warning or raise an error if config is missing
+            logging_utility.warning(
+                "BASE_URL or ADMIN_API_KEY environment variables not set. "
+                "AssistantCache fallback to DB might fail."
+            )
+            # Depending on requirements, you might want to raise ConfigurationError here
+
+        self._assistant_cache = AssistantCache(
+            redis=self._redis,
+            pd_base_url=base_url,
+            pd_api_key=admin_api_key,
         )
-        # --- Instance Creation ---
-        # This assumes classes have parameterless __init__ or handle their own config
-        return provider_class()
+        # --- END FIX ---
 
-    def get_provider_instance(self, provider_class: Type[Any]) -> Any:
+        logging_utility.info(
+            "InferenceArbiter initialized with Redis client and AssistantCache."
+        )
+        # Note: Removed manual cache dictionary and lock, relying on lru_cache now.
+
+    @lru_cache(maxsize=32)  # Caches based on provider_class
+    def _get_or_create_provider_cached(
+        self, provider_class: Type[Any], **kwargs
+    ) -> Any:
         """
-        Thread-safe provider instance retrieval using the class type.
-        Gets existing instance from cache or creates/caches a new one.
+        Factory method using LRU caching to get or create provider instances.
+        Now correctly injects both redis and the pre-created assistant_cache.
         """
         if not isinstance(provider_class, type):
             raise TypeError(f"Expected a class type, but got {type(provider_class)}")
 
-        class_name = provider_class.__name__
+        logging_utility.info(  # Changed to INFO for visibility on instance creation
+            f"Creating NEW provider instance via LRU cache: {provider_class.__name__}"
+        )
 
-        # Check instance cache first (fast path, no lock needed for read)
-        instance = self._provider_cache.get(class_name)
-        if instance:
-            return instance
-
-        # If not in instance cache, acquire lock and double-check before creating
-        with self._cache_lock:
-            instance = self._provider_cache.get(class_name)  # Double check
-            if not instance:
-                logging_utility.debug(
-                    f"Instance cache miss for {class_name}. Attempting creation."
-                )
-                # Call the LRU-cached creation method
-                instance = self._create_provider(provider_class)
-                self._provider_cache[class_name] = instance  # Store in instance cache
+        # --- FIX: Pass BOTH redis and the created assistant_cache ---
+        # BaseInference.__init__ expects both `redis` and `assistant_cache`
+        instance = provider_class(
+            redis=self._redis,
+            assistant_cache=self._assistant_cache,  # Pass the instance created in __init__
+            **kwargs,  # Pass along any other necessary kwargs
+        )
+        # --- END FIX ---
         return instance
 
-    # --- Specific get_xyz methods REMOVED ---
-    # --- PROVIDER_CLASSES dictionary REMOVED ---
+    def get_provider_instance(self, provider_class: Type[Any], **kwargs) -> Any:
+        """
+        Retrieves a provider instance using LRU caching based on the class type.
+        Simplified to directly use the lru_cache-decorated method.
+        """
+        # The lru_cache on _get_or_create_provider_cached handles the caching.
+        # kwargs are passed to handle potential variations in provider init if needed.
+        return self._get_or_create_provider_cached(provider_class, **kwargs)
 
-    # --- Cache management and Monitoring properties remain useful ---
     def clear_cache(self):
-        """Clear all cached provider instances."""
-        with self._cache_lock:
-            self._provider_cache.clear()
-            self._create_provider.cache_clear()  # Clear LRU cache too
-        logging_utility.info("InferenceArbiter cache cleared.")
+        """Clear the LRU cache for provider instances."""
+        self._get_or_create_provider_cached.cache_clear()
+        logging_utility.info("InferenceArbiter LRU cache cleared.")
 
-    def refresh_provider(self, provider_class: Type[Any]) -> Any:
-        """Force refresh a specific provider instance."""
+    def refresh_provider(self, provider_class: Type[Any], **kwargs) -> Any:
+        """Force refresh a specific provider instance by clearing the cache and getting a new one."""
         if not isinstance(provider_class, type):
             raise TypeError(f"Expected a class type, but got {type(provider_class)}")
 
         class_name = provider_class.__name__
         logging_utility.info(f"Refreshing provider instance for {class_name}")
-        with self._cache_lock:
-            # Clear the specific entry from LRU if possible (clearing all is safer)
-            self._create_provider.cache_clear()  # Clear entire LRU cache
-            if class_name in self._provider_cache:
-                del self._provider_cache[class_name]  # Clear instance cache entry
-        # Get (or create) a fresh instance
-        return self.get_provider_instance(provider_class)
+        # Clear the entire LRU cache (lru_cache doesn't support targeted eviction easily)
+        # Alternatively, if specific eviction is critical, revert to manual dict cache.
+        self.clear_cache()
+        # Get a potentially new instance (will be new if not already created post-clear)
+        return self.get_provider_instance(provider_class, **kwargs)
 
     @property
     def cache_stats(self):
-        """Returns statistics about the instance and LRU caches."""
-        lru_info = self._create_provider.cache_info()
-        with self._cache_lock:
-            instance_cache_size = len(self._provider_cache)
+        """Returns statistics about the LRU cache."""
+        lru_info = self._get_or_create_provider_cached.cache_info()
         return {
-            "instance_cache_size": instance_cache_size,
             "lru_hits": lru_info.hits,
             "lru_misses": lru_info.misses,
             "lru_max_size": lru_info.maxsize,
             "lru_current_size": lru_info.currsize,
         }
 
-    @property
-    def active_providers(self) -> list[str]:
-        """Returns a list of class names currently held in the instance cache."""
-        with self._cache_lock:
-            return list(self._provider_cache.keys())
+    # Note: active_providers property is removed as lru_cache doesn't easily expose keys.
+    # If needed, you would have to revert to the manual dictionary cache (`_provider_cache`).

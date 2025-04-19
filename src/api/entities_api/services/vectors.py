@@ -385,7 +385,7 @@ class VectorStoreDBService:
         )
         if not assistant:
             return []
-        active = [vs for vs in assistant.vector_stores if vs.status != StatusEnum.deleted]
-        return [
-            ValidationInterface.VectorStoreRead.model_validate(vs) for vs in active
+        active = [
+            vs for vs in assistant.vector_stores if vs.status != StatusEnum.deleted
         ]
+        return [ValidationInterface.VectorStoreRead.model_validate(vs) for vs in active]

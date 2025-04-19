@@ -1,5 +1,6 @@
 import asyncio
 import json
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from projectdavid_common import UtilsInterface, ValidationInterface
 from projectdavid_common.schemas.enums import StatusEnum
@@ -120,7 +121,7 @@ async def stream_run_events(
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    run_svc    = RunService(db)
+    run_svc = RunService(db)
     action_svc = ActionService(db)
 
     async def event_generator():

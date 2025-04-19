@@ -1,5 +1,3 @@
-# entities_api/inference/handlers/hyperbolic_handler.py
-
 from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
@@ -19,8 +17,8 @@ logging_utility = LoggingUtility()
 
 class HyperbolicHandler:
     """
-    Pure synchronous dispatcher for Hyperbolic model requests. Delegates to
-    concrete handler classes based on model ID. Contains no business logic.
+    Pure synchronous dispatcher for Hyperbolic model requests.
+    Delegates to concrete handler classes based on model ID.
     """
 
     SUBMODEL_CLASS_MAP: dict[str, Type[Any]] = {
@@ -48,7 +46,7 @@ class HyperbolicHandler:
 
         if not unified_model_id.lower().startswith(prefix):
             logging_utility.warning(
-                f"Model ID '{unified_model_id}' did not start with 'hyperbolic/'."
+                f"Model ID '{unified_model_id}' did not start with expected prefix '{prefix}'."
             )
 
         SpecificHandlerClass = None
@@ -131,7 +129,12 @@ class HyperbolicHandler:
         )
 
     def process_function_calls(
-        self, thread_id, run_id, assistant_id, model=None, api_key=None
+        self,
+        thread_id,
+        run_id,
+        assistant_id,
+        model=None,
+        api_key=None,
     ) -> Generator[str, None, None]:
         logging_utility.debug(f"Dispatching process_function_calls for: {model}")
         handler = self._get_specific_handler_instance(model)

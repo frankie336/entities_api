@@ -13,9 +13,6 @@ from datetime import datetime
 from functools import lru_cache
 from typing import Any, Callable, Dict, Generator, Optional
 
-from projectdavid_common.schemas.enums import StatusEnum
-from redis import Redis
-
 import httpx
 from fastapi import Depends
 from openai import OpenAI
@@ -31,6 +28,8 @@ from projectdavid.clients.users_client import UsersClient
 from projectdavid.clients.vectors import VectorStoreClient
 from projectdavid_common import ValidationInterface
 from projectdavid_common.constants.ai_model_map import MODEL_MAP
+from projectdavid_common.schemas.enums import StatusEnum
+from redis import Redis
 from together import Together
 
 from entities_api.constants.assistant import (
@@ -1040,14 +1039,18 @@ class BaseInference(ABC):
             run_id=run_id,
             function_args=content["arguments"],
         )
-        logging_utility.debug("Created action %s for tool %s", action.id, content["name"])
+        logging_utility.debug(
+            "Created action %s for tool %s", action.id, content["name"]
+        )
 
         # 2) Flip the run to pending_action
-        pd_client = self._get_project_david_client(api_key=os.getenv("ADMIN_API_KEY"),
-                                                   base_url=os.getenv("BASE_URL"))
+        pd_client = self._get_project_david_client(
+            api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
+        )
         runs_client = pd_client.runs
-        runs_client.update_run_status(run_id=run_id,
-                                      new_status=validator.StatusEnum.pending_action.value)
+        runs_client.update_run_status(
+            run_id=run_id, new_status=validator.StatusEnum.pending_action.value
+        )
         logging_utility.info(f"Run {run_id} status updated to action_required")
 
         # 3) Poll until the action is picked up (i.e. no longer pending)
@@ -1064,12 +1067,16 @@ class BaseInference(ABC):
                 break
 
             if time.time() - start > max_wait:
-                logging_utility.warning(f"Timeout waiting for action {action.id} on run {run_id}")
+                logging_utility.warning(
+                    f"Timeout waiting for action {action.id} on run {run_id}"
+                )
                 break
 
             time.sleep(poll_interval)
 
-        logging_utility.info("Action status transition complete. Reprocessing conversation.")
+        logging_utility.info(
+            "Action status transition complete. Reprocessing conversation."
+        )
         return content
 
     def _handle_web_search(self, thread_id, assistant_id, function_output, action):
@@ -1993,7 +2000,10 @@ class BaseInference(ABC):
         raw_list = self.redis.lrange(redis_key, 0, -1)
         if not raw_list:
             # cold start: fallback to DB once, then repopulate
-            client = Entity(base_url=os.getenv("ASSISTANTS_BASE_URL"), api_key=os.getenv("ADMIN_API_KEY"))
+            client = Entity(
+                base_url=os.getenv("ASSISTANTS_BASE_URL"),
+                api_key=os.getenv("ADMIN_API_KEY"),
+            )
             full_hist = client.messages.get_formatted_messages(
                 thread_id, system_message=system_msg["content"]
             )

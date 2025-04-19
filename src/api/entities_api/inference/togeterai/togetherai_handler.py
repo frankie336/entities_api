@@ -1,4 +1,3 @@
-# entities_api/inference/togetherai/togetherai_handler.py
 from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
@@ -19,9 +18,6 @@ class TogetherAIHandler:
     canonical model id and then streams / processes via that class.
     """
 
-    # ------------------------------------------------------------------ #
-    # Mapping: canonical‑model‑id  ➜  concrete inference class
-    # ------------------------------------------------------------------ #
     SUBMODEL_CLASS_MAP: dict[str, Type[Any]] = {
         # DeepSeek@TogetherAI
         "deepseek-ai/DeepSeek-R1": TogetherDeepSeekR1Inference,
@@ -55,9 +51,6 @@ class TogetherAIHandler:
         )
         logging_utility.info("TogetherAIHandler dispatcher initialized.")
 
-    # ------------------------------------------------------------------ #
-    #  Dispatcher internals
-    # ------------------------------------------------------------------ #
     def _get_specific_handler_instance(self, unified_model_id: str) -> Any:
         """
         Returns the correct concrete inference class instance
@@ -66,13 +59,12 @@ class TogetherAIHandler:
         prefix = "together-ai/"
         lower_id = unified_model_id.lower()
 
-        # strip off "together-ai/" prefix
         if lower_id.startswith(prefix):
             sub_model_id = lower_id[len(prefix) :]
         else:
             sub_model_id = lower_id
             logging_utility.warning(
-                f"Model ID '{unified_model_id}' did not start with '{prefix}'."
+                f"Model ID '{unified_model_id}' did not start with expected prefix '{prefix}'."
             )
 
         specific_cls: Optional[Type[Any]] = None
@@ -88,17 +80,13 @@ class TogetherAIHandler:
 
         if specific_cls is None:
             logging_utility.error(
-                f"No handler found for model ID '{sub_model_id}' "
-                f"(original: '{unified_model_id}')"
+                f"No handler found for model ID '{sub_model_id}' (original: '{unified_model_id}')"
             )
             raise ValueError(f"Unsupported TogetherAI model: {unified_model_id}")
 
         logging_utility.debug(f"Dispatching to: {specific_cls.__name__}")
         return self.arbiter.get_provider_instance(specific_cls)
 
-    # ------------------------------------------------------------------ #
-    #  Public streaming / processing methods
-    # ------------------------------------------------------------------ #
     def process_conversation(
         self,
         thread_id,
