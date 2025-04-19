@@ -11,6 +11,7 @@ from entities_api.inference.base_inference import BaseInference
 from entities_api.inference.hypherbolic.hyperbolic_async_client import \
     AsyncHyperbolicClient
 from entities_api.utils.async_to_sync import async_to_sync_stream
+from entities_api.dependencies import get_redis
 
 load_dotenv()
 logging_utility = LoggingUtility()
@@ -23,6 +24,13 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
             "HyperbolicDeepSeekV3Inference specific setup completed (if any)."
         )
 
+    def _shunt_to_redis_stream(self, redis, stream_key, chunk_dict, *, maxlen=1000,
+                               ttl_seconds=3600):
+
+        return super()._shunt_to_redis_stream(redis, stream_key,
+                                              chunk_dict, maxlen=maxlen,
+                                              ttl_seconds=ttl_seconds)
+
     def stream_function_call_output(
         self,
         thread_id,
@@ -34,7 +42,6 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
         stream_reasoning=False,
         api_key: Optional[str] = None,
     ):
-
         return super().stream_function_call_output(
             thread_id=thread_id,
             run_id=run_id,
@@ -56,6 +63,9 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
 
+        redis = get_redis()
+        stream_key = f"stream:{run_id}"
+
         self.start_cancellation_listener(run_id)
 
         if self._get_model_map(value=model):
@@ -73,20 +83,20 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
 
         if not api_key:
             logging_utility.error(f"Run {run_id}: No API key provided.")
-            yield json.dumps(
-                {"type": "error", "content": "Missing API key for Hyperbolic."}
-            )
+            chunk = {"type": "error", "content": "Missing API key for Hyperbolic."}
+            yield json.dumps(chunk)
+            self._shunt_to_redis_stream(redis, stream_key, chunk)
             return
 
         hyperbolic_base_url = os.getenv("HYPERBOLIC_BASE_URL")
         if not hyperbolic_base_url:
             logging_utility.error(f"Run {run_id}: Missing HYPERBOLIC_BASE_URL.")
-            yield json.dumps(
-                {
-                    "type": "error",
-                    "content": "Hyperbolic service not configured. Contact support.",
-                }
-            )
+            chunk = {
+                "type": "error",
+                "content": "Hyperbolic service not configured. Contact support.",
+            }
+            yield json.dumps(chunk)
+            self._shunt_to_redis_stream(redis, stream_key, chunk)
             return
 
         client = AsyncHyperbolicClient(api_key=api_key, base_url=hyperbolic_base_url)
@@ -110,7 +120,9 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
             for token in async_to_sync_stream(async_stream):
                 if self.check_cancellation_flag():
                     logging_utility.warning(f"Run {run_id} cancelled mid-stream")
-                    yield json.dumps({"type": "error", "content": "Run cancelled"})
+                    chunk = {"type": "error", "content": "Run cancelled"}
+                    yield json.dumps(chunk)
+                    self._shunt_to_redis_stream(redis, stream_key, chunk)
                     break
 
                 segments = (
@@ -127,29 +139,32 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
                         in_reasoning = True
                         reasoning_content += seg
                         if stream_reasoning:
-                            yield json.dumps({"type": "reasoning", "content": seg})
+                            chunk = {"type": "reasoning", "content": seg}
+                            yield json.dumps(chunk)
+                            self._shunt_to_redis_stream(redis, stream_key, chunk)
                         continue
                     elif seg == "</think>":
                         in_reasoning = False
                         reasoning_content += seg
                         if stream_reasoning:
-                            yield json.dumps({"type": "reasoning", "content": seg})
+                            chunk = {"type": "reasoning", "content": seg}
+                            yield json.dumps(chunk)
+                            self._shunt_to_redis_stream(redis, stream_key, chunk)
                         continue
 
                     if in_reasoning:
                         reasoning_content += seg
                         if stream_reasoning:
-                            yield json.dumps({"type": "reasoning", "content": seg})
+                            chunk = {"type": "reasoning", "content": seg}
+                            yield json.dumps(chunk)
+                            self._shunt_to_redis_stream(redis, stream_key, chunk)
                     else:
                         assistant_reply += seg
                         accumulated_content += seg
 
-                        if hasattr(self, "parse_code_interpreter_partial"):
-                            partial_match = self.parse_code_interpreter_partial(
-                                accumulated_content
-                            )
-                        else:
-                            partial_match = None
+                        partial_match = self.parse_code_interpreter_partial(
+                            accumulated_content
+                        ) if hasattr(self, "parse_code_interpreter_partial") else None
 
                         if not code_mode and partial_match:
                             full_match = partial_match.get("full_match")
@@ -157,14 +172,14 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
                                 match_index = accumulated_content.find(full_match)
                                 if match_index != -1:
                                     accumulated_content = accumulated_content[
-                                        match_index + len(full_match) :
+                                        match_index + len(full_match):
                                     ]
                             code_mode = True
                             code_buffer = partial_match.get("code", "")
                             self.code_mode = True
-                            yield json.dumps(
-                                {"type": "hot_code", "content": "```python\n"}
-                            )
+                            chunk = {"type": "hot_code", "content": "```python\n"}
+                            yield json.dumps(chunk)
+                            self._shunt_to_redis_stream(redis, stream_key, chunk)
                             if code_buffer and hasattr(
                                 self, "_process_code_interpreter_chunks"
                             ):
@@ -175,10 +190,9 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
                                 )
                                 for r in results:
                                     yield r
+                                    self._shunt_to_redis_stream(redis, stream_key, r)
                                     assistant_reply += (
-                                        r
-                                        if isinstance(r, str)
-                                        else json.loads(r).get("content", "")
+                                        r if isinstance(r, str) else json.loads(r).get("content", "")
                                     )
                             continue
 
@@ -191,17 +205,20 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
                                 )
                                 for r in results:
                                     yield r
+                                    self._shunt_to_redis_stream(redis, stream_key, r)
                                     assistant_reply += (
-                                        r
-                                        if isinstance(r, str)
-                                        else json.loads(r).get("content", "")
+                                        r if isinstance(r, str) else json.loads(r).get("content", "")
                                     )
                             else:
-                                yield json.dumps({"type": "hot_code", "content": seg})
+                                chunk = {"type": "hot_code", "content": seg}
+                                yield json.dumps(chunk)
+                                self._shunt_to_redis_stream(redis, stream_key, chunk)
                             continue
 
                         if not code_buffer:
-                            yield json.dumps({"type": "content", "content": seg})
+                            chunk = {"type": "content", "content": seg}
+                            yield json.dumps(chunk)
+                            self._shunt_to_redis_stream(redis, stream_key, chunk)
 
         except Exception as e:
             error_msg = f"Hyperbolic client stream error: {str(e)}"
@@ -210,7 +227,9 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
                 self.handle_error(
                     reasoning_content + assistant_reply, thread_id, assistant_id, run_id
                 )
-            yield json.dumps({"type": "error", "content": error_msg})
+            chunk = {"type": "error", "content": error_msg}
+            yield json.dumps(chunk)
+            self._shunt_to_redis_stream(redis, stream_key, chunk)
             return
 
         if assistant_reply and hasattr(self, "finalize_conversation"):
@@ -249,7 +268,6 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
         model=None,
         api_key: Optional[str] = None,
     ):
-
         return super().process_function_calls(
             thread_id=thread_id,
             run_id=run_id,
@@ -268,11 +286,6 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
         stream_reasoning=False,
         api_key: Optional[str] = None,
     ):
-        """
-        Processes the conversation, passing the api_key down for use
-        in the actual API request via override.
-        """
-
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)
 
@@ -293,7 +306,6 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
 
         fc_state = self.get_function_call_state()
 
-        # Process function calls, passing the api_key if needed by sub-calls
         for chunk in self.process_function_calls(
             thread_id=thread_id,
             run_id=run_id,

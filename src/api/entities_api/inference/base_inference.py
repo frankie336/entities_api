@@ -1942,6 +1942,26 @@ class BaseInference(ABC):
 
         return results, code_buffer
 
+    def _shunt_to_redis_stream(self, redis, stream_key, chunk_dict, *, maxlen=1000,
+                               ttl_seconds=3600):
+        try:
+            if isinstance(chunk_dict, str):
+                chunk_dict = json.loads(chunk_dict)
+
+            # Push to Redis stream with capped maxlen
+            redis.xadd(stream_key, chunk_dict, maxlen=maxlen, approximate=True)
+
+            # Ensure the stream will expire (set once per run)
+            if not redis.exists(f"{stream_key}::ttl_set"):
+                redis.expire(stream_key, ttl_seconds)
+                redis.set(f"{stream_key}::ttl_set", "1", ex=ttl_seconds)
+
+        except Exception as e:
+            logging_utility.warning(
+                f"[Redis Shunt] Failed to XADD or EXPIRE {stream_key}: {e}",
+                exc_info=True
+            )
+
     def _build_system_message(self, assistant_id: str):
         cfg = self.assistant_cache.retrieve(assistant_id)
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

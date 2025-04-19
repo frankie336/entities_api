@@ -10,6 +10,7 @@ from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from entities_api.inference.base_inference import BaseInference
+from entities_api.dependencies import get_redis
 
 load_dotenv()
 logging_utility = LoggingUtility()
@@ -22,6 +23,13 @@ class HyperbolicLlama33Inference(BaseInference, ABC):
             "HyperbolicDeepSeekV3Inference specific setup completed (if any)."
         )
 
+    def _shunt_to_redis_stream(self, redis, stream_key, chunk_dict, *, maxlen=1000,
+                               ttl_seconds=3600):
+
+        return super()._shunt_to_redis_stream(redis, stream_key,
+                                              chunk_dict, maxlen=maxlen,
+                                              ttl_seconds=ttl_seconds)
+
     def stream_function_call_output(
         self,
         thread_id,
@@ -33,7 +41,6 @@ class HyperbolicLlama33Inference(BaseInference, ABC):
         stream_reasoning=False,
         api_key: Optional[str] = None,
     ):
-
         return super().stream_function_call_output(
             thread_id=thread_id,
             run_id=run_id,
@@ -54,6 +61,9 @@ class HyperbolicLlama33Inference(BaseInference, ABC):
         stream_reasoning: bool = True,
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
+
+        redis = get_redis()
+        stream_key = f"stream:{run_id}"
 
         self.start_cancellation_listener(run_id)
 
@@ -76,7 +86,6 @@ class HyperbolicLlama33Inference(BaseInference, ABC):
         code_buffer = ""
 
         try:
-
             client_to_use = self._get_openai_client(
                 base_url=os.getenv("HYPERBOLIC_BASE_URL"), api_key=api_key
             )
@@ -86,7 +95,9 @@ class HyperbolicLlama33Inference(BaseInference, ABC):
             for token in response:
                 if self.check_cancellation_flag():
                     logging_utility.warning(f"Run {run_id} cancelled mid-stream")
-                    yield json.dumps({"type": "error", "content": "Run cancelled"})
+                    chunk = {"type": "error", "content": "Run cancelled"}
+                    yield json.dumps(chunk)
+                    self._shunt_to_redis_stream(redis, stream_key, chunk)
                     break
 
                 if not hasattr(token, "choices") or not token.choices:
@@ -109,7 +120,6 @@ class HyperbolicLlama33Inference(BaseInference, ABC):
                     assistant_reply += seg
                     accumulated_content += seg
 
-                    # --- Code Interpreter Trigger Check ---
                     partial_match = self.parse_code_interpreter_partial(
                         accumulated_content
                     )
@@ -120,12 +130,14 @@ class HyperbolicLlama33Inference(BaseInference, ABC):
                             match_index = accumulated_content.find(full_match)
                             if match_index != -1:
                                 accumulated_content = accumulated_content[
-                                    match_index + len(full_match) :
+                                    match_index + len(full_match):
                                 ]
                         code_mode = True
                         code_buffer = partial_match.get("code", "")
                         self.code_mode = True
-                        yield json.dumps({"type": "hot_code", "content": "```python\n"})
+                        chunk = {"type": "hot_code", "content": "```python\n"}
+                        yield json.dumps(chunk)
+                        self._shunt_to_redis_stream(redis, stream_key, chunk)
                         continue
 
                     if code_mode:
@@ -134,11 +146,14 @@ class HyperbolicLlama33Inference(BaseInference, ABC):
                         )
                         for r in results:
                             yield r
+                            self._shunt_to_redis_stream(redis, stream_key, r)
                             assistant_reply += r
                         continue
 
                     if not code_buffer:
-                        yield json.dumps({"type": "content", "content": seg}) + "\n"
+                        chunk = {"type": "content", "content": seg}
+                        yield json.dumps(chunk)
+                        self._shunt_to_redis_stream(redis, stream_key, chunk)
 
                 time.sleep(0.05)
 
@@ -146,10 +161,11 @@ class HyperbolicLlama33Inference(BaseInference, ABC):
             error_msg = f"Llama 3 / Hyperbolic SDK error: {str(e)}"
             logging_utility.error(error_msg, exc_info=True)
             self.handle_error(assistant_reply, thread_id, assistant_id, run_id)
-            yield json.dumps({"type": "error", "content": error_msg})
+            chunk = {"type": "error", "content": error_msg}
+            yield json.dumps(chunk)
+            self._shunt_to_redis_stream(redis, stream_key, chunk)
             return
 
-        # Finalize assistant message and parse function calls
         if assistant_reply:
             self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
 
@@ -169,7 +185,6 @@ class HyperbolicLlama33Inference(BaseInference, ABC):
         model=None,
         api_key: Optional[str] = None,
     ):
-
         return super().process_function_calls(
             thread_id=thread_id,
             run_id=run_id,
@@ -188,11 +203,6 @@ class HyperbolicLlama33Inference(BaseInference, ABC):
         stream_reasoning=False,
         api_key: Optional[str] = None,
     ):
-        """
-        Processes the conversation, passing the api_key down for use
-        in the actual API request via override.
-        """
-
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)
 
@@ -213,7 +223,6 @@ class HyperbolicLlama33Inference(BaseInference, ABC):
 
         fc_state = self.get_function_call_state()
 
-        # Process function calls, passing the api_key if needed by sub-calls
         for chunk in self.process_function_calls(
             thread_id=thread_id,
             run_id=run_id,
