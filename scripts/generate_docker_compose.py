@@ -62,6 +62,17 @@ services:
     networks:
       - my_custom_network
 
+  redis:
+    image: redis:7
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - my_custom_network
+
   api:
     build:
       context: .
@@ -75,6 +86,7 @@ services:
       - SANDBOX_SERVER_URL=http://sandbox:8000
       - QDRANT_URL=http://qdrant:6333
       - DEFAULT_SECRET_KEY={unique_default_secret}
+      - REDIS_URL=redis://redis:6379/0
     ports:
       - "9000:9000"
     depends_on:
@@ -84,7 +96,18 @@ services:
         condition: service_started
       qdrant:
         condition: service_started
-    command: ["./wait-for-it.sh", "db:3306", "--", "uvicorn", "entities_api.app:app", "--host", "0.0.0.0", "--port", "9000"]
+      redis:
+        condition: service_started
+    command:
+      - ./wait-for-it.sh
+      - "db:3306"
+      - --
+      - uvicorn
+      - entities_api.app:app
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "9000"
     networks:
       - my_custom_network
 
@@ -135,6 +158,8 @@ volumes:
   mysql_data:
     driver: local
   qdrant_storage:
+    driver: local
+  redis_data:
     driver: local
 
 networks:

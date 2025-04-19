@@ -101,6 +101,7 @@ class DockerManager:
         "SHELL_SERVER_URL": "ws://sandbox_api:8000/ws/computer",
         "CODE_EXECUTION_URL": "ws://sandbox_api:8000/ws/execute",
         "DISABLE_FIREJAIL": "true",
+        "REDIS_URL": "redis://redis:6379/0",
         # --- SMB Client Fallbacks ---
         "SMBCLIENT_SERVER": "samba_server",
         "SMBCLIENT_SHARE": "cosmic_share",
