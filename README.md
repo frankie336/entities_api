@@ -63,6 +63,10 @@ We don’t just support RAG — we orchestrate it:
 > These are the primary models supported or targeted in Entities.  
 > Availability may depend on provider integration status.
 
+
+<details>
+<summary><strong>📖 View Full Model Support List</strong></summary>
+
 <!-- ✅ Supported Models -->
 ![DeepSeek-V3](https://img.shields.io/badge/DeepSeek--V3-✅%20Ready-brightgreen)
 ![DeepSeek-R1](https://img.shields.io/badge/DeepSeek--R1-✅%20Ready-brightgreen)
@@ -105,6 +109,8 @@ We don’t just support RAG — we orchestrate it:
 ![LearnLM-1.5-Pro](https://img.shields.io/badge/LearnLM--1.5--Pro-⚠️%20Experimental-orange)
 ![GPT-4](https://img.shields.io/badge/GPT--4-⚠️%20Beta-orange)
 ![Claude-3](https://img.shields.io/badge/Claude--3-❌%20Pending-lightgrey)
+
+</details>
 
 ---
 
