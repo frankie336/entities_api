@@ -7,11 +7,11 @@ from dotenv import load_dotenv
 from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
+from entities_api.dependencies import get_redis
 from entities_api.inference.base_inference import BaseInference
 from entities_api.inference.hypherbolic.hyperbolic_async_client import \
     AsyncHyperbolicClient
 from entities_api.utils.async_to_sync import async_to_sync_stream
-from entities_api.dependencies import get_redis
 
 load_dotenv()
 logging_utility = LoggingUtility()
@@ -24,12 +24,13 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
             "HyperbolicDeepSeekV3Inference specific setup completed (if any)."
         )
 
-    def _shunt_to_redis_stream(self, redis, stream_key, chunk_dict, *, maxlen=1000,
-                               ttl_seconds=3600):
+    def _shunt_to_redis_stream(
+        self, redis, stream_key, chunk_dict, *, maxlen=1000, ttl_seconds=3600
+    ):
 
-        return super()._shunt_to_redis_stream(redis, stream_key,
-                                              chunk_dict, maxlen=maxlen,
-                                              ttl_seconds=ttl_seconds)
+        return super()._shunt_to_redis_stream(
+            redis, stream_key, chunk_dict, maxlen=maxlen, ttl_seconds=ttl_seconds
+        )
 
     def stream_function_call_output(
         self,
@@ -162,9 +163,11 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
                         assistant_reply += seg
                         accumulated_content += seg
 
-                        partial_match = self.parse_code_interpreter_partial(
-                            accumulated_content
-                        ) if hasattr(self, "parse_code_interpreter_partial") else None
+                        partial_match = (
+                            self.parse_code_interpreter_partial(accumulated_content)
+                            if hasattr(self, "parse_code_interpreter_partial")
+                            else None
+                        )
 
                         if not code_mode and partial_match:
                             full_match = partial_match.get("full_match")
@@ -172,7 +175,7 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
                                 match_index = accumulated_content.find(full_match)
                                 if match_index != -1:
                                     accumulated_content = accumulated_content[
-                                        match_index + len(full_match):
+                                        match_index + len(full_match) :
                                     ]
                             code_mode = True
                             code_buffer = partial_match.get("code", "")
@@ -192,7 +195,9 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
                                     yield r
                                     self._shunt_to_redis_stream(redis, stream_key, r)
                                     assistant_reply += (
-                                        r if isinstance(r, str) else json.loads(r).get("content", "")
+                                        r
+                                        if isinstance(r, str)
+                                        else json.loads(r).get("content", "")
                                     )
                             continue
 
@@ -207,7 +212,9 @@ class HyperbolicQuenQwq32bInference(BaseInference, ABC):
                                     yield r
                                     self._shunt_to_redis_stream(redis, stream_key, r)
                                     assistant_reply += (
-                                        r if isinstance(r, str) else json.loads(r).get("content", "")
+                                        r
+                                        if isinstance(r, str)
+                                        else json.loads(r).get("content", "")
                                     )
                             else:
                                 chunk = {"type": "hot_code", "content": seg}

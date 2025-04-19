@@ -1942,8 +1942,9 @@ class BaseInference(ABC):
 
         return results, code_buffer
 
-    def _shunt_to_redis_stream(self, redis, stream_key, chunk_dict, *, maxlen=1000,
-                               ttl_seconds=3600):
+    def _shunt_to_redis_stream(
+        self, redis, stream_key, chunk_dict, *, maxlen=1000, ttl_seconds=3600
+    ):
         try:
             if isinstance(chunk_dict, str):
                 chunk_dict = json.loads(chunk_dict)
@@ -1959,7 +1960,7 @@ class BaseInference(ABC):
         except Exception as e:
             logging_utility.warning(
                 f"[Redis Shunt] Failed to XADD or EXPIRE {stream_key}: {e}",
-                exc_info=True
+                exc_info=True,
             )
 
     def _build_system_message(self, assistant_id: str):

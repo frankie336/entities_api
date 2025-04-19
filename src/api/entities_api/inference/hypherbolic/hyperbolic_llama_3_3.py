@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.inference.base_inference import BaseInference
 from entities_api.dependencies import get_redis
+from entities_api.inference.base_inference import BaseInference
 
 load_dotenv()
 logging_utility = LoggingUtility()
@@ -23,12 +23,13 @@ class HyperbolicLlama33Inference(BaseInference, ABC):
             "HyperbolicDeepSeekV3Inference specific setup completed (if any)."
         )
 
-    def _shunt_to_redis_stream(self, redis, stream_key, chunk_dict, *, maxlen=1000,
-                               ttl_seconds=3600):
+    def _shunt_to_redis_stream(
+        self, redis, stream_key, chunk_dict, *, maxlen=1000, ttl_seconds=3600
+    ):
 
-        return super()._shunt_to_redis_stream(redis, stream_key,
-                                              chunk_dict, maxlen=maxlen,
-                                              ttl_seconds=ttl_seconds)
+        return super()._shunt_to_redis_stream(
+            redis, stream_key, chunk_dict, maxlen=maxlen, ttl_seconds=ttl_seconds
+        )
 
     def stream_function_call_output(
         self,
@@ -130,7 +131,7 @@ class HyperbolicLlama33Inference(BaseInference, ABC):
                             match_index = accumulated_content.find(full_match)
                             if match_index != -1:
                                 accumulated_content = accumulated_content[
-                                    match_index + len(full_match):
+                                    match_index + len(full_match) :
                                 ]
                         code_mode = True
                         code_buffer = partial_match.get("code", "")
