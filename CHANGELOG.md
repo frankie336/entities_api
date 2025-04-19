@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/frankie336/entities_api/compare/v1.6.0...v1.7.0) (2025-04-19)
+
+
+### Features
+
+* shunt-streams-to-redis-phase-1 ([1cab6f5](https://github.com/frankie336/entities_api/commit/1cab6f5596e7643b31f867729ae4a450c317f5f7))
+
 # [1.6.0](https://github.com/frankie336/entities_api/compare/v1.5.0...v1.6.0) (2025-04-19)
 
 
