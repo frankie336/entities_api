@@ -1,10 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException
+import asyncio
+import json
+from fastapi import APIRouter, Depends, HTTPException, Request
 from projectdavid_common import UtilsInterface, ValidationInterface
+from projectdavid_common.schemas.enums import StatusEnum
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
+from sse_starlette.sse import EventSourceResponse
 
 from entities_api.dependencies import get_api_key, get_db
 from entities_api.models.models import ApiKey as ApiKeyModel
+from entities_api.services.actions_service import ActionService
 from entities_api.services.runs import RunService
 
 # Instantiate utilities.
@@ -101,3 +106,44 @@ def cancel_run(
     except Exception as e:
         logging_utility.error(f"Unexpected error cancelling run {run_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+
+
+@router.get(
+    "/runs/{run_id}/events",
+    summary="Stream run‑lifecycle events (SSE)",
+    response_class=EventSourceResponse,
+    response_model=None,
+)
+async def stream_run_events(
+    request: Request,
+    run_id: str,
+    db: Session = Depends(get_db),
+    auth_key: ApiKeyModel = Depends(get_api_key),
+):
+    run_svc    = RunService(db)
+    action_svc = ActionService(db)
+
+    async def event_generator():
+        while True:
+            if await request.is_disconnected():
+                break
+
+            run = run_svc.get_run(run_id)
+            if not run:
+                yield {"event": "error", "data": '{"msg":"run not found"}'}
+                break
+
+            if run.status == StatusEnum.pending_action:
+                pending = action_svc.get_pending_actions(run_id)
+                if pending:
+                    for act in pending:
+                        data = act.dict() if hasattr(act, "dict") else act
+                        yield {
+                            "event": "action_required",
+                            "data": json.dumps(data),
+                        }
+                    break
+
+            await asyncio.sleep(0.5)
+
+    return EventSourceResponse(event_generator())
