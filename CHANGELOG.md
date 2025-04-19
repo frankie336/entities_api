@@ -6,6 +6,15 @@
 * basic_vector_embeddings_search ([7ce4fab](https://github.com/frankie336/entities_api/commit/7ce4fab60f7c0d5870f5c8f0cbb18fe8020299ea))
 * move context-window-to-redis-primary ([475f19b](https://github.com/frankie336/entities_api/commit/475f19b13f63e3ce3340e26aee52469f88be1ad1))
 
+We have moved the primary message history and system message to a redis server. 
+We use a data driven method of building the context window for each assistant. On each turn the latest messages from the assistant and user are appended onto the dialogue. This includes tool responses. The context window can quickly grows in a multi turn conversation. Fetching this from the database adds more and more latency as the size of the thread  grows. 
+Implementing Redis
+ We moved the primary message history,  tool definitions, and system message to a Redis server. At the same time, a redis server is now introduced into the docker container estate; the first in a series of changes that will leverage powerful features of Redis for a true scalable, enterprise AI inference platform. 
+No Database change 
+There is no database change, so you can retain existing data in Dev and not have to make any Alembic update s
+Whilst the solution has been tested, please let us know if you experience any abnormalities; these will be rapidly fixed.
+
+
 # [1.5.0](https://github.com/frankie336/entities_api/compare/v1.4.0...v1.5.0) (2025-04-18)
 
 
