@@ -4,6 +4,9 @@
 ### Features
 
 * shunt-streams-to-redis-phase-1 ([1cab6f5](https://github.com/frankie336/entities_api/commit/1cab6f5596e7643b31f867729ae4a450c317f5f7))
+Shunting streams to Redis 
+We are in the process of shunting streaming content to the Redis server. This lays the ground  for state of the art utility performance enhancement, error recovery, edge device integration, and agentic features 
+
 
 # [1.6.0](https://github.com/frankie336/entities_api/compare/v1.5.0...v1.6.0) (2025-04-19)
 
