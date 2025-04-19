@@ -1,3 +1,11 @@
+# [1.6.0](https://github.com/frankie336/entities_api/compare/v1.5.0...v1.6.0) (2025-04-19)
+
+
+### Features
+
+* basic_vector_embeddings_search ([7ce4fab](https://github.com/frankie336/entities_api/commit/7ce4fab60f7c0d5870f5c8f0cbb18fe8020299ea))
+* move context-window-to-redis-primary ([475f19b](https://github.com/frankie336/entities_api/commit/475f19b13f63e3ce3340e26aee52469f88be1ad1))
+
 # [1.5.0](https://github.com/frankie336/entities_api/compare/v1.4.0...v1.5.0) (2025-04-18)
 
 
