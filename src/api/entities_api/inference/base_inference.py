@@ -1693,12 +1693,8 @@ class BaseInference(ABC):
             self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
-                # Decide precisely what the assistant needs: URLs or the text output?
-                # If assistant only needs confirmation or URLs, use a standard message or url_list
-                # If assistant needs the text output when no files, use final_content_for_assistant
-                content=submission_message,  # Content for the assistant's context
+                content=submission_message,
                 action=action,
-                # Consider adding raw output if needed by submit_tool_output, e.g., tool_outputs=content_to_submit
             )
             logging_utility.info("Tool output submitted successfully.")
 

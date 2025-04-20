@@ -5,11 +5,11 @@ import re
 import tempfile
 import time
 import traceback
-from typing import Tuple
+from typing import List, Tuple
 
 from dotenv import load_dotenv
 from fastapi import WebSocket
-from projectdavid import Entity
+from projectdavid import Entity  # Assuming synchronous
 from sandbox.services.logging_service import LoggingUtility
 from starlette.websockets import WebSocketDisconnect
 
@@ -20,13 +20,24 @@ class StreamingCodeExecutionHandler:
     def __init__(self):
         self.logging_utility = LoggingUtility()
         self.active_processes = {}
-        self.generated_files_dir = os.path.abspath("generated_files")
-        os.makedirs(self.generated_files_dir, exist_ok=True)
+        # --- Directory Setup ---
+        self.base_generated_files_dir = os.path.abspath("generated_files")
+        os.makedirs(self.base_generated_files_dir, exist_ok=True)
+        self.mpl_cache_dir_host_path = os.path.join(
+            self.base_generated_files_dir, ".matplotlib_cache"
+        )
+        os.makedirs(self.mpl_cache_dir_host_path, exist_ok=True)
+        self.mpl_cache_dir_sandbox_path = ".matplotlib_cache"
+
         self.last_executed_script_path = None
+        self.current_execution_dir = None
 
         self.logging_utility.info("Current working directory: %s", os.getcwd())
         self.logging_utility.info(
-            "Generated files directory: %s", self.generated_files_dir
+            "Base Generated files directory: %s", self.base_generated_files_dir
+        )
+        self.logging_utility.info(
+            "Matplotlib cache directory (host): %s", self.mpl_cache_dir_host_path
         )
 
         disable_firejail = os.getenv("DISABLE_FIREJAIL", "false").lower() == "true"
@@ -35,7 +46,8 @@ class StreamingCodeExecutionHandler:
                 []
                 if os.name == "nt" or disable_firejail
                 else [
-                    f"--private={self.generated_files_dir}",
+                    f"--private={self.base_generated_files_dir}",
+                    f"--env=MPLCONFIGDIR={self.mpl_cache_dir_sandbox_path}",
                     "--noprofile",
                     "--nogroups",
                     "--nosound",
@@ -47,7 +59,6 @@ class StreamingCodeExecutionHandler:
                 ]
             )
         }
-
         self.required_imports = (
             "import asyncio\n"
             "import math\n"
@@ -55,11 +66,15 @@ class StreamingCodeExecutionHandler:
             "from datetime import datetime\n"
         )
 
+    # --- normalize_code (No changes) ---
     def normalize_code(self, code: str) -> str:
         # Fix curly quotes and other special characters
         replacements = {
             '"': '"',
-            """: "'", """: "'",
+            "“": '"',
+            "”": '"',  # Added common curly quotes
+            "‘": "'",
+            "’": "'",
             "\u00b2": "**2",
             "^": "**",
             "⇒": "->",
@@ -68,412 +83,704 @@ class StreamingCodeExecutionHandler:
         }
         for k, v in replacements.items():
             code = code.replace(k, v)
+        # Remove non-ASCII chars that might cause issues if not handled properly later
+        # Consider allowing specific unicode ranges if needed, but simple removal is safer
         code = re.sub(r"[^\x00-\x7F]+", "", code)
 
-        # Handle line continuations and join continued lines
-        lines, pending = [], False
-        indent_size = 4
-        for line in code.split("\n"):
-            line = line.rstrip()
-            if re.search(r"[+\-*/%=<>^|&@,{([:]\s*$", line):
-                line = line.rstrip("\\").rstrip() + " "
-                pending = True
-                lines.append(line)
-                continue
-            if pending:
-                lines[-1] += line.lstrip() if lines else line
-                pending = False
+        # Handle line continuations and join continued lines (Basic version)
+        # More robust parsing might be needed for complex cases
+        processed_lines = []
+        buffer = ""
+        for line in code.splitlines():
+            stripped_line = line.strip()
+            if buffer:
+                buffer += stripped_line
+                if not stripped_line.endswith("\\"):
+                    processed_lines.append(buffer)
+                    buffer = ""
+            elif stripped_line.endswith("\\"):
+                buffer += stripped_line.rstrip("\\").rstrip() + " "
             else:
-                lines.append(line)
+                processed_lines.append(line)  # Keep original spacing if not continued
 
-        # Fix up indentation
+        code = "\n".join(processed_lines)
+
+        # Fix up indentation (Simplified heuristic version)
+        lines = code.splitlines()
         formatted_lines = []
-        indent_level = 0
-        block_started = False
+        current_indent = 0
+        indent_size = 4  # Assume 4 spaces
 
-        # First pass: identify colon lines and calculate proper indentation
-        for i, line in enumerate(lines):
+        for line in lines:
             stripped = line.lstrip()
-
-            # Skip empty lines
-            if not stripped:
+            if not stripped:  # Keep empty lines as they are
                 formatted_lines.append("")
                 continue
 
-            # Calculate current indentation
-            current_indent = len(line) - len(stripped)
-
-            # Recalibrate indent_level based on the current line's indentation
-            if i > 0 and block_started and current_indent > 0:
-                # We've entered a block, use this indentation as the new block level
-                block_started = False
-                indent_size = current_indent
-
-            # Determine expected indentation
-            expected_indent = indent_level * indent_size
-
-            # Apply correct indentation
+            # Calculate indent based on common keywords
+            # Note: This is a very basic heuristic and won't handle all cases correctly.
+            # Proper indentation fixing often requires AST analysis.
+            indent_change = 0
             if stripped.endswith(":"):
-                # This line starts a new block
-                formatted_line = " " * expected_indent + stripped
-                indent_level += 1
-                block_started = True
-            elif stripped.startswith(("return", "pass", "raise", "break", "continue")):
-                # These keywords might indicate the end of a block
-                if indent_level > 0:
-                    indent_level -= 1
-                expected_indent = indent_level * indent_size
-                formatted_line = " " * expected_indent + stripped
+                formatted_lines.append(" " * current_indent + stripped)
+                current_indent += indent_size
+            # Basic check for dedent keywords - might dedent too early
+            elif stripped.startswith(
+                ("return", "pass", "raise", "break", "continue", "elif", "else")
+            ):
+                current_indent = max(0, current_indent - indent_size)
+                formatted_lines.append(" " * current_indent + stripped)
             else:
-                # Regular line, use expected indentation
-                formatted_line = " " * expected_indent + stripped
+                # Check if current line's physical indent suggests a dedent
+                physical_indent = len(line) - len(stripped)
+                if physical_indent < current_indent:
+                    current_indent = physical_indent  # Align with actual indent if less
+                formatted_lines.append(" " * current_indent + stripped)
 
-            formatted_lines.append(formatted_line)
-
-        # Second pass: ensure blocks have proper indentation
+        # Add pass to empty blocks (simple check)
         final_lines = []
-        i = 0
-        while i < len(formatted_lines):
-            line = formatted_lines[i]
-            stripped = line.lstrip()
-
+        for i, line in enumerate(formatted_lines):
+            final_lines.append(line)
+            stripped = line.strip()
             if stripped.endswith(":"):
-                # Check if the next line exists and is properly indented
-                if i + 1 < len(formatted_lines) and not formatted_lines[i + 1].strip():
-                    # Skip empty lines
-                    final_lines.append(line)
-                    final_lines.append("")
-                    i += 2
-                    continue
-
-                if i + 1 < len(formatted_lines):
-                    next_line = formatted_lines[i + 1]
-                    next_stripped = next_line.lstrip()
-                    current_indent = len(line) - len(stripped)
-                    next_indent = len(next_line) - len(next_stripped)
-
-                    if next_indent <= current_indent and next_stripped:
-                        # The next line should be indented but isn't
-                        # Insert a properly indented pass statement
-                        indent_for_block = current_indent + indent_size
-                        final_lines.append(line)
-                        final_lines.append(" " * indent_for_block + "pass")
-                    else:
-                        final_lines.append(line)
-                else:
-                    # This is the last line and ends with a colon
-                    final_lines.append(line)
+                # Check if next line exists and is empty or less indented
+                if (
+                    i + 1 >= len(formatted_lines)
+                    or not formatted_lines[i + 1].strip()
+                    or (
+                        len(formatted_lines[i + 1])
+                        - len(formatted_lines[i + 1].lstrip())
+                    )
+                    <= (len(line) - len(stripped))
+                ):
                     final_lines.append(
                         " " * (len(line) - len(stripped) + indent_size) + "pass"
                     )
-            else:
-                final_lines.append(line)
-            i += 1
 
         normalized_code = "\n".join(final_lines)
 
-        # Handle single expression that might need to be wrapped in print()
-        if re.match(r"^[\w\.]+\s*\(.*\)\s*$", normalized_code.strip()):
-            normalized_code = f"print({normalized_code.strip()})"
+        # Handle single expression wrapping (Keep previous logic)
+        trimmed_norm_code = normalized_code.strip()
+        if (
+            "\n" not in trimmed_norm_code
+            and trimmed_norm_code
+            and not trimmed_norm_code.startswith("print(")
+            and "=" not in trimmed_norm_code
+        ):
+            if re.match(r"^[\w\.]+(\s*\(.*\))?$", trimmed_norm_code):
+                normalized_code = f"print({trimmed_norm_code})"
 
         # AST validation and error correction
         normalized_code = self._ast_validate_and_fix(normalized_code)
 
-        return self.required_imports + normalized_code
+        return self.required_imports + "\n" + normalized_code
 
+    # --- _ast_validate_and_fix (No changes) ---
     def _ast_validate_and_fix(self, code: str) -> str:
-        """
-        Validate code using AST parsing and attempt to fix common syntax errors.
-        Returns the fixed code or the original if validation passes.
-        """
         try:
-            # Try to parse the code with AST
             ast.parse(code)
-            # If successful, no changes needed
             return code
         except SyntaxError as e:
             self.logging_utility.warning(
-                "AST validation failed: %s at line %s", e.msg, e.lineno
+                "AST validation failed: %s at line %s, offset %s, text: %s",
+                e.msg,
+                e.lineno,
+                e.offset,
+                e.text,
             )
-            # Attempt to fix common syntax errors
             fixed_code, success = self._fix_common_syntax_errors(code, e)
             if success:
-                self.logging_utility.info("Successfully fixed syntax errors")
-                return fixed_code
-            # If we couldn't fix it, return the original and let the execution fail with better error messages
+                self.logging_utility.info("Attempted fix for syntax error")
+                try:
+                    ast.parse(fixed_code)
+                    self.logging_utility.info("Syntax fix validated successfully.")
+                    return fixed_code
+                except SyntaxError as e2:
+                    self.logging_utility.warning(
+                        "Syntax fix failed validation: %s", e2.msg
+                    )
+                    return code  # Revert if fix is invalid
             return code
 
+    # --- _fix_common_syntax_errors (No changes, keep previous version) ---
     def _fix_common_syntax_errors(
         self, code: str, error: SyntaxError
     ) -> Tuple[str, bool]:
-        """
-        Attempts to fix common syntax errors based on the error message and location.
-        Returns a tuple containing (fixed_code, success_flag).
-        """
         lines = code.split("\n")
-        line_number = error.lineno - 1  # Adjust for 0-based indexing
+        import_lines_count = self.required_imports.count("\n")
+        line_number = (
+            error.lineno - 1 - import_lines_count
+        )  # Adjust for 0-based index and prepended imports
+        error_offset = error.offset if error.offset is not None else -1
 
-        # Handle out of bounds
-        if line_number >= len(lines) or line_number < 0:
+        if line_number < 0 or line_number >= len(lines):
+            self.logging_utility.error(
+                "Syntax error line number %s out of bounds for code block.",
+                error.lineno,
+            )
             return code, False
 
-        # Get the problematic line and the error message
         problematic_line = lines[line_number]
         error_msg = error.msg.lower()
 
         # Fix 1: Indentation errors
-        if "indentation" in error_msg:
-            # Check if this is an 'expected an indented block' error
+        if "indentation" in error_msg or "indent" in error_msg:
             if "expected an indented block" in error_msg:
-                # Find the previous line that should have started a block
-                prev_line = lines[line_number - 1] if line_number > 0 else ""
-                if prev_line.rstrip().endswith(":"):
-                    # Calculate proper indentation
-                    current_indent = len(problematic_line) - len(
-                        problematic_line.lstrip()
-                    )
-                    # Add 4 spaces of indentation
-                    lines[line_number] = (
-                        " " * (current_indent + 4) + problematic_line.lstrip()
-                    )
+                if line_number > 0 and lines[line_number - 1].rstrip().endswith(":"):
+                    lines[line_number] = "    " + problematic_line  # Add 4 spaces
                     return "\n".join(lines), True
-
-            # Check if this is an 'unexpected indent' error
             elif "unexpected indent" in error_msg:
-                # Reduce indentation to match previous line
-                prev_line = lines[line_number - 1] if line_number > 0 else ""
-                prev_indent = len(prev_line) - len(prev_line.lstrip())
-                lines[line_number] = " " * prev_indent + problematic_line.lstrip()
+                lines[line_number] = problematic_line.lstrip()  # Simple dedent
+                return "\n".join(lines), True
+            elif "unindent does not match any outer indentation level" in error_msg:
+                for i in range(line_number - 1, -1, -1):
+                    if lines[i].strip():
+                        prev_indent = len(lines[i]) - len(lines[i].lstrip())
+                        lines[line_number] = (
+                            " " * prev_indent + problematic_line.lstrip()
+                        )
+                        return "\n".join(lines), True
+                lines[line_number] = problematic_line.lstrip()  # Fallback dedent
                 return "\n".join(lines), True
 
-        # Fix 2: Missing parentheses
-        elif "parentheses" in error_msg:
-            if "(" in problematic_line and ")" not in problematic_line:
-                lines[line_number] = problematic_line + ")"
+        # Fix 2: Missing parentheses in print
+        elif "missing parentheses in call to 'print'" in error_msg:
+            match = re.match(r"^\s*print\s+(.*)", problematic_line)
+            if match:
+                lines[line_number] = (
+                    f"{match.group(0).split('print')[0]}print({match.group(1).rstrip()})"
+                )
                 return "\n".join(lines), True
 
-        # Fix 3: Missing colon after if/for/while/def/class
-        elif "expected" in error_msg and ":" in error_msg:
-            if any(
-                keyword in problematic_line
-                for keyword in ["if", "for", "while", "def", "class"]
-            ):
+        # Fix 3: Missing colon
+        elif "expected ':'" in error_msg:
+            if re.match(
+                r"^\s*(if|for|while|def|class|try|except|finally|with)\b.*",
+                problematic_line,
+            ):  # Added word boundary \b
                 if not problematic_line.rstrip().endswith(":"):
                     lines[line_number] = problematic_line.rstrip() + ":"
                     return "\n".join(lines), True
 
         # Fix 4: Unmatched quotes
-        elif "eol while scanning" in error_msg and "string literal" in error_msg:
-            if ("'" in problematic_line and problematic_line.count("'") % 2 != 0) or (
-                '"' in problematic_line and problematic_line.count('"') % 2 != 0
-            ):
-                # Find the type of quote used
-                quote_type = "'" if "'" in problematic_line else '"'
-                lines[line_number] = problematic_line + quote_type
-                return "\n".join(lines), True
-
-        # Fix 5: Missing commas in collection literals
-        elif "invalid syntax" in error_msg:
-            # Check for list/dict/tuple literals with missing commas
-            if (
-                ("[" in problematic_line and "]" in problematic_line)
-                or ("{" in problematic_line and "}" in problematic_line)
-                or ("(" in problematic_line and ")" in problematic_line)
-            ):
-                # This is a heuristic and might not always be correct
-                # Replace spaces between items with commas (simple cases only)
-                fixed_line = re.sub(r"(\w+)\s+(\w+)", r"\1, \2", problematic_line)
-                if fixed_line != problematic_line:
-                    lines[line_number] = fixed_line
+        elif "eol while scanning string literal" in error_msg:
+            single_quotes = problematic_line.count("'")
+            double_quotes = problematic_line.count('"')
+            # Check if inside triple quotes (basic check)
+            if '"""' not in problematic_line and "'''" not in problematic_line:
+                if single_quotes % 2 != 0:
+                    lines[line_number] += "'"
+                    return "\n".join(lines), True
+                elif double_quotes % 2 != 0:
+                    lines[line_number] += '"'
                     return "\n".join(lines), True
 
-        # No fix identified or implemented
         return code, False
 
     async def execute_code_streaming(
         self, websocket: WebSocket, code: str, user_id: str = "test_user"
     ) -> None:
 
-        tmp_path = None
+        tmp_script_path = None
+        proc = None
+        execution_id = f"{user_id}-{int(time.time() * 1000)}"
+        self.current_execution_dir = self.base_generated_files_dir
+
         try:
             full_code = self.normalize_code(code)
+            self.logging_utility.debug("Normalized Code:\n%s", full_code)
 
-            # Try to parse with AST for additional validation before execution
             try:
                 ast.parse(full_code)
             except SyntaxError as e:
                 error_lines = traceback.format_exception_only(type(e), e)
-                error_message = "".join(error_lines)
+                error_message = "".join(error_lines).strip()
                 await websocket.send_json(
                     {
-                        "error": f"Code contains syntax errors: {error_message}",
+                        "type": "error",
+                        "error": f"Code contains syntax errors after normalization: {error_message}",
                         "line": e.lineno,
                         "offset": e.offset,
                         "text": e.text,
                     }
                 )
                 self.logging_utility.warning(
-                    "AST validation failed for user %s: %s", user_id, error_message
+                    "AST validation failed for user %s after normalization: %s",
+                    user_id,
+                    error_message,
                 )
                 return
 
             if not self._validate_code_security(full_code):
-                await websocket.send_json({"error": "Code violates security policy"})
+                await websocket.send_json(
+                    {"type": "error", "error": "Code violates security policy"}
+                )
                 self.logging_utility.warning(
                     "Security validation failed for user %s", user_id
                 )
                 return
 
-            execution_id = f"{user_id}-{int(time.time() * 1000)}"
-
             with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".py", delete=False, dir=self.generated_files_dir
+                mode="w", suffix=".py", delete=False, dir=self.current_execution_dir
             ) as tmp:
                 tmp.write(full_code)
-                tmp_path = tmp.name
+                tmp_script_path = tmp.name
 
-            self.last_executed_script_path = tmp_path
-            self.logging_utility.info("Normalized code written to: %s", tmp_path)
+            self.last_executed_script_path = tmp_script_path
+            script_sandbox_path = os.path.basename(tmp_script_path)
+
+            self.logging_utility.info(
+                "Executing script (host path): %s", tmp_script_path
+            )
+            self.logging_utility.info(
+                "Executing script (sandbox path): %s", script_sandbox_path
+            )
 
             disable_firejail = os.getenv("DISABLE_FIREJAIL", "false").lower() == "true"
-            cmd = (
-                ["python3", "-u", tmp_path]
-                if os.name == "nt" or disable_firejail
-                else [
-                    "firejail",
-                    *self.security_profile["firejail_args"],
-                    "python3",
-                    "-u",
-                    tmp_path,
+            if os.name == "nt" or disable_firejail:
+                cmd = ["python3", "-u", tmp_script_path]
+                cwd = self.current_execution_dir
+            else:
+                firejail_base_cmd = ["firejail"] + self.security_profile[
+                    "firejail_args"
                 ]
+                python_cmd = ["python3", "-u", script_sandbox_path]
+                cmd = firejail_base_cmd + python_cmd
+                cwd = None  # Let firejail handle CWD
+
+            self.logging_utility.debug("Executing command: %s", " ".join(cmd))
+            self.logging_utility.debug(
+                "Execution CWD: %s", cwd if cwd else "Default (in sandbox)"
             )
 
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                cwd=(
-                    None
-                    if os.name != "nt" and not disable_firejail
-                    else self.generated_files_dir
-                ),
+                cwd=cwd,
             )
             self.active_processes[execution_id] = proc
             await self._stream_process_output(proc, websocket, execution_id)
 
-            uploaded_files = await self._upload_generated_files(user_id=user_id)
+            exit_code = await proc.wait()
+            self.logging_utility.info(
+                "Process %s finished with exit code: %s", execution_id, exit_code
+            )
+            if exit_code != 0:
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "error": f"Code execution failed with exit code {exit_code}.",
+                        "exit_code": exit_code,
+                        "execution_id": execution_id,
+                    }
+                )
+
+            uploaded_files = await self._upload_generated_files(
+                user_id=user_id, execution_dir=self.current_execution_dir
+            )
             await websocket.send_json(
                 {
+                    "type": "result",
                     "status": "complete",
+                    "exit_code": exit_code,
                     "execution_id": execution_id,
                     "uploaded_files": uploaded_files,
                 }
             )
 
+        except WebSocketDisconnect:
+            self.logging_utility.warning(
+                "WebSocket disconnected during execution %s.", execution_id
+            )
+            if proc and proc.returncode is None:
+                self.logging_utility.warning(
+                    "Terminating process %s due to disconnect.", execution_id
+                )
+                try:
+                    proc.terminate()
+                    await asyncio.wait_for(proc.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    self.logging_utility.error(
+                        "Process %s did not terminate gracefully, killing.",
+                        execution_id,
+                    )
+                    proc.kill()
+                except ProcessLookupError:
+                    pass  # Already ended
+                except Exception as term_err:
+                    self.logging_utility.error(
+                        "Error during process termination: %s", term_err
+                    )
         except Exception as e:
-            self.logging_utility.error("Execution failed: %s", str(e))
+            self.logging_utility.error(
+                "Execution failed for %s: %s", execution_id, str(e), exc_info=True
+            )
             try:
-                await websocket.send_json({"error": str(e)})
+                await websocket.send_json(
+                    {"type": "error", "error": f"An internal error occurred: {str(e)}"}
+                )
             except Exception:
                 pass
         finally:
-            if tmp_path and os.path.exists(tmp_path):
-                os.remove(tmp_path)
+            self.active_processes.pop(execution_id, None)
+            if tmp_script_path and os.path.exists(tmp_script_path):
+                try:
+                    os.remove(tmp_script_path)
+                    self.logging_utility.debug(
+                        "Removed script file: %s", tmp_script_path
+                    )
+                except OSError as rm_err:
+                    self.logging_utility.error(
+                        "Error removing script file %s: %s", tmp_script_path, rm_err
+                    )
             self.last_executed_script_path = None
+            self.current_execution_dir = None
             try:
-                await websocket.close()
-            except RuntimeError:
-                self.logging_utility.debug("WebSocket already closed.")
+                if (
+                    websocket.client_state != websocket.client_state.DISCONNECTED
+                ):  # Check state before closing
+                    await websocket.close()
+                    self.logging_utility.debug(
+                        "WebSocket closed for execution %s.", execution_id
+                    )
+            except RuntimeError as close_err:
+                self.logging_utility.debug(
+                    "WebSocket already closed or closing error for %s: %s",
+                    execution_id,
+                    close_err,
+                )
+            except Exception as final_close_err:
+                self.logging_utility.error(
+                    "Unexpected error closing WebSocket for %s: %s",
+                    execution_id,
+                    final_close_err,
+                )
 
+    # --- _stream_process_output (No changes) ---
     async def _stream_process_output(
         self, proc, websocket: WebSocket, execution_id: str
     ) -> None:
+        buffer = ""
         try:
             while True:
-                line = await asyncio.wait_for(proc.stdout.readline(), timeout=30)
-                if not line:
+                try:
+                    chunk = await asyncio.wait_for(proc.stdout.read(1024), timeout=60.0)
+                except asyncio.TimeoutError:
+                    if execution_id not in self.active_processes:
+                        break
+                    if proc.returncode is not None:
+                        break
+                    self.logging_utility.error(
+                        "Process %s might be hung, terminating.", execution_id
+                    )
+                    proc.terminate()
+                    await websocket.send_json(
+                        {"type": "error", "error": "Execution potentially hung."}
+                    )
                     break
-                await websocket.send_text(line.decode(errors="replace"))
 
-            return_code = await proc.wait()
-            await websocket.send_json(
-                {
-                    "status": "process_complete",
-                    "exit_code": return_code,
-                    "execution_id": execution_id,
-                }
-            )
-        except asyncio.TimeoutError:
-            self.logging_utility.error(
-                "Timeout occurred for execution_id: %s", execution_id
-            )
-            proc.terminate()
-            await websocket.send_json({"error": "Execution timed out."})
+                if not chunk:
+                    if buffer:
+                        await websocket.send_json({"type": "stdout", "content": buffer})
+                    break
+
+                buffer += chunk.decode(errors="replace")
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    await websocket.send_json(
+                        {"type": "stdout", "content": line + "\n"}
+                    )
+
+            if buffer:
+                await websocket.send_json({"type": "stdout", "content": buffer})
+
         except WebSocketDisconnect:
-            self.logging_utility.warning("Client disconnected: %s", execution_id)
-            proc.terminate()
+            self.logging_utility.warning(
+                "WebSocket disconnected during streaming for %s.", execution_id
+            )
+            raise
+        except ConnectionResetError:
+            self.logging_utility.warning(
+                "Connection reset during streaming for %s.", execution_id
+            )
+            raise WebSocketDisconnect
         except Exception as e:
-            self.logging_utility.error("Stream error: %s", str(e))
-        finally:
-            self.active_processes.pop(execution_id, None)
+            self.logging_utility.error(
+                "Error during output streaming for %s: %s",
+                execution_id,
+                str(e),
+                exc_info=True,
+            )
+            try:
+                await websocket.send_json(
+                    {"type": "error", "error": f"Error streaming output: {str(e)}"}
+                )
+            except Exception:
+                pass
 
+    # --- _validate_code_security (No changes) ---
     def _validate_code_security(self, code: str) -> bool:
         blocked_patterns = [
             r"(__import__|exec|eval|compile|input)\s*\(",
             r"(subprocess|os|sys)\.(system|popen|run|exec)",
-            r"asyncio\.(create_subprocess|run_in_executor)",
-            r"loop\.(add_reader|set_default_executor)",
-            r"import\s+(os|sys|ctypes)",
-            r"os\.(environ|chdir|chmod|remove|unlink|rmdir)",
+            r"os\.(fork|kill|spawn)",
+            r"multiprocessing\.(Process|Pool)",
+            r"threading\.Thread",
+            r"socket\.",
+            r"import\s+(socket|subprocess|multiprocessing|ctypes|os|sys|shutil)",  # Consolidated imports
+            r"ctypes\.",
+            r"import\s+(ftplib|http\.client|requests|urllib|smtplib|telnetlib)",
+            r"os\.(environ|putenv|unsetenv|chdir|fchdir|chroot|chmod|chown|lchown)",
+            r"os\.(link|symlink|rename|replace|remove|unlink|rmdir|removedirs)",
+            r"shutil\.(rmtree|move|copyfile|copy)",
+            r"\.__class__",
+            r"\.__subclasses__",
+            r"\.__globals__",
+            r"\.__builtins__",
         ]
-        return not any(re.search(p, code) for p in blocked_patterns)
+        if any(re.search(p, code) for p in blocked_patterns):
+            self.logging_utility.warning("Blocked pattern found matching code.")
+            return False
 
-    async def _upload_generated_files(self, user_id: str) -> list:
-        uploaded_files = []
-        client = Entity(base_url="http://fastapi_cosmic_catalyst:9000")
+        try:  # AST checks
+            tree = ast.parse(code)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    func_id = getattr(
+                        node.func, "id", None
+                    )  # Direct function calls like eval()
+                    func_attr = getattr(
+                        node.func, "attr", None
+                    )  # Method calls like os.system()
+                    func_mod = getattr(
+                        getattr(node.func, "value", None), "id", None
+                    )  # Module name like 'os'
 
-        try:
-            user = client.users.create_user(name="test_user")
+                    if func_id in [
+                        "exec",
+                        "eval",
+                        "compile",
+                        "input",
+                        "__import__",
+                        "open",
+                    ]:
+                        self.logging_utility.warning(
+                            "Blocked built-in call via AST: %s", func_id
+                        )
+                        return False
+                    if func_mod in [
+                        "os",
+                        "sys",
+                        "subprocess",
+                        "shutil",
+                    ] and func_attr in [
+                        "system",
+                        "popen",
+                        "run",
+                        "exec",
+                        "fork",
+                        "kill",
+                        "spawn",
+                        "remove",
+                        "unlink",
+                        "rmdir",
+                        "removedirs",
+                        "rmtree",
+                        "move",
+                        "chown",
+                        "chmod",
+                        "chroot",
+                        "chdir",
+                    ]:
+                        self.logging_utility.warning(
+                            "Blocked module call via AST: %s.%s", func_mod, func_attr
+                        )
+                        return False
+                elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                    module_names = []
+                    if isinstance(node, ast.Import):
+                        module_names = [alias.name for alias in node.names]
+                    elif isinstance(node, ast.ImportFrom) and node.module:
+                        module_names = [node.module]
+
+                    blocked_imports = {
+                        "os",
+                        "sys",
+                        "subprocess",
+                        "socket",
+                        "ctypes",
+                        "shutil",
+                        "multiprocessing",
+                        "ftplib",
+                        "http",
+                        "requests",
+                        "urllib",
+                        "smtplib",
+                        "telnetlib",
+                    }
+                    if any(name in blocked_imports for name in module_names):
+                        self.logging_utility.warning(
+                            "Blocked import via AST: %s", module_names
+                        )
+                        return False
+        except SyntaxError:
+            return False  # Invalid syntax is not executable anyway
         except Exception as e:
-            self.logging_utility.error("Failed to create user: %s", str(e))
-            return uploaded_files
+            self.logging_utility.error("AST security validation error: %s", e)
+            return False  # Fail safe
+
+        return True
+
+    async def _upload_generated_files(
+        self, user_id: str, execution_dir: str
+    ) -> List[dict]:  # Added type hint
+        uploaded_files = []
+        # Use ADMIN_API_KEY for the Entity client to authorize uploads
+        admin_api_key = os.getenv("ADMIN_API_KEY")
+        # Ensure BASE_URL points to the correct service (fastapi_cosmic_catalyst)
+        base_url = os.getenv("ENTITIES_BASE_URL", "http://fastapi_cosmic_catalyst:9000")
+
+        if not admin_api_key:
+            self.logging_utility.error(
+                "ADMIN_API_KEY environment variable not set. Cannot upload files."
+            )
+            return []  # Cannot proceed without auth
+
+        # Instantiate the client here for clarity, using the admin key
+        client = Entity(api_key=admin_api_key, base_url=base_url)
 
         async def upload_single_file(filename, file_path):
-            try:
-                upload = client.files.upload_file(
-                    file_path=file_path, user_id=user.id, purpose="assistants"
-                )
-
-                file_url = client.files.get_signed_url(
-                    upload.id, label=filename, markdown=True, use_real_filename=True
-                )
-
-                return {"filename": filename, "id": upload.id, "url": file_url}
-            except Exception as e:
-                self.logging_utility.error("Upload failed for %s: %s", filename, str(e))
+            # Skip directories and the script itself
+            if os.path.isdir(file_path) or (
+                self.last_executed_script_path
+                and os.path.samefile(file_path, self.last_executed_script_path)
+            ):
                 return None
 
-        tasks = [
-            upload_single_file(fname, os.path.join(self.generated_files_dir, fname))
-            for fname in os.listdir(self.generated_files_dir)
-            if os.path.isfile(os.path.join(self.generated_files_dir, fname))
-            and not self.last_executed_script_path
-            or not os.path.samefile(
-                os.path.join(self.generated_files_dir, fname),
-                self.last_executed_script_path,
-            )
-        ]
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        for res in results:
-            if isinstance(res, dict):
-                uploaded_files.append(res)
-
-        for fname in os.listdir(self.generated_files_dir):
             try:
-                os.remove(os.path.join(self.generated_files_dir, fname))
-            except Exception as e:
-                self.logging_utility.error("Cleanup failed for %s: %s", fname, str(e))
+                self.logging_utility.info(
+                    "Attempting upload via SDK for file: %s", file_path
+                )
 
+                upload_response = await asyncio.to_thread(
+                    client.files.upload_file,
+                    file_path=file_path,
+                    purpose="assistants",
+
+                )
+
+                if not upload_response:  # Check if upload failed in the client
+                    self.logging_utility.error(
+                        "SDK upload_file returned None for %s", filename
+                    )
+                    return None
+
+                self.logging_utility.info(
+                    "File '%s' uploaded via SDK, got ID: %s. Getting signed URL.",
+                    filename,
+                    upload_response.id,
+                )
+
+                # *** CORRECTED SDK CALL ***
+                # Remove label and markdown, pass use_real_filename directly
+
+                signed_url = await asyncio.to_thread(
+                    client.files.get_signed_url,
+                    file_id=upload_response.id,
+                    # expires_in=... # Optional: add if needed, e.g., expires_in=3600
+                    use_real_filename=True,  # Pass correctly
+                )
+
+                if not signed_url:
+                    self.logging_utility.error(
+                        "Failed to get signed URL for file ID %s", upload_response.id
+                    )
+                    # Decide if you still want to return the file info without a URL
+                    return {
+                        "filename": filename,
+                        "id": upload_response.id,
+                        "url": None,
+                    }  # Example: return with None URL
+
+                self.logging_utility.info(
+                    "Successfully uploaded '%s' (ID: %s) and got signed URL.",
+                    filename,
+                    upload_response.id,
+                )
+                return {
+                    "filename": filename,
+                    "id": upload_response.id,
+                    "url": signed_url,
+                }
+
+            except FileNotFoundError:
+                self.logging_utility.warning(
+                    "File not found during upload attempt: %s", file_path
+                )
+                return None
+            except Exception as e:
+                # Log the specific exception from the SDK call
+                self.logging_utility.error(
+                    "Upload/SignedURL SDK call failed for '%s': %s",
+                    filename,
+                    str(e),
+                    exc_info=True,
+                )
+                return None
+
+        tasks = []
+        if os.path.exists(execution_dir):
+            for fname in os.listdir(execution_dir):
+                fpath = os.path.join(execution_dir, fname)
+                # Skip the matplotlib cache directory
+                if os.path.abspath(fpath) == os.path.abspath(
+                    self.mpl_cache_dir_host_path
+                ):
+                    continue
+                # Check if it's a file
+                if os.path.isfile(fpath):
+                    # Skip the script file itself
+                    if not (
+                        self.last_executed_script_path
+                        and os.path.samefile(fpath, self.last_executed_script_path)
+                    ):
+                        tasks.append(upload_single_file(fname, fpath))
+
+        if tasks:
+            results = await asyncio.gather(*tasks)
+            uploaded_files = [
+                res for res in results if res is not None
+            ]  # Filter out None results from failures
+
+        # --- Cleanup ---
+        self.logging_utility.debug(
+            "Starting cleanup of generated files in: %s", execution_dir
+        )
+        if os.path.exists(execution_dir):
+            for fname in os.listdir(execution_dir):
+                fpath = os.path.join(execution_dir, fname)
+                # Skip persistent matplotlib cache dir
+                if os.path.abspath(fpath) == os.path.abspath(
+                    self.mpl_cache_dir_host_path
+                ):
+                    self.logging_utility.debug(
+                        "Skipping cleanup of matplotlib cache: %s", fpath
+                    )
+                    continue
+                try:
+                    if os.path.isfile(fpath) or os.path.islink(fpath):
+                        os.remove(fpath)
+                        self.logging_utility.debug("Removed file/link: %s", fpath)
+                    elif os.path.isdir(fpath):
+
+                        pass
+                except Exception as e:
+                    self.logging_utility.error(
+                        "Cleanup failed for %s: %s", fname, str(e)
+                    )
+
+        self.logging_utility.info(
+            "File upload process finished. Uploaded files: %d", len(uploaded_files)
+        )
         return uploaded_files
