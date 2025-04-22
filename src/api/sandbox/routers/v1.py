@@ -2,7 +2,8 @@ import json
 
 from fastapi import Query, WebSocket, WebSocketDisconnect
 from fastapi.routing import APIRouter
-from sandbox.services.code_execution import StreamingCodeExecutionHandler
+from sandbox.services.code_execution_service import \
+    StreamingCodeExecutionHandler
 from sandbox.services.logging_service import LoggingUtility
 from sandbox.services.room_manager import RoomManager
 from sandbox.services.shell_session import PersistentShellSession

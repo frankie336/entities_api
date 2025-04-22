@@ -75,8 +75,7 @@ passlib[bcrypt]
 
 # Internal packages
 projectdavid
-projectdavid_common
-
+projectdavid_common==0.10.3
 # From Test PyPI (only these should resolve there)
 
 
