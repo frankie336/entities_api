@@ -4,4 +4,7 @@
     <option name="sdkName" value="pythonProject (2)" />
   </component>
   <component name="ProjectRootManager" version="2" project-jdk-name="entities_api" project-jdk-type="Python SDK" />
+  <component name="PythonCompatibilityInspectionAdvertiser">
+    <option name="version" value="3" />
+  </component>
 </project>

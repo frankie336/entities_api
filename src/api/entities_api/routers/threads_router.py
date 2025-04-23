@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from entities_api.dependencies import get_api_key, get_db
 from entities_api.models.models import ApiKey as ApiKeyModel
-from entities_api.services.threads import ThreadService
+from entities_api.services.threads_service import ThreadService
 
 router = APIRouter(
     prefix="/threads",

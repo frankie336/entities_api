@@ -33,16 +33,18 @@ from redis import Redis
 from together import Together
 
 from entities_api.constants.assistant import (
-    CODE_ANALYSIS_TOOL_MESSAGE, CODE_INTERPRETER_MESSAGE,
-    DEFAULT_REMINDER_MESSAGE, PLATFORM_TOOLS,
-    WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS)
-from entities_api.constants.platform import (ERROR_NO_CONTENT,
-                                             SPECIAL_CASE_TOOL_HANDLING)
+    CODE_ANALYSIS_TOOL_MESSAGE,
+    CODE_INTERPRETER_MESSAGE,
+    DEFAULT_REMINDER_MESSAGE,
+    PLATFORM_TOOLS,
+    WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS,
+)
+from entities_api.constants.platform import ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING
 from entities_api.dependencies import get_assistant_cache
-from entities_api.platform_tools.code_interpreter.code_execution_client import \
-    StreamOutput
-from entities_api.platform_tools.platform_tool_service import \
-    PlatformToolService
+from entities_api.platform_tools.code_interpreter.code_execution_client import (
+    StreamOutput,
+)
+from entities_api.platform_tools.platform_tool_service import PlatformToolService
 from entities_api.services.cached_assistant import AssistantCache
 from entities_api.services.conversation_truncator import ConversationTruncator
 from entities_api.services.logging_service import LoggingUtility
@@ -1693,12 +1695,8 @@ class BaseInference(ABC):
             self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
-                # Decide precisely what the assistant needs: URLs or the text output?
-                # If assistant only needs confirmation or URLs, use a standard message or url_list
-                # If assistant needs the text output when no files, use final_content_for_assistant
-                content=submission_message,  # Content for the assistant's context
+                content=submission_message,
                 action=action,
-                # Consider adding raw output if needed by submit_tool_output, e.g., tool_outputs=content_to_submit
             )
             logging_utility.info("Tool output submitted successfully.")
 
@@ -1721,8 +1719,9 @@ class BaseInference(ABC):
     def handle_shell_action(self, thread_id, run_id, assistant_id, arguments_dict):
         import json
 
-        from entities_api.platform_tools.computer.shell_command_interface import \
-            run_shell_commands
+        from entities_api.platform_tools.computer.shell_command_interface import (
+            run_shell_commands,
+        )
 
         # Create an action for the computer command execution
         action = self.action_client.create_action(
@@ -1964,7 +1963,15 @@ class BaseInference(ABC):
             )
 
     def _build_system_message(self, assistant_id: str):
-        cfg = self.assistant_cache.retrieve(assistant_id)
+        """
+        Build the system‑prompt block:
+        • pulls instructions/tools from Redis‑backed AssistantCache
+        • injects the current timestamp
+        """
+        # <‑‑‑ FIX: use the synchronous wrapper so this method stays sync
+        cfg = self.assistant_cache.retrieve_sync(assistant_id)
+        # -----------------------------------------------------------------
+
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return {
             "role": "system",

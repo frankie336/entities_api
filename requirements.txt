@@ -1,7 +1,3 @@
---index-url https://pypi.org/simple/
---extra-index-url https://test.pypi.org/simple/
---prefer-binary
-
 # Core libraries
 PyYAML # <--Make sure at least this is installed in local dev
 alembic
@@ -69,14 +65,13 @@ groq
 
 # PySMB (Samba file access)
 pysmb
-
+python-multipart
 # api-keys
 passlib[bcrypt]
 
 # Internal packages
 projectdavid
-projectdavid-common
-
+projectdavid_common==0.10.7
 # From Test PyPI (only these should resolve there)
 
 

@@ -9,8 +9,9 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from entities_api.dependencies import get_redis
 from entities_api.inference.base_inference import BaseInference
-from entities_api.inference.hypherbolic.hyperbolic_async_client import \
-    AsyncHyperbolicClient
+from entities_api.inference.hypherbolic.hyperbolic_async_client import (
+    AsyncHyperbolicClient,
+)
 from entities_api.utils.async_to_sync import async_to_sync_stream
 
 load_dotenv()
