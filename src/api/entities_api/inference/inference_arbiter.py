@@ -1,120 +1,141 @@
-# entities_api/inference/inference_arbiter.py
+# ────────────────────────────────────────────────────────────────────────────────
+# src/api/entities_api/inference/inference_arbiter.py
+# ────────────────────────────────────────────────────────────────────────────────
+"""
+Central gate‑keeper for inference requests.
+
+* Accepts **either** a synchronous ``redis.Redis`` **or** an asynchronous
+  ``redis.asyncio.Redis`` client that is injected by FastAPI.
+* Builds (once) a shared ``AssistantCache`` instance that is passed to every
+  provider created through `get_provider_instance`.
+* Uses an `@lru_cache` to keep at most 32 provider instances alive.
+"""
+from __future__ import annotations
 
 import os
-import threading  # Keep for potential future use, though lock removed
 from functools import lru_cache
-from typing import Any, Type
+from typing import Any, Type, Union
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
-from redis import Redis
+from redis import Redis as SyncRedis
 
-# Import the actual AssistantCache class, NOT the dependency function
+try:  # redis≥4 ships an asyncio sub‑package
+    from redis.asyncio import Redis as AsyncRedis  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover
+    AsyncRedis = None  # type: ignore
+
 from entities_api.services.cached_assistant import AssistantCache
 
 logging_utility = LoggingUtility()
 
 
 class InferenceArbiter:
-    def __init__(self, redis: Redis):
+    """Provides cached access to model‑provider objects and shared AssistantCache."""
+
+    # --------------------------------------------------------------------- init
+    def __init__(self, redis: Union[SyncRedis, "AsyncRedis"]) -> None:  # noqa: F821
+        """Create a new arbiter.
+
+        Parameters
+        ----------
+        redis
+            Either a *sync* ``redis.Redis`` **or** an *async*
+            ``redis.asyncio.Redis`` instance supplied by the dependency
+            ``get_redis``.
         """
-        Initializes the InferenceArbiter.
 
-        Args:
-            redis: The Redis client instance, injected via FastAPI dependency.
-        """
-        if not isinstance(redis, Redis):
-            # Add type check for robustness during initialization
-            raise TypeError(f"Expected a Redis client instance, but got {type(redis)}")
+        # ── normalise redis client to *sync* ────────────────────────────────
+        if isinstance(redis, SyncRedis):
+            self._redis: SyncRedis = redis
+        elif AsyncRedis is not None and isinstance(redis, AsyncRedis):  # type: ignore[arg-type]
+            self._redis = SyncRedis.from_url(self._reconstruct_url(redis))
+        else:
+            raise TypeError(
+                "InferenceArbiter expected a redis.Redis or redis.asyncio.Redis "
+                f"instance, got {type(redis)}"
+            )
 
-        self._redis = redis  # Store the injected Redis client
-
-        # --- FIX: Create AssistantCache instance directly ---
-        # Create the AssistantCache instance ONCE here, using the provided redis client
-        # and fetching necessary env vars.
+        # ── shared AssistantCache (created once) ────────────────────────────
         base_url = os.getenv("BASE_URL")
         admin_api_key = os.getenv("ADMIN_API_KEY")
+
         if not base_url or not admin_api_key:
-            # Log a warning or raise an error if config is missing
             logging_utility.warning(
-                "BASE_URL or ADMIN_API_KEY environment variables not set. "
-                "AssistantCache fallback to DB might fail."
+                "BASE_URL or ADMIN_API_KEY not set – AssistantCache may "
+                "fallback to slow DB‑lookups."
             )
-            # Depending on requirements, you might want to raise ConfigurationError here
 
         self._assistant_cache = AssistantCache(
             redis=self._redis,
             pd_base_url=base_url,
             pd_api_key=admin_api_key,
         )
-        # --- END FIX ---
 
         logging_utility.info(
-            "InferenceArbiter initialized with Redis client and AssistantCache."
+            "InferenceArbiter initialised (redis=%s async=%s)",
+            type(self._redis).__name__,
+            isinstance(redis, AsyncRedis) if AsyncRedis else False,
         )
-        # Note: Removed manual cache dictionary and lock, relying on lru_cache now.
 
-    @lru_cache(maxsize=32)  # Caches based on provider_class
+    # ------------------------------------------------ provider‑factory (cached)
+    @lru_cache(maxsize=32)
     def _get_or_create_provider_cached(
         self, provider_class: Type[Any], **kwargs
-    ) -> Any:
-        """
-        Factory method using LRU caching to get or create provider instances.
-        Now correctly injects both redis and the pre-created assistant_cache.
-        """
+    ) -> Any:  # noqa: D401
+        """Return a cached provider instance (LRU max 32)."""
         if not isinstance(provider_class, type):
-            raise TypeError(f"Expected a class type, but got {type(provider_class)}")
+            raise TypeError(f"Expected a class type, got {type(provider_class)}")
 
-        logging_utility.info(  # Changed to INFO for visibility on instance creation
-            f"Creating NEW provider instance via LRU cache: {provider_class.__name__}"
+        logging_utility.info(
+            "Creating NEW provider instance: %s", provider_class.__name__
         )
 
-        # --- FIX: Pass BOTH redis and the created assistant_cache ---
-        # BaseInference.__init__ expects both `redis` and `assistant_cache`
-        instance = provider_class(
+        return provider_class(  # type: ignore[call-arg]
             redis=self._redis,
-            assistant_cache=self._assistant_cache,  # Pass the instance created in __init__
-            **kwargs,  # Pass along any other necessary kwargs
+            assistant_cache=self._assistant_cache,
+            **kwargs,
         )
-        # --- END FIX ---
-        return instance
 
+    # ------------------------------------------------------------------ public
     def get_provider_instance(self, provider_class: Type[Any], **kwargs) -> Any:
-        """
-        Retrieves a provider instance using LRU caching based on the class type.
-        Simplified to directly use the lru_cache-decorated method.
-        """
-        # The lru_cache on _get_or_create_provider_cached handles the caching.
-        # kwargs are passed to handle potential variations in provider init if needed.
+        """Return (cached) provider instance for ``provider_class``."""
         return self._get_or_create_provider_cached(provider_class, **kwargs)
 
-    def clear_cache(self):
-        """Clear the LRU cache for provider instances."""
+    def clear_cache(self) -> None:
+        """Flush **all** cached provider instances."""
         self._get_or_create_provider_cached.cache_clear()
         logging_utility.info("InferenceArbiter LRU cache cleared.")
 
     def refresh_provider(self, provider_class: Type[Any], **kwargs) -> Any:
-        """Force refresh a specific provider instance by clearing the cache and getting a new one."""
-        if not isinstance(provider_class, type):
-            raise TypeError(f"Expected a class type, but got {type(provider_class)}")
-
-        class_name = provider_class.__name__
-        logging_utility.info(f"Refreshing provider instance for {class_name}")
-        # Clear the entire LRU cache (lru_cache doesn't support targeted eviction easily)
-        # Alternatively, if specific eviction is critical, revert to manual dict cache.
+        """Force creation of a *new* instance for ``provider_class``."""
         self.clear_cache()
-        # Get a potentially new instance (will be new if not already created post-clear)
         return self.get_provider_instance(provider_class, **kwargs)
 
     @property
-    def cache_stats(self):
-        """Returns statistics about the LRU cache."""
-        lru_info = self._get_or_create_provider_cached.cache_info()
+    def cache_stats(self) -> dict[str, int]:
+        """Expose LRU cache statistics."""
+        info = self._get_or_create_provider_cached.cache_info()
         return {
-            "lru_hits": lru_info.hits,
-            "lru_misses": lru_info.misses,
-            "lru_max_size": lru_info.maxsize,
-            "lru_current_size": lru_info.currsize,
+            "hits": info.hits,
+            "misses": info.misses,
+            "max_size": info.maxsize,
+            "current_size": info.currsize,
         }
 
-    # Note: active_providers property is removed as lru_cache doesn't easily expose keys.
-    # If needed, you would have to revert to the manual dictionary cache (`_provider_cache`).
+    # ------------------------------------------------------------ internals ---
+    @staticmethod
+    def _reconstruct_url(async_client: "AsyncRedis") -> str:  # noqa: F821
+        """Re‑build a redis URL from an ``redis.asyncio.Redis`` client."""
+        kw = async_client.connection_pool.connection_kwargs  # type: ignore[attr-defined]
+
+        # unix socket
+        if "path" in kw:
+            return f"unix://{kw['path']}"
+
+        protocol = "rediss" if kw.get("ssl") else "redis"
+        host = kw.get("host", "localhost")
+        port = kw.get("port", 6379)
+        db = kw.get("db", 0)
+        pw = kw.get("password")
+        auth = f":{pw}@" if pw else ""
+        return f"{protocol}://{auth}{host}:{port}/{db}"

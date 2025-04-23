@@ -1,27 +1,30 @@
-#!/usr/bin/env python3
-import secrets
-import uuid
+#!scripts/generate_docker_compose.py
+"""
+Generate a development‑friendly docker‑compose.yml.
+
+All sensitive values (DB passwords, DEFAULT_SECRET_KEY, etc.) are expressed as
+${ENV_VAR} placeholders.  The orchestration script will create real secrets and
+write them into .env on first run.
+"""
 from pathlib import Path
+import uuid
 
 
-def generate_dev_docker_compose():
-    # Get project root (assume script is in /scripts)
-    script_dir = Path(__file__).resolve().parent
-    project_root = script_dir.parent
+# --------------------------------------------------------------------------- #
+# main generator
+# --------------------------------------------------------------------------- #
+def generate_dev_docker_compose() -> None:
+    # project root (this file lives in   scripts/   one level below)
+    project_root = Path(__file__).resolve().parent.parent
     output_path = project_root / "docker-compose.yml"
 
-    # ✅ Skip if docker-compose.yml already exists
     if output_path.exists():
-        print(f"⚠️  {output_path.name} already exists. Generation skipped.")
+        print(f"⚠️  {output_path.name} already exists – generation skipped.")
         return
 
-    # 🔐 Generate dynamic secrets
+    # A non‑secret UUID for the custom bridge network
     unique_network_secret = str(uuid.uuid4())
-    unique_root_password = secrets.token_urlsafe(32)
-    unique_mysql_password = secrets.token_urlsafe(32)
-    unique_default_secret = secrets.token_urlsafe(32)
 
-    # 🧱 Compose content
     compose_yaml = f"""version: '3.8'
 
 services:
@@ -30,10 +33,10 @@ services:
     container_name: my_mysql_cosmic_catalyst
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: {unique_root_password}
+      MYSQL_ROOT_PASSWORD: ${{MYSQL_ROOT_PASSWORD:-default}}
       MYSQL_DATABASE: entities_db
       MYSQL_USER: api_user
-      MYSQL_PASSWORD: {unique_mysql_password}
+      MYSQL_PASSWORD: ${{MYSQL_PASSWORD:-default}}
     volumes:
       - mysql_data:/var/lib/mysql
     ports:
@@ -82,10 +85,11 @@ services:
     env_file:
       - .env
     environment:
-      - DATABASE_URL=mysql+pymysql://api_user:{unique_mysql_password}@db:3306/entities_db
+      # DATABASE_URL will be generated into .env (escaped password etc.)
+      - DATABASE_URL=${{DATABASE_URL}}
       - SANDBOX_SERVER_URL=http://sandbox:8000
       - QDRANT_URL=http://qdrant:6333
-      - DEFAULT_SECRET_KEY={unique_default_secret}
+      - DEFAULT_SECRET_KEY=${{DEFAULT_SECRET_KEY}}
       - REDIS_URL=redis://redis:6379/0
     ports:
       - "9000:9000"
@@ -140,8 +144,8 @@ services:
     container_name: samba_server
     restart: unless-stopped
     environment:
-      USERID: 1000
-      GROUPID: 1000
+      USERID: ${{SAMBA_USERID:-1000}}
+      GROUPID: ${{SAMBA_GROUPID:-1000}}
       TZ: UTC
       USER: "samba_user;default"
       SHARE: "cosmic_share;/samba/share;yes;no;no;samba_user"
@@ -169,16 +173,10 @@ networks:
       unique_secret: "{unique_network_secret}"
 """
 
-    # 💾 Write to project root
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(compose_yaml)
-
-    print("\n✅ docker-compose.yml generated at project root with:")
-    print(f"  - MYSQL_ROOT_PASSWORD:  {unique_root_password}")
-    print(f"  - MYSQL_PASSWORD:       {unique_mysql_password}")
-    print(f"  - DEFAULT_SECRET_KEY:   {unique_default_secret}")
-    print(f"  - Network Unique ID:    {unique_network_secret}\n")
+    output_path.write_text(compose_yaml, encoding="utf-8")
+    print(f"✅  Development docker-compose.yml written → {output_path}")
 
 
+# --------------------------------------------------------------------------- #
 if __name__ == "__main__":
     generate_dev_docker_compose()

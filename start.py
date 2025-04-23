@@ -12,7 +12,7 @@ import sys
 import time
 from os.path import getsize, islink
 from pathlib import Path
-from urllib.parse import quote_plus  # Needed for password escaping in URL
+from urllib.parse import quote_plus
 
 from scripts.generate_docker_compose import generate_dev_docker_compose
 
@@ -74,7 +74,9 @@ class DockerManager:
     _GENERATED_SECRETS = [
         "SIGNED_URL_SECRET",
         "API_KEY",
-    ]  # SECRET_KEY is often app-specific; handled separately.
+        "MYSQL_ROOT_PASSWORD",
+        "MYSQL_PASSWORD",
+    ]
 
     # Define Tool IDs to be generated.
     _GENERATED_TOOL_IDS = [
@@ -91,6 +93,8 @@ class DockerManager:
         "SANDBOX_SERVER_URL": "http://localhost:9000",
         "DOWNLOAD_BASE_URL": "http://localhost:9000/v1/files/download",
         "HYPERBOLIC_BASE_URL": "https://api.hyperbolic.xyz/v1",
+        # --- TogetherAI SDK Dummy key ---
+        "TOGETHER_API_KEY": "dummy-api-key-no-need-to-change",
         # --- Database Components Fallbacks (if not in compose) ---
         "MYSQL_HOST": DEFAULT_DB_SERVICE_NAME,
         "MYSQL_PORT": DEFAULT_DB_CONTAINER_PORT,

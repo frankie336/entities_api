@@ -1,4 +1,7 @@
-#!src/api/entities_api/routers/files_router.py
+#!/usr/bin/env python3
+# ────────────────────────────────────────────────────────────────────────────
+#  File Router – Uploads / Metadata / Signed‑URL download
+# ────────────────────────────────────────────────────────────────────────────
 import hashlib
 import hmac
 import os
@@ -6,86 +9,67 @@ from datetime import datetime
 from urllib.parse import urlencode
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends
-from fastapi import File as FastApiFile
-from fastapi import Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
-from projectdavid_common.schemas.file_service import (FileDeleteResponse,
-                                                      FileResponse)
-from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.orm import Session
+
+from projectdavid_common.validation import FileDeleteResponse, FileResponse
+from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from entities_api.dependencies import get_api_key, get_db
 from entities_api.models.models import ApiKey as ApiKeyModel
 from entities_api.models.models import File as FileModel
 from entities_api.services.file_service import FileService
 
-# --- Initialization ---
-router = APIRouter(prefix="/v1", tags=["Files"])
+# ────────────────────────────────────────────────────────────────────────────
+#  Init
+# ────────────────────────────────────────────────────────────────────────────
 load_dotenv()
+router = APIRouter()
 logging_utility = LoggingUtility()
 
 
-# === UPLOAD FILE ENDPOINT ===
+# ────────────────────────────────────────────────────────────────────────────
+#  Upload
+# ────────────────────────────────────────────────────────────────────────────
 @router.post(
     "/uploads",
-    response_model=None,  # Disable response model validation
+    response_model=FileResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Upload a File",
-    description="Uploads a file and associates it with the authenticated user.",
+    summary="Upload a file",
 )
 def upload_file_endpoint(
-    purpose: str = Form(...),
-    file: UploadFile = FastApiFile(...),
+    purpose: str = Form(..., description="Purpose (e.g. assistants)"),
+    file: UploadFile = File(...),
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
-):
+) -> FileResponse:
     user_id = auth_key.user_id
-    logging_utility.info(
-        f"User '{user_id}' - Received request to upload file '{file.filename}' with purpose '{purpose}'"
+    logging_utility.info("User %s uploading %s (%s)", user_id, file.filename, purpose)
+
+    service = FileService(db)
+    created = service.upload_file(
+        file=file, request=type("Req", (), {"purpose": purpose, "user_id": user_id})
     )
-
-    class UploadRequestData:
-        def __init__(self, purpose: str, user_id: str):
-            self.purpose = purpose
-            self.user_id = user_id
-
-    try:
-        request_data = UploadRequestData(purpose=purpose, user_id=user_id)
-        file_service = FileService(db)
-        created_file_model = file_service.upload_file(file=file, request=request_data)
-
-        return {
-            "id": created_file_model.id,
-            "object": "file",
-            "bytes": created_file_model.bytes,
-            "created_at": int(created_file_model.created_at.timestamp()),
-            "filename": created_file_model.filename,
-            "purpose": created_file_model.purpose,
-        }
-
-    except HTTPException as e:
-        logging_utility.warning(
-            f"Upload failed for user '{user_id}', file '{file.filename}': {e.detail}"
-        )
-        raise e
-    except Exception as e:
-        logging_utility.error(
-            f"Unexpected error uploading file '{file.filename}' for user '{user_id}': {str(e)}",
-            exc_info=True,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An internal server error occurred during file upload.",
-        )
+    return FileResponse.model_validate(created)
 
 
-# === RETRIEVE METADATA ENDPOINT ===
+# ────────────────────────────────────────────────────────────────────────────
+#  Metadata
+# ────────────────────────────────────────────────────────────────────────────
 @router.get(
     "/files/{file_id}",
     response_model=FileResponse,
-    summary="Retrieve File Metadata",
-    description="Retrieves the metadata for a specific file.",
+    summary="Retrieve file metadata",
 )
 def retrieve_file_metadata(
     file_id: str,
@@ -93,24 +77,21 @@ def retrieve_file_metadata(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     user_id = auth_key.user_id
-    logging_utility.info(f"User '{user_id}' - Retrieving metadata for file: {file_id}")
-    try:
-        file_service = FileService(db)
-        file_data = file_service.get_file_by_id(file_id)
-        if not file_data:
-            raise HTTPException(status_code=404, detail="File not found.")
-        return FileResponse.model_validate(file_data)
-    except Exception as e:
-        logging_utility.error(f"Metadata error for file {file_id}: {str(e)}")
-        raise HTTPException(500, "Failed to retrieve file metadata.")
+    logging_utility.info("User %s reading metadata for %s", user_id, file_id)
+
+    data = FileService(db).get_file_by_id(file_id)
+    if not data:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
+    return FileResponse.model_validate(data)
 
 
-# === DELETE FILE ENDPOINT ===
+# ────────────────────────────────────────────────────────────────────────────
+#  Delete
+# ────────────────────────────────────────────────────────────────────────────
 @router.delete(
     "/files/{file_id}",
     response_model=FileDeleteResponse,
-    summary="Delete a File",
-    description="Deletes a file and its storage records.",
+    summary="Delete a file",
 )
 def delete_file_endpoint(
     file_id: str,
@@ -118,109 +99,143 @@ def delete_file_endpoint(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     user_id = auth_key.user_id
-    logging_utility.info(f"User '{user_id}' - Requesting deletion of file: {file_id}")
-    try:
-        file_service = FileService(db)
-        if not file_service.delete_file_by_id(file_id):
-            raise HTTPException(status_code=404, detail="File not found.")
-        return FileDeleteResponse(id=file_id, object="file", deleted=True)
-    except Exception as e:
-        logging_utility.error(f"Delete error for file {file_id}: {str(e)}")
-        raise HTTPException(500, "Failed to delete file.")
+    logging_utility.info("User %s deleting %s", user_id, file_id)
+
+    if not FileService(db).delete_file_by_id(file_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
+    return FileDeleteResponse(id=file_id, object="file", deleted=True)
 
 
-# --- Signature Helper ---
-def verify_signature(
-    file_id: str, expires: int, signature: str, use_real_filename: bool = False
-) -> bool:
-    secret_key = os.getenv("SIGNED_URL_SECRET", "default_secret_key")
-    data = f"{file_id}:{expires}:{str(use_real_filename).lower()}"
-    computed = hmac.new(secret_key.encode(), data.encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(computed, signature)
+# ────────────────────────────────────────────────────────────────────────────
+#  HMAC helper
+# ────────────────────────────────────────────────────────────────────────────
+def _verify_sig(file_id: str, exp: int, sig: str, real_name: bool) -> bool:
+    secret = os.getenv("SIGNED_URL_SECRET", "")
+    if not secret:
+        logging_utility.critical("SIGNED_URL_SECRET is not configured!")
+        return False
+    payload = f"{file_id}:{exp}:{str(real_name).lower()}"
+    expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, sig)
 
 
-# === DOWNLOAD FILE ENDPOINT ===
-@router.get("/files/download", response_class=StreamingResponse)
+# ────────────────────────────────────────────────────────────────────────────
+#  Download (NO API‑KEY AUTH)
+# ────────────────────────────────────────────────────────────────────────────
+@router.get(
+    "/files/download",
+    include_in_schema=False,
+    response_class=StreamingResponse,
+    summary="Download file via signed URL (no API key required)",
+)
 def download_file(
-    file_id: str,
-    expires: int,
-    signature: str,
+    file_id: str = Query(...),
+    expires: int = Query(...),
+    signature: str = Query(...),
     use_real_filename: bool = Query(False),
     db: Session = Depends(get_db),
-    auth_key: ApiKeyModel = Depends(get_api_key),
 ):
+    # --- START DEBUG LOG ---
+    # Use a distinct message and maybe print just in case logging is buffered
+    log_msg = f"!!!!!! Entered /files/download route for file_id: {file_id} !!!!!!"
+    print(log_msg, flush=True)
+    logging_utility.error(log_msg)  # Use error level to make it stand out in logs
+    # --- END DEBUG LOG ---
+
+    # Expired?
     if datetime.utcnow().timestamp() > expires:
-        raise HTTPException(400, "Signed URL has expired")
-    if not verify_signature(file_id, expires, signature, use_real_filename):
-        raise HTTPException(403, "Invalid signature")
+        logging_utility.warning(
+            f"Download URL expired for file_id: {file_id}"
+        )  # Add logging here too
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Signed URL expired")
 
-    try:
-        file_service = FileService(db)
-        file_stream, filename, mime_type = file_service.get_file_with_metadata(file_id)
-        disposition = (
-            "inline"
-            if mime_type.startswith(("image/", "text/"))
-            or mime_type == "application/pdf"
-            else "attachment"
-        )
-        name = filename if use_real_filename else file_id
+    # Bad HMAC?
+    if not _verify_sig(file_id, expires, signature, use_real_filename):
+        logging_utility.warning(
+            f"Invalid signature for file_id: {file_id}"
+        )  # Add logging here too
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Invalid signature")
 
-        return StreamingResponse(
-            file_stream,
-            media_type=mime_type,
-            headers={
-                "Content-Disposition": f'{disposition}; filename="{name}"',
-                "X-Content-Type-Options": "nosniff",
-            },
-        )
-    except Exception as e:
-        logging_utility.error(f"Download error for file {file_id}: {str(e)}")
-        raise HTTPException(500, "Failed to process file download.")
+    # Stream
+    logging_utility.info(
+        f"Signature OK, proceeding to stream file_id: {file_id}"
+    )  # Add logging here too
+    stream, orig_name, mime = FileService(db).get_file_with_metadata(file_id)
+    fname = orig_name if use_real_filename else file_id
+    disp = (
+        "inline"
+        if mime and mime.startswith(("image/", "text/", "application/pdf"))
+        else "attachment"
+    )
+    return StreamingResponse(
+        stream,
+        media_type=mime or "application/octet-stream",
+        headers={
+            "Content-Disposition": f'{disp}; filename="{fname}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
-# === SIGNED URL GENERATION ===
-@router.get("/files/{file_id}/signed-url")
+# ────────────────────────────────────────────────────────────────────────────
+#  Signed‑URL generator (NO API‑KEY AUTH)
+# ────────────────────────────────────────────────────────────────────────────
+@router.get(
+    "/files/{file_id}/signed-url",
+    response_model=dict,
+    summary="Generate a temporary signed URL (no API key required)",
+    description="Returns {'signed_url': ...}",
+)
 def generate_signed_url(
     file_id: str,
-    expires_in: int = Query(600),
+    expires_in: int = Query(600, description="Seconds until link expires"),
     use_real_filename: bool = Query(False),
     db: Session = Depends(get_db),
-    auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    file_record = db.query(FileModel).filter(FileModel.id == file_id).first()
-    if not file_record:
-        raise HTTPException(404, "File not found")
+    # File must exist
+    if not db.query(FileModel).filter(FileModel.id == file_id).first():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
 
-    expires = int(datetime.utcnow().timestamp() + expires_in)
-    data = f"{file_id}:{expires}:{str(use_real_filename).lower()}"
-    signature = hmac.new(
-        os.getenv("SIGNED_URL_SECRET", "default_secret_key").encode(),
-        data.encode(),
-        hashlib.sha256,
-    ).hexdigest()
-    base_url = os.getenv("BASE_URL", "http://localhost:9000").rstrip("/")
-    url = f"{base_url}/v1/files/download?" + urlencode(
+    secret = os.getenv("SIGNED_URL_SECRET", "")
+    base_url = os.getenv("DOWNLOAD_BASE_URL", "").rstrip("/")
+    if not secret or not base_url:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "SIGNED_URL_SECRET or DOWNLOAD_BASE_URL not configured",
+        )
+
+    exp = int(datetime.utcnow().timestamp() + expires_in)
+    payload = f"{file_id}:{exp}:{str(use_real_filename).lower()}"
+    sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+
+    query = urlencode(
         {
             "file_id": file_id,
-            "expires": expires,
-            "signature": signature,
+            "expires": exp,
+            "signature": sig,
             "use_real_filename": use_real_filename,
         }
     )
+    url = f"{base_url}/v1/files/download?{query}"
+    logging_utility.info("Generated signed URL for %s", file_id)
     return {"signed_url": url}
 
 
-# === BASE64 ENCODING ENDPOINT ===
-@router.get("/files/{file_id}/base64")
+# ────────────────────────────────────────────────────────────────────────────
+#  Base‑64
+# ────────────────────────────────────────────────────────────────────────────
+@router.get(
+    "/files/{file_id}/base64",
+    response_model=dict,
+    summary="Get file as Base64",
+)
 def get_file_as_base64(
     file_id: str,
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    try:
-        file_service = FileService(db)
-        base64_data = file_service.get_file_as_base64(file_id)
-        return {"file_id": file_id, "base64": base64_data}
-    except Exception as e:
-        logging_utility.error(f"Base64 encoding error for file {file_id}: {str(e)}")
-        raise HTTPException(500, "Failed to retrieve BASE64 content.")
+    user_id = auth_key.user_id
+    logging_utility.info("User %s requesting base64 for %s", user_id, file_id)
+
+    b64 = FileService(db).get_file_as_base64(file_id)
+    return {"file_id": file_id, "base64": b64}

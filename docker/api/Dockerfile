@@ -13,9 +13,7 @@ COPY requirements.txt .
 # Install all dependencies into a temporary directory
 RUN pip install --upgrade pip setuptools wheel && \
     pip install --prefix=/install/packages --no-cache-dir --default-timeout=200 \
-        --index-url https://pypi.org/simple \
-        --extra-index-url https://test.pypi.org/simple \
-        -r requirements.txt
+       -r requirements.txt
 
 # === Stage 2: Runtime ===
 FROM python:3.11-slim AS runtime
