@@ -1,3 +1,11 @@
+# [1.9.0](https://github.com/frankie336/entities_api/compare/v1.8.0...v1.9.0) (2025-04-23)
+
+
+### Features
+
+* function-call-tags ([6e67d57](https://github.com/frankie336/entities_api/commit/6e67d57808d16b8960ec1cd29499549215d26044))
+* Improved function call handling. Working towards full call structure filtering. ([4c4c67f](https://github.com/frankie336/entities_api/commit/4c4c67f4fefd18776ad49892a30d7e27f36ca255))
+
 # [1.8.0](https://github.com/frankie336/entities_api/compare/v1.7.1...v1.8.0) (2025-04-23)
 
 
