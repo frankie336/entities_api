@@ -33,18 +33,16 @@ from redis import Redis
 from together import Together
 
 from entities_api.constants.assistant import (
-    CODE_ANALYSIS_TOOL_MESSAGE,
-    CODE_INTERPRETER_MESSAGE,
-    DEFAULT_REMINDER_MESSAGE,
-    PLATFORM_TOOLS,
-    WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS,
-)
-from entities_api.constants.platform import ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING
+    CODE_ANALYSIS_TOOL_MESSAGE, CODE_INTERPRETER_MESSAGE,
+    DEFAULT_REMINDER_MESSAGE, PLATFORM_TOOLS,
+    WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS)
+from entities_api.constants.platform import (ERROR_NO_CONTENT,
+                                             SPECIAL_CASE_TOOL_HANDLING)
 from entities_api.dependencies import get_assistant_cache
-from entities_api.platform_tools.code_interpreter.code_execution_client import (
-    StreamOutput,
-)
-from entities_api.platform_tools.platform_tool_service import PlatformToolService
+from entities_api.platform_tools.code_interpreter.code_execution_client import \
+    StreamOutput
+from entities_api.platform_tools.platform_tool_service import \
+    PlatformToolService
 from entities_api.services.cached_assistant import AssistantCache
 from entities_api.services.conversation_truncator import ConversationTruncator
 from entities_api.services.logging_service import LoggingUtility
@@ -1719,9 +1717,8 @@ class BaseInference(ABC):
     def handle_shell_action(self, thread_id, run_id, assistant_id, arguments_dict):
         import json
 
-        from entities_api.platform_tools.computer.shell_command_interface import (
-            run_shell_commands,
-        )
+        from entities_api.platform_tools.computer.shell_command_interface import \
+            run_shell_commands
 
         # Create an action for the computer command execution
         action = self.action_client.create_action(
@@ -2062,9 +2059,15 @@ class BaseInference(ABC):
         parsed_function_call = None
 
         if accumulated_content:
-            logging_utility.debug("Raw accumulated content: %s", accumulated_content)
+            # 1) Strip off our <fc>…</fc> markers if present
+            text = accumulated_content.strip()
+            if text.startswith("<fc>") and text.endswith("</fc>"):
+                text = text[len("<fc>") : -len("</fc>")].strip()
 
-            json_accumulated_content = self.ensure_valid_json(text=accumulated_content)
+            logging_utility.debug("JSON payload to parse: %s", text)
+
+            # 2) Attempt to parse the cleaned JSON
+            json_accumulated_content = self.ensure_valid_json(text=text)
 
             if json_accumulated_content:
                 function_call = self.is_valid_function_call_response(
@@ -2084,6 +2087,7 @@ class BaseInference(ABC):
                         "Function call State set with payload: %s", parsed_function_call
                     )
 
+        # Fallback: look for embedded calls in assistant_reply
         if not parsed_function_call:
             tool_invocation_in_multi_line_text = (
                 self.extract_function_calls_within_body_of_text(text=assistant_reply)

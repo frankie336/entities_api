@@ -148,7 +148,8 @@ class StreamingMixin(ABC):
         )
 
         def listen_for_cancellation():
-            from entities_api.services.event_handler import EntitiesEventHandler
+            from entities_api.services.event_handler import \
+                EntitiesEventHandler
 
             event_handler = EntitiesEventHandler(
                 run_service=client.runs,

@@ -2,12 +2,10 @@ import threading
 from functools import lru_cache
 
 from entities_api.inference.cloud_azure_r1 import AzureR1Cloud
-from entities_api.inference.hypherbolic.hyperbolic_deepseek_r1 import (
-    HyperbolicR1Inference,
-)
-from entities_api.inference.hypherbolic.hyperbolic_deepseek_v3 import (
-    HyperbolicDeepSeekV3Inference,
-)
+from entities_api.inference.hypherbolic.hyperbolic_deepseek_r1 import \
+    HyperbolicR1Inference
+from entities_api.inference.hypherbolic.hyperbolic_deepseek_v3 import \
+    HyperbolicDeepSeekV3Inference
 from entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()

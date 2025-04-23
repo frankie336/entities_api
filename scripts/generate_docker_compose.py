@@ -6,8 +6,8 @@ All sensitive values (DB passwords, DEFAULT_SECRET_KEY, etc.) are expressed as
 ${ENV_VAR} placeholders.  The orchestration script will create real secrets and
 write them into .env on first run.
 """
-from pathlib import Path
 import uuid
+from pathlib import Path
 
 
 # --------------------------------------------------------------------------- #

@@ -7,6 +7,14 @@
 
 ![Entities Emblem](https://raw.githubusercontent.com/frankie336/entities_api/master/assets/entities_emblem_green.png)
 ---
+
+## ⚙️ Bootstrap Setup
+
+For a full admin setup and assistant provisioning guide, see:
+
+👉 [`docs/boot_strap_guide.md`](/docs/boot_strap_guide.md)
+
+---
 The **Entities API** is for developing projects that interact with LLMs.  
 It aggregates inference calls to multiple providers as well as local using the [Ollama](https://github.com/ollama) library.
 
@@ -251,7 +259,7 @@ This is **AI orchestration for the rest of us.**
 
 For a full admin setup and assistant provisioning guide, see:
 
-👉 [`docs/bootstrap.md`](https://github.com/frankie336/entities/blob/master/docs/bootstrap.md)
+👉 [`docs/bootstrap.md`](https://github.com/frankie336/entities/blob/master/docs/boot_strap_guide.md)
 
 This includes:
 - Admin user creation
