@@ -19,6 +19,21 @@ ALL tool calls MUST follow EXACT structure:
 2. Never wrap them in markdown backticks
 3. Call them in plain text or they will fail
     """.strip(),
+    "FUNCTION_CALL_WRAPPING": """
+🔹 **FUNCTION CALL WRAPPING**
+Every tool/function call must be wrapped in `<fc>` and `</fc>` tags, for example:
+<fc>
+{
+  "name": "vector_store_search",
+  "arguments": {
+    "query": "post-quantum migration",
+    "search_type": "basic_semantic",
+    "source_type": "chat"
+  }
+}
+</fc>
+These tags let the host detect and stream calls cleanly.
+    """.strip(),
     "CODE_INTERPRETER": """
 🔹 **CODE INTERPRETER**
 1. Always print output or script feedback
@@ -213,6 +228,7 @@ Failure to comply will result in system rejection.
     """.strip(),
 }
 
+
 # --- Function to Assemble Instructions ---
 
 
@@ -239,21 +255,16 @@ def assemble_instructions(
         raise ValueError("Cannot specify both include_keys and exclude_keys")
 
     final_instructions = []
-    keys_to_process = []
-
     if include_keys:
         for key in include_keys:
             if key not in instruction_set:
                 print(f"Warning: Requested instruction key '{key}' not found.")
             else:
-                keys_to_process.append(key)
+                final_instructions.append(instruction_set[key])
     else:
         exclude_set = set(exclude_keys or [])
-        keys_to_process = [
-            key for key in instruction_set.keys() if key not in exclude_set
-        ]
-
-    for key in keys_to_process:
-        final_instructions.append(instruction_set[key])
+        for key, text in instruction_set.items():
+            if key not in exclude_set:
+                final_instructions.append(text)
 
     return "\n\n".join(final_instructions)

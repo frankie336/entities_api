@@ -3,12 +3,13 @@ from datetime import datetime
 from typing import AsyncGenerator, Optional
 
 import redis.asyncio as aioredis
-from redis.asyncio import Redis
 from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import APIKeyHeader
+from redis.asyncio import Redis
 from sqlalchemy.orm import Session
 
 from entities_api.services.cached_assistant import AssistantCache
+
 from .db.database import SessionLocal
 from .models.models import ApiKey, User
 

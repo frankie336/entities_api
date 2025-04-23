@@ -32,7 +32,6 @@ class HyperbolicDeepSeekV3Inference(BaseInference, ABC):
         stream_reasoning=False,
         api_key: Optional[str] = None,
     ):
-
         return super().stream_function_call_output(
             thread_id=thread_id,
             run_id=run_id,
@@ -46,7 +45,6 @@ class HyperbolicDeepSeekV3Inference(BaseInference, ABC):
     def _shunt_to_redis_stream(
         self, redis, stream_key, chunk_dict, *, maxlen=1000, ttl_seconds=3600
     ):
-
         return super()._shunt_to_redis_stream(
             redis, stream_key, chunk_dict, maxlen=maxlen, ttl_seconds=ttl_seconds
         )
@@ -61,6 +59,8 @@ class HyperbolicDeepSeekV3Inference(BaseInference, ABC):
         stream_reasoning: bool = True,
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
+
+        import re  # ensure regex is available here
 
         redis = get_redis()
         stream_key = f"stream:{run_id}"
@@ -88,44 +88,35 @@ class HyperbolicDeepSeekV3Inference(BaseInference, ABC):
             logging_utility.debug(
                 f"Run {run_id}: Creating temporary Hyperbolic client with provided API key."
             )
-
             hyperbolic_base_url = os.getenv("HYPERBOLIC_BASE_URL")
             if not hyperbolic_base_url:
-                error_msg_log = f"Run {run_id}: Configuration Error: 'HYPERBOLIC_BASE_URL' environment variable is not set or is empty. Cannot initialize temporary Hyperbolic client."
-                logging_utility.error(error_msg_log)
+                logging_utility.error(
+                    f"Run {run_id}: Configuration Error: 'HYPERBOLIC_BASE_URL' is not set."
+                )
                 chunk = {
                     "type": "error",
-                    "content": "Server Configuration Error: Hyperbolic service endpoint is not configured. Please check server logs or contact support.",
+                    "content": "Server misconfiguration: Hyperbolic endpoint missing.",
                 }
                 yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
                 return
-
             try:
                 client_to_use = self._get_openai_client(
                     base_url=hyperbolic_base_url, api_key=api_key
                 )
-            except Exception as client_init_error:
+            except Exception as e:
                 logging_utility.error(
-                    f"Run {run_id}: Failed to create temporary Hyperbolic client: {client_init_error}",
+                    f"Run {run_id}: Failed to init Hyperbolic client: {e}",
                     exc_info=True,
                 )
-                chunk = {
-                    "type": "error",
-                    "content": f"Failed to initialize client for request: {client_init_error}",
-                }
+                chunk = {"type": "error", "content": f"Client init error: {e}"}
                 yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
                 return
 
         if not client_to_use:
-            logging_utility.error(
-                f"Run {run_id}: No valid Hyperbolic client available."
-            )
-            chunk = {
-                "type": "error",
-                "content": "Hyperbolic client configuration error.",
-            }
+            logging_utility.error(f"Run {run_id}: No Hyperbolic client available.")
+            chunk = {"type": "error", "content": "Hyperbolic client error."}
             yield json.dumps(chunk)
             self._shunt_to_redis_stream(redis, stream_key, chunk)
             return
@@ -134,6 +125,7 @@ class HyperbolicDeepSeekV3Inference(BaseInference, ABC):
         accumulated_content = ""
         reasoning_content = ""
         in_reasoning = False
+        in_function_call = False
         code_mode = False
         code_buffer = ""
 
@@ -148,11 +140,12 @@ class HyperbolicDeepSeekV3Inference(BaseInference, ABC):
                     self._shunt_to_redis_stream(redis, stream_key, chunk)
                     break
 
-                if not hasattr(token, "choices") or not token.choices:
+                if not getattr(token, "choices", None):
                     continue
 
                 delta = token.choices[0].delta
 
+                # 1) stream reasoning_content from delta if present
                 delta_reasoning = getattr(delta, "reasoning_content", "")
                 if delta_reasoning and stream_reasoning:
                     reasoning_content += delta_reasoning
@@ -164,110 +157,148 @@ class HyperbolicDeepSeekV3Inference(BaseInference, ABC):
                 if not delta_content:
                     continue
 
-                segments = (
-                    self.REASONING_PATTERN.split(delta_content)
-                    if hasattr(self, "REASONING_PATTERN")
-                    else [delta_content]
-                )
+                # 2) split on both reasoning and function‐call tags
+                segments = re.split(r"(<think>|</think>|<fc>|</fc>)", delta_content)
+
                 for seg in segments:
                     if not seg:
                         continue
 
+                    # reasoning tag open
                     if seg == "<think>":
                         in_reasoning = True
-                        reasoning_content += seg
-                        if stream_reasoning:
-                            chunk = {"type": "reasoning", "content": seg}
-                            yield json.dumps(chunk)
-                            self._shunt_to_redis_stream(redis, stream_key, chunk)
-                        continue
-                    elif seg == "</think>":
-                        in_reasoning = False
-                        reasoning_content += seg
                         if stream_reasoning:
                             chunk = {"type": "reasoning", "content": seg}
                             yield json.dumps(chunk)
                             self._shunt_to_redis_stream(redis, stream_key, chunk)
                         continue
 
+                    # reasoning tag close
+                    if seg == "</think>":
+                        in_reasoning = False
+                        if stream_reasoning:
+                            chunk = {"type": "reasoning", "content": seg}
+                            yield json.dumps(chunk)
+                            self._shunt_to_redis_stream(redis, stream_key, chunk)
+                        continue
+
+                    # function‐call tag open
+                    if seg == "<fc>":
+                        in_function_call = True
+                        continue
+
+                    # function‐call tag close
+                    if seg == "</fc>":
+                        in_function_call = False
+                        continue
+
+                    # fallback: detect untagged function‐call JSON
+                    if not in_function_call:
+                        try:
+                            candidate = json.loads(seg.strip())
+                            if self.is_valid_function_call_response(candidate):
+                                in_function_call = True
+                                assistant_reply += seg
+                                accumulated_content += seg
+                                logging_utility.debug(
+                                    f"Emitting function_call chunk (fallback): {seg.strip()}"
+                                )
+                                self._shunt_to_redis_stream(
+                                    redis,
+                                    stream_key,
+                                    {"type": "function_call", "content": seg},
+                                )
+                                in_function_call = False
+                                continue
+                        except Exception:
+                            pass
+
+                    # inside a function‐call: accumulate only
+                    if in_function_call:
+                        assistant_reply += seg
+                        accumulated_content += seg
+                        logging_utility.debug(
+                            f"Emitting function_call chunk: {seg.strip()}"
+                        )
+                        self._shunt_to_redis_stream(
+                            redis, stream_key, {"type": "function_call", "content": seg}
+                        )
+                        continue
+
+                    # within reasoning text
                     if in_reasoning:
                         reasoning_content += seg
                         if stream_reasoning:
                             chunk = {"type": "reasoning", "content": seg}
                             yield json.dumps(chunk)
                             self._shunt_to_redis_stream(redis, stream_key, chunk)
-                    else:
-                        assistant_reply += seg
-                        accumulated_content += seg
+                        continue
 
-                        if hasattr(self, "parse_code_interpreter_partial"):
-                            partial_match = self.parse_code_interpreter_partial(
-                                accumulated_content
+                    # normal/code text
+                    assistant_reply += seg
+                    accumulated_content += seg
+
+                    # detect code‐interpreter partials
+                    partial = getattr(self, "parse_code_interpreter_partial", None)
+                    partial_match = partial(accumulated_content) if partial else None
+
+                    if not code_mode and partial_match:
+                        full = partial_match.get("full_match")
+                        if full:
+                            idx = accumulated_content.find(full)
+                            if idx != -1:
+                                accumulated_content = accumulated_content[
+                                    idx + len(full) :
+                                ]
+                        code_mode = True
+                        code_buffer = partial_match.get("code", "")
+                        self.code_mode = True
+                        chunk = {"type": "hot_code", "content": "```python\n"}
+                        yield json.dumps(chunk)
+                        self._shunt_to_redis_stream(redis, stream_key, chunk)
+                        if code_buffer and hasattr(
+                            self, "_process_code_interpreter_chunks"
+                        ):
+                            results, code_buffer = (
+                                self._process_code_interpreter_chunks("", code_buffer)
                             )
+                            for r in results:
+                                yield r
+                                self._shunt_to_redis_stream(redis, stream_key, r)
+                                assistant_reply += (
+                                    r
+                                    if isinstance(r, str)
+                                    else json.loads(r).get("content", "")
+                                )
+                        continue
+
+                    if code_mode:
+                        if hasattr(self, "_process_code_interpreter_chunks"):
+                            results, code_buffer = (
+                                self._process_code_interpreter_chunks(seg, code_buffer)
+                            )
+                            for r in results:
+                                yield r
+                                self._shunt_to_redis_stream(redis, stream_key, r)
+                                assistant_reply += (
+                                    r
+                                    if isinstance(r, str)
+                                    else json.loads(r).get("content", "")
+                                )
                         else:
-                            partial_match = None
-
-                        if not code_mode and partial_match:
-                            full_match = partial_match.get("full_match")
-                            if full_match:
-                                match_index = accumulated_content.find(full_match)
-                                if match_index != -1:
-                                    accumulated_content = accumulated_content[
-                                        match_index + len(full_match) :
-                                    ]
-                            code_mode = True
-                            code_buffer = partial_match.get("code", "")
-                            self.code_mode = True
-                            chunk = {"type": "hot_code", "content": "```python\n"}
+                            chunk = {"type": "hot_code", "content": seg}
                             yield json.dumps(chunk)
                             self._shunt_to_redis_stream(redis, stream_key, chunk)
+                        continue
 
-                            if code_buffer and hasattr(
-                                self, "_process_code_interpreter_chunks"
-                            ):
-                                results, code_buffer = (
-                                    self._process_code_interpreter_chunks(
-                                        "", code_buffer
-                                    )
-                                )
-                                for r in results:
-                                    yield r
-                                    self._shunt_to_redis_stream(redis, stream_key, r)
-                                    assistant_reply += (
-                                        r
-                                        if isinstance(r, str)
-                                        else json.loads(r).get("content", "")
-                                    )
-                            continue
-
-                        if code_mode:
-                            if hasattr(self, "_process_code_interpreter_chunks"):
-                                results, code_buffer = (
-                                    self._process_code_interpreter_chunks(
-                                        seg, code_buffer
-                                    )
-                                )
-                                for r in results:
-                                    yield r
-                                    self._shunt_to_redis_stream(redis, stream_key, r)
-                                    assistant_reply += (
-                                        r
-                                        if isinstance(r, str)
-                                        else json.loads(r).get("content", "")
-                                    )
-                            else:
-                                chunk = {"type": "hot_code", "content": seg}
-                                yield json.dumps(chunk)
-                                self._shunt_to_redis_stream(redis, stream_key, chunk)
-                            continue
-
-                        if not code_buffer:
-                            chunk = {"type": "content", "content": seg}
-                            yield json.dumps(chunk)
-                            self._shunt_to_redis_stream(redis, stream_key, chunk)
+                    # plain content
+                    if not code_buffer:
+                        chunk = {"type": "content", "content": seg}
+                        yield json.dumps(chunk)
+                        self._shunt_to_redis_stream(redis, stream_key, chunk)
 
         except Exception as e:
-            error_msg = f"Hyperbolic SDK error (using {key_source_log} key): {str(e)}"
+            error_msg = f"Hyperbolic SDK error (using {key_source_log} key): {e}"
             logging_utility.error(f"Run {run_id}: {error_msg}", exc_info=True)
             if hasattr(self, "handle_error"):
                 self.handle_error(
@@ -278,11 +309,13 @@ class HyperbolicDeepSeekV3Inference(BaseInference, ABC):
             self._shunt_to_redis_stream(redis, stream_key, chunk)
             return
 
+        # finalize conversation
         if assistant_reply and hasattr(self, "finalize_conversation"):
             self.finalize_conversation(
                 reasoning_content + assistant_reply, thread_id, assistant_id, run_id
             )
 
+        # detect pending function calls
         if accumulated_content and hasattr(self, "parse_and_set_function_calls"):
             function_call = self.parse_and_set_function_calls(
                 accumulated_content, assistant_reply
@@ -314,7 +347,6 @@ class HyperbolicDeepSeekV3Inference(BaseInference, ABC):
         model=None,
         api_key: Optional[str] = None,
     ):
-
         return super().process_function_calls(
             thread_id=thread_id,
             run_id=run_id,
@@ -337,12 +369,12 @@ class HyperbolicDeepSeekV3Inference(BaseInference, ABC):
         Processes the conversation, passing the api_key down for use
         in the actual API request via override.
         """
-
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)
 
         logging_utility.info(
-            f"Processing conversation for run {run_id} with model {model}. API key provided: {'Yes' if api_key else 'No'}"
+            f"Processing conversation for run {run_id} with model {model}. "
+            f"API key provided: {'Yes' if api_key else 'No'}"
         )
 
         for chunk in self.stream(
@@ -358,7 +390,6 @@ class HyperbolicDeepSeekV3Inference(BaseInference, ABC):
 
         fc_state = self.get_function_call_state()
 
-        # Process function calls, passing the api_key if needed by sub-calls
         for chunk in self.process_function_calls(
             thread_id=thread_id,
             run_id=run_id,

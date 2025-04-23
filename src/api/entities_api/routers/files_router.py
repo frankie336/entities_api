@@ -9,21 +9,12 @@ from datetime import datetime
 from urllib.parse import urlencode
 
 from dotenv import load_dotenv
-from fastapi import (
-    APIRouter,
-    Depends,
-    File,
-    Form,
-    HTTPException,
-    Query,
-    UploadFile,
-    status,
-)
+from fastapi import (APIRouter, Depends, File, Form, HTTPException, Query,
+                     UploadFile, status)
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
-
-from projectdavid_common.validation import FileDeleteResponse, FileResponse
 from projectdavid_common.utilities.logging_service import LoggingUtility
+from projectdavid_common.validation import FileDeleteResponse, FileResponse
+from sqlalchemy.orm import Session
 
 from entities_api.dependencies import get_api_key, get_db
 from entities_api.models.models import ApiKey as ApiKeyModel

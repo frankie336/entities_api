@@ -1,25 +1,19 @@
 # src/api/entities_api/routers/admin_router.py
 
 from fastapi import APIRouter, Depends, HTTPException, status
-
 # Import common schemas from your shared library
-from projectdavid_common.schemas.api_key_schemas import (
-    ApiKeyCreateRequest,
-    ApiKeyCreateResponse,
-    ApiKeyDetails,
-)
-
+from projectdavid_common.schemas.api_key_schemas import (ApiKeyCreateRequest,
+                                                         ApiKeyCreateResponse,
+                                                         ApiKeyDetails)
 # Import logging utility if you want specific admin logs
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.orm import Session
 
 # Import API dependencies
 from ..dependencies import get_api_key, get_db
-
 # Import DB Models required for this router
 from ..models.models import ApiKey as ApiKeyModel
 from ..models.models import User as UserModel
-
 # Import the specific service needed
 from ..services.api_key_service import ApiKeyService
 

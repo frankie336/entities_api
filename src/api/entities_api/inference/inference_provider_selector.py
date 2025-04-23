@@ -10,16 +10,14 @@ from entities_api.inference.azure.azure_handler import AzureHandler
 from entities_api.inference.deepseek.deep_seek_handler import DeepseekHandler
 from entities_api.inference.google.google_handler import GoogleHandler
 from entities_api.inference.groq.groq_handler import GroqHandler  # Example
-
 # --- Import General Handler Classes ---
-from entities_api.inference.hypherbolic.hyperbolic_handler import HyperbolicHandler
-
+from entities_api.inference.hypherbolic.hyperbolic_handler import \
+    HyperbolicHandler
 # --- Import Arbiter (Needed by the General Handlers) ---
 from entities_api.inference.inference_arbiter import InferenceArbiter
 from entities_api.inference.local.local_handler import LocalHandler  # Example
-from entities_api.inference.togeterai.togetherai_handler import (
-    TogetherAIHandler,
-)  # Example
+from entities_api.inference.togeterai.togetherai_handler import \
+    TogetherAIHandler  # Example
 
 # --- We DO NOT import specific child handlers here ---
 
