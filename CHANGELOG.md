@@ -1,3 +1,10 @@
+# [1.8.0](https://github.com/frankie336/entities_api/compare/v1.7.1...v1.8.0) (2025-04-23)
+
+
+### Features
+
+* Asynchronous-REDIS ([8fc3de9](https://github.com/frankie336/entities_api/commit/8fc3de941163e36ad682448f9d7c4d6aae492788))
+
 ## [1.7.1](https://github.com/frankie336/entities_api/compare/v1.7.0...v1.7.1) (2025-04-19)
 
 
