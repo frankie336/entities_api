@@ -1,0 +1,75 @@
+# ------------------------------------------------------------------
+# Extra index for PyTorch CUDA 12.1 wheels
+--extra-index-url https://download.pytorch.org/whl/cu121
+#
+
+
+# ------------------------------------------------------------------
+# Core libraries
+PyYAML
+alembic
+annotated-types
+anyio
+asyncio
+certifi
+cffi
+click
+cryptography
+exceptiongroup
+fastapi~=0.110.0
+greenlet
+h11
+httpcore
+httpx
+idna
+iniconfig
+jinja2
+mypy
+mypy-extensions
+numpy
+openai
+packaging
+pdfplumber~=0.11.6
+pluggy
+pycparser
+pydantic~=2.10.3
+pydantic_core
+PyMySQL
+pytest>=7.0.0
+python-dotenv
+python-multipart
+requests
+sniffio
+SQLAlchemy
+sse_starlette
+starlette
+sympy
+tenacity
+together
+typing
+typing_extensions
+validators~=0.34.0
+websockets
+redis
+
+# ------------------------------------------------------------------
+# Platform-specific tools
+pywin32==310 ; sys_platform == "win32"
+
+# ------------------------------------------------------------------
+# Inference providers
+azure-core
+azure-ai-inference
+google-generativeai
+groq
+
+# ------------------------------------------------------------------
+# Samba
+pysmb
+
+# ------------------------------------------------------------------
+# Security
+passlib[bcrypt]
+
+
+

@@ -10,7 +10,6 @@ import shutil
 import subprocess
 import sys
 import time
-from os.path import getsize, islink
 from pathlib import Path
 from urllib.parse import quote_plus
 

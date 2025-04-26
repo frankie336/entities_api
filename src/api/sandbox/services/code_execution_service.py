@@ -21,7 +21,15 @@ class StreamingCodeExecutionHandler:
         self.logging_utility = LoggingUtility()
         self.active_processes = {}
         self.generated_files_dir = os.path.abspath("generated_files")
+
+        # os.makedirs(self.generated_files_dir, exist_ok=True)
         os.makedirs(self.generated_files_dir, exist_ok=True)
+        # ── Force Matplotlib to cache here, not under /root/.config ──
+        os.environ["MPLCONFIGDIR"] = self.generated_files_dir
+        self.logging_utility.info(
+            "MPLCONFIGDIR set to writable directory: %s", self.generated_files_dir
+        )
+
         self.last_executed_script_path = None
 
         self.logging_utility.info("Current working directory: %s", os.getcwd())

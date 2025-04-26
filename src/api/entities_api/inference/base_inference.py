@@ -1369,10 +1369,9 @@ class BaseInference(ABC):
                         yield chunk_str
                     else:
                         parsed = parsed_wrapper
-                        yield json.dumps({
-                            "stream_type": "code_execution",
-                            "chunk": parsed
-                        })
+                        yield json.dumps(
+                            {"stream_type": "code_execution", "chunk": parsed}
+                        )
 
                     chunk_type = parsed.get("type")
                     content = parsed.get("content")
@@ -1384,12 +1383,12 @@ class BaseInference(ABC):
                             uploaded_files.extend(parsed.get("uploaded_files", []))
                             logging_utility.info(
                                 "Execution complete; files metadata: %s",
-                                parsed.get("uploaded_files", [])
+                                parsed.get("uploaded_files", []),
                             )
                         elif status == "process_complete":
                             logging_utility.info(
                                 "Process completed with exit code: %s",
-                                parsed.get("exit_code")
+                                parsed.get("exit_code"),
                             )
 
                     elif chunk_type == "hot_code_output":
@@ -1403,37 +1402,43 @@ class BaseInference(ABC):
 
                 except json.JSONDecodeError:
                     logging_utility.error("Invalid JSON chunk: %s", chunk_str)
-                    yield json.dumps({
-                        "stream_type": "code_execution",
-                        "chunk": {
-                            "type": "error",
-                            "content": "Received invalid data from code execution."
+                    yield json.dumps(
+                        {
+                            "stream_type": "code_execution",
+                            "chunk": {
+                                "type": "error",
+                                "content": "Received invalid data from code execution.",
+                            },
                         }
-                    })
+                    )
                 except Exception as e:
                     logging_utility.error(
                         "Error processing execution chunk: %s – %s",
-                        str(e), chunk_str, exc_info=True
+                        str(e),
+                        chunk_str,
+                        exc_info=True,
                     )
-                    yield json.dumps({
-                        "stream_type": "code_execution",
-                        "chunk": {
-                            "type": "error",
-                            "content": f"Internal error: {str(e)}"
+                    yield json.dumps(
+                        {
+                            "stream_type": "code_execution",
+                            "chunk": {
+                                "type": "error",
+                                "content": f"Internal error: {str(e)}",
+                            },
                         }
-                    })
+                    )
 
         except Exception as stream_err:
-            logging_utility.error(
-                "Streaming error: %s", str(stream_err), exc_info=True
-            )
-            yield json.dumps({
-                "stream_type": "code_execution",
-                "chunk": {
-                    "type": "error",
-                    "content": f"Failed to stream code execution: {str(stream_err)}"
+            logging_utility.error("Streaming error: %s", str(stream_err), exc_info=True)
+            yield json.dumps(
+                {
+                    "stream_type": "code_execution",
+                    "chunk": {
+                        "type": "error",
+                        "content": f"Failed to stream code execution: {str(stream_err)}",
+                    },
                 }
-            })
+            )
             uploaded_files = []
 
         # -------------------------------
@@ -1464,37 +1469,41 @@ class BaseInference(ABC):
                     b64 = self.files.get_file_as_base64(file_id=file_id)
                 except Exception as e:
                     logging_utility.error(
-                        "Error fetching base64 for %s: %s", filename, str(e), exc_info=True
+                        "Error fetching base64 for %s: %s",
+                        filename,
+                        str(e),
+                        exc_info=True,
                     )
                     b64 = base64.b64encode(
                         f"Error retrieving content: {str(e)}".encode()
                     ).decode()
                     mime_type = "text/plain"
 
-                yield json.dumps({
-                    "stream_type": "code_execution",
-                    "chunk": {
-                        "type": "code_interpreter_stream",
-                        "content": {
-                            "filename": filename,
-                            "file_id": file_id,
-                            "base64": b64,
-                            "mime_type": mime_type,
-                        }
+                yield json.dumps(
+                    {
+                        "stream_type": "code_execution",
+                        "chunk": {
+                            "type": "code_interpreter_stream",
+                            "content": {
+                                "filename": filename,
+                                "file_id": file_id,
+                                "base64": b64,
+                                "mime_type": mime_type,
+                            },
+                        },
                     }
-                })
+                )
 
         # -------------------------------
         # Step 4: Final frontend-visible chunk
         # -------------------------------
         logging_utility.info("Yielding final content chunk.")
-        yield json.dumps({
-            "stream_type": "code_execution",
-            "chunk": {
-                "type": "content",
-                "content": final_content_for_assistant
+        yield json.dumps(
+            {
+                "stream_type": "code_execution",
+                "chunk": {"type": "content", "content": final_content_for_assistant},
             }
-        })
+        )
 
         # -------------------------------
         # Step 5: Debug log uploaded_files metadata
@@ -1519,13 +1528,15 @@ class BaseInference(ABC):
             logging_utility.error(
                 "Error submitting tool output: %s", str(submit_err), exc_info=True
             )
-            yield json.dumps({
-                "stream_type": "code_execution",
-                "chunk": {
-                    "type": "error",
-                    "content": f"Failed to submit results: {str(submit_err)}"
+            yield json.dumps(
+                {
+                    "stream_type": "code_execution",
+                    "chunk": {
+                        "type": "error",
+                        "content": f"Failed to submit results: {str(submit_err)}",
+                    },
                 }
-            })
+            )
 
     def handle_shell_action(self, thread_id, run_id, assistant_id, arguments_dict):
         import json

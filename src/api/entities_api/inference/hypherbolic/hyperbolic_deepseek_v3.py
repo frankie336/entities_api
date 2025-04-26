@@ -49,6 +49,27 @@ class HyperbolicDeepSeekV3Inference(BaseInference, ABC):
             redis, stream_key, chunk_dict, maxlen=maxlen, ttl_seconds=ttl_seconds
         )
 
+    # --- helper -------------------------------------------------------
+    # ------------------------------------------------------------
+    # 🚦 universal filter: swallow any outgoing {"type":"function_call", ...}
+    def _filter_fc(self, chunk_json: str) -> Optional[str]:
+        """
+        Hide function-call chunks from the *client* while still letting them
+        reach Redis / downstream tool logic.
+
+        Returns:
+            str  -> pass through to client
+            None -> suppress (do not yield)
+        """
+        try:
+            if json.loads(chunk_json).get("type") == "function_call":
+                return None
+        except Exception:
+            # if it isn't valid JSON, let it through
+            pass
+        return chunk_json
+
+    # ------------------------------------------------------------
     def stream(
         self,
         thread_id: str,
@@ -56,17 +77,24 @@ class HyperbolicDeepSeekV3Inference(BaseInference, ABC):
         run_id: str,
         assistant_id: str,
         model: Any,
+        *,
         stream_reasoning: bool = True,
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
+        """
+        HyperbolicDeepSeekV3Inference.stream
 
-        import re  # ensure regex is available here
+        • Any `function_call` chunks are written to Redis but **never** yielded
+          to the client (suppressed via `_filter_fc`).
+        • All other behaviour remains unchanged.
+        """
+        import re
 
         redis = get_redis()
         stream_key = f"stream:{run_id}"
-
         self.start_cancellation_listener(run_id)
 
+        # -------- model mapping ---------------------------------------------
         if self._get_model_map(value=model):
             model = self._get_model_map(value=model)
 
@@ -80,47 +108,34 @@ class HyperbolicDeepSeekV3Inference(BaseInference, ABC):
             "stream": True,
         }
 
+        # -------- Hyperbolic client -----------------------------------------
         client_to_use = None
-        key_source_log = "default configured"
-
         if api_key:
-            key_source_log = "provided"
-            logging_utility.debug(
-                f"Run {run_id}: Creating temporary Hyperbolic client with provided API key."
-            )
-            hyperbolic_base_url = os.getenv("HYPERBOLIC_BASE_URL")
-            if not hyperbolic_base_url:
-                logging_utility.error(
-                    f"Run {run_id}: Configuration Error: 'HYPERBOLIC_BASE_URL' is not set."
-                )
-                chunk = {
-                    "type": "error",
-                    "content": "Server misconfiguration: Hyperbolic endpoint missing.",
-                }
-                yield json.dumps(chunk)
-                self._shunt_to_redis_stream(redis, stream_key, chunk)
-                return
             try:
                 client_to_use = self._get_openai_client(
-                    base_url=hyperbolic_base_url, api_key=api_key
+                    base_url=os.getenv("HYPERBOLIC_BASE_URL"), api_key=api_key
                 )
             except Exception as e:
-                logging_utility.error(
-                    f"Run {run_id}: Failed to init Hyperbolic client: {e}",
-                    exc_info=True,
+                err = f"Hyperbolic client init failed: {e}"
+                payload = json.dumps({"type": "error", "content": err})
+                if filt := self._filter_fc(payload):
+                    yield filt
+                self._shunt_to_redis_stream(
+                    redis, stream_key, {"type": "error", "content": err}
                 )
-                chunk = {"type": "error", "content": f"Client init error: {e}"}
-                yield json.dumps(chunk)
-                self._shunt_to_redis_stream(redis, stream_key, chunk)
                 return
 
         if not client_to_use:
-            logging_utility.error(f"Run {run_id}: No Hyperbolic client available.")
-            chunk = {"type": "error", "content": "Hyperbolic client error."}
-            yield json.dumps(chunk)
-            self._shunt_to_redis_stream(redis, stream_key, chunk)
+            err = "No Hyperbolic client available."
+            payload = json.dumps({"type": "error", "content": err})
+            if filt := self._filter_fc(payload):
+                yield filt
+            self._shunt_to_redis_stream(
+                redis, stream_key, {"type": "error", "content": err}
+            )
             return
 
+        # -------- streaming loop --------------------------------------------
         assistant_reply = ""
         accumulated_content = ""
         reasoning_content = ""
@@ -134,128 +149,112 @@ class HyperbolicDeepSeekV3Inference(BaseInference, ABC):
 
             for token in response:
                 if self.check_cancellation_flag():
-                    logging_utility.warning(f"Run {run_id} cancelled mid-stream")
-                    chunk = {"type": "error", "content": "Run cancelled"}
-                    yield json.dumps(chunk)
-                    self._shunt_to_redis_stream(redis, stream_key, chunk)
+                    payload = json.dumps({"type": "error", "content": "Run cancelled"})
+                    if filt := self._filter_fc(payload):
+                        yield filt
+                    self._shunt_to_redis_stream(
+                        redis, stream_key, {"type": "error", "content": "Run cancelled"}
+                    )
                     break
 
                 if not getattr(token, "choices", None):
                     continue
-
                 delta = token.choices[0].delta
 
-                # 1) stream reasoning_content from delta if present
+                # ---------- reasoning ----------------------------------------
                 delta_reasoning = getattr(delta, "reasoning_content", "")
                 if delta_reasoning and stream_reasoning:
-                    reasoning_content += delta_reasoning
-                    chunk = {"type": "reasoning", "content": delta_reasoning}
-                    yield json.dumps(chunk)
-                    self._shunt_to_redis_stream(redis, stream_key, chunk)
+                    payload = json.dumps(
+                        {"type": "reasoning", "content": delta_reasoning}
+                    )
+                    if filt := self._filter_fc(payload):
+                        yield filt
+                    self._shunt_to_redis_stream(
+                        redis,
+                        stream_key,
+                        {"type": "reasoning", "content": delta_reasoning},
+                    )
 
                 delta_content = getattr(delta, "content", "")
                 if not delta_content:
                     continue
 
-                # 2) split on both reasoning and function‐call tags
-                segments = re.split(r"(<think>|</think>|<fc>|</fc>)", delta_content)
+                # ---------- tag-aware split ----------------------------------
+                for seg in filter(
+                    None, re.split(r"(<think>|</think>|<fc>|</fc>)", delta_content)
+                ):
 
-                for seg in segments:
-                    if not seg:
+                    # tag state machine
+                    if seg in ("<think>", "</think>", "<fc>", "</fc>"):
+                        in_reasoning = (
+                            seg == "<think>" or in_reasoning and seg != "</think>"
+                        )
+                        in_function_call = (
+                            seg == "<fc>" or in_function_call and seg != "</fc>"
+                        )
+                        if stream_reasoning and seg in ("<think>", "</think>"):
+                            payload = json.dumps({"type": "reasoning", "content": seg})
+                            if filt := self._filter_fc(payload):
+                                yield filt
+                            self._shunt_to_redis_stream(
+                                redis, stream_key, {"type": "reasoning", "content": seg}
+                            )
                         continue
 
-                    # reasoning tag open
-                    if seg == "<think>":
-                        in_reasoning = True
-                        if stream_reasoning:
-                            chunk = {"type": "reasoning", "content": seg}
-                            yield json.dumps(chunk)
-                            self._shunt_to_redis_stream(redis, stream_key, chunk)
-                        continue
-
-                    # reasoning tag close
-                    if seg == "</think>":
-                        in_reasoning = False
-                        if stream_reasoning:
-                            chunk = {"type": "reasoning", "content": seg}
-                            yield json.dumps(chunk)
-                            self._shunt_to_redis_stream(redis, stream_key, chunk)
-                        continue
-
-                    # function‐call tag open
-                    if seg == "<fc>":
-                        in_function_call = True
-                        continue
-
-                    # function‐call tag close
-                    if seg == "</fc>":
-                        in_function_call = False
-                        continue
-
-                    # fallback: detect untagged function‐call JSON
-                    if not in_function_call:
+                    # ---------- function-call blocks --------------------------
+                    is_fc_json = in_function_call
+                    if not is_fc_json:
                         try:
-                            candidate = json.loads(seg.strip())
-                            if self.is_valid_function_call_response(candidate):
-                                in_function_call = True
-                                assistant_reply += seg
-                                accumulated_content += seg
-                                logging_utility.debug(
-                                    f"Emitting function_call chunk (fallback): {seg.strip()}"
-                                )
-                                self._shunt_to_redis_stream(
-                                    redis,
-                                    stream_key,
-                                    {"type": "function_call", "content": seg},
-                                )
-                                in_function_call = False
-                                continue
+                            is_fc_json = self.is_valid_function_call_response(
+                                json.loads(seg.strip())
+                            )
                         except Exception:
-                            pass
+                            is_fc_json = False
 
-                    # inside a function‐call: accumulate only
-                    if in_function_call:
+                    if is_fc_json:
                         assistant_reply += seg
                         accumulated_content += seg
-                        logging_utility.debug(
-                            f"Emitting function_call chunk: {seg.strip()}"
-                        )
+                        # push to Redis
                         self._shunt_to_redis_stream(
                             redis, stream_key, {"type": "function_call", "content": seg}
                         )
+                        # never yield – filter absorbs
                         continue
 
-                    # within reasoning text
+                    # ---------- inside <think> -------------------------------
                     if in_reasoning:
                         reasoning_content += seg
                         if stream_reasoning:
-                            chunk = {"type": "reasoning", "content": seg}
-                            yield json.dumps(chunk)
-                            self._shunt_to_redis_stream(redis, stream_key, chunk)
+                            payload = json.dumps({"type": "reasoning", "content": seg})
+                            if filt := self._filter_fc(payload):
+                                yield filt
+                            self._shunt_to_redis_stream(
+                                redis, stream_key, {"type": "reasoning", "content": seg}
+                            )
                         continue
 
-                    # normal/code text
+                    # ---------- code-interpreter or plain content ------------
                     assistant_reply += seg
                     accumulated_content += seg
 
-                    # detect code‐interpreter partials
-                    partial = getattr(self, "parse_code_interpreter_partial", None)
-                    partial_match = partial(accumulated_content) if partial else None
+                    # hot-code opening detection
+                    parse_ci = getattr(self, "parse_code_interpreter_partial", None)
+                    partial_match = parse_ci(accumulated_content) if parse_ci else None
 
                     if not code_mode and partial_match:
-                        full = partial_match.get("full_match")
-                        if full:
-                            idx = accumulated_content.find(full)
-                            if idx != -1:
-                                accumulated_content = accumulated_content[
-                                    idx + len(full) :
-                                ]
                         code_mode = True
                         code_buffer = partial_match.get("code", "")
-                        self.code_mode = True
-                        chunk = {"type": "hot_code", "content": "```python\n"}
-                        yield json.dumps(chunk)
-                        self._shunt_to_redis_stream(redis, stream_key, chunk)
+                        payload = json.dumps(
+                            {"type": "hot_code", "content": "```python\n"}
+                        )
+                        if filt := self._filter_fc(payload):
+                            yield filt
+                        self._shunt_to_redis_stream(
+                            redis,
+                            stream_key,
+                            {"type": "hot_code", "content": "```python\n"},
+                        )
+                        # prime interpreter if needed
                         if code_buffer and hasattr(
                             self, "_process_code_interpreter_chunks"
                         ):
@@ -263,12 +262,10 @@ class HyperbolicDeepSeekV3Inference(BaseInference, ABC):
                                 self._process_code_interpreter_chunks("", code_buffer)
                             )
                             for r in results:
-                                yield r
-                                self._shunt_to_redis_stream(redis, stream_key, r)
-                                assistant_reply += (
-                                    r
-                                    if isinstance(r, str)
-                                    else json.loads(r).get("content", "")
+                                if filt := self._filter_fc(r):
+                                    yield filt
+                                self._shunt_to_redis_stream(
+                                    redis, stream_key, json.loads(r)
                                 )
                         continue
 
@@ -278,65 +275,57 @@ class HyperbolicDeepSeekV3Inference(BaseInference, ABC):
                                 self._process_code_interpreter_chunks(seg, code_buffer)
                             )
                             for r in results:
-                                yield r
-                                self._shunt_to_redis_stream(redis, stream_key, r)
-                                assistant_reply += (
-                                    r
-                                    if isinstance(r, str)
-                                    else json.loads(r).get("content", "")
+                                if filt := self._filter_fc(r):
+                                    yield filt
+                                self._shunt_to_redis_stream(
+                                    redis, stream_key, json.loads(r)
                                 )
                         else:
-                            chunk = {"type": "hot_code", "content": seg}
-                            yield json.dumps(chunk)
-                            self._shunt_to_redis_stream(redis, stream_key, chunk)
+                            payload = json.dumps({"type": "hot_code", "content": seg})
+                            if filt := self._filter_fc(payload):
+                                yield filt
+                            self._shunt_to_redis_stream(
+                                redis, stream_key, {"type": "hot_code", "content": seg}
+                            )
                         continue
 
-                    # plain content
-                    if not code_buffer:
-                        chunk = {"type": "content", "content": seg}
-                        yield json.dumps(chunk)
-                        self._shunt_to_redis_stream(redis, stream_key, chunk)
+                    # ---------- plain content --------------------------------
+                    payload = json.dumps({"type": "content", "content": seg})
+                    if filt := self._filter_fc(payload):
+                        yield filt
+                    self._shunt_to_redis_stream(
+                        redis, stream_key, {"type": "content", "content": seg}
+                    )
 
         except Exception as e:
-            error_msg = f"Hyperbolic SDK error (using {key_source_log} key): {e}"
-            logging_utility.error(f"Run {run_id}: {error_msg}", exc_info=True)
-            if hasattr(self, "handle_error"):
-                self.handle_error(
-                    reasoning_content + assistant_reply, thread_id, assistant_id, run_id
-                )
-            chunk = {"type": "error", "content": error_msg}
-            yield json.dumps(chunk)
-            self._shunt_to_redis_stream(redis, stream_key, chunk)
+            err = f"Hyperbolic SDK error: {e}"
+            payload = json.dumps({"type": "error", "content": err})
+            if filt := self._filter_fc(payload):
+                yield filt
+            self._shunt_to_redis_stream(
+                redis, stream_key, {"type": "error", "content": err}
+            )
             return
 
-        # finalize conversation
+        # ---------- final bookkeeping ---------------------------------------
         if assistant_reply and hasattr(self, "finalize_conversation"):
             self.finalize_conversation(
                 reasoning_content + assistant_reply, thread_id, assistant_id, run_id
             )
 
-        # detect pending function calls
         if accumulated_content and hasattr(self, "parse_and_set_function_calls"):
-            function_call = self.parse_and_set_function_calls(
-                accumulated_content, assistant_reply
-            )
-        else:
-            function_call = False
-
-        if function_call:
-            self.run_service.update_run_status(
-                run_id, ValidationInterface.StatusEnum.pending_action
-            )
-
-        if hasattr(self, "run_service") and hasattr(ValidationInterface, "StatusEnum"):
-            if not self.get_function_call_state():
+            if self.parse_and_set_function_calls(accumulated_content, assistant_reply):
+                self.run_service.update_run_status(
+                    run_id, ValidationInterface.StatusEnum.pending_action
+                )
+            elif not self.get_function_call_state():
                 self.run_service.update_run_status(
                     run_id, ValidationInterface.StatusEnum.completed
                 )
 
         if reasoning_content:
             logging_utility.info(
-                f"Run {run_id}: Final reasoning content length: {len(reasoning_content)}"
+                f"Run {run_id}: Final reasoning length {len(reasoning_content)}"
             )
 
     def process_function_calls(

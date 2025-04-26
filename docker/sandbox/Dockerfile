@@ -8,13 +8,13 @@ FROM python:3.11-slim AS builder
 WORKDIR /install
 
 # Copy requirements and install to isolated path
-COPY src/api/sandbox/requirements.txt ./requirements.txt
+COPY sandbox_reqs_cleaned.txt ./sandbox_reqs_cleaned.txt
 
 # Upgrade pip and install dependencies into a temporary location
 RUN pip install --upgrade pip setuptools wheel && \
-    pip install --prefix=/install/packages --no-cache-dir --default-timeout=100 \
+    pip install --prefix=/install/packages --no-cache-dir --default-timeout=600 \
         --index-url https://pypi.org/simple \
-        -r requirements.txt
+        -r sandbox_reqs_cleaned.txt
 
 
 # === Stage 2: Runtime ===
