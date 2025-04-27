@@ -15,7 +15,7 @@ COPY sandbox_unhashed_reqs.txt .
 
 RUN pip install \
     --prefix=/install/packages \
-    --no-cache-dir \
+    #--no-cache-dir \
     --default-timeout=600 \
     --retries 10 \
     -r sandbox_unhashed_reqs.txt
@@ -28,7 +28,7 @@ COPY sandbox_hashed_reqs.txt .
 RUN pip install \
     --prefix=/install/packages \
     --require-hashes \
-    --no-cache-dir \
+    #--no-cache-dir \
     --default-timeout=600 \
     --retries 10 \
     -r sandbox_hashed_reqs.txt

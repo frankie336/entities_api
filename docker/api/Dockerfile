@@ -17,9 +17,9 @@ RUN pip install \
     --prefix=/install/packages \
     --no-cache-dir \
     --default-timeout=1800 \
-    --retries 10 \
+    --retries 20 \
     --extra-index-url https://download.pytorch.org/whl/cu121 \
-    -r unhashed_reqs.txt
+    -r api_unhashed_reqs.txt
 
 # === Stage 2: install HASHED stable trusted packages ===================================
 FROM base AS hashed_builder
