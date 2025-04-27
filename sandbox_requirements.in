@@ -1,0 +1,22 @@
+# --- Utilities ---
+python-multipart
+python-dotenv
+aiofiles
+httpx
+redis
+pydantic
+
+# --- Data Science Stack ---
+pandas
+numpy            # <-- Needed explicitly, backend for pandas, sklearn, matplotlib
+matplotlib
+seaborn
+scikit-learn
+openpyxl
+python-docx
+
+# --- OPTIONALS (if needed later) ---
+# tqdm         # Progress bars
+# pyarrow      # Dataframes serialization
+# reportlab    # Advanced PDF generation
+# pillow       # Image processing if needed
