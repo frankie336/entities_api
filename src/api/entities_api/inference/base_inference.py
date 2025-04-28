@@ -67,6 +67,10 @@ class BaseInference(ABC):
 
     REASONING_PATTERN = re.compile(r"(<think>|</think>)")
 
+    FC_REGEX = re.compile(
+        r"<fc>\s*(?P<payload>\{.*?\})\s*</fc>", re.DOTALL | re.IGNORECASE
+    )
+
     def __init__(
         self,
         *,
@@ -1343,88 +1347,65 @@ class BaseInference(ABC):
     def handle_code_interpreter_action(
         self, thread_id, run_id, assistant_id, arguments_dict
     ):
-
         action = self.action_client.create_action(
             tool_name="code_interpreter", run_id=run_id, function_args=arguments_dict
         )
 
         code = arguments_dict.get("code")
-        uploaded_files = (
-            []
-        )  # This list will still contain the original (potentially wrong) mime_type from Step 1
+        uploaded_files = []
         hot_code_buffer = []
-        final_content_for_assistant = ""  # Initialize variable for Step 6
+        final_content_for_assistant = ""
 
         # -------------------------------
         # Step 1: Stream raw code execution output as-is
         # -------------------------------
         logging_utility.info("Starting code execution streaming...")
         try:
-            # Use a temporary list to hold chunks received during execution
             execution_chunks = []
             for chunk_str in self.code_execution_client.stream_output(code):
-                execution_chunks.append(chunk_str)  # Store raw chunks first
+                execution_chunks.append(chunk_str)
 
-            # Now process the stored chunks
             for chunk_str in execution_chunks:
                 try:
-                    parsed_chunk_wrapper = json.loads(chunk_str)
-                    # --- Crucial: Adapt based on actual structure from stream_output ---
-                    # Check if the structure is { "stream_type": "...", "chunk": {...} }
-                    if (
-                        "stream_type" in parsed_chunk_wrapper
-                        and "chunk" in parsed_chunk_wrapper
-                    ):
-                        parsed = parsed_chunk_wrapper["chunk"]
-                        # Yield the original wrapper structure
-                        yield chunk_str  # Yield the raw JSON string as received
+                    parsed_wrapper = json.loads(chunk_str)
+                    if "stream_type" in parsed_wrapper and "chunk" in parsed_wrapper:
+                        parsed = parsed_wrapper["chunk"]
+                        yield chunk_str
                     else:
-                        # Assume the old structure if the new one isn't found
-                        parsed = parsed_chunk_wrapper
-                        # Wrap in the expected frontend structure before yielding
+                        parsed = parsed_wrapper
                         yield json.dumps(
                             {"stream_type": "code_execution", "chunk": parsed}
                         )
 
-                    # Process the parsed content (the actual chunk data)
                     chunk_type = parsed.get("type")
                     content = parsed.get("content")
 
                     if chunk_type == "status":
-                        status_content = content  # Renamed for clarity
-                        logging_utility.debug(
-                            "Received status chunk: %s", status_content
-                        )
-                        if status_content == "complete" and "uploaded_files" in parsed:
-                            # Extract uploaded files metadata - this list has the original mime_type
-                            uploaded_files_metadata = parsed.get("uploaded_files", [])
-                            uploaded_files.extend(uploaded_files_metadata)
+                        status = content
+                        logging_utility.debug("Status chunk: %s", status)
+                        if status == "complete" and "uploaded_files" in parsed:
+                            uploaded_files.extend(parsed.get("uploaded_files", []))
                             logging_utility.info(
-                                "Execution complete. Received uploaded files metadata: %s",
-                                uploaded_files_metadata,
+                                "Execution complete; files metadata: %s",
+                                parsed.get("uploaded_files", []),
                             )
-                        elif status_content == "process_complete":
+                        elif status == "process_complete":
                             logging_utility.info(
-                                "Code execution process completed with exit code: %s",
+                                "Process completed with exit code: %s",
                                 parsed.get("exit_code"),
                             )
 
-                        # Append status to buffer *only if* needed for final output
-                        # hot_code_buffer.append(f"[{status_content}]") # Often not needed in final output
-
                     elif chunk_type == "hot_code_output":
-                        # Append actual code output
                         hot_code_buffer.append(content)
+
                     elif chunk_type == "error":
                         logging_utility.error(
-                            "Received error chunk during code execution: %s", content
+                            "Error chunk during execution: %s", content
                         )
                         hot_code_buffer.append(f"[Code Execution Error: {content}]")
-                    # Ignore other types like 'hot_code' for the buffer meant for final output
 
                 except json.JSONDecodeError:
-                    logging_utility.error("Failed to decode JSON chunk: %s", chunk_str)
-                    # Decide how to handle invalid JSON - maybe yield an error chunk?
+                    logging_utility.error("Invalid JSON chunk: %s", chunk_str)
                     yield json.dumps(
                         {
                             "stream_type": "code_execution",
@@ -1436,7 +1417,7 @@ class BaseInference(ABC):
                     )
                 except Exception as e:
                     logging_utility.error(
-                        "Error processing execution chunk: %s - Chunk: %s",
+                        "Error processing execution chunk: %s – %s",
                         str(e),
                         chunk_str,
                         exc_info=True,
@@ -1446,17 +1427,13 @@ class BaseInference(ABC):
                             "stream_type": "code_execution",
                             "chunk": {
                                 "type": "error",
-                                "content": f"Internal error processing execution output: {str(e)}",
+                                "content": f"Internal error: {str(e)}",
                             },
                         }
                     )
 
         except Exception as stream_err:
-            logging_utility.error(
-                "Error during code_execution_client.stream_output: %s",
-                str(stream_err),
-                exc_info=True,
-            )
+            logging_utility.error("Streaming error: %s", str(stream_err), exc_info=True)
             yield json.dumps(
                 {
                     "stream_type": "code_execution",
@@ -1466,165 +1443,46 @@ class BaseInference(ABC):
                     },
                 }
             )
-            # Ensure flow continues to submit something if possible, or handle failure
-            uploaded_files = []  # Reset uploaded files as execution failed
+            uploaded_files = []
 
         # -------------------------------
-        # Step 2: Construct signed URL list and markdown lines (Uses original uploaded_files)
+        # Step 2: Build final content from code buffer (suppress markdown)
         # -------------------------------
-        logging_utility.info("Constructing URLs and markdown links...")
-        markdown_lines = []
-        url_list = []
-
-        if uploaded_files:
-            logging_utility.info(
-                "Processing %d uploaded files for URLs/Markdown.", len(uploaded_files)
-            )
-            for (
-                file_meta
-            ) in uploaded_files:  # Use a different variable name like file_meta
-                try:
-                    file_id = file_meta.get("id")
-                    filename = file_meta.get("filename")
-                    presigned_url = file_meta.get(
-                        "url"
-                    )  # URL from _upload_generated_files
-
-                    if not file_id or not filename:
-                        logging_utility.warning(
-                            "Skipping file metadata entry with missing id or filename: %s",
-                            file_meta,
-                        )
-                        continue
-
-                    # Determine the URL to use/display
-                    display_url = None
-                    if presigned_url:
-                        # Check if it's the markdown format `[filename](<<url>>)`
-                        if presigned_url.startswith("[") and presigned_url.endswith(
-                            ")"
-                        ):
-                            match = re.search(r"\(\<\<(.*?)\>\>\)", presigned_url)
-                            if match:
-                                display_url = match.group(1)
-                            else:
-                                logging_utility.warning(
-                                    "Could not extract URL from markdown-like string: %s",
-                                    presigned_url,
-                                )
-                                # Fallback or handle error
-                        else:
-                            display_url = presigned_url  # Assume it's a direct URL
-
-                    # Fallback if no presigned URL was successfully obtained or parsed
-                    if not display_url:
-                        # Construct a fallback download URL if your API supports it
-                        # Adjust the host/path as needed
-                        fallback_base = os.getenv(
-                            "FILE_DOWNLOAD_BASE_URL", "http://localhost:9000"
-                        )  # Example base URL
-                        display_url = (
-                            f"{fallback_base}/v1/files/download?file_id={file_id}"
-                        )
-                        logging_utility.info(
-                            "Using fallback download URL for %s: %s",
-                            filename,
-                            display_url,
-                        )
-
-                    url_list.append(display_url)  # Add the URL for the assistant
-                    markdown_lines.append(
-                        f"[{filename}]({display_url})"
-                    )  # Add markdown link for the user
-
-                except Exception as e:
-                    logging_utility.error(
-                        "Error processing URL/Markdown for file %s: %s",
-                        file_meta.get("id", "N/A"),
-                        str(e),
-                        exc_info=True,
-                    )
-                    # Add a placeholder if processing fails for a file
-                    fn = file_meta.get("filename", "Unknown File")
-                    markdown_lines.append(f"{fn}: Error generating link")
-
-            # Content for the final user message (Step 4)
-            final_content_for_assistant = "\n\n".join(
-                markdown_lines
-            )  # Use markdown links
-
-        else:
-            logging_utility.info(
-                "No uploaded files found. Using code output buffer for content."
-            )
-            # Use the captured stdout/stderr if no files were generated
+        logging_utility.info("Building final content from code output buffer...")
+        if hot_code_buffer:
             final_content_for_assistant = "\n".join(hot_code_buffer).strip()
-            # If buffer is empty, provide a default message
-            if not final_content_for_assistant:
-                final_content_for_assistant = (
-                    "[Code executed successfully, but produced no output or files.]"
-                )
+        else:
+            final_content_for_assistant = "[Code executed successfully, no output.]"
 
         # -------------------------------
-        # Step 3: Stream base64 previews for frontend rendering (Correct MIME Type Here)
+        # Step 3: Stream base64 previews (unchanged)
         # -------------------------------
         if uploaded_files:
             logging_utility.info(
                 "Streaming base64 previews for %d files...", len(uploaded_files)
             )
-
-            for file_meta in uploaded_files:  # Use file_meta again
+            for file_meta in uploaded_files:
                 file_id = file_meta.get("id")
                 filename = file_meta.get("filename")
-
                 if not file_id or not filename:
-                    logging_utility.warning(
-                        "Skipping base64 streaming for entry with missing id or filename: %s",
-                        file_meta,
-                    )
                     continue
 
-                base64_str = None
-                # <<< START MODIFICATION >>>
-                # Dynamically determine MIME type based on filename *here*
-                guessed_mime_type, _ = mimetypes.guess_type(filename)
-                final_mime_type = (
-                    guessed_mime_type
-                    if guessed_mime_type
-                    else "application/octet-stream"
-                )
-                logging_utility.info(
-                    "Determined MIME type for '%s' (ID: %s) as: %s",
-                    filename,
-                    file_id,
-                    final_mime_type,
-                )
-                # <<< END MODIFICATION >>>
-
+                guessed_mime, _ = mimetypes.guess_type(filename)
+                mime_type = guessed_mime or "application/octet-stream"
                 try:
-                    # Fetch the base64 content using the file ID
-                    base64_str = self.files.get_file_as_base64(file_id=file_id)
-                    logging_utility.debug(
-                        "Successfully fetched base64 for file %s (%s)",
-                        filename,
-                        file_id,
-                    )
-
+                    b64 = self.files.get_file_as_base64(file_id=file_id)
                 except Exception as e:
                     logging_utility.error(
-                        "Error fetching base64 for file %s (%s): %s",
+                        "Error fetching base64 for %s: %s",
                         filename,
-                        file_id,
                         str(e),
                         exc_info=True,
                     )
-                    # Send an error placeholder in the stream
-                    base64_str = base64.b64encode(
+                    b64 = base64.b64encode(
                         f"Error retrieving content: {str(e)}".encode()
-                    ).decode()  # Encode error message
-                    final_mime_type = "text/plain"  # Set mime type to text for error
+                    ).decode()
+                    mime_type = "text/plain"
 
-                # Yield the chunk with the corrected MIME type
                 yield json.dumps(
                     {
                         "stream_type": "code_execution",
@@ -1633,77 +1491,47 @@ class BaseInference(ABC):
                             "content": {
                                 "filename": filename,
                                 "file_id": file_id,
-                                "base64": base64_str,
-                                "mime_type": final_mime_type,  # Use the dynamically determined type
+                                "base64": b64,
+                                "mime_type": mime_type,
                             },
                         },
                     }
                 )
-                logging_utility.info(
-                    "Yielded base64 chunk for %s (%s) with MIME type %s",
-                    filename,
-                    file_id,
-                    final_mime_type,
-                )
 
         # -------------------------------
-        # Step 4: Final frontend-visible chunk (Uses content generated in Step 2)
+        # Step 4: Final frontend-visible chunk
         # -------------------------------
-        logging_utility.info("Yielding final content chunk for display.")
+        logging_utility.info("Yielding final content chunk.")
         yield json.dumps(
             {
                 "stream_type": "code_execution",
-                "chunk": {
-                    "type": "content",
-                    "content": final_content_for_assistant,  # Send the constructed markdown or buffer
-                },
+                "chunk": {"type": "content", "content": final_content_for_assistant},
             }
         )
 
         # -------------------------------
-        # Step 5: Log uploaded file contents for debug (Uses original uploaded_files)
+        # Step 5: Debug log uploaded_files metadata
         # -------------------------------
-        # Note: 'uploaded_files' still contains the original mime_type from Step 1
         logging_utility.info(
-            "Final uploaded_files metadata (original mime_type):\n%s",
-            pprint.pformat(uploaded_files),
+            "Final uploaded_files metadata:\n%s", pprint.pformat(uploaded_files)
         )
 
         # -------------------------------
-        # Step 6: Submit Tool Output (Uses url_list or final_content_for_assistant from Step 2)
+        # Step 6: Submit only text output to assistant
         # -------------------------------
         try:
-            # Choose content based on whether file URLs were generated
-            content_to_submit = url_list if url_list else final_content_for_assistant
-            submission_message = (
-                CODE_ANALYSIS_TOOL_MESSAGE if url_list else final_content_for_assistant
-            )  # Message for assistant context
-
-            logging_utility.info(
-                "Submitting tool output. Content type: %s",
-                "URL List" if url_list else "Text Content",
-            )
-            # Ensure content_to_submit is not None (handle empty buffer case from Step 2)
-            if content_to_submit is None:
-                logging_utility.warning(
-                    "Content to submit is None, submitting empty string."
-                )
-                content_to_submit = ""  # Avoid sending None
-
+            logging_utility.info("Submitting text-only output to assistant.")
             self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
-                content=submission_message,
+                content=final_content_for_assistant,
                 action=action,
             )
             logging_utility.info("Tool output submitted successfully.")
-
         except Exception as submit_err:
-            # This is likely where the "Together SDK error: 422... 'input': None" occurred
             logging_utility.error(
                 "Error submitting tool output: %s", str(submit_err), exc_info=True
             )
-            # Optionally yield another error to the frontend if submission fails critically
             yield json.dumps(
                 {
                     "stream_type": "code_execution",
@@ -2047,65 +1875,56 @@ class BaseInference(ABC):
         # 5) optional truncation
         return self.conversation_truncator.truncate(normalized) if trunk else normalized
 
+
     def parse_and_set_function_calls(
         self, accumulated_content: str, assistant_reply: str
     ) -> Optional[Dict[str, Any]]:
         """
-        Parses the accumulated content for function calls.
-
-        Returns:
-            dict | None: The parsed function call payload if detected, else None.
+        Robustly locate a <fc>{...}</fc> JSON block *anywhere* in either
+        accumulated_content or assistant_reply, even if split across chunks.
         """
-        parsed_function_call = None
 
-        if accumulated_content:
-            # 1) Strip off our <fc>…</fc> markers if present
-            text = accumulated_content.strip()
-            if text.startswith("<fc>") and text.endswith("</fc>"):
-                text = text[len("<fc>") : -len("</fc>")].strip()
-
-            logging_utility.debug("JSON payload to parse: %s", text)
-
-            # 2) Attempt to parse the cleaned JSON
-            json_accumulated_content = self.ensure_valid_json(text=text)
-
-            if json_accumulated_content:
-                function_call = self.is_valid_function_call_response(
-                    json_data=json_accumulated_content
-                )
-                logging_utility.debug("Valid Function call: %s", function_call)
-
-                complex_vector_search = self.is_complex_vector_search(
-                    data=json_accumulated_content
-                )
-
-                if function_call or complex_vector_search:
-                    self.set_tool_response_state(True)
-                    self.set_function_call_state(json_accumulated_content)
-                    parsed_function_call = json_accumulated_content
-                    logging_utility.debug(
-                        "Function call State set with payload: %s", parsed_function_call
-                    )
-
-        # Fallback: look for embedded calls in assistant_reply
-        if not parsed_function_call:
-            tool_invocation_in_multi_line_text = (
-                self.extract_function_calls_within_body_of_text(text=assistant_reply)
-            )
-            if (
-                tool_invocation_in_multi_line_text
-                and not self.get_tool_response_state()
+        def _extract_json_block(text: str) -> Optional[Dict[str, Any]]:
+            """Return parsed JSON if a <fc> block is found, else None."""
+            match = self.FC_REGEX.search(text)
+            if not match:
+                return None
+            raw_json = match.group("payload")
+            # Normalise smart quotes, trailing commas, etc.
+            parsed = self.ensure_valid_json(raw_json)
+            if parsed and (
+                self.is_valid_function_call_response(parsed)
+                or self.is_complex_vector_search(parsed)
             ):
-                logging_utility.debug(
-                    "Embedded Function Call detected: %s",
-                    tool_invocation_in_multi_line_text,
-                )
-                self.set_tool_response_state(True)
-                embedded_call = tool_invocation_in_multi_line_text[0]
-                self.set_function_call_state(embedded_call)
-                parsed_function_call = embedded_call
+                return parsed
+            return None
 
-        return parsed_function_call
+        # -- 1️⃣  Primary search inside accumulated buffer (may have full block) --
+        parsed_fc = _extract_json_block(accumulated_content)
+        if parsed_fc:
+            self.set_tool_response_state(True)
+            self.set_function_call_state(parsed_fc)
+            logging_utility.debug("Function-call found in accumulated buffer.")
+            return parsed_fc
+
+        # -- 2️⃣  Fallback: search entire assistant reply text --
+        parsed_fc = _extract_json_block(assistant_reply)
+        if parsed_fc and not self.get_tool_response_state():
+            self.set_tool_response_state(True)
+            self.set_function_call_state(parsed_fc)
+            logging_utility.debug("Embedded Function-call found in assistant reply.")
+            return parsed_fc
+
+        # -- 3️⃣  Legacy heuristic search (optional): JSON without <fc> tags --
+        if not parsed_fc:
+            embedded = self.extract_function_calls_within_body_of_text(assistant_reply)
+            if embedded:
+                self.set_tool_response_state(True)
+                self.set_function_call_state(embedded[0])
+                logging_utility.debug("Legacy JSON pattern detected.")
+                return embedded[0]
+
+        return None
 
     def process_function_calls(
         self, thread_id, run_id, assistant_id, model=None, api_key=None

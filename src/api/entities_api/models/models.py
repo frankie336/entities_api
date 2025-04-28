@@ -306,15 +306,26 @@ class Assistant(Base):
     object = Column(String(64), nullable=False)
     created_at = Column(Integer, nullable=False)
     name = Column(String(128), nullable=False)
-    description = Column(String(256), nullable=True)
-    model = Column(String(64), nullable=True)
-    instructions = Column(Text, nullable=True)
-    tool_configs = Column(JSON, nullable=True)
-    meta_data = Column(JSON, nullable=True)
-    top_p = Column(Integer, nullable=True)
-    temperature = Column(Integer, nullable=True)
-    response_format = Column(String(64), nullable=True)
+    description = Column(String(256))
+    model = Column(String(64))
+    instructions = Column(Text)
+    tool_configs = Column(JSON)
+    meta_data = Column(JSON)
+    top_p = Column(Integer)
+    temperature = Column(Integer)
+    response_format = Column(String(64))
 
+    # NEW ▼───────────────
+    platform_tools = Column(
+        JSON,  # or JSONB on Postgres
+        nullable=True,
+        comment=(
+            "Optional array of inline tool specs, e.g. "
+            '[{"type": "file_search", "vector_store_ids": ["..."]}]'
+        ),
+    )
+
+    # relationships (unchanged)
     tools = relationship(
         "Tool", secondary=assistant_tools, back_populates="assistants", lazy="joined"
     )

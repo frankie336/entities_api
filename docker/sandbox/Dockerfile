@@ -1,34 +1,49 @@
 # -------------------------
-# MULTI-STAGE DOCKERFILE
+# MULTI-STAGE DOCKERFILE (SANDBOX)
 # -------------------------
 
-# === Stage 1: Builder ===
-FROM python:3.11-slim AS builder
-
+# === Stage 0: base layer (common bootstrap) ============================================
+FROM python:3.11-slim AS base
 WORKDIR /install
 
-# Copy requirements and install to isolated path
-COPY src/api/sandbox/requirements.txt ./requirements.txt
+RUN pip install --upgrade pip setuptools wheel
 
-# Upgrade pip and install dependencies into a temporary location
-RUN pip install --upgrade pip setuptools wheel && \
-    pip install --prefix=/install/packages --no-cache-dir --default-timeout=100 \
-        --index-url https://pypi.org/simple \
-        -r requirements.txt
+# === Stage 1: install UNHASHED packages (small ones, if any) ============================
+FROM base AS unhashed_builder
 
+COPY sandbox_reqs_unhashed.txt .
 
-# === Stage 2: Runtime ===
+RUN pip install \
+    --prefix=/install/packages \
+    #--no-cache-dir \
+    --default-timeout=600 \
+    --retries 10 \
+    -r sandbox_reqs_unhashed.txt
+
+# === Stage 2: install HASHED stable packages ============================================
+FROM base AS hashed_builder
+
+COPY sandbox_reqs_hashed.txt .
+
+RUN pip install \
+    --prefix=/install/packages \
+    --require-hashes \
+    #--no-cache-dir \
+    --default-timeout=600 \
+    --retries 10 \
+    -r sandbox_hashed_reqs.txt
+
+# === Stage 3: runtime container =========================================================
 FROM python:3.11-slim AS sandbox-runtime
+WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1
 
-# Install system dependencies
+# --- Install minimal OS dependencies needed for sandbox operations ---
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    sudo \
     firejail \
     supervisor \
-    openssh-client \
-    telnet \
+    sudo \
     curl \
     wget \
     vim \
@@ -58,33 +73,32 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxslt1-dev \
     libffi-dev \
     libmagic1 \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Create sandbox user
+# --- Create a restricted sandbox user ---
 RUN useradd -ms /bin/bash sandboxuser && \
     echo "sandboxuser ALL=(ALL) NOPASSWD: /usr/bin/firejail /bin/bash, /usr/bin/firejail /usr/bin/apt-get *, /usr/bin/firejail /usr/bin/pip" > /etc/sudoers.d/sandboxuser && \
     chmod 440 /etc/sudoers.d/sandboxuser
 
-# Working directories
+# --- Prepare app directory ---
 RUN mkdir -p /app /var/log/supervisor && chown -R sandboxuser:sandboxuser /app /var/log/supervisor
 
-WORKDIR /app
+# --- Copy both unhashed and hashed installed packages ---
+COPY --from=unhashed_builder /install/packages /usr/local
+COPY --from=hashed_builder /install/packages /usr/local
 
-# Copy installed Python packages from builder
-COPY --from=builder /install/packages /usr/local
-
-# Copy application source code
+# --- Copy sandbox app code ---
 COPY src/api/sandbox /app/sandbox
 
-# wait-for-it
+# --- Utilities ---
 COPY docker/common/wait-for-it.sh /app/wait-for-it.sh
-RUN chmod +x /app/wait-for-it.sh
-
-# Supervisor config
 COPY docker/sandbox/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# Expose sandbox port
+RUN chmod +x /app/wait-for-it.sh
+
+# --- Expose sandbox FastAPI server port ---
 EXPOSE 8000
 
-# Start the supervisor
+# --- Default command ---
 CMD ["/usr/bin/supervisord", "-n"]

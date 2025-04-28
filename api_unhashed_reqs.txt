@@ -1,0 +1,16 @@
+pip==25.0.1
+setuptools==79.0.1
+wheel==0.45.1
+
+# Torch - installed from PyTorch CPU-only index
+torch --index-url https://download.pytorch.org/whl/cpu
+
+uvicorn[standard]==0.34.2
+uvloop==0.21.0
+watchfiles==1.0.5
+websockets==15.0.1
+
+# ------------------------------------------------------------------
+# Internal packages
+projectdavid==1.13.0
+projectdavid_common==0.11.0

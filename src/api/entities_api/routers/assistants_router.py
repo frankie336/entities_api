@@ -1,3 +1,4 @@
+# entities_api/routers/assistants_router.py
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -14,30 +15,44 @@ router = APIRouter()
 logging_utility = LoggingUtility()
 
 
+# ------------------------------------------------------------------ #
+#  CREATE
+# ------------------------------------------------------------------ #
 @router.post("/assistants", response_model=ValidationInterface.AssistantRead)
 def create_assistant(
     assistant: ValidationInterface.AssistantCreate,
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
+    """
+    Create an assistant.
 
+    `assistant.platform_tools` is accepted automatically via the
+    `AssistantCreate` schema.  The service layer persists it in the
+    dedicated `platform_tools` column; legacy `tools` mapping is
+    untouched.
+    """
     logging_utility.info(
-        f"User '{auth_key.user_id}' - Creating assistant with ID: {assistant.id or 'auto-generated'}"
+        "User '%s' – creating assistant id=%s",
+        auth_key.user_id,
+        assistant.id or "auto-generated",
     )
-    assistant_service = AssistantService(db)
+    service = AssistantService(db)
     try:
-        new_assistant = assistant_service.create_assistant(assistant)
-        return new_assistant
-    except HTTPException as e:
-        raise
-    except Exception as e:
-        logging_utility.error(f"User '{auth_key.user_id}' - Unexpected error: {str(e)}")
+        return service.create_assistant(assistant)
+    except Exception as exc:
+        logging_utility.error("Create assistant error: %s", exc, exc_info=True)
+        if isinstance(exc, HTTPException):
+            raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
-        )
+        ) from exc
 
 
+# ------------------------------------------------------------------ #
+#  RETRIEVE
+# ------------------------------------------------------------------ #
 @router.get(
     "/assistants/{assistant_id}", response_model=ValidationInterface.AssistantRead
 )
@@ -46,35 +61,25 @@ def get_assistant(
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    logging_utility.error(
-        f"!!!!!! ASSISTANTS GET ENDPOINT REACHED for {assistant_id} by user {auth_key.user_id} !!!!!!"
-    )  # ADD THIS
-
     logging_utility.info(
-        f"User '{auth_key.user_id}' - Received request to get assistant with ID: {assistant_id}"
+        "User '%s' – get assistant id=%s", auth_key.user_id, assistant_id
     )
-    assistant_service = AssistantService(db)
+    service = AssistantService(db)
     try:
-        assistant = assistant_service.retrieve_assistant(assistant_id)
-        logging_utility.info(
-            f"User '{auth_key.user_id}' - Assistant retrieved successfully with ID: {assistant_id}"
-        )
-        return assistant
-    except HTTPException as e:
-        logging_utility.error(
-            f"User '{auth_key.user_id}' - HTTP error occurred while retrieving assistant {assistant_id}: {str(e)}"
-        )
-        raise e
-    except Exception as e:
-        logging_utility.error(
-            f"User '{auth_key.user_id}' - An unexpected error occurred while retrieving assistant {assistant_id}: {str(e)}"
-        )
+        return service.retrieve_assistant(assistant_id)
+    except Exception as exc:
+        logging_utility.error("Get assistant error: %s", exc, exc_info=True)
+        if isinstance(exc, HTTPException):
+            raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred.",
-        )
+            detail="Unexpected error",
+        ) from exc
 
 
+# ------------------------------------------------------------------ #
+#  UPDATE
+# ------------------------------------------------------------------ #
 @router.put(
     "/assistants/{assistant_id}", response_model=ValidationInterface.AssistantRead
 )
@@ -85,32 +90,24 @@ def update_assistant(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     logging_utility.info(
-        f"User '{auth_key.user_id}' - Received request to update assistant with ID: {assistant_id}"
+        "User '%s' – update assistant id=%s", auth_key.user_id, assistant_id
     )
-    assistant_service = AssistantService(db)
+    service = AssistantService(db)
     try:
-        updated_assistant = assistant_service.update_assistant(
-            assistant_id, assistant_update
-        )
-        logging_utility.info(
-            f"User '{auth_key.user_id}' - Assistant updated successfully with ID: {assistant_id}"
-        )
-        return updated_assistant
-    except HTTPException as e:
-        logging_utility.error(
-            f"User '{auth_key.user_id}' - HTTP error occurred while updating assistant {assistant_id}: {str(e)}"
-        )
-        raise e
-    except Exception as e:
-        logging_utility.error(
-            f"User '{auth_key.user_id}' - An unexpected error occurred while updating assistant {assistant_id}: {str(e)}"
-        )
+        return service.update_assistant(assistant_id, assistant_update)
+    except Exception as exc:
+        logging_utility.error("Update assistant error: %s", exc, exc_info=True)
+        if isinstance(exc, HTTPException):
+            raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred.",
-        )
+            detail="Unexpected error",
+        ) from exc
 
 
+# ------------------------------------------------------------------ #
+#  LIST-BY-USER
+# ------------------------------------------------------------------ #
 @router.get(
     "/users/{user_id}/assistants",
     response_model=List[ValidationInterface.AssistantRead],
@@ -120,34 +117,25 @@ def list_assistants_by_user(
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    """
-    Endpoint to list all assistants associated with a given user.
-    """
     logging_utility.info(
-        f"User '{auth_key.user_id}' - Received request to list assistants for user ID: {user_id}"
+        "User '%s' – list assistants for user %s", auth_key.user_id, user_id
     )
-    user_service = UsersClient(db)
+    user_client = UsersClient(db)
     try:
-        assistants = user_service.list_assistants_by_user(user_id)
-        logging_utility.info(
-            f"User '{auth_key.user_id}' - Assistants retrieved for user ID: {user_id}"
-        )
-        return assistants
-    except HTTPException as e:
-        logging_utility.error(
-            f"User '{auth_key.user_id}' - HTTP error occurred while listing assistants for user {user_id}: {str(e)}"
-        )
-        raise e
-    except Exception as e:
-        logging_utility.error(
-            f"User '{auth_key.user_id}' - An unexpected error occurred while listing assistants for user {user_id}: {str(e)}"
-        )
+        return user_client.list_assistants_by_user(user_id)
+    except Exception as exc:
+        logging_utility.error("List assistants error: %s", exc, exc_info=True)
+        if isinstance(exc, HTTPException):
+            raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred.",
-        )
+            detail="Unexpected error",
+        ) from exc
 
 
+# ------------------------------------------------------------------ #
+#  ASSOCIATE
+# ------------------------------------------------------------------ #
 @router.post("/users/{user_id}/assistants/{assistant_id}")
 def associate_assistant_with_user(
     user_id: str,
@@ -155,37 +143,29 @@ def associate_assistant_with_user(
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    """
-    Endpoint to associate an assistant with a user.
-    """
     logging_utility.info(
-        f"User '{auth_key.user_id}' - Received request to associate assistant ID: {assistant_id} with user ID: {user_id}"
+        "User '%s' – associate assistant %s → user %s",
+        auth_key.user_id,
+        assistant_id,
+        user_id,
     )
-    assistant_service = AssistantService(db)
+    service = AssistantService(db)
     try:
-        assistant_service.associate_assistant_with_user(user_id, assistant_id)
-        logging_utility.info(
-            f"User '{auth_key.user_id}' - Assistant ID: {assistant_id} associated successfully with user ID: {user_id}"
-        )
+        service.associate_assistant_with_user(user_id, assistant_id)
         return {"message": "Assistant associated with user successfully"}
-    except HTTPException as e:
-        logging_utility.error(
-            f"User '{auth_key.user_id}' - HTTP error occurred while associating assistant {assistant_id} with user {user_id}: {str(e)}"
-        )
-        raise e
-    except Exception as e:
-        logging_utility.error(
-            f"User '{auth_key.user_id}' - An unexpected error occurred while associating assistant {assistant_id} with user {user_id}: {str(e)}"
-        )
+    except Exception as exc:
+        logging_utility.error("Associate assistant error: %s", exc, exc_info=True)
+        if isinstance(exc, HTTPException):
+            raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred.",
-        )
+            detail="Unexpected error",
+        ) from exc
 
 
-# entities_api/routers.py
-
-
+# ------------------------------------------------------------------ #
+#  DISASSOCIATE
+# ------------------------------------------------------------------ #
 @router.delete("/users/{user_id}/assistants/{assistant_id}", status_code=204)
 def disassociate_assistant_from_user(
     user_id: str,
@@ -193,29 +173,21 @@ def disassociate_assistant_from_user(
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    """
-    Endpoint to disassociate an assistant from a user.
-    """
     logging_utility.info(
-        f"User '{auth_key.user_id}' - Received request to disassociate assistant ID: {assistant_id} from user ID: {user_id}"
+        "User '%s' – disassociate assistant %s ← user %s",
+        auth_key.user_id,
+        assistant_id,
+        user_id,
     )
-    assistant_service = AssistantService(db)
+    service = AssistantService(db)
     try:
-        assistant_service.disassociate_assistant_from_user(user_id, assistant_id)
-        logging_utility.info(
-            f"User '{auth_key.user_id}' - Assistant ID: {assistant_id} disassociated successfully from user ID: {user_id}"
-        )
+        service.disassociate_assistant_from_user(user_id, assistant_id)
         return {"message": "Assistant disassociated from user successfully"}
-    except HTTPException as e:
-        logging_utility.error(
-            f"User '{auth_key.user_id}' - HTTP error occurred while disassociating assistant {assistant_id} from user {user_id}: {str(e)}"
-        )
-        raise e
-    except Exception as e:
-        logging_utility.error(
-            f"User '{auth_key.user_id}' - An unexpected error occurred while disassociating assistant {assistant_id} from user {user_id}: {str(e)}"
-        )
+    except Exception as exc:
+        logging_utility.error("Disassociate assistant error: %s", exc, exc_info=True)
+        if isinstance(exc, HTTPException):
+            raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred.",
-        )
+            detail="Unexpected error",
+        ) from exc
