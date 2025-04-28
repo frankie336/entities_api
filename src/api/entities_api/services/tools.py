@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from entities_api.models.models import Assistant, Tool
 from entities_api.services.logging_service import LoggingUtility
+from projectdavid_common.constants.tools import TOOLS_ID_MAP
 
 validator = ValidationInterface()
 logging_utility = LoggingUtility()
@@ -18,21 +19,72 @@ class ToolService:
         logging_utility.info("ToolService initialized with database session.")
 
     def create_tool(
-        self, tool: validator.ToolCreate, set_id: Optional[str] = None
+        self,
+        tool: validator.ToolCreate,
+        set_id: Optional[str] = None,
     ) -> validator.ToolRead:
-        logging_utility.info("Starting create_tool with ToolCreate: %s", tool)
-        try:
-            # Use provided set_id if available; otherwise, generate a new tool ID.
+        """
+        Create a tool.
+
+        • If `tool.name` **or** `tool.type` is one of the reserved tool-keys
+          (code_interpreter, web_search, …) we enforce the canonical ID
+          from TOOLS_ID_MAP.
+
+        • If the caller tries to override that ID we reject the request.
+
+        • For non-reserved tools we either use the supplied `set_id`
+          (provided it is not in the reserved map **and** not already taken)
+          or generate a fresh one.
+        """
+
+        logging_utility.info("Starting create_tool %s (requested id=%s)", tool, set_id)
+
+        # ── 1.  Resolve whether this is a “reserved” tool ──────────────────────────
+        # Accept either the name OR the type as the lookup key
+        reserved_key = None
+        if tool.name in TOOLS_ID_MAP:
+            reserved_key = tool.name
+        elif tool.type in TOOLS_ID_MAP:
+            reserved_key = tool.type
+
+        # ── 2.  Determine the final ID we are going to use ─────────────────────────
+        if reserved_key:
+            canonical_id = TOOLS_ID_MAP[reserved_key]
+
+            # The caller may optionally pass the same ID – anything else is forbidden
+            if set_id and set_id != canonical_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Invalid set_id for reserved tool '{reserved_key}'. "
+                        f"Expected '{canonical_id}'."
+                    ),
+                )
+            tool_id = canonical_id
+            logging_utility.debug(
+                "Reserved tool ➜ using canonical ID %s for key %s", tool_id, reserved_key
+            )
+
+        else:
+            # Not a reserved tool  →  use provided id or generate one
             if set_id:
+                if set_id in TOOLS_ID_MAP.values():
+                    # Guard-rail: a client must not hijack a reserved ID
+                    raise HTTPException(
+                        status_code=400,
+                        detail="set_id collides with a reserved tool id",
+                    )
                 tool_id = set_id
-                logging_utility.debug("Using provided set_id for tool id: %s", tool_id)
+                logging_utility.debug("Using client-supplied id: %s", tool_id)
             else:
                 tool_id = UtilsInterface.IdentifierService.generate_tool_id()
-                logging_utility.debug("Generated tool ID: %s", tool_id)
+                logging_utility.debug("Generated tool id: %s", tool_id)
 
+        # ── 3.  Persist to DB ──────────────────────────────────────────────────────
+        try:
             db_tool = Tool(
                 id=tool_id,
-                name=tool.name,  # Use the new unique name field
+                name=tool.name,
                 type=tool.type,
                 function=tool.function.dict() if tool.function else None,
             )
@@ -42,53 +94,21 @@ class ToolService:
 
             logging_utility.info("Tool created successfully with ID: %s", tool_id)
             return validator.ToolRead.model_validate(db_tool)
+
         except IntegrityError as e:
             self.db.rollback()
             logging_utility.error("IntegrityError during tool creation: %s", str(e))
             raise HTTPException(
-                status_code=400, detail="Invalid tool data or duplicate tool name"
+                status_code=400,
+                detail="Duplicate tool id or name",
             )
+
         except Exception as e:
             self.db.rollback()
             logging_utility.error("Unexpected error during tool creation: %s", str(e))
             raise HTTPException(
-                status_code=500, detail="An error occurred while creating the tool"
-            )
-
-    def associate_tool_with_assistant(self, tool_id: str, assistant_id: str) -> None:
-        logging_utility.info(
-            "Associating tool with ID %s to assistant with ID %s", tool_id, assistant_id
-        )
-        try:
-            tool = self._get_tool_or_404(tool_id)
-            assistant = (
-                self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
-            )
-
-            if not assistant:
-                logging_utility.warning("Assistant with ID %s not found.", assistant_id)
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Assistant with id {assistant_id} not found",
-                )
-
-            assistant.tools.append(tool)
-            self.db.commit()
-
-            logging_utility.info(
-                "Successfully associated tool ID %s with assistant ID %s",
-                tool_id,
-                assistant_id,
-            )
-        except HTTPException as e:
-            logging_utility.error("HTTPException: %s", str(e))
-            raise
-        except Exception as e:
-            self.db.rollback()
-            logging_utility.error("Error associating tool with assistant: %s", str(e))
-            raise HTTPException(
                 status_code=500,
-                detail="An error occurred while associating the tool with the assistant",
+                detail="An error occurred while creating the tool",
             )
 
     def disassociate_tool_from_assistant(self, tool_id: str, assistant_id: str) -> None:

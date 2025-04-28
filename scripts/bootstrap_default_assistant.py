@@ -14,6 +14,7 @@ import sys
 try:
     from projectdavid import Entity
     from projectdavid_common import ValidationInterface
+    from projectdavid_common.constants.tools import TOOLS_ID_MAP
 
     from entities_api.constants.assistant import BASE_TOOLS, DEFAULT_MODEL
     from entities_api.services.logging_service import LoggingUtility
@@ -53,92 +54,99 @@ class AssistantSetupService:
         # Use the globally initialized logger or create a new one per instance
         self.logging_utility = logging_utility
 
-    def create_and_associate_tools(self, function_definitions, assistant_id):
+    # ------------------------------------------------------------------ #
+    #  Tools
+    # ------------------------------------------------------------------ #
+    def create_and_associate_tools(
+        self,
+        function_definitions: list[dict],
+        assistant_id: str,
+    ) -> None:
         """
-        Creates tools if they do not already exist and associates them with the assistant.
-        Uses the client provided during initialization.
-        """
-        self.logging_utility.info(
-            f"Checking/Creating tools for assistant: {assistant_id}"
-        )
-        created_tool_ids = []
-        associated_tool_ids = []
+        For each function spec in `function_definitions`…
 
-        for func_def in function_definitions:
-            tool_name = func_def.get("function", {}).get("name")
-            if not tool_name:
-                self.logging_utility.warning(
-                    "Skipping tool definition with missing name."
-                )
+        • if a RESERVED tool (in TOOLS_ID_MAP) already exists → just associate
+        • if it does **not** exist  → create it **with the canonical ID**
+        • if it's a completely new tool                     → create it normally
+
+        All operations are idempotent: re-running the script won’t duplicate rows
+        or raise “already associated” errors.
+        """
+        created, associated, skipped = 0, 0, 0
+
+        for func in function_definitions:
+            name = func.get("function", {}).get("name")
+            if not name:
+                self.logging_utility.warning("Skipping anonymous tool definition.")
+                skipped += 1
                 continue
 
-            tool_id_to_associate = None
+            canonical_id = TOOLS_ID_MAP.get(name)  # None for non-reserved tools
+            tool_id = canonical_id  # may stay None
+
+            # ── 1. try to fetch by ID (fast path for reserved) ───────────
+            if canonical_id:
+                try:
+                    tool = self.client.tools.get_tool_by_id(canonical_id)
+                    self.logging_utility.debug("Found reserved tool %s (%s)", name, canonical_id)
+                except Exception:
+                    tool = None
+
+            # ── 2. else / fallback : fetch by name  ───────────────────────
+            if not canonical_id or tool is None:
+                try:
+                    tool = self.client.tools.get_tool_by_name(name)
+                    tool_id = tool.id
+                    self.logging_utility.debug("Found existing tool %s (%s) by name", name, tool_id)
+                except Exception:
+                    tool = None  # genuinely missing
+
+            # ── 3. create if still missing  ───────────────────────────────
+            if tool is None:
+                try:
+                    validated_fn = validate.ToolFunction(function=func["function"])
+                    payload = {
+                        "name": name,
+                        "type": "function",
+                        "function": validated_fn.model_dump(),
+                    }
+                    if canonical_id:  # force the reserved ID
+                        payload["id"] = canonical_id
+                    tool = self.client.tools.create_tool(**payload)
+                    tool_id = tool.id
+                    created += 1
+                    self.logging_utility.info("Created tool %-22s  id=%s", name, tool_id)
+                except Exception as e:
+                    self.logging_utility.error("Failed to create tool %s: %s", name, e,
+                                               exc_info=True)
+                    continue
+
+            # ── 4. associate with assistant (idempotent on server) ────────
             try:
-                # Attempt to retrieve an existing tool by name (assuming this method exists and is appropriate)
-                # Note: Tools might not be unique globally by name, might be better to scope by assistant or type
-                existing_tool = self.client.tools.get_tool_by_name(
-                    tool_name
-                )  # Check if this method is reliable
-                if existing_tool:
-                    self.logging_utility.info(
-                        f"Tool '{tool_name}' already exists (ID: {existing_tool.id}). Will ensure association."
-                    )
-                    tool_id_to_associate = existing_tool.id
-                # else: Tool doesn't exist, proceed to create
-
-            except Exception as retrieval_error:
-                # Assuming a specific "Not Found" error type exists, otherwise handle generally
-                # This assumes get_tool_by_name raises an exception if not found.
-                # Check the actual exception type from your SDK for better handling
-                # e.g., except projectdavid.exceptions.NotFoundException:
-                self.logging_utility.debug(
-                    f"Did not find existing tool '{tool_name}', will attempt creation. Error hint: {retrieval_error}"
+                self.client.tools.associate_tool_with_assistant(
+                    tool_id=tool_id, assistant_id=assistant_id
                 )
-
-            # --- Create Tool if it doesn't exist ---
-            if not tool_id_to_associate:
-                try:
-                    # Validate the function definition structure before API call
-                    tool_function = validate.ToolFunction(function=func_def["function"])
-                    # Note: create_tool might not need assistant_id if association is separate
-                    new_tool = self.client.tools.create_tool(
-                        name=tool_name,
-                        type="function",
-                        function=tool_function.model_dump(),
-                        # assistant_id=assistant_id, # Check if create_tool needs this or if association is sufficient
+                associated += 1
+            except Exception as e:
+                # If the API already stores the relation, just log & carry on
+                if "already associated" in str(e).lower():
+                    self.logging_utility.debug(
+                        "Tool %s already linked to assistant %s", tool_id, assistant_id
                     )
-                    tool_id_to_associate = new_tool.id
-                    created_tool_ids.append(new_tool.id)
-                    self.logging_utility.info(
-                        f"Created tool: '{tool_name}' (ID: {new_tool.id})"
-                    )
-                except Exception as e:
+                else:
                     self.logging_utility.error(
-                        f"Tool creation failed for '{tool_name}': {e}", exc_info=True
-                    )
-                    continue  # Skip association for this tool
-
-            # --- Associate Tool with Assistant ---
-            if tool_id_to_associate:
-                try:
-                    # Check if association already exists? API might handle duplicates gracefully or raise error.
-                    self.client.tools.associate_tool_with_assistant(
-                        tool_id=tool_id_to_associate, assistant_id=assistant_id
-                    )
-                    associated_tool_ids.append(tool_id_to_associate)
-                    self.logging_utility.info(
-                        f"Ensured tool '{tool_name}' (ID: {tool_id_to_associate}) is associated with assistant {assistant_id}"
-                    )
-                except Exception as e:
-                    # Handle potential errors like "already associated" if the API doesn't ignore them
-                    self.logging_utility.error(
-                        f"Failed to associate tool ID {tool_id_to_associate} with assistant {assistant_id}: {e}",
+                        "Associate failed for tool %s → assistant %s: %s",
+                        tool_id,
+                        assistant_id,
+                        e,
                         exc_info=True,
                     )
 
         self.logging_utility.info(
-            f"Tool setup summary for Assistant {assistant_id}: "
-            f"{len(created_tool_ids)} created, {len(associated_tool_ids)} associated/verified."
+            "Tool sync done: %d created  |  %d linked/verified  |  %d skipped",
+            created,
+            associated,
+            skipped,
         )
 
     def setup_assistant_with_tools(
