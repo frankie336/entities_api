@@ -1051,10 +1051,12 @@ class DockerManager:
                                 self.log.info(line)
                             # Look for large layers or redundant commands
                             large_layers = [
-                                l
-                                for l in history_res.stdout.strip().splitlines()
-                                if "MB" in l.split("|")[1] or "GB" in l.split("|")[1]
+                                line
+                                for line in history_res.stdout.strip().splitlines()
+                                if "MB" in line.split("|")[1]
+                                or "GB" in line.split("|")[1]
                             ]
+
                             if len(large_layers) > 5:
                                 self.log.warning(
                                     f"Image '{image_name}' has several large layers (> 1MB). Consider multi-stage builds or optimizing Dockerfile instructions."

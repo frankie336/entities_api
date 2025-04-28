@@ -1875,7 +1875,6 @@ class BaseInference(ABC):
         # 5) optional truncation
         return self.conversation_truncator.truncate(normalized) if trunk else normalized
 
-
     def parse_and_set_function_calls(
         self, accumulated_content: str, assistant_reply: str
     ) -> Optional[Dict[str, Any]]:
