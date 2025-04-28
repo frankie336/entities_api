@@ -2,9 +2,8 @@ from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.inference.deepseek.deepseek_chat_inference import (
-    DeepSeekChatInference,
-)
+from entities_api.inference.deepseek.deepseek_chat_inference import \
+    DeepSeekChatInference
 from entities_api.inference.inference_arbiter import InferenceArbiter
 
 logging_utility = LoggingUtility()

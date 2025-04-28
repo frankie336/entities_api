@@ -67,7 +67,6 @@ class StreamingCodeExecutionHandler:
         # Fix curly quotes and other special characters
         replacements = {
             '"': '"',
-            '"': '"',
             """: "'", """: "'",
             "\u00b2": "**2",
             "^": "**",

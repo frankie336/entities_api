@@ -7,14 +7,12 @@ from projectdavid_common import UtilsInterface, ValidationInterface
 from sqlalchemy.orm import Session
 
 from entities_api.dependencies import get_db
-from entities_api.services.vectors import (
-    AssistantNotFoundError,
-    DatabaseConflictError,
-    VectorStoreDBError,
-    VectorStoreDBService,
-    VectorStoreFileNotFoundError,
-    VectorStoreNotFoundError,
-)
+from entities_api.services.vectors import (AssistantNotFoundError,
+                                           DatabaseConflictError,
+                                           VectorStoreDBError,
+                                           VectorStoreDBService,
+                                           VectorStoreFileNotFoundError,
+                                           VectorStoreNotFoundError)
 
 router = APIRouter()
 logging_utility = UtilsInterface.LoggingUtility()
