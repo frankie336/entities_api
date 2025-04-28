@@ -11,19 +11,19 @@ RUN pip install --upgrade pip setuptools wheel
 # === Stage 1: install UNHASHED packages (small ones, if any) ============================
 FROM base AS unhashed_builder
 
-COPY sandbox_unhashed_reqs.txt .
+COPY sandbox_reqs_unhashed.txt .
 
 RUN pip install \
     --prefix=/install/packages \
     #--no-cache-dir \
     --default-timeout=600 \
     --retries 10 \
-    -r sandbox_unhashed_reqs.txt
+    -r sandbox_reqs_unhashed.txt
 
 # === Stage 2: install HASHED stable packages ============================================
 FROM base AS hashed_builder
 
-COPY sandbox_hashed_reqs.txt .
+COPY sandbox_reqs_hashed.txt .
 
 RUN pip install \
     --prefix=/install/packages \

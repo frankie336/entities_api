@@ -67,6 +67,10 @@ class BaseInference(ABC):
 
     REASONING_PATTERN = re.compile(r"(<think>|</think>)")
 
+    FC_REGEX = re.compile(
+        r"<fc>\s*(?P<payload>\{.*?\})\s*</fc>", re.DOTALL | re.IGNORECASE
+    )
+
     def __init__(
         self,
         *,
@@ -1871,65 +1875,56 @@ class BaseInference(ABC):
         # 5) optional truncation
         return self.conversation_truncator.truncate(normalized) if trunk else normalized
 
+
     def parse_and_set_function_calls(
         self, accumulated_content: str, assistant_reply: str
     ) -> Optional[Dict[str, Any]]:
         """
-        Parses the accumulated content for function calls.
-
-        Returns:
-            dict | None: The parsed function call payload if detected, else None.
+        Robustly locate a <fc>{...}</fc> JSON block *anywhere* in either
+        accumulated_content or assistant_reply, even if split across chunks.
         """
-        parsed_function_call = None
 
-        if accumulated_content:
-            # 1) Strip off our <fc>…</fc> markers if present
-            text = accumulated_content.strip()
-            if text.startswith("<fc>") and text.endswith("</fc>"):
-                text = text[len("<fc>") : -len("</fc>")].strip()
-
-            logging_utility.debug("JSON payload to parse: %s", text)
-
-            # 2) Attempt to parse the cleaned JSON
-            json_accumulated_content = self.ensure_valid_json(text=text)
-
-            if json_accumulated_content:
-                function_call = self.is_valid_function_call_response(
-                    json_data=json_accumulated_content
-                )
-                logging_utility.debug("Valid Function call: %s", function_call)
-
-                complex_vector_search = self.is_complex_vector_search(
-                    data=json_accumulated_content
-                )
-
-                if function_call or complex_vector_search:
-                    self.set_tool_response_state(True)
-                    self.set_function_call_state(json_accumulated_content)
-                    parsed_function_call = json_accumulated_content
-                    logging_utility.debug(
-                        "Function call State set with payload: %s", parsed_function_call
-                    )
-
-        # Fallback: look for embedded calls in assistant_reply
-        if not parsed_function_call:
-            tool_invocation_in_multi_line_text = (
-                self.extract_function_calls_within_body_of_text(text=assistant_reply)
-            )
-            if (
-                tool_invocation_in_multi_line_text
-                and not self.get_tool_response_state()
+        def _extract_json_block(text: str) -> Optional[Dict[str, Any]]:
+            """Return parsed JSON if a <fc> block is found, else None."""
+            match = self.FC_REGEX.search(text)
+            if not match:
+                return None
+            raw_json = match.group("payload")
+            # Normalise smart quotes, trailing commas, etc.
+            parsed = self.ensure_valid_json(raw_json)
+            if parsed and (
+                self.is_valid_function_call_response(parsed)
+                or self.is_complex_vector_search(parsed)
             ):
-                logging_utility.debug(
-                    "Embedded Function Call detected: %s",
-                    tool_invocation_in_multi_line_text,
-                )
-                self.set_tool_response_state(True)
-                embedded_call = tool_invocation_in_multi_line_text[0]
-                self.set_function_call_state(embedded_call)
-                parsed_function_call = embedded_call
+                return parsed
+            return None
 
-        return parsed_function_call
+        # -- 1️⃣  Primary search inside accumulated buffer (may have full block) --
+        parsed_fc = _extract_json_block(accumulated_content)
+        if parsed_fc:
+            self.set_tool_response_state(True)
+            self.set_function_call_state(parsed_fc)
+            logging_utility.debug("Function-call found in accumulated buffer.")
+            return parsed_fc
+
+        # -- 2️⃣  Fallback: search entire assistant reply text --
+        parsed_fc = _extract_json_block(assistant_reply)
+        if parsed_fc and not self.get_tool_response_state():
+            self.set_tool_response_state(True)
+            self.set_function_call_state(parsed_fc)
+            logging_utility.debug("Embedded Function-call found in assistant reply.")
+            return parsed_fc
+
+        # -- 3️⃣  Legacy heuristic search (optional): JSON without <fc> tags --
+        if not parsed_fc:
+            embedded = self.extract_function_calls_within_body_of_text(assistant_reply)
+            if embedded:
+                self.set_tool_response_state(True)
+                self.set_function_call_state(embedded[0])
+                logging_utility.debug("Legacy JSON pattern detected.")
+                return embedded[0]
+
+        return None
 
     def process_function_calls(
         self, thread_id, run_id, assistant_id, model=None, api_key=None
