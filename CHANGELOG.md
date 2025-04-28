@@ -1,3 +1,14 @@
+# [1.10.0](https://github.com/frankie336/entities_api/compare/v1.9.0...v1.10.0) (2025-04-28)
+
+
+### Features
+
+* multi-stage requirements  hashing wiht improved function call handling. Introducing the platform_tools param in the assistants data structure. Introducing hybrid hashed and non hashed requirements file for problematic packages. ([8ae4b19](https://github.com/frankie336/entities_api/commit/8ae4b192ba2b56e8899850fa0ac71647c170e808))
+* multi-stage requirements  hashing wiht improved function call handling. Introducing the platform_tools param in the assistants data structure. Introducing hybrid hashed and non hashed requirements file for problematic packages. ([a2f517a](https://github.com/frankie336/entities_api/commit/a2f517ab3e1df81ea7058e0b0c86be327479ddbe))
+* multi-stage requirements  hashing wiht improved function call handling. Introducing the platform_tools param in the assistants data structure. Introducing hybrid hashed and non hashed requirements file for problematic packages. ([79e4c65](https://github.com/frankie336/entities_api/commit/79e4c65a9a6c6088631b262765d973776164f398))
+* multi-stage requirements  hashing wiht improved function call handling. Introducing the platform_tools param in the assistants data structure. Introducing hybrid hashed and non hashed requirements file for problematic packages. ([267dbb9](https://github.com/frankie336/entities_api/commit/267dbb9aa382b6607ac44e5ba585ca0dce98d6b2))
+* multi-stage requirements  hashing wiht improved function call handling. Introducing the platform_tools param in the assistants data structure. Introducing hybrid hashed and non hashed requirements file for problematic packages. ([76efb7d](https://github.com/frankie336/entities_api/commit/76efb7db6a16c1e73fca8c296c85da17bc83a4d9))
+
 # [1.9.0](https://github.com/frankie336/entities_api/compare/v1.8.0...v1.9.0) (2025-04-23)
 
 
