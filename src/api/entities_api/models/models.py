@@ -8,8 +8,7 @@ from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy import JSON, BigInteger, Boolean, Column, DateTime
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import (ForeignKey, Index, Integer, String, Table, Text,
-                        UniqueConstraint)
+from sqlalchemy import ForeignKey, Index, Integer, String, Table, Text, UniqueConstraint
 from sqlalchemy.orm import declarative_base, joinedload, relationship
 
 # Configure logging

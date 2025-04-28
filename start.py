@@ -678,7 +678,7 @@ class DockerManager:
             self.log.debug(f"Found nvidia-smi at: {nvidia_smi_cmd}")
             try:
                 # Run nvidia-smi, capture output, suppress logs unless verbose
-                result = self._run_command(
+                self._run_command(
                     [nvidia_smi_cmd],
                     check=True,
                     capture_output=True,
