@@ -340,7 +340,7 @@ Entities simplifies dialogue management with the [Threads](/docs/threads.md) end
 - [Files](/docs/files.md)  
 - [Vector Store](https://github.com/frankie336/projectdavid/blob/master/docs/vector_store.md)  
 - [Database](/docs/database.md)  
-- [Tools](/docs/tools.md)  
+- [Tools](https://github.com/frankie336/projectdavid/blob/master/docs/tools.md)  
 - [Users](/docs/users.md)
 
 ### Advanced Features

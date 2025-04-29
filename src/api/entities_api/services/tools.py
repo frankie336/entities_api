@@ -107,6 +107,41 @@ class ToolService:
             self.db.rollback()
             logging_utility.error("Unexpected error during tool creation: %s", str(e))
             raise HTTPException(
+                status_code=500, detail="An error occurred while creating the tool"
+            )
+
+    def associate_tool_with_assistant(self, tool_id: str, assistant_id: str) -> None:
+        logging_utility.info(
+            "Associating tool with ID %s to assistant with ID %s", tool_id, assistant_id
+        )
+        try:
+            tool = self._get_tool_or_404(tool_id)
+            assistant = (
+                self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+            )
+
+            if not assistant:
+                logging_utility.warning("Assistant with ID %s not found.", assistant_id)
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Assistant with id {assistant_id} not found",
+                )
+
+            assistant.tools.append(tool)
+            self.db.commit()
+
+            logging_utility.info(
+                "Successfully associated tool ID %s with assistant ID %s",
+                tool_id,
+                assistant_id,
+            )
+        except HTTPException as e:
+            logging_utility.error("HTTPException: %s", str(e))
+            raise
+        except Exception as e:
+            self.db.rollback()
+            logging_utility.error("Error associating tool with assistant: %s", str(e))
+            raise HTTPException(
                 status_code=500,
                 detail="An error occurred while creating the tool",
             )

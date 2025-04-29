@@ -31,7 +31,7 @@ RUN pip install \
     #--no-cache-dir \
     --default-timeout=600 \
     --retries 10 \
-    -r sandbox_hashed_reqs.txt
+    -r sandbox_reqs_hashed.txt
 
 # === Stage 3: runtime container =========================================================
 FROM python:3.11-slim AS sandbox-runtime
