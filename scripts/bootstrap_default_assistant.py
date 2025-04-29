@@ -88,7 +88,9 @@ class AssistantSetupService:
             if canonical_id:
                 try:
                     tool = self.client.tools.get_tool_by_id(canonical_id)
-                    self.logging_utility.debug("Found reserved tool %s (%s)", name, canonical_id)
+                    self.logging_utility.debug(
+                        "Found reserved tool %s (%s)", name, canonical_id
+                    )
                 except Exception:
                     tool = None
 
@@ -97,7 +99,9 @@ class AssistantSetupService:
                 try:
                     tool = self.client.tools.get_tool_by_name(name)
                     tool_id = tool.id
-                    self.logging_utility.debug("Found existing tool %s (%s) by name", name, tool_id)
+                    self.logging_utility.debug(
+                        "Found existing tool %s (%s) by name", name, tool_id
+                    )
                 except Exception:
                     tool = None  # genuinely missing
 
@@ -115,10 +119,13 @@ class AssistantSetupService:
                     tool = self.client.tools.create_tool(**payload)
                     tool_id = tool.id
                     created += 1
-                    self.logging_utility.info("Created tool %-22s  id=%s", name, tool_id)
+                    self.logging_utility.info(
+                        "Created tool %-22s  id=%s", name, tool_id
+                    )
                 except Exception as e:
-                    self.logging_utility.error("Failed to create tool %s: %s", name, e,
-                                               exc_info=True)
+                    self.logging_utility.error(
+                        "Failed to create tool %s: %s", name, e, exc_info=True
+                    )
                     continue
 
             # ── 4. associate with assistant (idempotent on server) ────────

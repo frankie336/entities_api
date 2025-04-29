@@ -2,12 +2,12 @@ from typing import List, Optional
 
 from fastapi import HTTPException
 from projectdavid_common import UtilsInterface, ValidationInterface
+from projectdavid_common.constants.tools import TOOLS_ID_MAP
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from entities_api.models.models import Assistant, Tool
 from entities_api.services.logging_service import LoggingUtility
-from projectdavid_common.constants.tools import TOOLS_ID_MAP
 
 validator = ValidationInterface()
 logging_utility = LoggingUtility()
@@ -62,7 +62,9 @@ class ToolService:
                 )
             tool_id = canonical_id
             logging_utility.debug(
-                "Reserved tool ➜ using canonical ID %s for key %s", tool_id, reserved_key
+                "Reserved tool ➜ using canonical ID %s for key %s",
+                tool_id,
+                reserved_key,
             )
 
         else:
