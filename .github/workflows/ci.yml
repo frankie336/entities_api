@@ -7,7 +7,7 @@ on:
     branches: [main, master]
 
 permissions:
-  contents: write   # semantic‑release + auto‑formatter commits
+  contents: write   # semantic-release + auto-formatter commits
   packages: write   # push to Docker Hub / GHCR
 
 jobs:
@@ -15,32 +15,31 @@ jobs:
   #  🧹  Lint
   # -------------------------------------------------------------------------
   lint:
-    name: "\U0001F9F9 Lint Code & Dockerfiles"
+    name: "🧹 Lint Code & Dockerfiles"
     runs-on: ubuntu-latest
 
     steps:
-      - name: "\U0001F57E Checkout repository"
+      - name: "🕺 Checkout repository"
         uses: actions/checkout@v4
 
-      - name: "\U0001F40D Set up Python"
+      - name: "🐍 Set up Python"
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: "\U0001F4E6 Cache pip dependencies"
+      - name: "📦 Cache pip dependencies"
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: |
-            ${{ runner.os }}-pip-lint-${{ hashFiles('**/*_reqs_*.txt', '**/pyproject.toml') }}
+          key: ${{ runner.os }}-pip-lint-${{ hashFiles('**/*_reqs_*.txt', '**/pyproject.toml') }}
           restore-keys: |
             ${{ runner.os }}-pip-lint-
 
-      - name: "\u2699\ufe0f Install Linting Tools"
+      - name: "⚙️ Install Linting Tools"
         run: |
           python -m pip install --upgrade pip
           pip install "ruff==0.4.0" black
-          sudo wget -O /usr/local/bin/hadolint \
+          sudo wget -qO /usr/local/bin/hadolint \
             https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64
           sudo chmod +x /usr/local/bin/hadolint
 
@@ -61,9 +60,9 @@ jobs:
             git diff --exit-code || true
           fi
 
-      - name: "\U0001F433 Lint Dockerfiles"
+      - name: "🐳 Lint Dockerfiles"
         run: |
-          hadolint docker/api/Dockerfile    || true
+          hadolint docker/api/Dockerfile || true
           hadolint docker/sandbox/Dockerfile || true
 
   # -------------------------------------------------------------------------
@@ -79,46 +78,42 @@ jobs:
         python-version: ["3.11", "3.12"]
 
     steps:
-      - name: "\U0001F57E Checkout repository"
+      - name: "🕺 Checkout repository"
         uses: actions/checkout@v4
 
-      - name: "\U0001F40D Set up Python ${{ matrix.python-version }}"
+      - name: "🐍 Set up Python ${{ matrix.python-version }}"
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: "\U0001F4E6 Cache pip dependencies"
+      - name: "📦 Cache pip dependencies"
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: |
-            ${{ runner.os }}-pip-test-${{ matrix.python-version }}-${{ hashFiles('**/*_reqs_*.txt', '**/pyproject.toml') }}
+          key: ${{ runner.os }}-pip-test-${{ matrix.python-version }}-${{ hashFiles('**/*_reqs_*.txt', '**/pyproject.toml') }}
           restore-keys: |
             ${{ runner.os }}-pip-test-${{ matrix.python-version }}-
 
-      - name: "\u2699\ufe0f Install Project & Test Deps"
+      - name: "⚙️ Install Project & Test Deps"
         run: |
           python -m pip install --upgrade pip
-          # --- API deps ---
           pip install -r api_unhashed_reqs.txt
           pip install --require-hashes -r api_reqs_hashed.txt
-          # --- Sandbox deps (optional but keeps env parity with Docker image) ---
           pip install -r sandbox_reqs_unhashed.txt
           pip install --require-hashes -r sandbox_reqs_hashed.txt
-          # --- Test tools ---
           pip install pytest pytest-cov
 
       - name: "✅ Run Pytest with Coverage"
         run: pytest tests/ --cov=src --cov-report=xml --cov-report=term-missing
 
-      - name: "⬆️ Upload coverage reports to Codecov"
-        uses: codecov/codecov-action@v4.0.1
+      - name: "⬆️ Upload coverage to Codecov"
+        uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
   # -------------------------------------------------------------------------
-  #  🚀  Build & Publish Docker images (main/master pushes)
+  #  🚀  Build & Publish Docker images
   # -------------------------------------------------------------------------
   build_and_publish:
     name: "🚀 Build, Tag, and Publish Images to Docker Hub"
@@ -127,7 +122,7 @@ jobs:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
 
     steps:
-      - name: "\U0001F57E Checkout repository"
+      - name: "🕺 Checkout repository"
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -145,12 +140,13 @@ jobs:
           username: thanosprime
           password: ${{ secrets.DOCKERHUB_THANOSPRIME }}
 
+      # ----- semantic-release ------------------------------------------------
       - name: "🚀 Setup Node.js"
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: "\u2699\ufe0f Install semantic-release"
+      - name: "⚙️ Install semantic-release"
         run: |
           npm install -g semantic-release \
             @semantic-release/commit-analyzer \
@@ -166,46 +162,44 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
 
+      # Extract tag produced by semantic-release
       - name: "🏷️ Extract Git Tag Version"
         id: get_version
-        if: success()
         run: |
           git fetch --tags origin
           VERSION=$(git describe --tags --exact-match HEAD 2>/dev/null || git describe --tags --abbrev=0 HEAD 2>/dev/null)
           if [ -z "$VERSION" ]; then
-            echo "::error::Could not determine version tag after semantic-release ran successfully."
+            echo "::error::Could not determine version tag after semantic-release."
             exit 1
           fi
           VERSION=${VERSION#v}
-          echo "Detected version from tag: $VERSION"
+          echo "Detected version: $VERSION"
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
       # ---------------- API image ----------------
       - name: "🔧 Define API Image Metadata"
         id: meta_api
-        if: steps.get_version.outputs.VERSION
         uses: docker/metadata-action@v5
         with:
           images: thanosprime/entities-api-api
           tags: |
             type=semver,pattern={{version}},value=${{ steps.get_version.outputs.VERSION }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
+            type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-
 
       # ---------------- Sandbox image ------------
       - name: "🔧 Define Sandbox Image Metadata"
         id: meta_sandbox
-        if: steps.get_version.outputs.VERSION
         uses: docker/metadata-action@v5
         with:
           images: thanosprime/entities-api-sandbox
           tags: |
             type=semver,pattern={{version}},value=${{ steps.get_version.outputs.VERSION }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
+            type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-
 
+      # ---------------- Build / Push ----------------
       - name: "🏗️ Build & Push API Image"
-        if: steps.meta_api.outputs.tags != ''
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -215,10 +209,9 @@ jobs:
           labels: ${{ steps.meta_api.outputs.labels }}
           platforms: linux/amd64
           cache-from: type=gha
-          cache-to:   type=gha,mode=max
+          cache-to:   type=gha,mode=max,size=1.5GB     # <── capped to avoid 5 GB limit
 
       - name: "🏗️ Build & Push Sandbox Image"
-        if: steps.meta_sandbox.outputs.tags != ''
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -228,4 +221,4 @@ jobs:
           labels: ${{ steps.meta_sandbox.outputs.labels }}
           platforms: linux/amd64
           cache-from: type=gha
-          cache-to:   type=gha,mode=max
+          cache-to:   type=gha,mode=max,size=1.5GB     # <── capped likewise

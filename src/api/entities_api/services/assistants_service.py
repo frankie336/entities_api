@@ -28,12 +28,14 @@ class AssistantService:
             assistant.id or UtilsInterface.IdentifierService.generate_assistant_id()
         )
 
-        if assistant.id:
-            if self.db.query(Assistant).filter(Assistant.id == assistant_id).first():
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Assistant with ID '{assistant_id}' already exists",
-                )
+        # Guard against ID collision when caller supplies one
+        if assistant.id and self.db.query(Assistant).filter(
+            Assistant.id == assistant_id
+        ).first():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Assistant with ID '{assistant_id}' already exists",
+            )
 
         db_assistant = Assistant(
             id=assistant_id,
@@ -44,13 +46,11 @@ class AssistantService:
             model=assistant.model,
             instructions=assistant.instructions,
             #
-            # existing relationship-tools
+            # ─── Relationships represented as JSON blobs ───────────
             #
-            tool_configs=assistant.tools,
-            #
-            # NEW inline tool list
-            #
-            platform_tools=assistant.platform_tools,
+            tool_configs=assistant.tools,         # existing “classic” tools
+            tool_resources=assistant.tool_resources,  # NEW ⬅
+            platform_tools=assistant.platform_tools,  # inline spec list
             #
             meta_data=assistant.meta_data,
             top_p=assistant.top_p,
@@ -74,6 +74,7 @@ class AssistantService:
         logging_utility.debug(
             f"Retrieved assistant {assistant_id} | "
             f"tool_configs={db_asst.tool_configs} | "
+            f"tool_resources={db_asst.tool_resources} | "
             f"platform_tools={db_asst.platform_tools}"
         )
         return self.map_to_read_model(db_asst)
@@ -88,6 +89,7 @@ class AssistantService:
         if not db_asst:
             raise HTTPException(status_code=404, detail="Assistant not found")
 
+        # Only mutate provided fields (tool_resources included)
         for key, value in assistant_update.model_dump(exclude_unset=True).items():
             setattr(db_asst, key, value)
 
@@ -150,15 +152,12 @@ class AssistantService:
     def map_to_read_model(self, db_asst: Assistant) -> validator.AssistantRead:
         """
         Convert SQLAlchemy Assistant → Pydantic AssistantRead.
-
-        * 'tool_configs'  → 'tools'            (existing mapping)
-        * 'platform_tools' passes through unchanged
         """
         data = db_asst.__dict__.copy()
         data.pop("_sa_instance_state", None)
 
-        # relationship tools
+        # SQL column → Pydantic field name remaps
         data["tools"] = data.pop("tool_configs", None)
+        # platform_tools and tool_resources pass straight through
 
-        # platform_tools already matches schema name
         return validator.AssistantRead.model_validate(data)

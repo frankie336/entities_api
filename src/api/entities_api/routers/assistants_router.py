@@ -1,8 +1,6 @@
-# entities_api/routers/assistants_router.py
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from projectdavid.clients.users_client import UsersClient
 from projectdavid_common import ValidationInterface
 from sqlalchemy.orm import Session
 
@@ -14,7 +12,6 @@ from entities_api.services.logging_service import LoggingUtility
 router = APIRouter()
 logging_utility = LoggingUtility()
 
-
 # ------------------------------------------------------------------ #
 #  CREATE
 # ------------------------------------------------------------------ #
@@ -25,25 +22,26 @@ def create_assistant(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     """
-    Create an assistant.
+    Create a new assistant.
 
-    `assistant.platform_tools` is accepted automatically via the
-    `AssistantCreate` schema.  The service layer persists it in the
-    dedicated `platform_tools` column; legacy `tools` mapping is
-    untouched.
+    Accepted payload fields:
+    * `tools`           – legacy config list
+    * `platform_tools`  – inline tool specs
+    * `tool_resources`  – per-tool resource map (NEW)
     """
     logging_utility.info(
         "User '%s' – creating assistant id=%s",
         auth_key.user_id,
         assistant.id or "auto-generated",
     )
+
     service = AssistantService(db)
     try:
         return service.create_assistant(assistant)
-    except Exception as exc:
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
         logging_utility.error("Create assistant error: %s", exc, exc_info=True)
-        if isinstance(exc, HTTPException):
-            raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
@@ -64,13 +62,14 @@ def get_assistant(
     logging_utility.info(
         "User '%s' – get assistant id=%s", auth_key.user_id, assistant_id
     )
+
     service = AssistantService(db)
     try:
         return service.retrieve_assistant(assistant_id)
-    except Exception as exc:
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
         logging_utility.error("Get assistant error: %s", exc, exc_info=True)
-        if isinstance(exc, HTTPException):
-            raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unexpected error",
@@ -89,16 +88,20 @@ def update_assistant(
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
+    """
+    Update any mutable assistant fields – including `tool_resources`.
+    """
     logging_utility.info(
         "User '%s' – update assistant id=%s", auth_key.user_id, assistant_id
     )
+
     service = AssistantService(db)
     try:
         return service.update_assistant(assistant_id, assistant_update)
-    except Exception as exc:
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
         logging_utility.error("Update assistant error: %s", exc, exc_info=True)
-        if isinstance(exc, HTTPException):
-            raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unexpected error",
@@ -120,13 +123,14 @@ def list_assistants_by_user(
     logging_utility.info(
         "User '%s' – list assistants for user %s", auth_key.user_id, user_id
     )
-    user_client = UsersClient(db)
+
+    service = AssistantService(db)
     try:
-        return user_client.list_assistants_by_user(user_id)
-    except Exception as exc:
+        return service.list_assistants_by_user(user_id)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
         logging_utility.error("List assistants error: %s", exc, exc_info=True)
-        if isinstance(exc, HTTPException):
-            raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unexpected error",
@@ -149,14 +153,15 @@ def associate_assistant_with_user(
         assistant_id,
         user_id,
     )
+
     service = AssistantService(db)
     try:
         service.associate_assistant_with_user(user_id, assistant_id)
         return {"message": "Assistant associated with user successfully"}
-    except Exception as exc:
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
         logging_utility.error("Associate assistant error: %s", exc, exc_info=True)
-        if isinstance(exc, HTTPException):
-            raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unexpected error",
@@ -179,14 +184,14 @@ def disassociate_assistant_from_user(
         assistant_id,
         user_id,
     )
+
     service = AssistantService(db)
     try:
         service.disassociate_assistant_from_user(user_id, assistant_id)
-        return {"message": "Assistant disassociated from user successfully"}
-    except Exception as exc:
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
         logging_utility.error("Disassociate assistant error: %s", exc, exc_info=True)
-        if isinstance(exc, HTTPException):
-            raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Unexpected error",

@@ -310,20 +310,11 @@ class Assistant(Base):
     model = Column(String(64))
     instructions = Column(Text)
     tool_configs = Column(JSON)
+    tool_resources = Column(JSON)
     meta_data = Column(JSON)
     top_p = Column(Integer)
     temperature = Column(Integer)
     response_format = Column(String(64))
-
-    # NEW ▼───────────────
-    platform_tools = Column(
-        JSON,  # or JSONB on Postgres
-        nullable=True,
-        comment=(
-            "Optional array of inline tool specs, e.g. "
-            '[{"type": "file_search", "vector_store_ids": ["..."]}]'
-        ),
-    )
 
     # relationships (unchanged)
     tools = relationship(
