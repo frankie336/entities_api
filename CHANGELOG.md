@@ -1,3 +1,10 @@
+## [1.11.1](https://github.com/frankie336/entities_api/compare/v1.11.0...v1.11.1) (2025-04-29)
+
+
+### Bug Fixes
+
+* restore attach_tool_to_assistant method ([ba87d17](https://github.com/frankie336/entities_api/commit/ba87d172dd3dda2d5ba9e38e09f2a57ca9585eaa))
+
 # [1.11.0](https://github.com/frankie336/entities_api/compare/v1.10.0...v1.11.0) (2025-04-29)
 
 
