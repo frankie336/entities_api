@@ -1,3 +1,15 @@
+# [1.11.0](https://github.com/frankie336/entities_api/compare/v1.10.0...v1.11.0) (2025-04-29)
+
+
+### Bug Fixes
+
+* restore attach_tool_to_assistant method ([4d6eb2e](https://github.com/frankie336/entities_api/commit/4d6eb2e7e94570425f9c20a3ef742f504f252d55))
+
+
+### Features
+
+* Add canonical_id reserved ID's to base_tools ([17b7214](https://github.com/frankie336/entities_api/commit/17b7214f7ff7a7f992dfac0a51a70be883b094df))
+
 # [1.10.0](https://github.com/frankie336/entities_api/compare/v1.9.0...v1.10.0) (2025-04-28)
 
 
