@@ -1,3 +1,10 @@
+# [1.12.0](https://github.com/frankie336/entities_api/compare/v1.11.1...v1.12.0) (2025-04-30)
+
+
+### Features
+
+* add tools_resources ([3b399fd](https://github.com/frankie336/entities_api/commit/3b399fd528e8296470e2acd12dc6e00b47171fe6))
+
 ## [1.11.1](https://github.com/frankie336/entities_api/compare/v1.11.0...v1.11.1) (2025-04-29)
 
 
