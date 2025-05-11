@@ -12,6 +12,7 @@ from entities_api.services.logging_service import LoggingUtility
 router = APIRouter()
 logging_utility = LoggingUtility()
 
+
 # ------------------------------------------------------------------ #
 #  CREATE
 # ------------------------------------------------------------------ #
@@ -26,7 +27,7 @@ def create_assistant(
 
     Accepted payload fields:
     * `tools`           – legacy config list
-    * `platform_tools`  – inline tool specs
+    * `ptool_handlers`  – inline tool specs
     * `tool_resources`  – per-tool resource map (NEW)
     """
     logging_utility.info(

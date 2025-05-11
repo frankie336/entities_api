@@ -16,8 +16,8 @@ COPY sandbox_reqs_unhashed.txt .
 RUN pip install \
     --prefix=/install/packages \
     #--no-cache-dir \
-    --default-timeout=600 \
-    --retries 10 \
+    --default-timeout=1800 \
+    --retries 30 \
     -r sandbox_reqs_unhashed.txt
 
 # === Stage 2: install HASHED stable packages ============================================

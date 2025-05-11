@@ -5,14 +5,11 @@ from typing import List, Optional
 
 from fastapi import HTTPException, status  # Added status
 from projectdavid_common import UtilsInterface, ValidationInterface
-from sqlalchemy import or_  # Added for querying
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.exc import \
-    NoResultFound  # Optional: for specific exception handling
 
 # Assume models are correctly imported
-from entities_api.models.models import (  # Added Assistant if not implicitly imported via User relationship
-    Assistant, User)
+from entities_api.models.models import \
+    User  # Added Assistant if not implicitly imported via User relationship
 
 
 class UserService:

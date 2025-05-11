@@ -39,6 +39,53 @@ BASE_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "file_search",
+            "description": (
+                "Runs a semantic (embedding‑based) + keyword filter search over files "
+                "that have been embedded into one or more vector stores.  "
+                "Results come back as an array of metadata + score objects."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Natural‑language search text.",
+                    },
+                    "vector_store_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Vector store IDs to search.  Omit to use the assistant‑"
+                            'level binding supplied in `tools=[{"type":"file_search",'
+                            ' "vector_store_ids":[…] }]`.'
+                        ),
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 50,
+                        "default": 5,
+                        "description": (
+                            "Maximum number of hits to return per store (maps to "
+                            "`top_k` in `search_vector_store`)."
+                        ),
+                    },
+                    "filters": {
+                        "type": "object",
+                        "description": (
+                            "Optional Qdrant payload filter object—same structure you "
+                            "already pass through to `search_vector_store()`."
+                        ),
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "web_search",
             "description": "Performs web searches with structured results",
             "parameters": {

@@ -29,9 +29,10 @@ class AssistantService:
         )
 
         # Guard against ID collision when caller supplies one
-        if assistant.id and self.db.query(Assistant).filter(
-            Assistant.id == assistant_id
-        ).first():
+        if (
+            assistant.id
+            and self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
+        ):
             raise HTTPException(
                 status_code=400,
                 detail=f"Assistant with ID '{assistant_id}' already exists",
@@ -48,7 +49,7 @@ class AssistantService:
             #
             # ─── Relationships represented as JSON blobs ───────────
             #
-            tool_configs=assistant.tools,         # existing “classic” tools
+            tool_configs=assistant.tools,  # existing “classic” tools
             tool_resources=assistant.tool_resources,  # NEW ⬅
             platform_tools=assistant.platform_tools,  # inline spec list
             #
@@ -158,6 +159,6 @@ class AssistantService:
 
         # SQL column → Pydantic field name remaps
         data["tools"] = data.pop("tool_configs", None)
-        # platform_tools and tool_resources pass straight through
+        # ptool_handlers and tool_resources pass straight through
 
         return validator.AssistantRead.model_validate(data)

@@ -17,7 +17,7 @@ RUN pip install \
     --prefix=/install/packages \
     --no-cache-dir \
     --default-timeout=1800 \
-    --retries 20 \
+    --retries 3 0 \
     --extra-index-url https://download.pytorch.org/whl/cu121 \
     -r api_unhashed_reqs.txt
 

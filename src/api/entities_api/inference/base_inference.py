@@ -2,18 +2,20 @@ import abc
 import base64
 import inspect
 import json
+import logging
 import mimetypes
 import os
 import pprint
 import re
 import threading
 import time
+import traceback
 from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import lru_cache
-from typing import Any, Callable, Dict, Generator, Optional
+from typing import Any, Callable, Dict, Generator, List, Optional
 
-import httpx
+import httpx  # <-- for type checks / repr
 from fastapi import Depends
 from openai import OpenAI
 from projectdavid import Entity
@@ -39,13 +41,17 @@ from entities_api.constants.assistant import (
 from entities_api.constants.platform import (ERROR_NO_CONTENT,
                                              SPECIAL_CASE_TOOL_HANDLING)
 from entities_api.dependencies import get_assistant_cache
-from entities_api.platform_tools.code_interpreter.code_execution_client import \
+from entities_api.ptool_handlers.code_interpreter.code_execution_client import \
     StreamOutput
-from entities_api.platform_tools.platform_tool_service import \
+from entities_api.ptool_handlers.platform_tool_service import \
     PlatformToolService
 from entities_api.services.cached_assistant import AssistantCache
 from entities_api.services.conversation_truncator import ConversationTruncator
 from entities_api.services.logging_service import LoggingUtility
+
+LOG = logging.getLogger(__name__)
+SURFACE_TRACEBACK = os.getenv("SURFACE_TRACEBACK", "false").lower() == "true"
+
 
 logging_utility = LoggingUtility()
 validator = ValidationInterface()
@@ -1344,6 +1350,146 @@ class BaseInference(ABC):
             # Re-raise the exception for further handling
             raise
 
+    def _handle_file_search(
+        self,
+        thread_id: str,
+        run_id: str,
+        assistant_id: str,
+        arguments_dict: Dict[str, Any],
+    ) -> None:
+        """
+        Execute a file‑search tool call, pull out the assistant‑crafted
+        summary (with citations) from the envelope, and post it back
+        untouched. If something explodes, surface a readable error block
+        to the assistant instead of crashing the stream.
+        """
+        ts_start = time.perf_counter()
+        action = self.action_client.create_action(
+            tool_name="file_search",
+            run_id=run_id,
+            function_args=arguments_dict,
+        )
+        LOG.debug(
+            "[%s] Created action id=%s args=%s",
+            run_id,
+            action.id,
+            json.dumps(arguments_dict, indent=2),
+        )
+
+        try:
+            query_text: str = arguments_dict["query_text"]
+            vector_store_id = "vect_vsnpCIHB71ilrpKz8BkgmF"
+
+            LOG.debug(
+                "[%s] file_search → store=%s  query=%s",
+                run_id,
+                vector_store_id,
+                query_text,
+            )
+
+            pd_client = self._get_project_david_client(
+                api_key=os.getenv("ADMIN_API_KEY"),
+                base_url=os.getenv("BASE_URL"),
+            )
+
+            # -----------------------------------------------
+            # We need to deal with the internal url here
+            # ------------------------------------------------
+            search_envelope = pd_client.vectors.file_search(
+                vector_store_id=vector_store_id,
+                query_text=query_text,
+                vector_store_host="qdrant",
+            )
+
+            LOG.debug(
+                "[%s] file_search raw‑envelope (%d bytes)",
+                run_id,
+                len(json.dumps(search_envelope)),
+            )
+
+            # ── Extract assistant answer ───────────────────────────
+            extracted: List[Dict[str, Any]] = [
+                {
+                    "text": c.get("text", ""),
+                    "annotations": c.get("annotations", []),
+                }
+                for item in search_envelope.get("output", [])
+                if item.get("type") == "message"
+                for c in item.get("content", [])
+                if c.get("type") == "output_text"
+            ]
+
+            if not extracted:
+                raise RuntimeError(
+                    "No `output_text` blocks found in file‑search envelope"
+                )
+
+            LOG.debug("[%s] extracted %d blocks", run_id, len(extracted))
+
+            # ── Ship back to thread ────────────────────────────────
+            self.submit_tool_output(
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                content=json.dumps(extracted, indent=2),
+                action=action,
+            )
+            self.action_client.update_action(action_id=action.id, status="completed")
+            LOG.info(
+                "[%s] file_search completed in %.2fs (action=%s)",
+                run_id,
+                time.perf_counter() - ts_start,
+                action.id,
+            )
+
+        # ── Failure path ─────────────────────────────────────────────
+        except Exception as exc:
+            tb = traceback.format_exc()
+            LOG.error(
+                "[%s] file_search FAILED action=%s  exc=%s\n%s",
+                run_id,
+                action.id,
+                exc,
+                tb,
+            )
+            self.action_client.update_action(action_id=action.id, status="failed")
+
+            # Compose a user‑friendly error payload
+            err_block = {
+                "error_type": exc.__class__.__name__,
+                "message": str(exc),
+            }
+
+            # Include HTTP details if we have them
+            if isinstance(exc, httpx.HTTPStatusError):
+                err_block.update(
+                    {
+                        "status_code": exc.response.status_code,
+                        "response_text": exc.response.text,
+                        "url": str(exc.request.url),
+                    }
+                )
+
+            if SURFACE_TRACEBACK:
+                err_block["traceback"] = tb
+
+            # Surface the error to the assistant thread so the front‑end
+            # can render *something* instead of timing‑out.
+            try:
+                self.submit_tool_output(
+                    thread_id=thread_id,
+                    assistant_id=assistant_id,
+                    content=json.dumps(err_block, indent=2),
+                    action=action,
+                )
+            except Exception as inner:
+                # last‑ditch: at least log it
+                LOG.exception(
+                    "[%s] Failed to surface error to assistant: %s", run_id, inner
+                )
+
+            # Re‑raise so upper layers / metrics still see the failure
+            raise
+
     def handle_code_interpreter_action(
         self, thread_id, run_id, assistant_id, arguments_dict
     ):
@@ -1352,6 +1498,7 @@ class BaseInference(ABC):
         )
 
         code = arguments_dict.get("code")
+
         uploaded_files = []
         hot_code_buffer = []
         final_content_for_assistant = ""
@@ -1545,7 +1692,7 @@ class BaseInference(ABC):
     def handle_shell_action(self, thread_id, run_id, assistant_id, arguments_dict):
         import json
 
-        from entities_api.platform_tools.computer.shell_command_interface import \
+        from entities_api.ptool_handlers.computer.shell_command_interface import \
             run_shell_commands
 
         # Create an action for the computer command execution
@@ -1956,6 +2103,14 @@ class BaseInference(ABC):
                 arguments_dict=arguments_dict,
             )
 
+        elif tool_name == "file_search":
+            self._handle_file_search(
+                thread_id=thread_id,
+                run_id=run_id,
+                assistant_id=assistant_id,
+                arguments_dict=arguments_dict,
+            )
+
         # --- General Platform Tool Handling ---
         elif tool_name in PLATFORM_TOOLS:  # Assumes PLATFORM_TOOLS is defined
 
@@ -1975,6 +2130,7 @@ class BaseInference(ABC):
                     assistant_id=assistant_id,
                     content=fc_state,
                     run_id=run_id,
+                    api_key=api_key,
                 )
 
         # --- Consumer Tool Handling ---

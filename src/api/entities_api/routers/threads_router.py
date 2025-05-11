@@ -22,12 +22,24 @@ def create_thread(
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
+    """
+    Create a thread. If `participant_ids` are absent in the payload,
+    we infer the caller from the authenticated API‑key.
+    """
     logging_utility.info(f"[{auth_key.user_id}] Creating thread")
+
+    # ➋ Fallback to the caller’s user_id
+    participant_ids = thread.participant_ids or [auth_key.user_id]
+
+    thread_in = ValidationInterface.ThreadCreate(
+        participant_ids=participant_ids,
+        meta_data=thread.meta_data,
+    )
+
     try:
-        service = ThreadService(db)
-        return service.create_thread(thread)
+        return ThreadService(db).create_thread(thread_in)
     except Exception as e:
-        logging_utility.error(f"Error creating thread: {str(e)}")
+        logging_utility.error(f"Error creating thread: {e}")
         raise HTTPException(status_code=500, detail="Failed to create thread")
 
 

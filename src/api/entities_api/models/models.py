@@ -302,6 +302,7 @@ class Run(Base):
 class Assistant(Base):
     __tablename__ = "assistants"
 
+    # ───────────────────────────── core columns ────────────────────────────
     id = Column(String(64), primary_key=True, index=True)
     object = Column(String(64), nullable=False)
     created_at = Column(Integer, nullable=False)
@@ -309,20 +310,48 @@ class Assistant(Base):
     description = Column(String(256))
     model = Column(String(64))
     instructions = Column(Text)
-    tool_configs = Column(JSON)
-    tool_resources = Column(JSON)
+    tool_configs = Column(JSON)  # legacy list-of-tools block
     meta_data = Column(JSON)
     top_p = Column(Integer)
     temperature = Column(Integer)
     response_format = Column(String(64))
 
-    # relationships (unchanged)
+    # ───────────────────────────── new 0.4-series columns ──────────────────
+    # 1) inline platform-tool specs (array style)
+    platform_tools = Column(
+        JSON,  # use JSONB on Postgres if desired
+        nullable=True,
+        comment=(
+            "Optional array of inline tool specs, e.g. "
+            '[{"type": "file_search", "vector_store_ids": ["vs_123"]}]'
+        ),
+    )
+
+    # 2) per-tool resource map (dict style)
+    tool_resources = Column(
+        JSON,
+        nullable=True,
+        comment=(
+            "Resource map keyed by tool type, e.g. "
+            '{"file_search": {"vector_store_ids": ["vs_123","vs_456"]}}'
+        ),
+    )
+
+    # ───────────────────────────── relationships ───────────────────────────
     tools = relationship(
-        "Tool", secondary=assistant_tools, back_populates="assistants", lazy="joined"
+        "Tool",
+        secondary=assistant_tools,
+        back_populates="assistants",
+        lazy="joined",
     )
+
     users = relationship(
-        "User", secondary=user_assistants, back_populates="assistants", lazy="select"
+        "User",
+        secondary=user_assistants,
+        back_populates="assistants",
+        lazy="select",
     )
+
     vector_stores = relationship(
         "VectorStore",
         secondary="vector_store_assistants",

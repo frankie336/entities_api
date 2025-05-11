@@ -3,6 +3,7 @@ import argparse
 import getpass  # Import getpass to hide API key input
 import os
 import sys
+import time
 
 # --- Path Setup (Example - uncomment/adjust if needed) ---
 # Ensure project root is in path to find projectdavid, etc.
@@ -14,11 +15,14 @@ import sys
 try:
     from projectdavid import Entity
     from projectdavid_common import ValidationInterface
+    from projectdavid_common.constants.assistant_map import \
+        PLATFORM_ASSISTANT_ID_MAP
     from projectdavid_common.constants.tools import TOOLS_ID_MAP
 
     from entities_api.constants.assistant import BASE_TOOLS, DEFAULT_MODEL
+    from entities_api.ptool_definitions.assemply import assemble_tools
     from entities_api.services.logging_service import LoggingUtility
-    from entities_api.system_message.assembly import assemble_instructions
+    from entities_api.system_message.main_assembly import assemble_instructions
 except ImportError as e:
     print(f"Error importing required modules: {e}")
     print(
@@ -169,9 +173,7 @@ class AssistantSetupService:
         Gets an existing assistant by a known ID ('default') or creates one,
         then ensures the specified tools are created and associated.
         """
-        target_assistant_id = (
-            "default"  # Using 'default' as the logical ID for this specific assistant
-        )
+        target_assistant_id = PLATFORM_ASSISTANT_ID_MAP["default_assistant"]
         assistant = None
 
         try:
@@ -244,7 +246,7 @@ class AssistantSetupService:
                 assistant_description="Default general-purpose assistant",  # Default description
                 model=DEFAULT_MODEL,
                 instructions=instructions,
-                function_definitions=BASE_TOOLS,  # Use the defined base tools
+                function_definitions=assemble_tools(),
             )
 
             self.logging_utility.info(
