@@ -1,3 +1,10 @@
+# [1.13.0](https://github.com/frankie336/entities_api/compare/v1.12.0...v1.13.0) (2025-05-11)
+
+
+### Features
+
+* allow an admin to choose the owner ([c3e57dd](https://github.com/frankie336/entities_api/commit/c3e57ddef780da23c2169b1ca0d16fc1bbe11db2))
+
 # [1.12.0](https://github.com/frankie336/entities_api/compare/v1.11.1...v1.12.0) (2025-04-30)
 
 
