@@ -7,11 +7,12 @@ from projectdavid_common.schemas.enums import StatusEnum
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
+from starlette import status
 
 from entities_api.dependencies import get_api_key, get_db
 from entities_api.models.models import ApiKey as ApiKeyModel
 from entities_api.services.actions_service import ActionService
-from entities_api.services.runs import RunService
+from entities_api.services.runs_service import RunService
 
 # Instantiate utilities.
 ent_validator = ValidationInterface()
@@ -27,21 +28,24 @@ def create_run(
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    logging_utility.info(
-        f"[{auth_key.user_id}] Creating run for thread {run.thread_id}"
-    )
+    user_id = auth_key.user_id
+    logging_utility.info("[%s] Creating run for thread %s", user_id, run.thread_id)
+
     run_service = RunService(db)
     try:
-        new_run = run_service.create_run(run)
-        logging_utility.info(f"Run created successfully: {new_run.id}")
+        new_run = run_service.create_run(run, user_id=user_id)
+        logging_utility.info("Run created successfully: %s", new_run.id)
         return new_run
-    except HTTPException as e:
-        logging_utility.error(f"HTTP error during run creation: {str(e)}")
-        raise e
-    except Exception as e:
-        logging_utility.error(f"Unexpected error during run creation: {str(e)}")
-        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
+    except HTTPException as e:
+        logging_utility.error("HTTP error during run creation: %s", str(e))
+        raise
+    except Exception as e:
+        logging_utility.error("Unexpected error during run creation: %s", str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred.",
+        )
 
 @router.get("/runs/{run_id}", response_model=ValidationInterface.RunReadDetailed)
 def get_run(

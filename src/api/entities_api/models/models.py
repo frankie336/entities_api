@@ -220,6 +220,8 @@ class User(Base):
         # --- End added index ---
     )
 
+    runs = relationship("Run", back_populates="user", lazy="select")
+
 
 class Thread(Base):
     __tablename__ = "threads"
@@ -266,6 +268,14 @@ class Message(Base):
 
 class Run(Base):
     __tablename__ = "runs"
+
+    user_id = Column(
+        String(64),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    user = relationship("User", back_populates="runs")
 
     id = Column(String(64), primary_key=True)
     assistant_id = Column(String(64), nullable=False)
