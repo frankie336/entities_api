@@ -1,18 +1,20 @@
 import time
 from typing import List, Optional
+
 from fastapi import HTTPException
+from projectdavid_common import UtilsInterface, ValidationInterface
+from projectdavid_common.utilities.logging_service import LoggingUtility
+from projectdavid_common.validation import StatusEnum
 from pydantic import parse_obj_as
 from sqlalchemy.orm import Session
 
-from projectdavid_common import UtilsInterface, ValidationInterface
-from projectdavid_common.utilities.logging_service import LoggingUtility
-
-from entities_api.models.models import Run, StatusEnum
+from entities_api.models.models import Run
 
 # --------------------------------------------------------------------------- #
 #  Pydantic validator shortcut
 # --------------------------------------------------------------------------- #
 validator = ValidationInterface()
+
 
 # --------------------------------------------------------------------------- #
 #  Service
@@ -70,7 +72,9 @@ class RunService:
 
         self.logger.info(
             "Persisting run (user_id=%s, assistant_id=%s, thread_id=%s)",
-            user_id, run_data.assistant_id, run_data.thread_id
+            user_id,
+            run_data.assistant_id,
+            run_data.thread_id,
         )
 
         self.db.add(new_run)
@@ -85,18 +89,14 @@ class RunService:
     #  UPDATE STATUS
     # ───────────────────────────────────────────────────────────────────── #
     def update_run_status(self, run_id: str, new_status: str) -> Run:
-        run: Optional[Run] = (
-            self.db.query(Run).filter(Run.id == run_id).first()
-        )
+        run: Optional[Run] = self.db.query(Run).filter(Run.id == run_id).first()
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
 
         try:
             run.status = StatusEnum(new_status)
         except ValueError:
-            raise HTTPException(
-                status_code=400, detail=f"Invalid status: {new_status}"
-            )
+            raise HTTPException(status_code=400, detail=f"Invalid status: {new_status}")
 
         self.db.commit()
         self.db.refresh(run)
@@ -106,16 +106,14 @@ class RunService:
     #  READ
     # ───────────────────────────────────────────────────────────────────── #
     def get_run(self, run_id: str) -> Optional[validator.RunReadDetailed]:
-        run: Optional[Run] = (
-            self.db.query(Run).filter(Run.id == run_id).first()
-        )
+        run: Optional[Run] = self.db.query(Run).filter(Run.id == run_id).first()
         if not run:
             return None
 
         # Map SQLAlchemy → Pydantic
         return validator.RunReadDetailed(
             id=run.id,
-            user_id=run.user_id,                         # ← NEW
+            user_id=run.user_id,
             assistant_id=run.assistant_id,
             cancelled_at=run.cancelled_at,
             completed_at=run.completed_at,
@@ -134,9 +132,9 @@ class RunService:
             required_action=run.required_action,
             response_format=run.response_format,
             started_at=run.started_at,
-            status=run.status.value
-            if isinstance(run.status, StatusEnum)
-            else run.status,
+            status=(
+                run.status.value if isinstance(run.status, StatusEnum) else run.status
+            ),
             thread_id=run.thread_id,
             tool_choice=run.tool_choice,
             tools=parse_obj_as(List[validator.ToolRead], run.tools),
@@ -153,9 +151,7 @@ class RunService:
     # ───────────────────────────────────────────────────────────────────── #
     def cancel_run(self, run_id: str) -> Run:
         self.logger.info("Attempting to cancel run %s", run_id)
-        run: Optional[Run] = (
-            self.db.query(Run).filter(Run.id == run_id).first()
-        )
+        run: Optional[Run] = self.db.query(Run).filter(Run.id == run_id).first()
         if not run:
             self.logger.error("Run %s not found", run_id)
             raise HTTPException(status_code=404, detail="Run not found")

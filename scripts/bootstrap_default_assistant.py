@@ -196,8 +196,7 @@ class AssistantSetupService:
                     description=assistant_description,
                     model=model,
                     instructions=instructions,
-                    assistant_id=target_assistant_id,  # Attempt to assign the logical ID if API supports it
-                    # user_id=user_id # Add if create_assistant requires/supports user scoping
+                    assistant_id=target_assistant_id,
                 )
                 self.logging_utility.info(
                     f"Created new assistant: '{assistant.name}' (Logical ID: '{target_assistant_id}', Actual ID: {assistant.id})"
