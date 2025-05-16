@@ -196,6 +196,16 @@ class AssistantSetupService:
                     description=assistant_description,
                     model=model,
                     instructions=instructions,
+
+                    tools=[{"type": "code_interpreter"},
+                           {"type": "web_search"},
+                           {"type": "vector_store_search"},
+                           {"type": "computer"},
+                           {"type": "file_search"},
+
+                    ],
+
+
                     assistant_id=target_assistant_id,
                 )
                 self.logging_utility.info(
