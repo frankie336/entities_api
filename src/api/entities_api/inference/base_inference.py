@@ -1197,6 +1197,7 @@ class BaseInference(ABC):
                 assistant_id=assistant_id,
                 tool_id="dummy",
             )
+
             self.action_client.update_action(action_id=action.id, status="completed")
             logging_utility.debug(
                 "Tool output submitted successfully for action %s", action.id

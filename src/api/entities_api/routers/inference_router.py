@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import os
 import time
 from typing import Any, AsyncGenerator
 
@@ -10,15 +9,21 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
-from redis import Redis  # Keep Redis type hint
+from redis import Redis
 
-from entities_api.inference.inference_arbiter import InferenceArbiter
-from entities_api.inference.inference_provider_selector import \
+from entities_api.inference_mixin.inference_arbiter import InferenceArbiter
+from entities_api.inference_mixin.inference_provider_selector import \
     InferenceProviderSelector
 
 # Import the correct shared Redis dependency
 # Adjust the relative path '..' if your dependencies.py is elsewhere
 from ..dependencies import get_redis
+
+# from entities_api.inference.inference_arbiter import InferenceArbiter
+# from entities_api.inference.inference_provider_selector import InferenceProviderSelector
+
+
+
 
 router = APIRouter()
 logging_utility = LoggingUtility()

@@ -147,6 +147,16 @@ class CodeExecutionClient:
 
 
 class StreamOutput:
+    def __init__(self) -> None:  # <-- NEW: no *args / **kwargs
+        """
+        Stateless helper class.
+
+        An explicit, argument-free constructor prevents BaseInference’s
+        service-factory from treating the implicit *args/**kwargs in
+        object.__init__ as required parameters.
+        """
+        pass
+
     def stream_output(self, code: str) -> Generator[str, None, None]:
         """Synchronous generator bridge for async execution"""
         try:

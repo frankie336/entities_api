@@ -1,0 +1,125 @@
+"""
+All logic that builds the message list passed to the LLM:
+
+• fetch Redis-cached history (or cold-load from DB once)
+• inject current assistant tools / instructions
+• role-normalisation + truncation
+"""
+
+import json
+import os
+from datetime import datetime
+from typing import Dict, List
+
+from projectdavid import Entity
+
+from entities_api.services.logging_service import LoggingUtility
+
+LOG = LoggingUtility()
+
+
+class ConversationContextMixin:
+    # ------------------------------------------------------------------ #
+    # Tiny helper – consistent role names                                #
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _normalize_roles(msgs: List[Dict]) -> List[Dict]:
+        out: List[Dict] = []
+        for m in msgs:
+            role = str(m.get("role", "user")).lower()
+            if role not in ("user", "assistant", "system", "tool", "platform"):
+                role = "user"
+            out.append({"role": role, "content": str(m.get("content", "")).strip()})
+        return out
+
+    # ------------------------------------------------------------------ #
+    # Build the *single* system-prompt block                             #
+    # ------------------------------------------------------------------ #
+    def _build_system_message(self, assistant_id: str) -> Dict:
+        """
+        Pull the assistant’s cached tool list + instructions through
+        AssistantCacheMixin’s accessor, then craft the final system prompt.
+        """
+        cache = self.get_assistant_cache()  # <- AssistantCacheMixin
+        cfg = cache.retrieve_sync(assistant_id)  # synchronous helper
+        today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        return {
+            "role": "system",
+            "content": (
+                "tools:\n"
+                f"{json.dumps(cfg['tools'])}\n"
+                f"{cfg['instructions']}\n"
+                f"Today's date and time: {today}"
+            ),
+        }
+
+    # ------------------------------------------------------------------ #
+    # Final public helper used by providers                              #
+    # ------------------------------------------------------------------ #
+    def _set_up_context_window(
+        self, assistant_id: str, thread_id: str, trunk: bool = True
+    ):
+        """Prepares and optimizes conversation context for model processing.
+
+        Constructs the conversation history while ensuring it fits within the model's
+        context window limits through intelligent truncation. Combines multiple elements
+        to create rich context:
+        - Assistant's configured tools
+        - Current instructions
+        - Temporal awareness (today's date)
+        - Complete conversation history
+
+        Args:
+            assistant_id (str): UUID of the assistant profile to retrieve tools/instructions
+            thread_id (str): UUID of conversation thread for message history retrieval
+            trunk (bool): Enable context window optimization via truncation (default: True)
+
+        Returns:
+            list: Processed message list containing either:
+                - Truncated messages (if trunk=True)
+                - Full normalized messages (if trunk=False)
+
+        Processing Pipeline:
+            1. Retrieve assistant configuration and tools
+            2. Fetch complete conversation history
+            3. Inject system message with:
+               - Active tools list
+               - Current instructions
+               - Temporal context (today's date)
+            4. Normalize message roles for API consistency
+            5. Apply sliding window truncation when enabled
+
+        Note:
+            Uses LRU-cached service calls for assistant/message retrieval to optimize
+            repeated requests with identical parameters.
+        """
+        # 1) get system message
+        system_msg = self._build_system_message(assistant_id)
+
+        # 2) fetch your Redis list
+        redis_key = f"thread:{thread_id}:history"
+        raw_list = self.redis.lrange(redis_key, 0, -1)
+        if not raw_list:
+            # cold start: fallback to DB once, then repopulate
+            client = Entity(
+                base_url=os.getenv("ASSISTANTS_BASE_URL"),
+                api_key=os.getenv("ADMIN_API_KEY"),
+            )
+            full_hist = client.messages.get_formatted_messages(
+                thread_id, system_message=system_msg["content"]
+            )
+            # push each into Redis
+            for msg in full_hist[-200:]:
+                self.redis.rpush(redis_key, json.dumps(msg))
+            self.redis.ltrim(redis_key, -200, -1)
+            raw_list = [json.dumps(m) for m in full_hist]
+
+        # 3) reconstruct
+        msgs = [system_msg] + [json.loads(x) for x in raw_list]
+
+        # 4) normalize roles
+        normalized = self._normalize_roles(msgs)
+
+        # 5) optional truncation
+        return self.conversation_truncator.truncate(normalized) if trunk else normalized

@@ -238,7 +238,7 @@ class HyperbolicDeepSeekV3Inference(BaseInference, ABC):
                     accumulated_content += seg
 
                     # hot-code opening detection
-                    parse_ci = getattr(self, "parse_code_interpreter_partial", None)
+                    parse_ci = getattr(self, "", None)
                     partial_match = parse_ci(accumulated_content) if parse_ci else None
 
                     if not code_mode and partial_match:
