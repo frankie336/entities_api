@@ -1,3 +1,10 @@
+## [1.15.1](https://github.com/frankie336/entities_api/compare/v1.15.0...v1.15.1) (2025-05-25)
+
+
+### Bug Fixes
+
+* cache export completely disabled ([dab9b81](https://github.com/frankie336/entities_api/commit/dab9b81212ca4fcc18cd27e87acd1e5c99fbe268))
+
 # [1.15.0](https://github.com/frankie336/entities_api/compare/v1.14.0...v1.15.0) (2025-05-25)
 
 
