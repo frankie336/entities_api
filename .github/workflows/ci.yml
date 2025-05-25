@@ -7,13 +7,10 @@ on:
     branches: [main, master]
 
 permissions:
-  contents: write   # semantic-release + auto-formatter commits
-  packages: write   # push to Docker Hub / GHCR
+  contents: write
+  packages: write
 
 jobs:
-  # -------------------------------------------------------------------------
-  #  🧹  Lint
-  # -------------------------------------------------------------------------
   lint:
     name: "🧹 Lint Code & Dockerfiles"
     runs-on: ubuntu-latest
@@ -65,9 +62,6 @@ jobs:
           hadolint docker/api/Dockerfile || true
           hadolint docker/sandbox/Dockerfile || true
 
-  # -------------------------------------------------------------------------
-  #  ✅  Tests
-  # -------------------------------------------------------------------------
   test:
     name: "✅ Run Unit Tests"
     runs-on: ubuntu-latest
@@ -112,9 +106,6 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
-  # -------------------------------------------------------------------------
-  #  🚀  Build & Publish Docker images
-  # -------------------------------------------------------------------------
   build_and_publish:
     name: "🚀 Build, Tag, and Publish Images to Docker Hub"
     runs-on: ubuntu-latest
@@ -140,7 +131,9 @@ jobs:
           username: thanosprime
           password: ${{ secrets.DOCKERHUB_THANOSPRIME }}
 
-      # ----- semantic-release ------------------------------------------------
+      - name: "🧼 Prune Docker System Cache"
+        run: docker system prune -af || true
+
       - name: "🚀 Setup Node.js"
         uses: actions/setup-node@v4
         with:
@@ -162,7 +155,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
 
-      # Extract tag produced by semantic-release
       - name: "🏷️ Extract Git Tag Version"
         id: get_version
         run: |
@@ -176,7 +168,6 @@ jobs:
           echo "Detected version: $VERSION"
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
-      # ---------------- API image ----------------
       - name: "🔧 Define API Image Metadata"
         id: meta_api
         uses: docker/metadata-action@v5
@@ -187,7 +178,6 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-
 
-      # ---------------- Sandbox image ------------
       - name: "🔧 Define Sandbox Image Metadata"
         id: meta_sandbox
         uses: docker/metadata-action@v5
@@ -198,7 +188,6 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-
 
-      # ---------------- Build / Push ----------------
       - name: "🏗️ Build & Push API Image"
         uses: docker/build-push-action@v5
         with:
@@ -209,7 +198,7 @@ jobs:
           labels: ${{ steps.meta_api.outputs.labels }}
           platforms: linux/amd64
           cache-from: type=gha
-          cache-to:   type=gha,mode=max,size=1.5GB     # <── capped to avoid 5 GB limit
+          cache-to: type=gha,mode=max,size=1.5GB
 
       - name: "🏗️ Build & Push Sandbox Image"
         uses: docker/build-push-action@v5
@@ -221,4 +210,4 @@ jobs:
           labels: ${{ steps.meta_sandbox.outputs.labels }}
           platforms: linux/amd64
           cache-from: type=gha
-          cache-to:   type=gha,mode=max,size=1.5GB     # <── capped likewise
+          cache-to: type=gha,mode=max,size=1.5GB
