@@ -1,3 +1,11 @@
+# [1.14.0](https://github.com/frankie336/entities_api/compare/v1.13.0...v1.14.0) (2025-05-25)
+
+
+### Features
+
+* --Integrate mixins architecture. This major upgrade splits the original base class into a series of smaller mixin classes for better maintainability and less cognitive load. ([88216e0](https://github.com/frankie336/entities_api/commit/88216e04f5de357cc35910c32bf9420813f8affa))
+* --Integrate mixins architecture. This major upgrade splits the original base class into a series of smaller mixin classes for better maintainability and less cognitive load. ([bf29576](https://github.com/frankie336/entities_api/commit/bf29576c936d85fe88d98f8b01cd2c649f344140))
+
 # [1.13.0](https://github.com/frankie336/entities_api/compare/v1.12.0...v1.13.0) (2025-05-11)
 
 
