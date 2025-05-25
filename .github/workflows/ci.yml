@@ -7,10 +7,13 @@ on:
     branches: [main, master]
 
 permissions:
-  contents: write
-  packages: write
+  contents: write          # allow semantic-release & auto-format commits
+  packages: write          # allow pushing to Docker Hub / GHCR
 
 jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  #  🧹  Lint
+  # ──────────────────────────────────────────────────────────────────────────
   lint:
     name: "🧹 Lint Code & Dockerfiles"
     runs-on: ubuntu-latest
@@ -22,7 +25,7 @@ jobs:
       - name: "🐍 Set up Python"
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: "📦 Cache pip dependencies"
         uses: actions/cache@v4
@@ -62,6 +65,9 @@ jobs:
           hadolint docker/api/Dockerfile || true
           hadolint docker/sandbox/Dockerfile || true
 
+  # ──────────────────────────────────────────────────────────────────────────
+  #  ✅  Tests
+  # ──────────────────────────────────────────────────────────────────────────
   test:
     name: "✅ Run Unit Tests"
     runs-on: ubuntu-latest
@@ -106,6 +112,9 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+  # ──────────────────────────────────────────────────────────────────────────
+  #  🚀  Build & Publish Docker images
+  # ──────────────────────────────────────────────────────────────────────────
   build_and_publish:
     name: "🚀 Build, Tag, and Publish Images to Docker Hub"
     runs-on: ubuntu-latest
@@ -131,13 +140,15 @@ jobs:
           username: thanosprime
           password: ${{ secrets.DOCKERHUB_THANOSPRIME }}
 
+      # small safety net: wipe any dangling layers on the runner
       - name: "🧼 Prune Docker System Cache"
         run: docker system prune -af || true
 
+      # ----- semantic-release -------------------------------------------------
       - name: "🚀 Setup Node.js"
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: "⚙️ Install semantic-release"
         run: |
@@ -168,6 +179,7 @@ jobs:
           echo "Detected version: $VERSION"
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
 
+      # ---------------- API image metadata ----------------
       - name: "🔧 Define API Image Metadata"
         id: meta_api
         uses: docker/metadata-action@v5
@@ -178,6 +190,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-
 
+      # ---------------- Sandbox image metadata ------------
       - name: "🔧 Define Sandbox Image Metadata"
         id: meta_sandbox
         uses: docker/metadata-action@v5
@@ -188,6 +201,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-
 
+      # ---------------- Build / Push API ------------------
       - name: "🏗️ Build & Push API Image"
         uses: docker/build-push-action@v5
         with:
@@ -198,8 +212,9 @@ jobs:
           labels: ${{ steps.meta_api.outputs.labels }}
           platforms: linux/amd64
           cache-from: type=gha
-          cache-to: type=gha,mode=max,size=1.5GB
+          cache-to:   type=gha,mode=max,size=1.5GB   # well below GitHub 5 GB limit
 
+      # ---------------- Build / Push Sandbox --------------
       - name: "🏗️ Build & Push Sandbox Image"
         uses: docker/build-push-action@v5
         with:
@@ -210,4 +225,4 @@ jobs:
           labels: ${{ steps.meta_sandbox.outputs.labels }}
           platforms: linux/amd64
           cache-from: type=gha
-          cache-to: type=gha,mode=max,size=1.5GB
+          cache-to:   type=gha,mode=max,size=1.5GB   # same cap here
