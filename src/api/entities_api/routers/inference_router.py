@@ -23,8 +23,6 @@ from ..dependencies import get_redis
 # from entities_api.inference.inference_provider_selector import InferenceProviderSelector
 
 
-
-
 router = APIRouter()
 logging_utility = LoggingUtility()
 

@@ -8,6 +8,7 @@ from .client_factory_mixin import ClientFactoryMixin
 from .code_execution_mixin import CodeExecutionMixin
 from .consumer_tool_handlers_mixin import ConsumerToolHandlersMixin
 from .conversation_context_mixin import ConversationContextMixin
+from .file_search_mixin import FileSearchMixin
 from .json_utils_mixin import JsonUtilsMixin
 from .platform_tool_handlers_mixin import PlatformToolHandlersMixin
 from .service_registry_mixin import ServiceRegistryMixin
@@ -30,4 +31,5 @@ __all__ = [
     "StreamingMixin",
     "CodeExecutionMixin",
     "ShellExecutionMixin",
+    "FileSearchMixin",
 ]

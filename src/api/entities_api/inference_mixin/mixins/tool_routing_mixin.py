@@ -1,5 +1,5 @@
 """
-High-level routing of <fc> tool-calls.
+High-level routing of <fc> tool-calls with detailed activation logs.
 
 Responsibilities
 ----------------
@@ -10,7 +10,6 @@ Responsibilities
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Dict, Optional
 
@@ -32,12 +31,14 @@ class ToolRoutingMixin:
     _function_call: Optional[Dict] = None
 
     def set_tool_response_state(self, value: bool) -> None:
+        LOG.debug("TOOL-ROUTER ▸ set_tool_response_state(%s)", value)
         self._tool_response = value
 
     def get_tool_response_state(self) -> bool:
         return self._tool_response
 
     def set_function_call_state(self, value: Dict) -> None:
+        LOG.debug("TOOL-ROUTER ▸ set_function_call_state(%s)", value)
         self._function_call = value
 
     def get_function_call_state(self) -> Optional[Dict]:
@@ -50,45 +51,64 @@ class ToolRoutingMixin:
         self, accumulated_content: str, assistant_reply: str
     ) -> Optional[Dict]:
         """
-        Three-pass search:
-
-        1. current streaming buffer (handles split <fc> blocks)
-        2. finished assistant reply
-        3. loose legacy JSON pattern
+        Robustly locate a <fc>{...}</fc> JSON block *anywhere* in either
+        accumulated_content or assistant_reply, even if split across chunks.
         """
+
         from .json_utils_mixin import \
             JsonUtilsMixin  # local import – avoid cycle
 
         if not isinstance(self, JsonUtilsMixin):  # type: ignore
             raise TypeError("ToolRoutingMixin must be mixed with JsonUtilsMixin")
 
-        def _try_extract(txt: str) -> Optional[Dict]:
-            m = self.FC_REGEX.search(txt)
+        def _extract_json_block(text: str) -> Optional[Dict]:
+            m = self.FC_REGEX.search(text)
             if not m:
+                LOG.debug("FC-SCAN ▸ no tag in %r …", text[-120:])
                 return None
-            payload = m.group("payload")
-            parsed = self.ensure_valid_json(payload)  # type: ignore[attr-defined]
-            if parsed and (
-                self.is_valid_function_call_response(parsed)  # type: ignore[attr-defined]
-                or self.is_complex_vector_search(parsed)  # type: ignore[attr-defined]
-            ):
+
+            raw_json = m.group("payload")
+            LOG.debug("FC-SCAN ▸ candidate JSON: %s", raw_json)
+
+            parsed = self.ensure_valid_json(raw_json)  # normalises quotes, commas
+            if not parsed:
+                LOG.debug("FC-SCAN ✗ invalid JSON → rejected")
+                return None
+
+            if self.is_valid_function_call_response(
+                parsed
+            ) or self.is_complex_vector_search(parsed):
+                LOG.debug("FC-SCAN ✓ valid func-call: %s", parsed)
                 return parsed
+
+            LOG.debug("FC-SCAN ✗ schema mismatch → rejected")
             return None
 
-        for source in (accumulated_content, assistant_reply):
-            found = _try_extract(source)
-            if found:
-                self.set_tool_response_state(True)
-                self.set_function_call_state(found)
-                return found
+        # ① accumulated stream (handles split tags)
+        parsed_fc = _extract_json_block(accumulated_content)
+        if parsed_fc:
+            self.set_tool_response_state(True)
+            self.set_function_call_state(parsed_fc)
+            return parsed_fc
 
-        # legacy fall-back
-        loose = self.extract_function_calls_within_body_of_text(assistant_reply)  # type: ignore[attr-defined]
+        # ② full assistant reply (legacy models put tags at the end)
+        parsed_fc = _extract_json_block(assistant_reply)
+        if parsed_fc and not self.get_tool_response_state():
+            self.set_tool_response_state(True)
+            self.set_function_call_state(parsed_fc)
+            return parsed_fc
+
+        # ③ heuristic fallback – JSON without <fc> wrappers
+        loose = self.extract_function_calls_within_body_of_text(
+            assistant_reply
+        )  # type: ignore[attr-defined]
         if loose:
+            LOG.debug("FC-SCAN ✓ legacy pattern: %s", loose[0])
             self.set_tool_response_state(True)
             self.set_function_call_state(loose[0])
             return loose[0]
 
+        LOG.debug("FC-SCAN ✗ nothing found")
         return None
 
     # ------------------------------------------------------------------ #
@@ -113,13 +133,16 @@ class ToolRoutingMixin:
         """
         fc = self.get_function_call_state()
         if not fc:
-            return  # nothing queued
+            LOG.debug("TOOL-ROUTER ▸ no queued call – noop")
+            return
 
         name = fc.get("name")
         args = fc.get("arguments", {})
+        LOG.info("TOOL-ROUTER ▶ dispatching tool=%s args=%s", name, args)
 
         # ---- platform specials -----------------------------------------
         if name == "code_interpreter":
+            LOG.debug("TOOL-ROUTER ▸ route → handle_code_interpreter_action")
             yield from self.handle_code_interpreter_action(  # type: ignore
                 thread_id=thread_id,
                 run_id=run_id,
@@ -129,6 +152,7 @@ class ToolRoutingMixin:
             return
 
         if name == "computer":
+            LOG.debug("TOOL-ROUTER ▸ route → handle_shell_action")
             yield from self.handle_shell_action(  # type: ignore
                 thread_id=thread_id,
                 run_id=run_id,
@@ -138,7 +162,8 @@ class ToolRoutingMixin:
             return
 
         if name == "file_search":
-            self._handle_file_search(  # type: ignore
+            LOG.debug("TOOL-ROUTER ▸ route → _handle_file_search")
+            self.handle_file_search(  # type: ignore
                 thread_id=thread_id,
                 run_id=run_id,
                 assistant_id=assistant_id,
@@ -149,7 +174,7 @@ class ToolRoutingMixin:
         # ---- generic routing -------------------------------------------
         if name in PLATFORM_TOOLS:
             if name in SPECIAL_CASE_TOOL_HANDLING:
-                # treat as consumer
+                LOG.debug("TOOL-ROUTER ▸ platform special-case → _process_tool_calls")
                 self._process_tool_calls(  # type: ignore
                     thread_id,
                     assistant_id,
@@ -158,7 +183,9 @@ class ToolRoutingMixin:
                     api_key=api_key,
                 )
             else:
-                # normal platform route
+                LOG.debug(
+                    "TOOL-ROUTER ▸ platform native → _process_platform_tool_calls"
+                )
                 self._process_platform_tool_calls(  # type: ignore
                     thread_id,
                     assistant_id,
@@ -166,7 +193,7 @@ class ToolRoutingMixin:
                     run_id,
                 )
         else:
-            # consumer tool
+            LOG.debug("TOOL-ROUTER ▸ consumer tool → _process_tool_calls")
             self._process_tool_calls(  # type: ignore
                 thread_id,
                 assistant_id,

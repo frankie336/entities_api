@@ -6,13 +6,9 @@ import time
 
 from dotenv import load_dotenv
 
-# Assuming projectdavid.Entity correctly initializes ApiKeysClient under .keys
-# Make sure this import works based on your project structure.
-# If running from the 'scripts' directory, you might need to adjust sys.path
 try:
     from projectdavid import Entity
 except ImportError:
-    # Add project root to path if 'projectdavid' is not found directly
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     if project_root not in sys.path:
         sys.path.insert(0, project_root)
@@ -25,16 +21,15 @@ except ImportError:
         )
         sys.exit(1)
 
-
 # --- Constants ---
 DEFAULT_BASE_URL = "http://localhost:9000"
 DEFAULT_CREDS_FILE = "admin_credentials.txt"
 DEFAULT_KEY_NAME = "Default Initial Key"
+DEFAULT_VECTOR_STORE_NAME = "file_search"
 
 
 # --- Helper Functions ---
 def load_admin_key(env_var="ADMIN_API_KEY", creds_file=DEFAULT_CREDS_FILE):
-    """Loads the Admin API key from environment or a credentials file."""
     admin_api_key = os.getenv(env_var)
     if not admin_api_key:
         if os.path.exists(creds_file):
@@ -48,7 +43,7 @@ def load_admin_key(env_var="ADMIN_API_KEY", creds_file=DEFAULT_CREDS_FILE):
                             break
             except Exception as e:
                 print(f"Error reading {creds_file}: {e}")
-                admin_api_key = None  # Ensure it's None if reading fails
+                admin_api_key = None
 
         if not admin_api_key:
             raise ValueError(
@@ -63,10 +58,8 @@ def load_admin_key(env_var="ADMIN_API_KEY", creds_file=DEFAULT_CREDS_FILE):
 
 
 def create_api_client(base_url, api_key):
-    """Initializes the API client."""
     try:
         client = Entity(base_url=base_url, api_key=api_key)
-        # Simple check if client has expected attributes (optional but good practice)
         if not hasattr(client, "users") or not hasattr(client, "keys"):
             print(
                 "Warning: API client might not be fully initialized. Missing 'users' or 'keys' attribute."
@@ -78,14 +71,12 @@ def create_api_client(base_url, api_key):
 
 
 def create_user(client, full_name, email):
-    """Creates a new regular user using the admin client."""
     print(f"\nAttempting to create user '{full_name}' ({email})...")
     try:
-        # Assumes admin_client.users.create_user handles the API call
         new_user = client.users.create_user(
             full_name=full_name,
             email=email,
-            is_admin=False,  # Explicitly creating a regular user
+            is_admin=False,
         )
         print("\nNew REGULAR user created successfully:")
         print(f"  User ID:    {getattr(new_user, 'id', 'N/A')}")
@@ -102,11 +93,38 @@ def create_user(client, full_name, email):
             except Exception:
                 error_detail = error_response.text
             print(f"Response Body: {error_detail}")
-        return None  # Indicate failure
+        return None
+
+
+def create_user_vector_store(client, user, store_name=DEFAULT_VECTOR_STORE_NAME):
+    if not user or not getattr(user, "id", None):
+        print("\n[vector-store] skipped – user instance missing or invalid.")
+        return None
+
+    try:
+        print(f"\nCreating vector-store '{store_name}' for user {user.id} …")
+        vs = client.vectors.create_vector_store_for_user(
+            owner_id=user.id,
+            name=store_name,
+        )
+        vs_id = getattr(vs, "id", "N/A")
+        print("✅  Vector-store created.")
+        print(f"   Vector-store ID: {vs_id}")
+        print(f"   Name:           {getattr(vs, 'name', store_name)}")
+        return vs
+    except Exception as e:
+        print(f"❌  Failed to create vector-store: {e}")
+        eresp = getattr(e, "response", None)
+        if eresp is not None:
+            print(f"Status Code: {eresp.status_code}")
+            try:
+                print(f"Body: {eresp.json()}")
+            except Exception:
+                print(f"Body: {eresp.text}")
+        return None
 
 
 def generate_user_key(admin_client, user, key_name=DEFAULT_KEY_NAME):
-    """Generates an initial API key for the specified user using admin credentials."""
     if not user or not hasattr(user, "id"):
         print(
             "\nSkipped API key generation because user object is invalid or missing ID."
@@ -114,20 +132,15 @@ def generate_user_key(admin_client, user, key_name=DEFAULT_KEY_NAME):
         return None
 
     target_user_id = user.id
-    user_email = getattr(user, "email", "N/A")  # For logging
+    user_email = getattr(user, "email", "N/A")
 
     print(
         f"\nAttempting to generate initial API key for user {target_user_id} ({user_email})..."
     )
 
     try:
-        # Define optional payload for the key creation
-        key_payload = {
-            "key_name": key_name
-            # "expires_in_days": 365 # Optional: Example
-        }
+        key_payload = {"key_name": key_name}
 
-        # Use the create_key_for_user method via the admin client's keys interface
         print(
             f"Calling SDK method 'create_key_for_user' on admin client for user ID {target_user_id}"
         )
@@ -136,7 +149,6 @@ def generate_user_key(admin_client, user, key_name=DEFAULT_KEY_NAME):
             **key_payload,
         )
 
-        # Process the response
         plain_text_key = getattr(key_creation_response, "plain_key", None)
         if plain_text_key:
             print("\n" + "=" * 50)
@@ -146,9 +158,7 @@ def generate_user_key(admin_client, user, key_name=DEFAULT_KEY_NAME):
             key_details = getattr(key_creation_response, "details", None)
             if key_details and hasattr(key_details, "prefix"):
                 print(f"  Key Prefix: {key_details.prefix}")
-                print(
-                    f"  Key Name:   {getattr(key_details, 'name', 'N/A')}"
-                )  # Assuming name is in details
+                print(f"  Key Name:   {getattr(key_details, 'name', 'N/A')}")
             print("-" * 50)
             print(f"  PLAIN TEXT API KEY: {plain_text_key}")
             print("-" * 50)
@@ -183,7 +193,6 @@ def generate_user_key(admin_client, user, key_name=DEFAULT_KEY_NAME):
             except Exception:
                 error_detail = error_response.text
             print(f"Response Body: {error_detail}")
-            # Add hints based on status code
             if error_response.status_code == 404:
                 print(
                     f"Hint: Check API endpoint POST /v1/admin/users/{target_user_id}/keys"
@@ -198,7 +207,6 @@ def generate_user_key(admin_client, user, key_name=DEFAULT_KEY_NAME):
 
 
 def main():
-    """Main script execution function."""
     parser = argparse.ArgumentParser(
         description="Create a new regular user and generate an initial API key using admin credentials."
     )
@@ -235,33 +243,38 @@ def main():
 
     args = parser.parse_args()
 
-    # --- Load Environment Variables ---
     load_dotenv()
 
-    # --- Get Admin API Key ---
     try:
         admin_api_key = load_admin_key(creds_file=args.creds_file)
     except ValueError as e:
         print(f"Error: {e}")
         sys.exit(1)
 
-    # --- Initialize Admin Client ---
     admin_client = create_api_client(args.base_url, admin_api_key)
 
-    # --- Determine User Details ---
     user_email = args.email or f"test_regular_user_{int(time.time())}@example.com"
     user_full_name = args.name or "Regular User Test"
 
-    # --- Create User ---
     new_user = create_user(admin_client, user_full_name, user_email)
 
-    # --- Generate Key (if user created) ---
     if new_user:
-        generate_user_key(admin_client, new_user, key_name=args.key_name)
-    else:
-        print("\nSkipping API key generation due to user creation failure.")
+        vector_store = create_user_vector_store(admin_client, new_user)
+        generated_key = generate_user_key(
+            admin_client, new_user, key_name=args.key_name
+        )
 
-    print("\nScript finished.")
+        # ✨ Append vector-store summary at bottom
+        if vector_store:
+            print("\n" + "=" * 50)
+            print("  Vector Store Details (created for new user):")
+            print(f"  Store ID:   {getattr(vector_store, 'id', 'N/A')}")
+            print(f"  Store Name: {getattr(vector_store, 'name', 'N/A')}")
+            print("=" * 50 + "\n")
+    else:
+        print("\nSkipping key / vector-store creation because user-creation failed.")
+
+    print("Script finished.")
 
 
 if __name__ == "__main__":

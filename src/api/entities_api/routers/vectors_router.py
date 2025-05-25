@@ -5,12 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi import Path as FastApiPath
 from fastapi import Query, status
 from projectdavid_common import UtilsInterface, ValidationInterface
+from projectdavid_common.schemas.vectors_schema import VectorStoreRead
 from sqlalchemy.orm import Session
 
 from entities_api.dependencies import get_api_key, get_db
 from entities_api.models.models import ApiKey as ApiKeyModel
-from entities_api.models.models import User as UserModel  # for auth check
-from entities_api.models.models import VectorStore
+from entities_api.models.models import User as UserModel  # for auth checks
 from entities_api.services.vectors import (AssistantNotFoundError,
                                            DatabaseConflictError,
                                            VectorStoreDBError,
@@ -18,13 +18,20 @@ from entities_api.services.vectors import (AssistantNotFoundError,
                                            VectorStoreFileNotFoundError,
                                            VectorStoreNotFoundError)
 
-router = APIRouter()  # consistent with other routers
-
+router = APIRouter()
 log = UtilsInterface.LoggingUtility()
 
 
 # --------------------------------------------------------------------------- #
-#  CREATE STORE  – normal user → self,  admin → override owner_id
+#  helper: is-admin? (cached single query per request)
+# --------------------------------------------------------------------------- #
+def _is_admin(user_id: str, db: Session) -> bool:
+    user = db.query(UserModel).filter(UserModel.id == user_id).first()
+    return bool(user and user.is_admin)
+
+
+# --------------------------------------------------------------------------- #
+#  CREATE STORE  – normal user → self,  admin → override owner_id
 # --------------------------------------------------------------------------- #
 @router.post(
     "/vector-stores",
@@ -32,9 +39,9 @@ log = UtilsInterface.LoggingUtility()
     status_code=status.HTTP_201_CREATED,
     summary="Create Vector Store",
     description=(
-        "Creates a new vector‑store.  \n\n"
-        "- **Regular callers** → the store is assigned to *their* user‑id.  \n"
-        "- **Admins** → may pass the optional `owner_id` query‑param to create the "
+        "Creates a new vector-store.  \n\n"
+        "- **Regular callers** → the store is assigned to *their* user-id.  \n"
+        "- **Admins** → may pass the optional `owner_id` query-param to create the "
         "store for a different user."
     ),
 )
@@ -42,33 +49,23 @@ def create_vector_store(
     data: ValidationInterface.VectorStoreCreateWithSharedId,
     owner_id: str | None = Query(
         default=None,
-        description="Target user‑id (admin‑only).  "
+        description="Target user-id (admin-only).  "
         "If omitted, the store is created for the caller.",
     ),
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    """
-    • Enforces ownership and admin override rules.
-    • Persists the *metadata* row; the physical Qdrant collection is
-      created by the SDK **before** this call.
-    """
-    # ── determine effective owner ──────────────────────────────────────
+    # ── determine effective owner ────────────────────────────────────────
     if owner_id is None:
         owner_id = auth_key.user_id
-    elif owner_id != auth_key.user_id:
-        # override ⇒ requester must be admin
-        requester: UserModel | None = (
-            db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
+    elif owner_id != auth_key.user_id and not _is_admin(auth_key.user_id, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins may specify owner_id.",
         )
-        if not requester or not requester.is_admin:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only admins may specify owner_id.",
-            )
 
     log.info(
-        "Create vector‑store %s  owner=%s  requested_by=%s",
+        "Create vector-store %s  owner=%s  requested_by=%s",
         data.shared_id,
         owner_id,
         auth_key.user_id,
@@ -76,16 +73,14 @@ def create_vector_store(
 
     service = VectorStoreDBService(db)
     try:
-        store = service.create_vector_store(
+        return service.create_vector_store(
             shared_id=data.shared_id,
             name=data.name,
-            user_id=owner_id,  # ← new owner logic
+            user_id=owner_id,
             vector_size=data.vector_size,
             distance_metric=data.distance_metric,
             config=data.config,
         )
-        return store
-
     except DatabaseConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except VectorStoreDBError as exc:
@@ -116,20 +111,24 @@ def delete_vector_store(
         permanent,
     )
     service = VectorStoreDBService(db)
+    store = service.get_vector_store_by_id(vector_store_id)
+    if not store or (
+        store.user_id != auth_key.user_id and not _is_admin(auth_key.user_id, db)
+    ):
+        raise HTTPException(status_code=404, detail="Vector store not found.")
+
+    # proceed with delete / soft delete
     try:
-        (
+        if permanent:
             service.permanently_delete_vector_store(vector_store_id)
-            if permanent
-            else service.mark_vector_store_deleted(vector_store_id)
-        )
-    except VectorStoreNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        else:
+            service.mark_vector_store_deleted(vector_store_id)
     except VectorStoreDBError as exc:
         raise HTTPException(status_code=500, detail=f"Delete failed: {exc}") from exc
 
 
 # --------------------------------------------------------------------------- #
-#  GET BY ID  (owners only)
+#  GET BY ID
 # --------------------------------------------------------------------------- #
 @router.get(
     "/vector-stores/{vector_store_id}",
@@ -142,13 +141,15 @@ def get_vector_store(
 ):
     service = VectorStoreDBService(db)
     store = service.get_vector_store_by_id(vector_store_id)
-    if not store or store.user_id != auth_key.user_id:  # ⟵ ownership check
+    if not store or (
+        store.user_id != auth_key.user_id and not _is_admin(auth_key.user_id, db)
+    ):
         raise HTTPException(status_code=404, detail="Vector store not found.")
     return store
 
 
 # --------------------------------------------------------------------------- #
-#  LIST MY STORES   (REPLACES /users/{id}/vector-stores)
+#  LIST MY STORES
 # --------------------------------------------------------------------------- #
 @router.get(
     "/vector-stores",
@@ -164,8 +165,42 @@ def list_my_vector_stores(
 
 
 # --------------------------------------------------------------------------- #
-#  FILE OPS  – owner-checked via store.user_id
+#  ADMIN – LIST BY USER
 # --------------------------------------------------------------------------- #
+@router.get(
+    "/vector-stores/admin/by-user",
+    response_model=List[VectorStoreRead],
+    summary="(admin) list vector-stores for a given user_id",
+)
+def list_vector_stores_by_user(
+    owner_id: str = Query(..., description="Target user-id"),
+    db: Session = Depends(get_db),
+    auth_key: ApiKeyModel = Depends(get_api_key),
+):
+    if not _is_admin(auth_key.user_id, db):
+        raise HTTPException(status_code=403, detail="Admin privilege required.")
+
+    service = VectorStoreDBService(db)
+    return service.get_stores_by_user(owner_id)
+
+
+# --------------------------------------------------------------------------- #
+#  FILE OPS  – owner or admin
+# --------------------------------------------------------------------------- #
+def _require_store_access(
+    store_id: str,
+    db: Session,
+    auth_key: ApiKeyModel,
+    service: VectorStoreDBService,
+):
+    store = service.get_vector_store_by_id(store_id)
+    if not store or (
+        store.user_id != auth_key.user_id and not _is_admin(auth_key.user_id, db)
+    ):
+        raise HTTPException(status_code=404, detail="Vector store not found.")
+    return store
+
+
 @router.post(
     "/vector-stores/{vector_store_id}/files",
     response_model=ValidationInterface.VectorStoreFileRead,
@@ -178,10 +213,7 @@ def add_file(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     service = VectorStoreDBService(db)
-    # Ownership check
-    store = service.get_vector_store_by_id(vector_store_id)
-    if not store or store.user_id != auth_key.user_id:
-        raise HTTPException(status_code=404, detail="Vector store not found.")
+    _require_store_access(vector_store_id, db, auth_key, service)
     return service.create_vector_store_file(
         vector_store_id=vector_store_id,
         file_id=file_data.file_id,
@@ -202,9 +234,7 @@ def list_files(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     service = VectorStoreDBService(db)
-    store = service.get_vector_store_by_id(vector_store_id)
-    if not store or store.user_id != auth_key.user_id:
-        raise HTTPException(status_code=404, detail="Vector store not found.")
+    _require_store_access(vector_store_id, db, auth_key, service)
     return service.list_vector_store_files(vector_store_id)
 
 
@@ -219,9 +249,7 @@ def delete_file(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     service = VectorStoreDBService(db)
-    store = service.get_vector_store_by_id(vector_store_id)
-    if not store or store.user_id != auth_key.user_id:
-        raise HTTPException(status_code=404, detail="Vector store not found.")
+    _require_store_access(vector_store_id, db, auth_key, service)
     service.delete_vector_store_file_by_path(vector_store_id, file_path)
 
 
@@ -230,23 +258,21 @@ def delete_file(
     response_model=ValidationInterface.VectorStoreFileRead,
 )
 def update_file_status(
-    file_status: ValidationInterface.VectorStoreFileUpdateStatus,  # ← moved first
+    file_status: ValidationInterface.VectorStoreFileUpdateStatus,
     vector_store_id: str = FastApiPath(...),
     file_id: str = FastApiPath(...),
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     service = VectorStoreDBService(db)
-    store = service.get_vector_store_by_id(vector_store_id)
-    if not store or store.user_id != auth_key.user_id:
-        raise HTTPException(status_code=404, detail="Vector store not found.")
+    _require_store_access(vector_store_id, db, auth_key, service)
     return service.update_vector_store_file_status(
         file_id, file_status.status, file_status.error_message
     )
 
 
 # --------------------------------------------------------------------------- #
-#  ASSISTANT LINKS  – same auth model (user must own assistant or be admin)
+#  ASSISTANT LINKS  – owner or admin
 # --------------------------------------------------------------------------- #
 @router.post(
     "/assistants/{assistant_id}/vector-stores/{vector_store_id}/attach",
@@ -259,7 +285,7 @@ def attach_store(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     service = VectorStoreDBService(db)
-    # ownership of store already validated inside helper
+    _require_store_access(vector_store_id, db, auth_key, service)
     service.attach_vector_store_to_assistant(vector_store_id, assistant_id)
     return {"success": True}
 
@@ -275,6 +301,7 @@ def detach_store(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     service = VectorStoreDBService(db)
+    _require_store_access(vector_store_id, db, auth_key, service)
     service.detach_vector_store_from_assistant(vector_store_id, assistant_id)
     return {"success": True}
 
@@ -288,12 +315,19 @@ def list_assistant_stores(
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
+    # any user who owns the assistant can call this; admins allowed via helper
+    if (
+        not _is_admin(auth_key.user_id, db)
+        and assistant_id.split("_")[1] != auth_key.user_id.split("_")[1]
+    ):
+        # coarse check, adjust if you have explicit assistant ownership field
+        raise HTTPException(status_code=403, detail="Forbidden")
     service = VectorStoreDBService(db)
     return service.get_vector_stores_for_assistant(assistant_id)
 
 
 # --------------------------------------------------------------------------- #
-#  LOOK-UP BY COLLECTION (legacy – *not yet ownership-scoped*)
+#  LOOK-UP BY COLLECTION  (legacy, still open)
 # --------------------------------------------------------------------------- #
 @router.get(
     "/vector-stores/lookup/collection",
@@ -304,7 +338,6 @@ def list_assistant_stores(
 def get_vector_store_by_collection(
     name: str = Query(..., description="Collection name to look up"),
     db: Session = Depends(get_db),
-    # auth_key: ApiKeyModel = Depends(get_api_key),  # ⇐ hook here when you lock it down
 ):
     service = VectorStoreDBService(db)
     store = service.get_vector_store_by_collection_name(name)

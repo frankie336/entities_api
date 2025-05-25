@@ -12,8 +12,6 @@ from __future__ import annotations
 
 import json
 import logging
-import mimetypes
-import os
 from typing import Any, Dict, List
 
 from projectdavid_common import ValidationInterface
@@ -134,8 +132,6 @@ class PlatformToolHandlersMixin:
         • routes the result to one of _handle_* helpers above
         """
         # Lazily import to avoid hard coupling
-        from entities_api.ptool_handlers.platform_tool_service import \
-            PlatformToolService
 
         # --- 0. derive helpers & ids -------------------------------------
         self.set_assistant_id(assistant_id)  # type: ignore[attr-defined]

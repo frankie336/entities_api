@@ -13,8 +13,10 @@ from entities_api.inference_mixin.mixins import (AssistantCacheMixin,
                                                  CodeExecutionMixin,
                                                  ConsumerToolHandlersMixin,
                                                  ConversationContextMixin,
+                                                 FileSearchMixin,
                                                  JsonUtilsMixin,
                                                  PlatformToolHandlersMixin,
+                                                 ShellExecutionMixin,
                                                  ToolRoutingMixin)
 from entities_api.inference_mixin.orchestrator_core import OrchestratorCore
 
@@ -33,6 +35,8 @@ class _ProviderMixins(
     PlatformToolHandlersMixin,
     ConsumerToolHandlersMixin,
     CodeExecutionMixin,
+    ShellExecutionMixin,
+    FileSearchMixin,
 ):
     """Flat mix-in bundle so the concrete provider only inherits once."""
 
@@ -347,8 +351,17 @@ class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
         stream_reasoning: bool = False,
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
+        """
+        Streaming contract:
 
-        # 1️⃣ initial model stream
+            ① initial model stream          (function calls suppressed)
+            ② tool-execution pass           (only if a call was queued)
+            ③ follow-up model stream        (only if a call was queued)
+
+        The client sees one continuous stream; function-call JSON never leaks.
+        """
+
+        # ── ① first model pass ───────────────────────────────────────────────
         yield from self.stream(
             thread_id,
             message_id,
@@ -359,12 +372,26 @@ class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
             api_key=api_key,
         )
 
-        # 2️⃣ follow-up tool execution pass
-        if self.get_function_call_state():
+        # Was a function call queued during the first pass?
+        fc_pending: bool = bool(self.get_function_call_state())
+
+        # ── ② run tools only if needed ───────────────────────────────────────
+        if fc_pending:
             yield from self.process_function_calls(
                 thread_id,
                 run_id,
                 assistant_id,
                 model=model,
+                api_key=api_key,
+            )
+
+            # ── ③ second model pass (post-tool response) ────────────────────
+            yield from self.stream(
+                thread_id,
+                message_id,
+                run_id,
+                assistant_id,
+                model,
+                stream_reasoning=stream_reasoning,
                 api_key=api_key,
             )
