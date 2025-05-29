@@ -5,8 +5,7 @@ from dotenv import load_dotenv
 from fastapi.routing import APIRoute
 from tabulate import tabulate
 
-from entities_api.app import \
-    create_app  # Import your app factory, not the app instance
+from entities_api.app import create_app  # Import your app factory, not the app instance
 
 load_dotenv()
 

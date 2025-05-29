@@ -62,32 +62,44 @@ hits = client.vectors.vector_file_search_raw(
 **Simple_vector_file_search**
 
 Search hits are returned wrapped in an envelope that provides anotation and citations per hit. This is most appropriate for bodies of text where you might need the assistant to provide authorities and citations; a legal document for example. 
-Example
+
+**Example**
+
+```python
 hits = client.vectors.simple_vector_file_search(
     vector_store_id=STORE_ID,
     query_text=query,
     top_k=top_k,
 )
+```
 
-attended_file_search
+**attended_file_search**
+
 Search results are synthesized by an integrated agent; results are passed to the Large Language model. The output comes with AI insights and organization. Additionally, result rankings are enhanced by a second pass through a ranking model. Suited for cumilitative research (deep research) and multi agent   tasks.   
-Example
 
+**Example:**
+
+```
 hits = client.vectors.attended_file_search(
     vector_store_id=STORE_ID,
     query_text=query,
     top_k=top_k,
 )
+```
 
-unattended_file_search
+**unattended_file_search**
+
 Search hits are returned wrapped in an envelope that provides anotation and citations per hit. Additionally, result rankings are enhanced by a second pass through a ranking model
 
+**Example:**
+
+```python
  hits = client.vectors.unattended_file_search(
     vector_store_id=STORE_ID,
     query_text=query,
     top_k=top_k,
 )
-
+```
 
 
 * --Integrate mixins architecture. This major upgrade splits the original base class into a series of smaller mixin classes for better maintainability and less cognitive load. ([88216e0](https://github.com/frankie336/entities_api/commit/88216e04f5de357cc35910c32bf9420813f8affa))

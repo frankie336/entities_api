@@ -1,7 +1,20 @@
+"""
+Together-AI DeepSeek-R1 provider (mixin edition)
+
+Key points
+----------
+• Same streaming / tool-routing semantics as the legacy BaseInference version
+• Suppresses {"type": "function_call", ...} chunks from the *client* while still
+  forwarding them to Redis
+• Two-pass orchestration: model->tools->model (only if tools were invoked)
+• Optional per-request Together-AI API-key overrides
+"""
+
 from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any, Generator, Optional
 
 from dotenv import load_dotenv
@@ -26,9 +39,9 @@ load_dotenv()
 LOG = LoggingUtility()
 
 
-# --------------------------------------------------------------------------- #
-# composite mix-in (C3-MRO safe)                                              #
-# --------------------------------------------------------------------------- #
+# ─────────────────────────────────────────────────────────────────────────────
+# composite mix-in
+# ─────────────────────────────────────────────────────────────────────────────
 class _ProviderMixins(
     AssistantCacheMixin,
     JsonUtilsMixin,
@@ -40,16 +53,16 @@ class _ProviderMixins(
     ShellExecutionMixin,
     FileSearchMixin,
 ):
-    """Flat mix-in bundle so the concrete provider only inherits once."""
+    """Flattened mix-ins so the concrete provider inherits only once."""
 
 
-# --------------------------------------------------------------------------- #
-# provider                                                                    #
-# --------------------------------------------------------------------------- #
-class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
-    # ———————————————————————————————————————————————————————————————— #
-    # construction                                                            #
-    # ———————————————————————————————————————————————————————————————— #
+# ─────────────────────────────────────────────────────────────────────────────
+# provider
+# ─────────────────────────────────────────────────────────────────────────────
+class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
+    # --------------------------------------------------------------------- #
+    # construction
+    # --------------------------------------------------------------------- #
     def __init__(
         self,
         *,
@@ -63,23 +76,23 @@ class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
     ):
         self._assistant_cache = assistant_cache or {}
 
-        # runtime fields
+        # runtime plumbing
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
-        self.base_url = base_url or os.getenv("BASE_URL")
+        self.base_url = base_url or os.getenv("TOGETHER_BASE_URL")
         self.api_key = api_key
 
-        # model / truncator params
-        self.model_name = extra.get("model_name", "deepseek-ai/DeepSeek-V3")
+        # model / truncator parameters
+        self.model_name = extra.get("model_name", "deepseek-ai/DeepSeek-R1")
         self.max_context_window = extra.get("max_context_window", 128_000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
 
         self.setup_services()
-        LOG.debug("HyperbolicDeepSeekV3 ready (assistant=%s)", assistant_id or "<lazy>")
+        LOG.debug("TogetherDeepSeekR1 ready (assistant=%s)", assistant_id or "<lazy>")
 
     # ------------------------------------------------------------------ #
-    # cache shim for ConversationContextMixin                            #
+    # cache shim for ConversationContextMixin
     # ------------------------------------------------------------------ #
     @property
     def assistant_cache(self) -> dict:  # noqa: D401
@@ -95,7 +108,7 @@ class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
         return self._assistant_cache
 
     # ------------------------------------------------------------------ #
-    # helper – suppress function-call chunks for the **client** only     #
+    # helper – hide function_call chunks from the CLIENT
     # ------------------------------------------------------------------ #
     def _filter_fc(self, chunk_json: str) -> Optional[str]:
         try:
@@ -106,9 +119,9 @@ class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
         return chunk_json
 
     # ------------------------------------------------------------------ #
-    # unified streaming loop (copied 1-for-1 from monolith)              #
+    # unified streaming loop
     # ------------------------------------------------------------------ #
-    def stream(
+    def stream(  # noqa: C901
         self,
         thread_id: str,
         message_id: str,
@@ -120,20 +133,20 @@ class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
         """
-        • Any ``function_call`` chunks are written to Redis but **never**
-          yielded to the client (filtered via ``_filter_fc``).
-        • Streams reasoning/content/hot-code deltas unchanged otherwise.
-        """
-        import re
+        Together-AI DeepSeek-R1 streaming.
 
-        redis = get_redis()
+        • Function-call JSON never hits the client.
+        • Reasoning / hot-code behaviour mirrors other mix-in providers.
+        """
+        redis = self.redis
         stream_key = f"stream:{run_id}"
         self.start_cancellation_listener(run_id)
 
+        # optional model aliasing
         if mapped := self._get_model_map(model):
             model = mapped
 
-        request_payload = {
+        req_payload = {
             "model": model,
             "messages": self._set_up_context_window(
                 assistant_id, thread_id, trunk=True
@@ -143,30 +156,17 @@ class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
             "stream": True,
         }
 
-        client = None
-        if api_key:
-            try:
-                client = self._get_openai_client(
-                    base_url=os.getenv("HYPERBOLIC_BASE_URL"),
-                    api_key=api_key,
-                )
-            except Exception as exc:
-                err = f"Hyperbolic client init failed: {exc}"
-                payload = json.dumps({"type": "error", "content": err})
-                if p := self._filter_fc(payload):
-                    yield p
-                self._shunt_to_redis_stream(redis, stream_key, json.loads(payload))
-                return
-
-        if not client:
-            err = "No Hyperbolic client available."
-            payload = json.dumps({"type": "error", "content": err})
-            if p := self._filter_fc(payload):
+        # Together-AI client
+        try:
+            client = self._get_together_client(api_key=api_key or self.api_key)
+        except Exception as exc:
+            err = {"type": "error", "content": f"TogetherAI client init failed: {exc}"}
+            if p := self._filter_fc(json.dumps(err)):
                 yield p
-            self._shunt_to_redis_stream(redis, stream_key, json.loads(payload))
+            self._shunt_to_redis_stream(redis, stream_key, err)
             return
 
-        # ── state ─────────────────────────────────────────
+        # ── state vars ───────────────────────────────────────────────
         assistant_reply = ""
         accumulated_content = ""
         reasoning_content = ""
@@ -177,7 +177,8 @@ class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
         code_buffer = ""
 
         try:
-            for token in client.chat.completions.create(**request_payload):
+            for token in client.chat.completions.create(**req_payload):
+                # cancellation?
                 if self.check_cancellation_flag():
                     err = {"type": "error", "content": "Run cancelled"}
                     if p := self._filter_fc(json.dumps(err)):
@@ -189,7 +190,7 @@ class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
                     continue
                 delta = token.choices[0].delta
 
-                # ── reasoning stream ────────────────────────
+                # reasoning delta
                 delta_reason = getattr(delta, "reasoning_content", "")
                 if delta_reason and stream_reasoning:
                     msg = {"type": "reasoning", "content": delta_reason}
@@ -201,17 +202,15 @@ class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
                 if not delta_content:
                     continue
 
-                # ── tag-aware segment split ─────────────────
-                # ── split on <think>/<fc> tags ——————————
+                # tag-aware split
                 for seg in filter(
                     None, re.split(r"(<think>|</think>|<fc>|</fc>)", delta_content)
                 ):
-
-                    # ── tag state machine
+                    # tag state machine
                     if seg in ("<think>", "</think>", "<fc>", "</fc>"):
                         if seg == "<fc>":
                             in_function_call = True
-                            fc_buffer = ""  # reset
+                            fc_buffer = ""
                         elif seg == "</fc>":
                             in_function_call = False
                             try:
@@ -224,8 +223,8 @@ class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
                                         stream_key,
                                         {"type": "function_call", "content": fc_buffer},
                                     )
-                            except Exception as e:
-                                LOG.warning("Invalid function_call buffer: %s", e)
+                            except Exception:
+                                LOG.warning("Invalid function_call payload ignored")
                             fc_buffer = ""
                         elif seg == "<think>":
                             in_reasoning = True
@@ -239,12 +238,12 @@ class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
                             self._shunt_to_redis_stream(redis, stream_key, msg)
                         continue
 
-                    # ── inside function_call block ——————————
+                    # inside <fc>
                     if in_function_call:
                         fc_buffer += seg
-                        continue  # suppress from client entirely
+                        continue
 
-                    # ── reasoning block ───────────────────────
+                    # reasoning mode
                     if in_reasoning:
                         reasoning_content += seg
                         if stream_reasoning:
@@ -254,16 +253,16 @@ class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
                             self._shunt_to_redis_stream(redis, stream_key, msg)
                         continue
 
-                    # ── code-interpreter mode —───────────────
+                    # code-interpreter / plain content
                     assistant_reply += seg
                     accumulated_content += seg
 
                     parse_ci = getattr(self, "parse_code_interpreter_partial", None)
-                    partial_match = parse_ci(accumulated_content) if parse_ci else None
+                    ci_match = parse_ci(accumulated_content) if parse_ci else None
 
-                    if not code_mode and partial_match:
+                    if not code_mode and ci_match:
                         code_mode = True
-                        code_buffer = partial_match.get("code", "")
+                        code_buffer = ci_match.get("code", "")
                         start_msg = {"type": "hot_code", "content": "```python\n"}
                         if p := self._filter_fc(json.dumps(start_msg)):
                             yield p
@@ -301,26 +300,23 @@ class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
                             self._shunt_to_redis_stream(redis, stream_key, msg)
                         continue
 
-                    # ── plain content ────────────────────────
+                    # plain content
                     msg = {"type": "content", "content": seg}
                     if p := self._filter_fc(json.dumps(msg)):
                         yield p
                     self._shunt_to_redis_stream(redis, stream_key, msg)
 
         except Exception as exc:
-            err = {"type": "error", "content": f"Hyperbolic SDK error: {exc}"}
+            err = {"type": "error", "content": f"TogetherAI SDK error: {exc}"}
             if p := self._filter_fc(json.dumps(err)):
                 yield p
             self._shunt_to_redis_stream(redis, stream_key, err)
             return
 
-        # ── final bookkeeping ─────────────────────────────
+        # final bookkeeping
         if assistant_reply:
             self.finalize_conversation(
-                reasoning_content + assistant_reply,
-                thread_id,
-                assistant_id,
-                run_id,
+                reasoning_content + assistant_reply, thread_id, assistant_id, run_id
             )
 
         if accumulated_content and self.parse_and_set_function_calls(
@@ -340,7 +336,7 @@ class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
             )
 
     # ------------------------------------------------------------------ #
-    # conversation orchestrator                                          #
+    # conversation orchestrator
     # ------------------------------------------------------------------ #
     def process_conversation(
         self,
@@ -353,17 +349,9 @@ class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
         stream_reasoning: bool = False,
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
-        """
-        Streaming contract:
+        """two-pass contract: model → tools → model (if tools executed)."""
 
-            ① initial model stream          (function calls suppressed)
-            ② tool-execution pass           (only if a call was queued)
-            ③ follow-up model stream        (only if a call was queued)
-
-        The client sees one continuous stream; function-call JSON never leaks.
-        """
-
-        # ── ① first model pass ───────────────────────────────────────────────
+        # ① first stream
         yield from self.stream(
             thread_id,
             message_id,
@@ -374,10 +362,9 @@ class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
             api_key=api_key,
         )
 
-        # Was a function call queued during the first pass?
-        fc_pending: bool = bool(self.get_function_call_state())
+        fc_pending = bool(self.get_function_call_state())
 
-        # ── ② run tools only if needed ───────────────────────────────────────
+        # ② run tools if needed, then second stream
         if fc_pending:
             yield from self.process_function_calls(
                 thread_id,
@@ -387,7 +374,6 @@ class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
                 api_key=api_key,
             )
 
-            # ── ③ second model pass (post-tool response) ────────────────────
             yield from self.stream(
                 thread_id,
                 message_id,

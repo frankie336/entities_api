@@ -42,6 +42,7 @@ ENV PYTHONUNBUFFERED=1
 # --- Install minimal OS dependencies needed for sandbox operations ---
 RUN apt-get update && apt-get install -y --no-install-recommends \
     firejail \
+    libmagic1 \
     supervisor \
     sudo \
     curl \

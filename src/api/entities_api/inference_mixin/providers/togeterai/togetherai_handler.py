@@ -3,14 +3,14 @@ from typing import Any, Generator, Optional, Type
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from entities_api.inference.inference_arbiter import InferenceArbiter
-from entities_api.inference.togeterai.together_deepseek_R1 import (
+from entities_api.inference_mixin.providers.togeterai.together_deepseek_R1 import (
     TogetherDeepSeekR1Inference,
 )
-from entities_api.inference.togeterai.together_deepseek_v3 import (
+from entities_api.inference_mixin.providers.togeterai.together_deepseek_v3 import (
     TogetherDeepSeekV3Inference,
 )
 
-logging_utility = LoggingUtility()
+LOG = LoggingUtility()
 
 
 class TogetherAIHandler:
@@ -51,7 +51,7 @@ class TogetherAIHandler:
         self._sorted_sub_routes = sorted(
             self.SUBMODEL_CLASS_MAP.keys(), key=len, reverse=True
         )
-        logging_utility.info("TogetherAIHandler dispatcher initialized.")
+        LOG.info("TogetherAIHandler dispatcher initialized.")
 
     def _get_specific_handler_instance(self, unified_model_id: str) -> Any:
         """
@@ -65,7 +65,7 @@ class TogetherAIHandler:
             sub_model_id = lower_id[len(prefix) :]
         else:
             sub_model_id = lower_id
-            logging_utility.warning(
+            LOG.warning(
                 f"Model ID '{unified_model_id}' did not start with expected prefix '{prefix}'."
             )
 
@@ -81,12 +81,12 @@ class TogetherAIHandler:
                 break
 
         if specific_cls is None:
-            logging_utility.error(
+            LOG.error(
                 f"No handler found for model ID '{sub_model_id}' (original: '{unified_model_id}')"
             )
             raise ValueError(f"Unsupported TogetherAI model: {unified_model_id}")
 
-        logging_utility.debug(f"Dispatching to: {specific_cls.__name__}")
+        LOG.debug(f"Dispatching to: {specific_cls.__name__}")
         return self.arbiter.get_provider_instance(specific_cls)
 
     def process_conversation(
