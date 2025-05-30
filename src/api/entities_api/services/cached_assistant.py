@@ -4,7 +4,6 @@ import os
 from typing import Union
 
 from projectdavid import Entity
-
 # support both sync and async redis
 from redis import Redis as SyncRedis
 

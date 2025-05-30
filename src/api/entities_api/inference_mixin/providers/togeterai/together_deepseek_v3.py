@@ -20,17 +20,15 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from entities_api.dependencies import get_redis
-from entities_api.inference_mixin.mixins import (
-    AssistantCacheMixin,
-    CodeExecutionMixin,
-    ConsumerToolHandlersMixin,
-    ConversationContextMixin,
-    FileSearchMixin,
-    JsonUtilsMixin,
-    PlatformToolHandlersMixin,
-    ShellExecutionMixin,
-    ToolRoutingMixin,
-)
+from entities_api.inference_mixin.mixins import (AssistantCacheMixin,
+                                                 CodeExecutionMixin,
+                                                 ConsumerToolHandlersMixin,
+                                                 ConversationContextMixin,
+                                                 FileSearchMixin,
+                                                 JsonUtilsMixin,
+                                                 PlatformToolHandlersMixin,
+                                                 ShellExecutionMixin,
+                                                 ToolRoutingMixin)
 from entities_api.inference_mixin.orchestrator_core import OrchestratorCore
 
 load_dotenv()

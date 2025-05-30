@@ -19,9 +19,7 @@ from projectdavid.clients.users_client import UsersClient
 from projectdavid.clients.vectors import VectorStoreClient
 
 from entities_api.ptool_handlers.code_interpreter.code_execution_client import (
-    CodeExecutionClient,
-    StreamOutput,
-)
+    CodeExecutionClient, StreamOutput)
 from entities_api.services.cached_assistant import AssistantCache
 from entities_api.services.conversation_truncator import ConversationTruncator
 from entities_api.services.logging_service import LoggingUtility

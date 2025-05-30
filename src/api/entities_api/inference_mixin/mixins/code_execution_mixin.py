@@ -34,9 +34,8 @@ import mimetypes
 import pprint
 
 # Use your LoggingUtility. I'll use `LOG` as the instance name.
-from entities_api.services.logging_service import (
-    LoggingUtility,
-)  # Adjust path if necessary
+from entities_api.services.logging_service import \
+    LoggingUtility  # Adjust path if necessary
 
 LOG = LoggingUtility()
 

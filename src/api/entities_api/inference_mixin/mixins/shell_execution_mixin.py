@@ -18,9 +18,8 @@ class ShellExecutionMixin:
     ) -> Generator[str, None, None]:  # Added return type hint
 
         # Assuming run_shell_commands is correctly imported
-        from entities_api.ptool_handlers.computer.shell_command_interface import (
-            run_shell_commands,
-        )
+        from entities_api.ptool_handlers.computer.shell_command_interface import \
+            run_shell_commands
 
         LOG.info(
             "ShellExecutionMixin: handle_shell_action started for run_id: %s, thread_id: %s. Args: %s",
