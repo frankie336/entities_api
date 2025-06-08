@@ -21,6 +21,8 @@ LOG = LoggingUtility()
 
 class JsonUtilsMixin:
 
+    REASONING_PATTERN = re.compile(r"(<think>|</think>)")
+
     @staticmethod
     def parse_code_interpreter_partial(text):
         """

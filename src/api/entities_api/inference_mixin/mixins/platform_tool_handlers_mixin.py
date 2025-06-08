@@ -16,8 +16,9 @@ from typing import Any, Dict, List
 
 from projectdavid_common import ValidationInterface
 
-from entities_api.constants.assistant import \
-    WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS
+from entities_api.constants.assistant import (
+    WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS,
+)
 from entities_api.constants.platform import ERROR_NO_CONTENT
 from entities_api.services.logging_service import LoggingUtility
 

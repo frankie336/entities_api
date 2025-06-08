@@ -2,15 +2,21 @@ from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.inference.hypherbolic.hyperbolic_deepseek_r1 import \
-    HyperbolicR1Inference
-from entities_api.inference.hypherbolic.hyperbolic_llama_3_3 import \
-    HyperbolicLlama33Inference
-from entities_api.inference.hypherbolic.hyperbolic_quen_qwq_32b import \
-    HyperbolicQuenQwq32bInference
+from entities_api.inference.hypherbolic.hyperbolic_llama_3_3 import (
+    HyperbolicLlama33Inference,
+)
+from entities_api.inference.hypherbolic.hyperbolic_quen_qwq_32b import (
+    HyperbolicQuenQwq32bInference,
+)
 from entities_api.inference.inference_arbiter import InferenceArbiter
-from entities_api.inference_mixin.providers.hypherbolic.hyperbolic_deepseek_v3 import \
-    HyperbolicDeepSeekV3Inference
+
+from entities_api.inference_mixin.providers.hypherbolic.hyperbolic_deepseek import (
+    HyperbolicDs1,
+)
+
+from entities_api.inference_mixin.providers.hypherbolic.hyperbolic_deepseek_v3 import (
+    HyperbolicDeepSeekV3Inference,
+)
 
 logging_utility = LoggingUtility()
 
@@ -24,7 +30,7 @@ class HyperbolicHandler:
     SUBMODEL_CLASS_MAP: dict[str, Type[Any]] = {
         "deepseek-v3": HyperbolicDeepSeekV3Inference,
         "deepseek-ai/DeepSeek-V3-0324": HyperbolicDeepSeekV3Inference,
-        "deepseek-r1": HyperbolicR1Inference,
+        "deepseek-r1": HyperbolicDs1,
         "meta-llama/": HyperbolicLlama33Inference,
         "Qwen/": HyperbolicQuenQwq32bInference,
     }
@@ -87,7 +93,7 @@ class HyperbolicHandler:
         run_id,
         assistant_id,
         model,
-        stream_reasoning=False,
+        stream_reasoning=True,
         api_key: Optional[str] = None,
         **kwargs,
     ) -> Generator[str, None, None]:
@@ -117,6 +123,7 @@ class HyperbolicHandler:
     ) -> Generator[str, None, None]:
         logging_utility.debug(f"Dispatching stream for: {model}")
         handler = self._get_specific_handler_instance(model)
+
         yield from handler.stream(
             thread_id=thread_id,
             message_id=message_id,

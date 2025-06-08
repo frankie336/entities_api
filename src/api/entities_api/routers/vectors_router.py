@@ -11,12 +11,14 @@ from sqlalchemy.orm import Session
 from entities_api.dependencies import get_api_key, get_db
 from entities_api.models.models import ApiKey as ApiKeyModel
 from entities_api.models.models import User as UserModel  # for auth checks
-from entities_api.services.vectors import (AssistantNotFoundError,
-                                           DatabaseConflictError,
-                                           VectorStoreDBError,
-                                           VectorStoreDBService,
-                                           VectorStoreFileNotFoundError,
-                                           VectorStoreNotFoundError)
+from entities_api.services.vectors import (
+    AssistantNotFoundError,
+    DatabaseConflictError,
+    VectorStoreDBError,
+    VectorStoreDBService,
+    VectorStoreFileNotFoundError,
+    VectorStoreNotFoundError,
+)
 
 router = APIRouter()
 log = UtilsInterface.LoggingUtility()

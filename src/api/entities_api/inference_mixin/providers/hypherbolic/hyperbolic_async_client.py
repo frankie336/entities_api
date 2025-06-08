@@ -24,7 +24,16 @@ class AsyncHyperbolicClient:
         }
 
         self.client = httpx.AsyncClient(
-            timeout=timeout, headers=self.headers, follow_redirects=True, http2=True
+            headers=self.headers,
+            timeout=httpx.Timeout(
+                timeout=60,
+                connect=10,
+                read=60,
+                write=60,
+                pool=30,
+            ),
+            follow_redirects=True,
+            http2=True,
         )
 
     async def stream_chat_completion(

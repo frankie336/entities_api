@@ -1,3 +1,110 @@
+## [1.15.1](https://github.com/frankie336/entities_api/compare/v1.15.0...v1.15.1) (2025-05-25)
+
+
+### Bug Fixes
+
+* cache export completely disabled ([dab9b81](https://github.com/frankie336/entities_api/commit/dab9b81212ca4fcc18cd27e87acd1e5c99fbe268))
+
+# [1.15.0](https://github.com/frankie336/entities_api/compare/v1.14.0...v1.15.0) (2025-05-25)
+
+
+### Bug Fixes
+
+* --Integrate mixins architecture. This major upgrade splits the original base class into a series of smaller mixin classes for better maintainability and less cognitive load. ([ac5d439](https://github.com/frankie336/entities_api/commit/ac5d439ce5c8595232dc32f5e1ae8b081d6ab7fa))
+
+
+### Features
+
+* --Integrate mixins architecture. This major upgrade splits the original base class into a series of smaller mixin classes for better maintainability and less cognitive load. ([cdab8fc](https://github.com/frankie336/entities_api/commit/cdab8fcead838fe61e357c0dc549d819be10799c))
+
+# [1.14.0](https://github.com/frankie336/entities_api/compare/v1.13.0...v1.14.0) (2025-05-25)
+
+
+### Features
+
+There  are some major changes and enhancements to vector store creation and life cycle management (RAG).
+ Creating a vector store
+No longer requires you manually pass the user id into the creaction method 
+
+```python
+vs = client.vectors.create_vector_store(
+    name="movielens-complete-demo",
+    user_id=USER_ID,
+)
+```
+
+Becomes:
+
+```python
+vs = client.vectors.create_vector_store(
+    name="movielens-complete-demo",
+    
+)
+```
+
+**Search Methods**
+
+Several new search method have been added:
+vector_file_search_raw
+Search hits are returned in a raw format with similarity scoring. There is no further post processing, formatting or ranking. This is most appropriate where you need to apply custom or third party ranking and or post processing.  
+
+**Example:**
+
+````python
+hits = client.vectors.vector_file_search_raw(
+    vector_store_id="vect_GsSezuKiXy11rFssDcRFAg",
+    query_text=query,
+    top_k=top_k,
+    vector_store_host=host_override,
+)
+````
+
+**Simple_vector_file_search**
+
+Search hits are returned wrapped in an envelope that provides anotation and citations per hit. This is most appropriate for bodies of text where you might need the assistant to provide authorities and citations; a legal document for example. 
+
+**Example**
+
+```python
+hits = client.vectors.simple_vector_file_search(
+    vector_store_id=STORE_ID,
+    query_text=query,
+    top_k=top_k,
+)
+```
+
+**attended_file_search**
+
+Search results are synthesized by an integrated agent; results are passed to the Large Language model. The output comes with AI insights and organization. Additionally, result rankings are enhanced by a second pass through a ranking model. Suited for cumilitative research (deep research) and multi agent   tasks.   
+
+**Example:**
+
+```
+hits = client.vectors.attended_file_search(
+    vector_store_id=STORE_ID,
+    query_text=query,
+    top_k=top_k,
+)
+```
+
+**unattended_file_search**
+
+Search hits are returned wrapped in an envelope that provides anotation and citations per hit. Additionally, result rankings are enhanced by a second pass through a ranking model
+
+**Example:**
+
+```python
+ hits = client.vectors.unattended_file_search(
+    vector_store_id=STORE_ID,
+    query_text=query,
+    top_k=top_k,
+)
+```
+
+
+* --Integrate mixins architecture. This major upgrade splits the original base class into a series of smaller mixin classes for better maintainability and less cognitive load. ([88216e0](https://github.com/frankie336/entities_api/commit/88216e04f5de357cc35910c32bf9420813f8affa))
+* --Integrate mixins architecture. This major upgrade splits the original base class into a series of smaller mixin classes for better maintainability and less cognitive load. ([bf29576](https://github.com/frankie336/entities_api/commit/bf29576c936d85fe88d98f8b01cd2c649f344140))
+
 # [1.13.0](https://github.com/frankie336/entities_api/compare/v1.12.0...v1.13.0) (2025-05-11)
 
 

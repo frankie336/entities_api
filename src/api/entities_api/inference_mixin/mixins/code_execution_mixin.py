@@ -34,13 +34,15 @@ import mimetypes
 import pprint
 
 # Use your LoggingUtility. I'll use `LOG` as the instance name.
-from entities_api.services.logging_service import \
-    LoggingUtility  # Adjust path if necessary
+from entities_api.services.logging_service import (
+    LoggingUtility,
+)  # Adjust path if necessary
 
 LOG = LoggingUtility()
 
 
-# logger = logging.getLogger(__name__) # If you also use standard module logger
+# In CodeExecutionMixin:
+# from entities_api.utils.async_to_sync import async_to_sync_stream # Ensure this is available
 
 
 class CodeExecutionMixin:
@@ -66,65 +68,111 @@ class CodeExecutionMixin:
         # -------------------------------
         # Step 1: Stream raw code execution output as-is
         # -------------------------------
-        LOG.info("Starting code execution streaming...")
+        LOG.info(
+            f"Run {run_id}: Starting code execution streaming for code interpreter..."
+        )
         try:
+            # ASSUMPTION: self.code_execution_client.stream_output IS AN ASYNC GENERATOR
+            # You need an async_to_sync_stream or similar to consume it here.
+            # If it's already a sync generator, this part is fine.
+
+            # If self.code_execution_client.stream_output is async:
+            # execution_stream_async = self.code_execution_client.stream_output(code)
+            # for chunk_str in async_to_sync_stream(execution_stream_async): # Bridge to sync
+
+            # If self.code_execution_client.stream_output is ALREADY SYNC:
+            # The original loop is correct. The problem might be downstream or in async_to_sync_stream itself.
+
             execution_chunks = []
-            for chunk_str in self.code_execution_client.stream_output(code):
+            # THIS IS THE CRITICAL PART: How is stream_output implemented?
+            # For now, let's assume it's a sync generator. If it's async, the "Event loop is closed"
+            # makes sense if async_to_sync_stream in the outer call closed it before this could run,
+            # OR if stream_output() itself tries to manage an event loop badly.
+
+            for chunk_str in self.code_execution_client.stream_output(
+                code
+            ):  # Assuming sync for now
                 execution_chunks.append(chunk_str)
 
             for chunk_str in execution_chunks:
                 try:
                     parsed_wrapper = json.loads(chunk_str)
-                    if "stream_type" in parsed_wrapper and "chunk" in parsed_wrapper:
+                    # Ensure we handle both wrapped and unwrapped chunks
+                    if (
+                        isinstance(parsed_wrapper, dict)
+                        and "stream_type" in parsed_wrapper
+                        and "chunk" in parsed_wrapper
+                    ):
                         parsed = parsed_wrapper["chunk"]
-                        yield chunk_str
-                    else:
+                        yield chunk_str  # Yield the original wrapped string
+                    elif isinstance(parsed_wrapper, dict):  # It's an unwrapped chunk
                         parsed = parsed_wrapper
+                        # Wrap it for consistency if consumers expect it
                         yield json.dumps(
                             {"stream_type": "code_execution", "chunk": parsed}
                         )
+                    else:  # Not a dictionary, unexpected format
+                        LOG.error(
+                            f"Run {run_id}: Unexpected chunk format (not a dict): {chunk_str}"
+                        )
+                        # Yield an error chunk
+                        yield json.dumps(
+                            {
+                                "stream_type": "code_execution",
+                                "chunk": {
+                                    "type": "error",
+                                    "content": "Received malformed data from code execution.",
+                                },
+                            }
+                        )
+                        continue  # Skip further processing of this chunk
+
+                    # Ensure 'parsed' is a dictionary before .get()
+                    if not isinstance(parsed, dict):
+                        LOG.error(f"Run {run_id}: Parsed chunk is not a dict: {parsed}")
+                        continue
 
                     chunk_type = parsed.get("type")
                     content = parsed.get("content")
 
                     if chunk_type == "status":
                         status = content
-                        LOG.debug("Status chunk: %s", status)
+                        LOG.debug(f"Run {run_id}: Code exec status: {status}")
                         if status == "complete" and "uploaded_files" in parsed:
                             uploaded_files.extend(parsed.get("uploaded_files", []))
                             LOG.info(
-                                "Execution complete; files metadata: %s",
-                                parsed.get("uploaded_files", []),
+                                f"Run {run_id}: Execution complete; files metadata: {parsed.get('uploaded_files', [])}"
                             )
                         elif status == "process_complete":
                             LOG.info(
-                                "Process completed with exit code: %s",
-                                parsed.get("exit_code"),
+                                f"Run {run_id}: Process completed with exit code: {parsed.get('exit_code')}"
                             )
 
                     elif chunk_type == "hot_code_output":
-                        hot_code_buffer.append(content)
+                        hot_code_buffer.append(str(content))  # Ensure content is string
 
                     elif chunk_type == "error":
-                        LOG.error("Error chunk during execution: %s", content)
+                        LOG.error(
+                            f"Run {run_id}: Error chunk during execution: {content}"
+                        )
                         hot_code_buffer.append(f"[Code Execution Error: {content}]")
 
                 except json.JSONDecodeError:
-                    LOG.error("Invalid JSON chunk: %s", chunk_str)
+                    LOG.error(
+                        f"Run {run_id}: Invalid JSON chunk from code exec: {chunk_str}"
+                    )
                     yield json.dumps(
                         {
                             "stream_type": "code_execution",
                             "chunk": {
                                 "type": "error",
-                                "content": "Received invalid data from code execution.",
+                                "content": "Received invalid JSON from code execution.",
                             },
                         }
                     )
                 except Exception as e:
                     LOG.error(
-                        "Error processing execution chunk: %s – %s",
-                        str(e),
-                        chunk_str,
+                        f"Run {run_id}: Error processing code execution chunk: {e} – Chunk: {chunk_str}",
                         exc_info=True,
                     )
                     yield json.dumps(
@@ -132,63 +180,83 @@ class CodeExecutionMixin:
                             "stream_type": "code_execution",
                             "chunk": {
                                 "type": "error",
-                                "content": f"Internal error: {str(e)}",
+                                "content": f"Internal error processing code exec chunk: {e}",
                             },
                         }
                     )
 
-        except Exception as stream_err:
-            LOG.error("Streaming error: %s", str(stream_err), exc_info=True)
+        except (
+            Exception
+        ) as stream_err:  # This catches errors from self.code_execution_client.stream_output() itself
+            LOG.error(
+                f"Run {run_id}: Code execution streaming error: {stream_err}",
+                exc_info=True,
+            )
+            # This is the error message shown in the UI.
             yield json.dumps(
                 {
                     "stream_type": "code_execution",
                     "chunk": {
                         "type": "error",
-                        "content": f"Failed to stream code execution: {str(stream_err)}",
+                        "content": f"Failed to stream code execution: {stream_err}",
                     },
                 }
             )
-            uploaded_files = []
+            # Ensure cleanup or alternative flow if streaming fails critically
+            uploaded_files = []  # Reset uploaded_files as stream failed
+            # Consider if final_content_for_assistant should reflect this error too.
+            final_content_for_assistant = (
+                f"[Error during code execution streaming: {stream_err}]"
+            )
 
         # -------------------------------
-        # Step 2: Build final content from code buffer (suppress markdown)
+        # Step 2: Build final content from code buffer
         # -------------------------------
-        LOG.info("Building final content from code output buffer...")
+        LOG.info(f"Run {run_id}: Building final content from code output buffer...")
         if hot_code_buffer:
             final_content_for_assistant = "\n".join(hot_code_buffer).strip()
-        else:
-            final_content_for_assistant = "[Code executed successfully, no output.]"
+        elif (
+            not uploaded_files and not final_content_for_assistant
+        ):  # Only if no output AND no files AND no stream error already set
+            final_content_for_assistant = (
+                "[Code executed successfully, no output and no files generated.]"
+            )
+        elif uploaded_files and not final_content_for_assistant:
+            final_content_for_assistant = (
+                "[Code executed successfully, files generated but no textual output.]"
+            )
 
         # -------------------------------
-        # Step 3: Stream base64 previews (unchanged)
+        # Step 3: Stream base64 previews
         # -------------------------------
         if uploaded_files:
-            LOG.info("Streaming base64 previews for %d files...", len(uploaded_files))
+            LOG.info(
+                f"Run {run_id}: Streaming base64 previews for {len(uploaded_files)} files..."
+            )
             for file_meta in uploaded_files:
                 file_id = file_meta.get("id")
                 filename = file_meta.get("filename")
                 if not file_id or not filename:
+                    LOG.warning(
+                        f"Run {run_id}: Skipping file with missing id or filename: {file_meta}"
+                    )
                     continue
 
                 guessed_mime, _ = mimetypes.guess_type(filename)
                 mime_type = guessed_mime or "application/octet-stream"
                 try:
-
                     b64 = self.project_david_client.files.get_file_as_base64(
                         file_id=file_id
                     )
-
                 except Exception as e:
                     LOG.error(
-                        "Error fetching base64 for %s: %s",
-                        filename,
-                        str(e),
+                        f"Run {run_id}: Error fetching base64 for {filename} (ID: {file_id}): {e}",
                         exc_info=True,
                     )
                     b64 = base64.b64encode(
-                        f"Error retrieving content: {str(e)}".encode()
+                        f"Error retrieving content for {filename}: {e}".encode()
                     ).decode()
-                    mime_type = "text/plain"
+                    mime_type = "text/plain"  # Indicate error by changing mime type
 
                 yield json.dumps(
                     {
@@ -208,10 +276,10 @@ class CodeExecutionMixin:
         # -------------------------------
         # Step 4: Final frontend-visible chunk
         # -------------------------------
-        LOG.info("Yielding final content chunk.")
+        LOG.info(f"Run {run_id}: Yielding final content chunk for code execution.")
         yield json.dumps(
             {
-                "stream_type": "code_execution",
+                "stream_type": "code_execution",  # This ensures it's identified as from code exec
                 "chunk": {"type": "content", "content": final_content_for_assistant},
             }
         )
@@ -219,30 +287,36 @@ class CodeExecutionMixin:
         # -------------------------------
         # Step 5: Debug log uploaded_files metadata
         # -------------------------------
-        LOG.info("Final uploaded_files metadata:\n%s", pprint.pformat(uploaded_files))
+        if uploaded_files:
+            LOG.info(
+                f"Run {run_id}: Final uploaded_files metadata:\n{pprint.pformat(uploaded_files)}"
+            )
 
         # -------------------------------
         # Step 6: Submit only text output to assistant
         # -------------------------------
         try:
-            LOG.info("Submitting text-only output to assistant.")
+            LOG.info(
+                f"Run {run_id}: Submitting text-only output to assistant: '{final_content_for_assistant[:100]}...'"
+            )
             self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
-                content=final_content_for_assistant,
-                action=action,
+                content=final_content_for_assistant,  # Send the summary
+                action=action,  # The action object created earlier
             )
-            LOG.info("Tool output submitted successfully.")
+            LOG.info(f"Run {run_id}: Tool output submitted successfully.")
         except Exception as submit_err:
             LOG.error(
-                "Error submitting tool output: %s", str(submit_err), exc_info=True
+                f"Run {run_id}: Error submitting tool output: {submit_err}",
+                exc_info=True,
             )
             yield json.dumps(
                 {
                     "stream_type": "code_execution",
                     "chunk": {
                         "type": "error",
-                        "content": f"Failed to submit results: {str(submit_err)}",
+                        "content": f"Failed to submit results to assistant: {submit_err}",
                     },
                 }
             )

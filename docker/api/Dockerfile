@@ -38,9 +38,10 @@ RUN pip install \
 FROM python:3.11-slim AS runtime
 WORKDIR /app
 
-# Minimal OS deps
+# Minimal OS deps  (added libmagic1 for python-magic)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --no-install-suggests \
+        libmagic1 \
         firejail \
         supervisor \
         curl \
@@ -53,7 +54,7 @@ RUN apt-get update && \
 
 # Copy both unhashed and hashed installed packages
 COPY --from=unhashed_builder /install/packages /usr/local
-COPY --from=hashed_builder /install/packages /usr/local
+COPY --from=hashed_builder   /install/packages /usr/local
 
 # Application source
 COPY src/api /app/api

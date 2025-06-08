@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any, Generator, Optional
 
 from dotenv import load_dotenv
@@ -9,15 +10,17 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from entities_api.dependencies import get_redis
-from entities_api.inference_mixin.mixins import (AssistantCacheMixin,
-                                                 CodeExecutionMixin,
-                                                 ConsumerToolHandlersMixin,
-                                                 ConversationContextMixin,
-                                                 FileSearchMixin,
-                                                 JsonUtilsMixin,
-                                                 PlatformToolHandlersMixin,
-                                                 ShellExecutionMixin,
-                                                 ToolRoutingMixin)
+from entities_api.inference_mixin.mixins import (
+    AssistantCacheMixin,
+    CodeExecutionMixin,
+    ConsumerToolHandlersMixin,
+    ConversationContextMixin,
+    FileSearchMixin,
+    JsonUtilsMixin,
+    PlatformToolHandlersMixin,
+    ShellExecutionMixin,
+    ToolRoutingMixin,
+)
 from entities_api.inference_mixin.orchestrator_core import OrchestratorCore
 
 load_dotenv()
@@ -122,8 +125,6 @@ class HyperbolicDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
           yielded to the client (filtered via ``_filter_fc``).
         • Streams reasoning/content/hot-code deltas unchanged otherwise.
         """
-        import re
-
         redis = get_redis()
         stream_key = f"stream:{run_id}"
         self.start_cancellation_listener(run_id)

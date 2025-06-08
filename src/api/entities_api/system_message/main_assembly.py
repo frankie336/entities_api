@@ -219,11 +219,50 @@ ABORT execution for:
 6. Optimized Query and Invocation Practices: Auto-condense queries, use appropriate temporal filters, and adhere to all validation rules to prevent schema or format errors.
 7. Self-Validation and Internal Checks: Verify if a request falls within core knowledge before invoking tools to maintain a balance between internal reasoning and external tool usage.
     """.strip(),
+    "MUSIC_NOTATION_GUIDELINES": """
+Failure to comply will result in system rejection.
+🔹 **MUSIC NOTATION FORMATTING RULES**
+**A. Simple or Folk Music (ABC Notation)**
+    • Wrap music in fenced code blocks tagged `abc`
+    • Required ABC headers: `X:`, `T:`, `M:`, `L:`, `K:`
+    • Example:
+    ```abc
+    X:1
+    T:Simple Tune
+    M:4/4
+    L:1/4
+    K:C
+    C D E F | G A B c |
+    c B A G | F E D C |
+    **Full Orchestral or Complex Scores (MusicXML)**
+    renders using a MusicXML utility
+    Wrap MusicXML inside a ```musicxml fenced code block
+    Must include <?xml ...> declaration and <score-partwise> root
+    DO NOT escape or encode the XML; use clean raw MusicXML
+    Example:
+    ```musicxml
+        <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE score-partwise PUBLIC
+      "-//Recordare//DTD MusicXML 4.0 Partwise//EN"
+      "http://www.musicxml.org/dtds/partwise.dtd">
+    <score-partwise version="4.0">
+      <part id="P1">
+        <measure number="1">
+          <note><pitch><step>C</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type></note>
+          <note><pitch><step>E</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type></note>
+          <note><pitch><step>G</step><octave>5</octave></pitch><duration>1</duration><type>quarter</type></note>
+        </measure>
+      </part>
+    </score-partwise>
+    ```
+    """.strip(),
     "FINAL_WARNING": """
 Failure to comply will result in system rejection.
     """.strip(),
     "USER_DEFINED_INSTRUCTIONS": """
 🔹 **USER DEFINED INSTRUCTIONS**
+DO NOT INVOKE THE CODE INTERPRETER TOOL UNLESS THE PROMPT REQUIRES IT
+SIMPLE CODE GENERATION DOES NOT USUALLY REQUIRE code_interpreter.
 (No additional instructions defined.)
     """.strip(),
 }

@@ -7,8 +7,8 @@ on:
     branches: [main, master]
 
 permissions:
-  contents: write          # allow semantic-release & auto-format commits
-  packages: write          # allow pushing to Docker Hub / GHCR
+  contents: write          # semantic-release & auto-formatter commits
+  packages: write          # push to Docker Hub / GHCR
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────────
@@ -140,7 +140,7 @@ jobs:
           username: thanosprime
           password: ${{ secrets.DOCKERHUB_THANOSPRIME }}
 
-      # small safety net: wipe any dangling layers on the runner
+      # quick cleanup of any dangling layers on the runner
       - name: "🧼 Prune Docker System Cache"
         run: docker system prune -af || true
 
@@ -211,8 +211,8 @@ jobs:
           tags: ${{ steps.meta_api.outputs.tags }}
           labels: ${{ steps.meta_api.outputs.labels }}
           platforms: linux/amd64
-          cache-from: type=gha
-          cache-to:   type=gha,mode=max,size=1.5GB   # well below GitHub 5 GB limit
+          cache-from: type=gha           # ← still *reads* from cache
+          # no cache-to: export disabled
 
       # ---------------- Build / Push Sandbox --------------
       - name: "🏗️ Build & Push Sandbox Image"
@@ -224,5 +224,5 @@ jobs:
           tags: ${{ steps.meta_sandbox.outputs.tags }}
           labels: ${{ steps.meta_sandbox.outputs.labels }}
           platforms: linux/amd64
-          cache-from: type=gha
-          cache-to:   type=gha,mode=max,size=1.5GB   # same cap here
+          cache-from: type=gha           # ← still *reads* from cache
+          # no cache-to: export disabled
