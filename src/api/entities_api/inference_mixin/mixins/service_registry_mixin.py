@@ -7,6 +7,7 @@ import inspect
 import os
 from functools import lru_cache
 
+from dotenv import load_dotenv
 from projectdavid import Entity
 from projectdavid.clients.actions_client import ActionsClient
 from projectdavid.clients.assistants_client import AssistantsClient
@@ -19,10 +20,13 @@ from projectdavid.clients.users_client import UsersClient
 from projectdavid.clients.vectors import VectorStoreClient
 
 from entities_api.ptool_handlers.code_interpreter.code_execution_client import (
-    CodeExecutionClient, StreamOutput)
+    StreamOutput,
+)
 from entities_api.services.cached_assistant import AssistantCache
 from entities_api.services.conversation_truncator import ConversationTruncator
 from entities_api.services.logging_service import LoggingUtility
+
+load_dotenv()
 
 LOG = LoggingUtility()
 
@@ -88,7 +92,7 @@ class ServiceRegistryMixin:
         """
         return self._get_project_david_client(  # type: ignore[attr-defined]
             api_key=os.getenv("ADMIN_API_KEY"),
-            base_url=os.getenv("BASE_URL"),
+            base_url=os.getenv("ASSISTANTS_BASE_URL"),
         )
 
     # ------------------------------------------------------------------ #

@@ -56,7 +56,7 @@ class InferenceArbiter:
             )
 
         # ── shared AssistantCache (created once) ────────────────────────────
-        base_url = os.getenv("BASE_URL")
+        base_url = os.getenv("ASSISTANTS_BASE_URL")
         admin_api_key = os.getenv("ADMIN_API_KEY")
 
         if not base_url or not admin_api_key:

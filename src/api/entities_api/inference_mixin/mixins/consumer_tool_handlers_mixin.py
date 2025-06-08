@@ -8,16 +8,18 @@ Everything related to *consumer-side* (i.e. non-platform) tool calls:
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 import time
 from typing import Any, Dict
 
+from dotenv import load_dotenv
 from projectdavid_common import ValidationInterface
+from projectdavid_common.validation import StatusEnum
 
 from entities_api.constants.platform import ERROR_NO_CONTENT
 from entities_api.services.logging_service import LoggingUtility
+
+load_dotenv()
 
 LOG = LoggingUtility()
 logger = logging.getLogger(__name__)
@@ -43,14 +45,16 @@ class ConsumerToolHandlersMixin:
             content = ERROR_NO_CONTENT
 
         try:
-            self.project_david_client.messages.submit_tool_output(  # type: ignore[attr-defined]
+            self.project_david_client.messages.submit_tool_output(
                 thread_id=thread_id,
                 content=content,
                 role="tool",
                 assistant_id=assistant_id,
                 tool_id="dummy",  # TODO: real id once we expose it
             )
-            self.project_david_client.actions.update_action(action_id=action.id, status="completed")  # type: ignore
+            self.project_david_client.actions.update_action(
+                action_id=action.id, status=StatusEnum.completed
+            )
         except Exception as exc:
             LOG.error("submit_tool_output failed: %s", exc, exc_info=True)
             try:
@@ -62,7 +66,7 @@ class ConsumerToolHandlersMixin:
                     tool_id="dummy",
                 )
             finally:
-                self.project_david_client.actions.update_action(action_id=action.id, status="failed")  # type: ignore
+                self.project_david_client.update_action(action_id=action.id, status=StatusEnum.failed)  # type: ignore
 
     # ------------------------------------------------------------------ #
     # Generic tool-call lifecycle                                        #
@@ -93,15 +97,13 @@ class ConsumerToolHandlersMixin:
             function_args=content["arguments"],
         )
 
-        runs_client = self.project_david_client.runs  # type: ignore[attr-defined]
-
-        runs_client.update_run_status(
+        self.project_david_client.runs.update_run_status(
             run_id, ValidationInterface.StatusEnum.pending_action.value
         )
 
         start = time.time()
         while True:
-            if not self.action_client.get_pending_actions(run_id):  # type: ignore
+            if not self.project_david_client.actions.get_pending_actions(run_id=run_id):  # type: ignore
                 break
             if time.time() - start > max_wait:
                 LOG.warning(
@@ -134,7 +136,7 @@ class ConsumerToolHandlersMixin:
             is_last_chunk=True,
         )
         self.project_david_client.runs.update_run_status(  # type: ignore[attr-defined]
-            run_id, ValidationInterface.StatusEnum.failed
+            run_id=run_id, new_status=StatusEnum.failed
         )
 
     def finalize_conversation(

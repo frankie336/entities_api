@@ -12,8 +12,9 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from redis import Redis
 
 from entities_api.inference_mixin.inference_arbiter import InferenceArbiter
-from entities_api.inference_mixin.inference_provider_selector import \
-    InferenceProviderSelector
+from entities_api.inference_mixin.inference_provider_selector import (
+    InferenceProviderSelector,
+)
 
 # Import the correct shared Redis dependency
 # Adjust the relative path '..' if your dependencies.py is elsewhere
@@ -176,7 +177,7 @@ async def completions(
                 "assistant_id": stream_request.assistant_id,
                 "model": stream_request.model,  # Pass the original requested model ID
                 # --- FIX: Hardcode stream_reasoning as StreamRequest lacks this field ---
-                "stream_reasoning": False,
+                "stream_reasoning": True,
                 # --- END FIX ---
                 "api_key": stream_request.api_key,  # Pass API key if provided
             }

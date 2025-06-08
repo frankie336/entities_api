@@ -261,6 +261,8 @@ Failure to comply will result in system rejection.
     """.strip(),
     "USER_DEFINED_INSTRUCTIONS": """
 🔹 **USER DEFINED INSTRUCTIONS**
+DO NOT INVOKE THE CODE INTERPRETER TOOL UNLESS THE PROMPT REQUIRES IT
+SIMPLE CODE GENERATION DOES NOT USUALLY REQUIRE code_interpreter.
 (No additional instructions defined.)
     """.strip(),
 }

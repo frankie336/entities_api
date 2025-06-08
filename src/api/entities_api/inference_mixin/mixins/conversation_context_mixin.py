@@ -14,6 +14,7 @@ from typing import Dict, List
 from projectdavid import Entity
 
 from entities_api.services.logging_service import LoggingUtility
+from entities_api.system_message.main_assembly import assemble_instructions
 
 LOG = LoggingUtility()
 
@@ -53,6 +54,34 @@ class ConversationContextMixin:
                 f"Today's date and time: {today}"
             ),
         }
+
+
+
+    def _build_amended_system_message(self, assistant_id: str) -> Dict:
+        """
+        Use to build alternative system message for R1
+        """
+        cache = self.get_assistant_cache()
+        cfg = cache.retrieve_sync(assistant_id)
+        today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        excluded_instructions = assemble_instructions(
+            exclude_keys=[
+                "TOOL_USAGE_PROTOCOL",
+
+            ]
+        )
+
+        return {
+            "role": "system",
+            "content": (
+                "tools:\n"
+                f"{json.dumps(cfg['tools'])}\n"
+                f"{excluded_instructions}\n"
+                f"Today's date and time: {today}"
+            ),
+        }
+
 
     # ------------------------------------------------------------------ #
     # Final public helper used by providers                              #
@@ -123,3 +152,26 @@ class ConversationContextMixin:
 
         # 5) optional truncation
         return self.conversation_truncator.truncate(normalized) if trunk else normalized
+
+    def replace_system_message(
+        self, context_window: list[dict], new_system_message: str | None = None
+    ) -> list[dict]:
+        """
+        Removes the existing system message and optionally replaces it with a new one.
+
+        Args:
+            context_window: Output from `_set_up_context_window`.
+            new_system_message: Content of the replacement system message (if None, just remove the old one).
+
+        Returns:
+            Updated context window without the original system message (and optionally a new one).
+        """
+        # 1. Filter out all system messages
+        filtered_messages = [msg for msg in context_window if msg["role"] != "system"]
+
+        # 2. Prepend a new system message (if provided)
+        if new_system_message is not None:
+            new_system_msg = {"role": "system", "content": new_system_message}
+            filtered_messages.insert(0, new_system_msg)  # Add at the start
+
+        return filtered_messages

@@ -8,11 +8,14 @@ from functools import lru_cache
 from typing import Optional
 
 import httpx
+from dotenv import load_dotenv
 from openai import OpenAI
 from projectdavid import Entity
 from together import Together
 
 from entities_api.services.logging_service import LoggingUtility
+
+load_dotenv()
 
 LOG = LoggingUtility()
 
@@ -32,7 +35,7 @@ class ClientFactoryMixin:
             return OpenAI(
                 api_key=api_key,
                 base_url=base_url or os.getenv("HYPERBOLIC_BASE_URL"),
-                timeout=httpx.Timeout(30.0, read=30.0),
+                timeout=httpx.Timeout(connect=30.0,timeout=30.0, read=30.0),
             )
         except Exception as exc:
             LOG.error("OpenAI client init failed: %s", exc, exc_info=True)

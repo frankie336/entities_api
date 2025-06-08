@@ -55,8 +55,7 @@ class ToolRoutingMixin:
         accumulated_content or assistant_reply, even if split across chunks.
         """
 
-        from .json_utils_mixin import \
-            JsonUtilsMixin  # local import – avoid cycle
+        from .json_utils_mixin import JsonUtilsMixin  # local import – avoid cycle
 
         if not isinstance(self, JsonUtilsMixin):  # type: ignore
             raise TypeError("ToolRoutingMixin must be mixed with JsonUtilsMixin")

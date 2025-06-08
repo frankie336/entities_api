@@ -17,26 +17,35 @@ load_dotenv()
 
 
 class StreamingCodeExecutionHandler:
+    """Execute Python code snippets in a jailed environment and stream stdout back to the client.
+
+    *   Variant‑A patch: Matplotlib cache is written to **mpl_cache/** (a sibling of
+        *generated_files/*) so cache artefacts like `fontlist‑v390.json` are **never**
+        swept up and uploaded to the assistant front‑end.
+    """
+
     def __init__(self):
+        # ───────────────────────── state & dirs ──────────────────────────
         self.logging_utility = LoggingUtility()
         self.active_processes = {}
-        self.generated_files_dir = os.path.abspath("generated_files")
 
-        # os.makedirs(self.generated_files_dir, exist_ok=True)
+        self.generated_files_dir = os.path.abspath("generated_files")
         os.makedirs(self.generated_files_dir, exist_ok=True)
-        # ── Force Matplotlib to cache here, not under /root/.config ──
-        os.environ["MPLCONFIGDIR"] = self.generated_files_dir
-        self.logging_utility.info(
-            "MPLCONFIGDIR set to writable directory: %s", self.generated_files_dir
-        )
+
+        # NEW — dedicated Matplotlib cache dir (keeps fontlist*.json out of uploads)
+        self.mpl_cache_dir = os.path.join(self.generated_files_dir, "mpl_cache")
+        os.makedirs(self.mpl_cache_dir, exist_ok=True)
+
+        # Force Matplotlib to use the dedicated cache directory
+        os.environ["MPLCONFIGDIR"] = self.mpl_cache_dir
+        self.logging_utility.info("MPLCONFIGDIR set to: %s", self.mpl_cache_dir)
 
         self.last_executed_script_path = None
 
-        self.logging_utility.info("Current working directory: %s", os.getcwd())
-        self.logging_utility.info(
-            "Generated files directory: %s", self.generated_files_dir
-        )
+        self.logging_utility.info("CWD: %s", os.getcwd())
+        self.logging_utility.info("generated_files_dir: %s", self.generated_files_dir)
 
+        # ───────────────────────── firejail profile ──────────────────────
         disable_firejail = os.getenv("DISABLE_FIREJAIL", "false").lower() == "true"
         self.security_profile = {
             "firejail_args": (
@@ -56,6 +65,7 @@ class StreamingCodeExecutionHandler:
             )
         }
 
+        # ───────────────────────── default imports ───────────────────────
         self.required_imports = (
             "import asyncio\n"
             "import math\n"
