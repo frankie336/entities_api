@@ -1,57 +1,129 @@
+from __future__ import annotations
+
+"""
+Hyperbolic-Llama-3-33B provider
+———————————————
+• Re-uses the C3-safe mix-in bundle.
+• Keeps the **same streaming semantics** you had:
+    – live SSE JSON (“type”: "content", "hot_code", …)
+    – inline buffering of code-interpreter blocks
+    – Redis fan-out identical to Ds1
+• No <think>/<fc> tagging in Llama-3 responses, but we still honour it
+  in case your prompt template inserts them.
+"""
+
 import json
 import os
-import sys
-import time
-from abc import ABC
 from typing import Any, Generator, Optional
 
 from dotenv import load_dotenv
-from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
+from projectdavid_common.validation import StatusEnum
 
 from entities_api.dependencies import get_redis
-from entities_api.inference.base_inference import BaseInference
+from entities_api.inference_mixin.mixins import (AssistantCacheMixin,
+                                                 CodeExecutionMixin,
+                                                 ConsumerToolHandlersMixin,
+                                                 ConversationContextMixin,
+                                                 FileSearchMixin,
+                                                 JsonUtilsMixin,
+                                                 PlatformToolHandlersMixin,
+                                                 ShellExecutionMixin,
+                                                 ToolRoutingMixin)
+from entities_api.inference_mixin.orchestrator_core import OrchestratorCore
 
 load_dotenv()
-logging_utility = LoggingUtility()
+LOG = LoggingUtility()
 
 
-class HyperbolicLlama33Inference(BaseInference, ABC):
+# --------------------------------------------------------------------------- #
+# mix-in bundle (identical to Ds1)
+# --------------------------------------------------------------------------- #
+class _ProviderMixins(  # pylint: disable=too-many-ancestors
+    AssistantCacheMixin,
+    JsonUtilsMixin,
+    ConversationContextMixin,
+    ToolRoutingMixin,
+    PlatformToolHandlersMixin,
+    ConsumerToolHandlersMixin,
+    CodeExecutionMixin,
+    ShellExecutionMixin,
+    FileSearchMixin,
+):
+    """Flat bundle → single inheritance in the concrete class."""
 
-    def setup_services(self):
-        logging_utility.debug(
-            "HyperbolicDeepSeekV3Inference specific setup completed (if any)."
-        )
 
-    def _shunt_to_redis_stream(
-        self, redis, stream_key, chunk_dict, *, maxlen=1000, ttl_seconds=3600
-    ):
+# --------------------------------------------------------------------------- #
+# provider
+# --------------------------------------------------------------------------- #
+class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
+    """
+    Meta-Llama-3-33B served by Hyperbolic – streaming & tool orchestration.
+    """
 
-        return super()._shunt_to_redis_stream(
-            redis, stream_key, chunk_dict, maxlen=maxlen, ttl_seconds=ttl_seconds
-        )
-
-    def stream_function_call_output(
+    # ------------------------------------------------------------------ #
+    # construction
+    # ------------------------------------------------------------------ #
+    def __init__(  # noqa: D401
         self,
-        thread_id,
-        run_id,
-        assistant_id,
-        model,
-        stream,
-        name=None,
-        stream_reasoning=False,
-        api_key: Optional[str] = None,
-    ):
-        return super().stream_function_call_output(
-            thread_id=thread_id,
-            run_id=run_id,
-            assistant_id=assistant_id,
-            model=model,
-            stream=self.stream,
-            stream_reasoning=stream_reasoning,
-            api_key=api_key,
-        )
+        *,
+        assistant_id: str | None = None,
+        thread_id: str | None = None,
+        redis=None,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        assistant_cache: dict | None = None,
+        **extra,
+    ) -> None:
+        self._assistant_cache: dict = assistant_cache or {}
 
+        self.redis = redis or get_redis()
+        self.assistant_id = assistant_id
+        self.thread_id = thread_id
+        self.base_url = base_url or os.getenv("BASE_URL")
+        self.api_key = api_key
+
+        # model defaults
+        self.model_name = extra.get(
+            "model_name", "meta-llama/Meta-Llama-3-33B-Instruct"
+        )
+        self.max_context_window = extra.get("max_context_window", 128_000)
+        self.threshold_percentage = extra.get("threshold_percentage", 0.8)
+
+        self.setup_services()
+        LOG.debug("Hyperbolic-Llama-3 provider ready (assistant=%s)", assistant_id)
+
+    # ------------------------------------------------------------------ #
+    # ConversationContextMixin shim
+    # ------------------------------------------------------------------ #
+    @property
+    def assistant_cache(self) -> dict:
+        return self._assistant_cache
+
+    @assistant_cache.setter
+    def assistant_cache(self, value: dict) -> None:
+        if hasattr(self, "_assistant_cache"):
+            raise AttributeError("assistant_cache already initialised")
+        self._assistant_cache = value
+
+    def get_assistant_cache(self) -> dict:  # noqa: D401
+        return self._assistant_cache
+
+    # ------------------------------------------------------------------ #
+    # helper – suppress provider-labelled JSON function calls **only**
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _filter_fc(chunk_json: str) -> Optional[str]:
+        try:
+            if json.loads(chunk_json).get("type") == "function_call":
+                return None
+        except Exception:  # malformed → pass through
+            pass
+        return chunk_json
+
+    # ------------------------------------------------------------------ #
+    # streaming loop  (no <think> tags in Llama-3 by default)
+    # ------------------------------------------------------------------ #
     def stream(
         self,
         thread_id: str,
@@ -59,192 +131,168 @@ class HyperbolicLlama33Inference(BaseInference, ABC):
         run_id: str,
         assistant_id: str,
         model: Any,
+        *,
         stream_reasoning: bool = True,
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
-
         redis = get_redis()
         stream_key = f"stream:{run_id}"
-
         self.start_cancellation_listener(run_id)
 
-        if self._get_model_map(value=model):
-            model = self._get_model_map(value=model)
+        if mapped := self._get_model_map(model):
+            model = mapped
 
-        request_payload = {
+        ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
+
+        payload = {
             "model": model,
-            "messages": self._set_up_context_window(
-                assistant_id, thread_id, trunk=True
-            ),
-            "max_tokens": None,
+            "messages": ctx,
+            "max_tokens": 10000,
             "temperature": 0.6,
             "stream": True,
         }
 
-        assistant_reply = ""
-        accumulated_content = ""
-        code_mode = False
-        code_buffer = ""
-
         try:
-            client_to_use = self._get_openai_client(
+            client = self._get_openai_client(
                 base_url=os.getenv("HYPERBOLIC_BASE_URL"), api_key=api_key
             )
-
-            response = client_to_use.chat.completions.create(**request_payload)
-
-            for token in response:
-                if self.check_cancellation_flag():
-                    logging_utility.warning(f"Run {run_id} cancelled mid-stream")
-                    chunk = {"type": "error", "content": "Run cancelled"}
-                    yield json.dumps(chunk)
-                    self._shunt_to_redis_stream(redis, stream_key, chunk)
-                    break
-
-                if not hasattr(token, "choices") or not token.choices:
-                    continue
-
-                delta = token.choices[0].delta
-                delta_content = getattr(delta, "content", "")
-                if not delta_content:
-                    continue
-
-                sys.stdout.write(delta_content)
-                sys.stdout.flush()
-
-                segments = [delta_content]
-
-                for seg in segments:
-                    if not seg:
-                        continue
-
-                    assistant_reply += seg
-                    accumulated_content += seg
-
-                    partial_match = self.parse_code_interpreter_partial(
-                        accumulated_content
-                    )
-
-                    if not code_mode and partial_match:
-                        full_match = partial_match.get("full_match")
-                        if full_match:
-                            match_index = accumulated_content.find(full_match)
-                            if match_index != -1:
-                                accumulated_content = accumulated_content[
-                                    match_index + len(full_match) :
-                                ]
-                        code_mode = True
-                        code_buffer = partial_match.get("code", "")
-                        self.code_mode = True
-                        chunk = {"type": "hot_code", "content": "```python\n"}
-                        yield json.dumps(chunk)
-                        self._shunt_to_redis_stream(redis, stream_key, chunk)
-                        continue
-
-                    if code_mode:
-                        results, code_buffer = self._process_code_interpreter_chunks(
-                            seg, code_buffer
-                        )
-                        for r in results:
-                            yield r
-                            self._shunt_to_redis_stream(redis, stream_key, r)
-                            assistant_reply += r
-                        continue
-
-                    if not code_buffer:
-                        chunk = {"type": "content", "content": seg}
-                        yield json.dumps(chunk)
-                        self._shunt_to_redis_stream(redis, stream_key, chunk)
-
-                time.sleep(0.05)
-
-        except Exception as e:
-            error_msg = f"Llama 3 / Hyperbolic SDK error: {str(e)}"
-            logging_utility.error(error_msg, exc_info=True)
-            self.handle_error(assistant_reply, thread_id, assistant_id, run_id)
-            chunk = {"type": "error", "content": error_msg}
-            yield json.dumps(chunk)
-            self._shunt_to_redis_stream(redis, stream_key, chunk)
+        except Exception as exc:  # pylint: disable=broad-except
+            err = {"type": "error", "content": f"client init failed: {exc}"}
+            yield json.dumps(err)
+            self._shunt_to_redis_stream(redis, stream_key, err)
             return
 
+        assistant_reply = accumulated = ""
+        code_mode = False
+        code_buf = ""
+
+        # ① Emit a “started” status so front-end can immediately show Stop button
+        start_chunk = {"type": "status", "status": "started", "run_id": run_id}
+        yield json.dumps(start_chunk)
+        self._shunt_to_redis_stream(redis, stream_key, start_chunk)
+
+        try:
+            for token in client.chat.completions.create(**payload):
+                # cancellation check
+                if self.check_cancellation_flag():
+                    err = {"type": "error", "content": "Run cancelled"}
+                    if p := self._filter_fc(json.dumps(err)):
+                        yield p
+                    self._shunt_to_redis_stream(redis, stream_key, err)
+                    break
+
+                if not token.choices or not token.choices[0].delta:
+                    continue
+
+                seg = getattr(token.choices[0].delta, "content", "")
+                if not seg:
+                    continue
+
+                # ----- hot-code / code-interpreter detection --------------
+                assistant_reply += seg
+                accumulated += seg
+
+                parse_ci = getattr(self, "parse_code_interpreter_partial", None)
+                ci_match = parse_ci(accumulated) if parse_ci and not code_mode else None
+
+                if ci_match:
+                    code_mode = True
+                    code_buf = ci_match.get("code", "")
+                    start = {"type": "hot_code", "content": "```python\n"}
+                    if p := self._filter_fc(json.dumps(start)):
+                        yield p
+                    self._shunt_to_redis_stream(redis, stream_key, start)
+
+                    if code_buf and hasattr(self, "_process_code_interpreter_chunks"):
+                        res, code_buf = self._process_code_interpreter_chunks(
+                            "", code_buf
+                        )
+                        for r in res:
+                            if p := self._filter_fc(r):
+                                yield p
+                            self._shunt_to_redis_stream(
+                                redis, stream_key, json.loads(r)
+                            )
+                    continue
+
+                if code_mode:
+                    if hasattr(self, "_process_code_interpreter_chunks"):
+                        res, code_buf = self._process_code_interpreter_chunks(
+                            seg, code_buf
+                        )
+                        for r in res:
+                            if p := self._filter_fc(r):
+                                yield p
+                            self._shunt_to_redis_stream(
+                                redis, stream_key, json.loads(r)
+                            )
+                    else:
+                        hot = {"type": "hot_code", "content": seg}
+                        if p := self._filter_fc(json.dumps(hot)):
+                            yield p
+                        self._shunt_to_redis_stream(redis, stream_key, hot)
+                    continue
+
+                # ----- plain content --------------------------------------
+                msg = {"type": "content", "content": seg}
+                if p := self._filter_fc(json.dumps(msg)):
+                    yield p
+                self._shunt_to_redis_stream(redis, stream_key, msg)
+
+        except Exception as exc:  # pylint: disable=broad-except
+            err = {"type": "error", "content": f"Llama-3 SDK error: {exc}"}
+            if p := self._filter_fc(json.dumps(err)):
+                yield p
+            self._shunt_to_redis_stream(redis, stream_key, err)
+            return
+
+        # ③ Emit a “complete” status so front-end can hide the Stop button
+        end_chunk = {"type": "status", "status": "complete", "run_id": run_id}
+        yield json.dumps(end_chunk)
+        self._shunt_to_redis_stream(redis, stream_key, end_chunk)
+
+        # ---- bookkeeping & tool state ----------------------------------
         if assistant_reply:
             self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
 
-        if accumulated_content:
-            self.parse_and_set_function_calls(accumulated_content, assistant_reply)
-            logging_utility.info(f"Function call parsing completed for run {run_id}")
+        if accumulated and self.parse_and_set_function_calls(
+            accumulated, assistant_reply
+        ):
+            self.project_david_client.runs.update_run_status(
+                run_id, StatusEnum.pending_action.value
+            )
+        else:
+            self.project_david_client.runs.update_run_status(
+                run_id, StatusEnum.completed.value
+            )
 
-        self.run_service.update_run_status(
-            run_id, ValidationInterface.StatusEnum.completed
-        )
-
-    def process_function_calls(
+    # ------------------------------------------------------------------ #
+    # orchestrator (single pass + tools)
+    # ------------------------------------------------------------------ #
+    def process_conversation(  # noqa: D401
         self,
-        thread_id,
-        run_id,
-        assistant_id,
-        model=None,
+        thread_id: str,
+        message_id: str,
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        *,
+        stream_reasoning: bool = False,
         api_key: Optional[str] = None,
-    ):
-        return super().process_function_calls(
-            thread_id=thread_id,
-            run_id=run_id,
-            assistant_id=assistant_id,
-            model=model,
-            api_key=api_key,
-        )
-
-    def process_conversation(
-        self,
-        thread_id,
-        message_id,
-        run_id,
-        assistant_id,
-        model,
-        stream_reasoning=False,
-        api_key: Optional[str] = None,
-    ):
-        if self._get_model_map(value=model):
-            model = self._get_model_map(value=model)
-
-        logging_utility.info(
-            f"Processing conversation for run {run_id} with model {model}. API key provided: {'Yes' if api_key else 'No'}"
-        )
-
-        for chunk in self.stream(
-            thread_id=thread_id,
-            message_id=message_id,
-            run_id=run_id,
-            assistant_id=assistant_id,
-            model=model,
+    ) -> Generator[str, None, None]:
+        # main model pass
+        yield from self.stream(
+            thread_id,
+            message_id,
+            run_id,
+            assistant_id,
+            model,
             stream_reasoning=stream_reasoning,
             api_key=api_key,
-        ):
-            yield chunk
-
-        fc_state = self.get_function_call_state()
-
-        for chunk in self.process_function_calls(
-            thread_id=thread_id,
-            run_id=run_id,
-            assistant_id=assistant_id,
-            model=model,
-            api_key=api_key,
-        ):
-            yield chunk
-
-        logging_utility.info(
-            f"Finished processing conversation generator for run {run_id}"
         )
 
-        if fc_state:
-            for chunk in self.stream(
-                thread_id=thread_id,
-                message_id=message_id,
-                run_id=run_id,
-                assistant_id=assistant_id,
-                model=model,
-                stream_reasoning=stream_reasoning,
-                api_key=api_key,
-            ):
-                yield chunk
+        # tool pass (if a function_call was queued)
+        if self.get_function_call_state():
+            yield from self.process_function_calls(
+                thread_id, run_id, assistant_id, model=model, api_key=api_key
+            )

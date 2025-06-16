@@ -12,9 +12,8 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from redis import Redis
 
 from entities_api.inference_mixin.inference_arbiter import InferenceArbiter
-from entities_api.inference_mixin.inference_provider_selector import (
-    InferenceProviderSelector,
-)
+from entities_api.inference_mixin.inference_provider_selector import \
+    InferenceProviderSelector
 
 # Import the correct shared Redis dependency
 # Adjust the relative path '..' if your dependencies.py is elsewhere

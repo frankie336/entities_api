@@ -8,9 +8,8 @@ from projectdavid_common import UtilsInterface, ValidationInterface
 from sqlalchemy.orm import Session
 
 # Assume models are correctly imported
-from entities_api.models.models import (
-    User,
-)  # Added Assistant if not implicitly imported via User relationship
+from entities_api.models.models import \
+    User  # Added Assistant if not implicitly imported via User relationship
 
 
 class UserService:

@@ -2,21 +2,13 @@ from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.inference.hypherbolic.hyperbolic_llama_3_3 import (
-    HyperbolicLlama33Inference,
-)
-from entities_api.inference.hypherbolic.hyperbolic_quen_qwq_32b import (
-    HyperbolicQuenQwq32bInference,
-)
 from entities_api.inference.inference_arbiter import InferenceArbiter
-
-from entities_api.inference_mixin.providers.hypherbolic.hyperbolic_deepseek import (
-    HyperbolicDs1,
-)
-
-from entities_api.inference_mixin.providers.hypherbolic.hyperbolic_deepseek_v3 import (
-    HyperbolicDeepSeekV3Inference,
-)
+from entities_api.inference_mixin.providers.hypherbolic.hyperbolic_deepseek import \
+    HyperbolicDs1
+from entities_api.inference_mixin.providers.hypherbolic.hyperbolic_llama_3_3 import \
+    HyperbolicLlama33
+from entities_api.inference_mixin.providers.hypherbolic.hyperbolic_quen_qwq_32b import \
+    HyperbolicQuenQwq32B
 
 logging_utility = LoggingUtility()
 
@@ -28,11 +20,11 @@ class HyperbolicHandler:
     """
 
     SUBMODEL_CLASS_MAP: dict[str, Type[Any]] = {
-        "deepseek-v3": HyperbolicDeepSeekV3Inference,
-        "deepseek-ai/DeepSeek-V3-0324": HyperbolicDeepSeekV3Inference,
+        "deepseek-v3": HyperbolicDs1,
+        "deepseek-ai/DeepSeek-V3-0324": HyperbolicDs1,
         "deepseek-r1": HyperbolicDs1,
-        "meta-llama/": HyperbolicLlama33Inference,
-        "Qwen/": HyperbolicQuenQwq32bInference,
+        "meta-llama/": HyperbolicLlama33,
+        "Qwen/": HyperbolicQuenQwq32B,
     }
 
     def __init__(self, arbiter: InferenceArbiter):

@@ -23,33 +23,62 @@ class JsonUtilsMixin:
 
     REASONING_PATTERN = re.compile(r"(<think>|</think>)")
 
+    import json
+    import re
+    from typing import Dict, Optional
+
+    # ──────────────────────────────────────────────────────────────────────
+    # helper: sniff an incomplete code-interpreter call and build <fc> block
+    # ──────────────────────────────────────────────────────────────────────
     @staticmethod
-    def parse_code_interpreter_partial(text):
+    def parse_code_interpreter_partial(text: str) -> Optional[Dict[str, str]]:
         """
-        Parses a partial JSON-like string that begins with:
-        {'name': 'code_interpreter', 'arguments': {'code':
+        Detects an in-progress code-interpreter tool call that looks like
 
-        It captures everything following the 'code': marker.
-        Note: Because the input is partial, the captured code may be incomplete.
+            {"name": "code_interpreter", "arguments": {"code": ...
 
-        Returns:
-            A dictionary with the key 'code' containing the extracted text,
-            or None if no match is found.
+        and returns **both** the raw code fragment and a fully wrapped
+        <fc> ... </fc> payload that can be appended to the function-call
+        buffer.
+
+        Returns
+        -------
+        dict | None
+            {
+                "code":     "<python …  (may be incomplete)",
+                "fc_block": "<fc>{\"name\": \"code_interpreter\", ...}</fc>"
+            }
+            or *None* if the pattern is not found.
         """
         pattern = re.compile(
             r"""
-            \{\s*['"]name['"]\s*:\s*['"]code_interpreter['"]\s*,\s*   # "name": "code_interpreter"
-            ['"]arguments['"]\s*:\s*\{\s*['"]code['"]\s*:\s*             # "arguments": {"code":
-            (?P<code>.*)                                               # Capture the rest as code content
-        """,
+            \{\s*["']name["']\s*:\s*["']code_interpreter["']\s*,\s*
+            ["']arguments["']\s*:\s*\{\s*["']code["']\s*:\s*
+            (?P<code>.*)                        # capture the tail after "code":
+            """,
             re.VERBOSE | re.DOTALL,
         )
 
-        match = pattern.search(text)
-        if match:
-            return {"code": match.group("code").strip()}
-        else:
+        m = pattern.search(text)
+        if not m:
             return None
+
+        code_fragment = m.group("code").strip()
+
+        # Build the minimal JSON for the tool call (still partial → fine)
+        fc_json = {
+            "name": "code_interpreter",
+            "arguments": {"code": code_fragment},
+        }
+
+        # Wrap inside <fc> … </fc> so upstream logic treats it like any
+        # other function-call payload.
+        fc_block = f"<fc>{json.dumps(fc_json, ensure_ascii=False)}</fc>"
+
+        return {
+            "code": code_fragment,
+            "fc_block": fc_block,
+        }
 
     # ------------------------------------------------------------------ #
     # House-keeping helpers                                              #

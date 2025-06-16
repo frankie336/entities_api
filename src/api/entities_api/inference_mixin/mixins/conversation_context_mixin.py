@@ -55,8 +55,6 @@ class ConversationContextMixin:
             ),
         }
 
-
-
     def _build_amended_system_message(self, assistant_id: str) -> Dict:
         """
         Use to build alternative system message for R1
@@ -68,7 +66,6 @@ class ConversationContextMixin:
         excluded_instructions = assemble_instructions(
             exclude_keys=[
                 "TOOL_USAGE_PROTOCOL",
-
             ]
         )
 
@@ -81,7 +78,6 @@ class ConversationContextMixin:
                 f"Today's date and time: {today}"
             ),
         }
-
 
     # ------------------------------------------------------------------ #
     # Final public helper used by providers                              #

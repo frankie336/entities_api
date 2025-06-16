@@ -9,16 +9,20 @@ Function-Call Filter Mixin
     1) swallow provider-labelled {"type":"function_call"} JSON
     2) remove any chunk that simultaneously contains <fc> and </fc>
 """
+
 from __future__ import annotations
-import json, re
+
+import json
+import re
 from typing import Optional
+
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 LOG = LoggingUtility()
 
 
 class FunctionCallFilterMixin:
-    _FC_OPEN  = re.compile(r"<\s*fc\s*>",  re.IGNORECASE)
+    _FC_OPEN = re.compile(r"<\s*fc\s*>", re.IGNORECASE)
     _FC_CLOSE = re.compile(r"</\s*fc\s*>", re.IGNORECASE)
 
     # ──────────────────────────────────────────────────────────────

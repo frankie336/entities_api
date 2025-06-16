@@ -2,12 +2,11 @@ from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.inference.deepseek.deepseek_chat_inference import (
-    DeepSeekChatInference,
-)
+from entities_api.inference.deepseek.deepseek_chat_inference import \
+    DeepSeekChatInference
 from entities_api.inference.inference_arbiter import InferenceArbiter
 
-logging_utility = LoggingUtility()
+LOG = LoggingUtility()
 
 
 class DeepseekHandler:
@@ -27,7 +26,7 @@ class DeepseekHandler:
         self._sorted_sub_routes = sorted(
             self.SUBMODEL_CLASS_MAP.keys(), key=len, reverse=True
         )
-        logging_utility.info("HyperbolicHandler dispatcher initialized.")
+        LOG.info("HyperbolicHandler dispatcher initialized.")
 
     def _get_specific_handler_instance(self, unified_model_id: str) -> Any:
         prefix = "deepseek-ai/"
@@ -38,7 +37,7 @@ class DeepseekHandler:
         )
 
         if not unified_model_id.lower().startswith(prefix):
-            logging_utility.warning(
+            LOG.warning(
                 f"Model ID '{unified_model_id}' did not start with expected prefix '{prefix}'."
             )
 
@@ -46,26 +45,26 @@ class DeepseekHandler:
         for route_key, handler_cls in self.SUBMODEL_CLASS_MAP.items():
             route_key_lc = route_key.lower()
             if route_key_lc.endswith("/") and sub_model_id.startswith(route_key_lc):
-                logging_utility.debug(f"Matched prefix route: '{route_key}'")
+                LOG.debug(f"Matched prefix route: '{route_key}'")
                 SpecificHandlerClass = handler_cls
                 break
             elif not route_key_lc.endswith("/") and route_key_lc in sub_model_id:
-                logging_utility.debug(f"Matched substring route: '{route_key}'")
+                LOG.debug(f"Matched substring route: '{route_key}'")
                 SpecificHandlerClass = handler_cls
                 break
 
         if not SpecificHandlerClass:
-            logging_utility.error(
+            LOG.error(
                 f"No handler found for model ID '{sub_model_id}' (original: '{unified_model_id}')"
             )
             raise ValueError(f"Unsupported DeepSeek model: {unified_model_id}")
 
-        logging_utility.debug(f"Dispatching to: {SpecificHandlerClass.__name__}")
+        LOG.debug(f"Dispatching to: {SpecificHandlerClass.__name__}")
 
         try:
             return self.arbiter.get_provider_instance(SpecificHandlerClass)
         except Exception as e:
-            logging_utility.error(
+            LOG.error(
                 f"Failed to obtain handler instance: {SpecificHandlerClass.__name__}",
                 exc_info=True,
             )
@@ -84,7 +83,7 @@ class DeepseekHandler:
         api_key: Optional[str] = None,
         **kwargs,
     ) -> Generator[str, None, None]:
-        logging_utility.debug(f"Dispatching process_conversation for: {model}")
+        LOG.debug(f"Dispatching process_conversation for: {model}")
         handler = self._get_specific_handler_instance(model)
         yield from handler.process_conversation(
             thread_id=thread_id,
@@ -108,7 +107,7 @@ class DeepseekHandler:
         api_key: Optional[str] = None,
         **kwargs,
     ) -> Generator[str, None, None]:
-        logging_utility.debug(f"Dispatching stream for: {model}")
+        LOG.debug(f"Dispatching stream for: {model}")
         handler = self._get_specific_handler_instance(model)
         yield from handler.stream(
             thread_id=thread_id,
@@ -129,7 +128,7 @@ class DeepseekHandler:
         model=None,
         api_key=None,
     ) -> Generator[str, None, None]:
-        logging_utility.debug(f"Dispatching process_function_calls for: {model}")
+        LOG.debug(f"Dispatching process_function_calls for: {model}")
         handler = self._get_specific_handler_instance(model)
         yield from handler.process_function_calls(
             thread_id=thread_id,

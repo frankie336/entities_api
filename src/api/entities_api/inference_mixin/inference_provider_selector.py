@@ -1,5 +1,4 @@
 # entities_api/inference/inference_provider_selector.py (Revised)
-
 import threading
 from typing import Any, Type
 
@@ -7,29 +6,28 @@ from projectdavid_common.constants.ai_model_map import MODEL_MAP
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from entities_api.inference.azure.azure_handler import AzureHandler
-from entities_api.inference.deepseek.deep_seek_handler import DeepseekHandler
-from entities_api.inference.groq.groq_handler import GroqHandler  # Example
-
-# --- Import Arbiter (Needed by the General Handlers) ---
+from entities_api.inference.groq.groq_handler import GroqHandler
 from entities_api.inference.inference_arbiter import InferenceArbiter
-from entities_api.inference.local.local_handler import LocalHandler  # Example
-from entities_api.inference_mixin.providers.google.google_handler import GoogleHandler
-
+from entities_api.inference.local.local_handler import LocalHandler
+# from entities_api.inference.deepseek.deep_seek_handler import DeepseekHandler
+from entities_api.inference_mixin.providers.deepseek.deep_seek_handler import \
+    DeepseekHandler
+from entities_api.inference_mixin.providers.google.google_handler import \
+    GoogleHandler
 # from entities_api.inference.hypherbolic.hyperbolic_handler import HyperbolicHandler
-from entities_api.inference_mixin.providers.hypherbolic.hyperbolic_handler import (
-    HyperbolicHandler,
-)
-
+from entities_api.inference_mixin.providers.hypherbolic.hyperbolic_handler import \
+    HyperbolicHandler
 # from entities_api.inference.togeterai.togetherai_handler import \
 #    TogetherAIHandler
-from entities_api.inference_mixin.providers.togeterai.togetherai_handler import (
-    TogetherAIHandler,
-)
+from entities_api.inference_mixin.providers.togeterai.togetherai_handler import \
+    TogetherAIHandler
+
+# --- Import Arbiter (Needed by the General Handlers) ---
 
 # --- We DO NOT import specific child handlers here ---
 
 
-logging_utility = LoggingUtility()
+LOG = LoggingUtility()
 
 # Top-level routing map: model_id prefix -> general handler class
 # This remains the same
@@ -74,14 +72,14 @@ class InferenceProviderSelector:
             instance = self._general_handler_cache.get(class_name)
 
         if instance:
-            logging_utility.debug(f"Cache hit for general handler: {class_name}")
+            LOG.debug(f"Cache hit for general handler: {class_name}")
             return instance
 
         # If not in cache, acquire lock and double-check before creating
         with self._cache_lock:
             instance = self._general_handler_cache.get(class_name)  # Double check
             if not instance:
-                logging_utility.debug(
+                LOG.debug(
                     f"Cache miss for general handler: {class_name}. Creating instance."
                 )
                 try:
@@ -91,7 +89,7 @@ class InferenceProviderSelector:
                         instance  # Store in selector's cache
                     )
                 except Exception as e:
-                    logging_utility.error(
+                    LOG.error(
                         f"Failed to instantiate general handler {class_name}: {e}",
                         exc_info=True,
                     )
@@ -116,14 +114,14 @@ class InferenceProviderSelector:
         for prefix in self._sorted_routing_keys:
             if model_id_lookup.startswith(prefix):
                 selected_general_class = TOP_LEVEL_ROUTING_MAP[prefix]
-                logging_utility.debug(
+                LOG.debug(
                     f"Matched prefix '{prefix}' to general handler class {selected_general_class.__name__} for model '{model_id}'"
                 )
                 break
 
         # Step 3: Handle missing routing match (remains the same)
         if selected_general_class is None:
-            logging_utility.error(f"No routing match for model_id prefix: '{model_id}'")
+            LOG.error(f"No routing match for model_id prefix: '{model_id}'")
             raise ValueError(
                 f"Invalid or unknown model identifier prefix: '{model_id}'"
             )
@@ -135,15 +133,13 @@ class InferenceProviderSelector:
                 selected_general_class
             )
         except ValueError as e:  # Catch instantiation errors from _get_or_create...
-            logging_utility.error(
-                f"Provider selection failed for model '{model_id}': {e}"
-            )
+            LOG.error(f"Provider selection failed for model '{model_id}': {e}")
             # Re-raise the ValueError caught from the internal method
             raise ValueError(
                 f"Handler instantiation failed for model '{model_id}'"
             ) from e
         except Exception as e:  # Catch unexpected errors
-            logging_utility.error(
+            LOG.error(
                 f"Unexpected error getting handler instance for {selected_general_class.__name__}: {e}",
                 exc_info=True,
             )
@@ -152,7 +148,7 @@ class InferenceProviderSelector:
             ) from e
 
         # Step 5: Return resolved handler and model name (remains the same)
-        logging_utility.info(
+        LOG.info(
             f"Handler selected: '{selected_general_class.__name__}' → Model: '{api_model_name}'"
         )
         return provider_instance, api_model_name

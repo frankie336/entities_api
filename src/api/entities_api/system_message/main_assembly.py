@@ -49,6 +49,11 @@ FILE GENERATION & INTERPRETER:
 • When returning file links, present them as neat, clickable markdown links (e.g.,
   [Example File](http://yourserver/v1/files/download?file_id=...)) to hide raw URLs.
     """.strip(),
+    "ADVANCED_ANALYSIS": """
+1. Always save generated files locally during code execution.
+2. Do not display, preview, or open files in memory.
+3. All generated files must exist as saved files for Base64 encoding.
+""".strip(),
     "VECTOR_SEARCH_COMMANDMENTS": """
 🔹 **VECTOR SEARCH COMMANDMENTS**
 1. Temporal filters use UNIX timestamps (numeric).
@@ -269,8 +274,6 @@ SIMPLE CODE GENERATION DOES NOT USUALLY REQUIRE code_interpreter.
 
 
 # --- Function to Assemble Instructions ---
-
-
 def assemble_instructions(
     include_keys: Optional[list[str]] = None,
     exclude_keys: Optional[list[str]] = None,

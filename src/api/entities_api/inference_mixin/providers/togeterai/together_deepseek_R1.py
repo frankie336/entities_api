@@ -22,17 +22,15 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from entities_api.dependencies import get_redis
-from entities_api.inference_mixin.mixins import (
-    AssistantCacheMixin,
-    CodeExecutionMixin,
-    ConsumerToolHandlersMixin,
-    ConversationContextMixin,
-    FileSearchMixin,
-    JsonUtilsMixin,
-    PlatformToolHandlersMixin,
-    ShellExecutionMixin,
-    ToolRoutingMixin,
-)
+from entities_api.inference_mixin.mixins import (AssistantCacheMixin,
+                                                 CodeExecutionMixin,
+                                                 ConsumerToolHandlersMixin,
+                                                 ConversationContextMixin,
+                                                 FileSearchMixin,
+                                                 JsonUtilsMixin,
+                                                 PlatformToolHandlersMixin,
+                                                 ShellExecutionMixin,
+                                                 ToolRoutingMixin)
 from entities_api.inference_mixin.orchestrator_core import OrchestratorCore
 
 load_dotenv()
@@ -165,6 +163,10 @@ class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
                 yield p
             self._shunt_to_redis_stream(redis, stream_key, err)
             return
+
+        start_chunk = {"type": "status", "status": "started", "run_id": run_id}
+        yield json.dumps(start_chunk)
+        self._shunt_to_redis_stream(redis, stream_key, start_chunk)
 
         # ── state vars ───────────────────────────────────────────────
         assistant_reply = ""
@@ -312,6 +314,11 @@ class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
                 yield p
             self._shunt_to_redis_stream(redis, stream_key, err)
             return
+
+        # ───── emit “complete”
+        end_chunk = {"type": "status", "status": "complete", "run_id": run_id}
+        yield json.dumps(end_chunk)
+        self._shunt_to_redis_stream(redis, stream_key, end_chunk)
 
         # final bookkeeping
         if assistant_reply:

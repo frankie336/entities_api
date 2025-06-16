@@ -1,5 +1,5 @@
-
 from typing import Optional
+
 from main_assembly import assemble_instructions
 
 # Call the function while excluding specific sections
@@ -7,7 +7,6 @@ from main_assembly import assemble_instructions
 excluded_instructions = assemble_instructions(
     exclude_keys=[
         "TOOL_USAGE_PROTOCOL",
-
     ]
 )
 

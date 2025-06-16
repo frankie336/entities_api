@@ -1,155 +1,308 @@
 # entities_api/inference/deepseek/deepseek_chat_inference.py
-"""
-DeepSeekChatInference
----------------------
-• Async streaming via **AsyncDeepSeekClient** (direct DeepSeek API)
-• Works with *any* DeepSeek model you pass at runtime
-• Re‑uses BaseInference utilities for reasoning, code‑interpreter,
-  function‑calls, cancellation, etc.
-"""
-
 from __future__ import annotations
+
+"""
+DeepSeekChatInference – mixin-driven provider (Hyperbolic-style)
+================================================================
+• Async streaming via **AsyncDeepSeekClient**
+• Emits “started” / “complete” status deltas
+• Buffers <fc> blocks ≤ 80 ms
+• Streams reasoning (<think>) and hot-code
+• Shares the exact mixin/OrchestratorCore contract used by HyperbolicDs1
+"""
 
 import json
 import os
-from abc import ABC
+import re
+import time
 from typing import Any, Generator, Optional
 
 from dotenv import load_dotenv
 from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.inference.base_inference import BaseInference
-from entities_api.inference.deepseek.deepseek_async_client import AsyncDeepSeekClient
+from entities_api.dependencies import get_redis
+from entities_api.inference.deepseek.deepseek_async_client import \
+    AsyncDeepSeekClient
+# ───────── unified mixin stack ──────────────────────────────────────── #
+from entities_api.inference_mixin.mixins import (AssistantCacheMixin,
+                                                 CodeExecutionMixin,
+                                                 ConsumerToolHandlersMixin,
+                                                 ConversationContextMixin,
+                                                 FileSearchMixin,
+                                                 JsonUtilsMixin,
+                                                 PlatformToolHandlersMixin,
+                                                 ShellExecutionMixin,
+                                                 ToolRoutingMixin)
+from entities_api.inference_mixin.orchestrator_core import OrchestratorCore
 from entities_api.utils.async_to_sync import async_to_sync_stream
 
 load_dotenv()
-log = LoggingUtility()
+LOG = LoggingUtility()
 
 
-class DeepSeekChatInference(BaseInference, ABC):
+# ---------- composite class of shared mixins ------------------------- #
+class _ProviderMixins(
+    AssistantCacheMixin,
+    JsonUtilsMixin,
+    ConversationContextMixin,
+    ToolRoutingMixin,
+    PlatformToolHandlersMixin,
+    ConsumerToolHandlersMixin,
+    CodeExecutionMixin,
+    ShellExecutionMixin,
+    FileSearchMixin,
+):
+    """All helper behaviour is inherited from these mixins."""
+
+    pass
+
+
+class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):  # ❶ no BaseInference
     """
-    Generic DeepSeek inference class – handles every DeepSeek model
-    (“deepseek-chat”, “deepseek-reasoner”, DeepSeek‑R1/V3, …).
+    Generic DeepSeek provider that follows the same streaming contract
+    as HyperbolicDs1 while keeping the async DeepSeek client.
     """
 
     # ------------------------------------------------------------------ #
-    # Provider‑specific boot‑strap (optional)
+    # Init
     # ------------------------------------------------------------------ #
-    def setup_services(self) -> None:  # noqa: D401
-        log.debug("DeepSeekChatInference services initialised (noop).")
+    def __init__(
+        self,
+        *,
+        assistant_id: str | None = None,
+        thread_id: str | None = None,
+        redis=None,
+        api_key: str | None = None,
+        assistant_cache: dict | None = None,
+        **extra,
+    ) -> None:
+        self._assistant_cache = assistant_cache or {}
+        self.redis = redis or get_redis()
+        self.assistant_id = assistant_id
+        self.thread_id = thread_id
+        self.api_key = api_key
+
+        self.model_name = extra.get("model_name", "deepseek-ai/DeepSeek-V3")
+        self.max_context_window = extra.get("max_context_window", 128_000)
+        self.threshold_percentage = extra.get("threshold_percentage", 0.8)
+
+        self.setup_services()  # from mixins / OrchestratorCore
+        LOG.debug(
+            "DeepSeekChatInference ready (assistant=%s)", assistant_id or "<lazy>"
+        )
 
     # ------------------------------------------------------------------ #
-    # 1)  Main streaming generator
+    # assistant_cache property required by AssistantCacheMixin
     # ------------------------------------------------------------------ #
-    def stream(
+    @property
+    def assistant_cache(self) -> dict:
+        return self._assistant_cache
+
+    @assistant_cache.setter
+    def assistant_cache(self, value: dict) -> None:
+        if hasattr(self, "_assistant_cache"):
+            raise AttributeError("assistant_cache already initialised")
+        self._assistant_cache = value
+
+    def get_assistant_cache(self) -> dict:
+        return self._assistant_cache
+
+    # ------------------------------------------------------------------ #
+    # Helper: drop function_call payloads from UI stream
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _filter_fc(chunk_json: str) -> Optional[str]:
+        try:
+            if json.loads(chunk_json).get("type") == "function_call":
+                return None
+        except Exception:  # noqa: BLE001
+            pass
+        return chunk_json
+
+    # ------------------------------------------------------------------ #
+    # Main streaming generator (Hyperbolic-style)
+    # ------------------------------------------------------------------ #
+    def stream(  # noqa: PLR0915, PLR0912
         self,
         thread_id: str,
         message_id: str,
         run_id: str,
         assistant_id: str,
         model: Any,
+        *,
         stream_reasoning: bool = True,
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
-        """
-        Yields JSON event chunks identical to the other *Inference classes.
-        """
 
-        # ---------- cancellation listener ----------------------------- #
         self.start_cancellation_listener(run_id)
+        redis = get_redis()
+        stream_key = f"stream:{run_id}"
 
-        # ---------- canonical model map (if user sent vendor prefix) --- #
-        if self._get_model_map(value=model):
-            model = self._get_model_map(value=model)
+        # canonical model mapping
+        if mapped := self._get_model_map(model):
+            model = mapped
 
-        # ---------- fetch context window ------------------------------ #
+        # build context window
         messages = self._set_up_context_window(assistant_id, thread_id, trunk=True)
 
-        # ---------- client init --------------------------------------- #
+        # DeepSeek client
+        api_key = api_key or self.api_key
         if not api_key:
-            err = f"Run {run_id}: DeepSeek API key missing."
-            log.error(err)
-            yield json.dumps({"type": "error", "content": err})
+            err = {
+                "type": "error",
+                "content": f"Run {run_id}: DeepSeek API key missing",
+            }
+            yield json.dumps(err)
+            self._shunt_to_redis_stream(redis, stream_key, err)
             return
 
-        base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
-        client = AsyncDeepSeekClient(api_key=api_key, base_url=base_url)
+        client = AsyncDeepSeekClient(
+            api_key=api_key,
+            base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
+        )
 
-        assistant_reply: str = ""
-        accumulated: str = ""
-        reasoning: str = ""
-        in_reasoning, code_mode = False, False
-        code_buf: str = ""
+        # ───── emit “started” status
+        start_chunk = {"type": "status", "status": "started", "run_id": run_id}
+        yield json.dumps(start_chunk)
+        self._shunt_to_redis_stream(redis, stream_key, start_chunk)
 
+        # ───── state
+        assistant_reply = accumulated = reasoning_buf = ""
+        partial_tag = ""
+        fc_buffer: list[str] = []
+        in_reasoning = in_function_call = code_mode = False
+        code_buf = ""
+        tag_re = re.compile(r"(<think>|</think>|<fc>|</fc>)")
+
+        FLUSH_MS = 80
+        last_fc_ts = time.monotonic()
+
+        def _flush_fc():
+            nonlocal fc_buffer, last_fc_ts
+            if not fc_buffer:
+                return
+            content = "".join(fc_buffer)
+            payload_fc = {"type": "content", "content": content}
+            self._shunt_to_redis_stream(redis, stream_key, payload_fc)
+            if p := self._filter_fc(json.dumps(payload_fc)):
+                yield p  # type: ignore
+            fc_buffer.clear()
+            last_fc_ts = time.monotonic()
+
+        # ───── async->sync bridge
         try:
             async_stream = client.stream_chat_completion(
                 prompt_or_messages=messages,
                 model=model,
                 temperature=0.6,
                 top_p=0.9,
-                max_tokens=None,
             )
 
-            # bridge async SSE → sync generator
             for token in async_to_sync_stream(async_stream):
+
+                # cancellation check
                 if self.check_cancellation_flag():
-                    log.warning(f"Run {run_id} cancelled mid‑stream")
-                    yield json.dumps({"type": "error", "content": "Run cancelled"})
+                    err = {"type": "error", "content": "Run cancelled"}
+                    if p := self._filter_fc(json.dumps(err)):
+                        yield p
+                    self._shunt_to_redis_stream(redis, stream_key, err)
                     break
 
-                # ---------- split reasoning tags, if any --------------- #
-                segments = (
-                    self.REASONING_PATTERN.split(token)
-                    if hasattr(self, "REASONING_PATTERN")
-                    else [token]
-                )
-                for seg in segments:
-                    if not seg:
-                        continue
+                if not token:
+                    continue
+                raw = token
 
+                # normalise tags
+                cleaned = (
+                    raw.replace("[content]", "")
+                    .replace("<fc ", "<fc>")
+                    .replace("</ fc>", "</fc>")
+                )
+                cleaned = re.sub(r"<fc\s*>", "<fc>", cleaned, flags=re.I)
+                cleaned = re.sub(r"</fc\s*>", "</fc>", cleaned, flags=re.I)
+                cleaned = re.sub(r"<think\s*>", "<think>", cleaned, flags=re.I)
+                cleaned = re.sub(r"</think\s*>", "</think>", cleaned, flags=re.I)
+
+                piece = partial_tag + cleaned
+                partial_tag = ""
+
+                segs, last = [], 0
+                for m in tag_re.finditer(piece):
+                    if last < m.start():
+                        segs.append(piece[last : m.start()])
+                    segs.append(m.group())
+                    last = m.end()
+                segs.append(piece[last:])
+
+                for seg in segs:
+                    if seg.startswith("<") and not tag_re.fullmatch(seg):
+                        partial_tag = seg
+                        break
+
+                    # <think>
                     if seg == "<think>":
                         in_reasoning = True
-                        reasoning += seg
                         if stream_reasoning:
-                            yield json.dumps({"type": "reasoning", "content": seg})
+                            msg = {"type": "reasoning", "content": seg}
+                            if p := self._filter_fc(json.dumps(msg)):
+                                yield p
+                            self._shunt_to_redis_stream(redis, stream_key, msg)
                         continue
                     if seg == "</think>":
                         in_reasoning = False
-                        reasoning += seg
                         if stream_reasoning:
-                            yield json.dumps({"type": "reasoning", "content": seg})
+                            msg = {"type": "reasoning", "content": seg}
+                            if p := self._filter_fc(json.dumps(msg)):
+                                yield p
+                            self._shunt_to_redis_stream(redis, stream_key, msg)
                         continue
 
-                    # Reasoning branch
+                    # <fc>
+                    if seg == "<fc>":
+                        in_function_call = True
+                        fc_buffer = []
+                        last_fc_ts = time.monotonic()
+                        continue
+                    if seg == "</fc>":
+                        in_function_call = False
+                        yield from _flush_fc()
+                        continue
+
+                    # inside <fc>
+                    if in_function_call:
+                        fc_buffer.append(seg)
+                        last_fc_ts = time.monotonic()
+                        continue
+
+                    # inside reasoning
                     if in_reasoning:
-                        reasoning += seg
+                        reasoning_buf += seg
                         if stream_reasoning:
-                            yield json.dumps({"type": "reasoning", "content": seg})
+                            msg = {"type": "reasoning", "content": seg}
+                            if p := self._filter_fc(json.dumps(msg)):
+                                yield p
+                            self._shunt_to_redis_stream(redis, stream_key, msg)
                         continue
 
-                    # Visible assistant text
+                    # code-interpreter detection
                     assistant_reply += seg
                     accumulated += seg
-
-                    # --- code‑interpreter hot‑path -------------------- #
-                    partial_match = (
+                    partial_ci = (
                         self.parse_code_interpreter_partial(accumulated)
-                        if hasattr(self, "parse_code_interpreter_partial")
+                        if not code_mode
                         else None
                     )
 
-                    if not code_mode and partial_match:
-                        # a full ```python …``` block just finished
-                        full = partial_match.get("full_match")
-                        if full and full in accumulated:
-                            accumulated = accumulated.split(full, 1)[-1]
-
+                    if partial_ci:
                         code_mode = True
-                        code_buf = partial_match.get("code", "")
-                        self.code_mode = True
-                        yield json.dumps({"type": "hot_code", "content": "```python\n"})
+                        code_buf = partial_ci["code"]
+                        start_hot = {"type": "hot_code", "content": "```python\n"}
+                        if p := self._filter_fc(json.dumps(start_hot)):
+                            yield p
+                        self._shunt_to_redis_stream(redis, stream_key, start_hot)
 
+                        # prime existing buffer
                         if code_buf and hasattr(
                             self, "_process_code_interpreter_chunks"
                         ):
@@ -157,103 +310,85 @@ class DeepSeekChatInference(BaseInference, ABC):
                                 "", code_buf
                             )
                             for r in res:
-                                yield r
-                                assistant_reply += (
-                                    r
-                                    if isinstance(r, str)
-                                    else json.loads(r)["content"]
+                                if p := self._filter_fc(r):
+                                    yield p
+                                self._shunt_to_redis_stream(
+                                    redis, stream_key, json.loads(r)
                                 )
                         continue
 
                     if code_mode:
-                        if hasattr(self, "_process_code_interpreter_chunks"):
-                            res, code_buf = self._process_code_interpreter_chunks(
-                                seg, code_buf
+                        res, code_buf = self._process_code_interpreter_chunks(
+                            seg, code_buf
+                        )
+                        for r in res:
+                            if p := self._filter_fc(r):
+                                yield p
+                            self._shunt_to_redis_stream(
+                                redis, stream_key, json.loads(r)
                             )
-                            for r in res:
-                                yield r
-                                assistant_reply += (
-                                    r
-                                    if isinstance(r, str)
-                                    else json.loads(r).get("content", "")
-                                )
-                        else:
-                            yield json.dumps({"type": "hot_code", "content": seg})
                         continue
 
-                    # normal text token
-                    if not code_buf:
-                        yield json.dumps({"type": "content", "content": seg})
+                    # plain content
+                    msg = {"type": "content", "content": seg}
+                    if p := self._filter_fc(json.dumps(msg)):
+                        yield p
+                    self._shunt_to_redis_stream(redis, stream_key, msg)
 
-        except Exception as exc:  # pylint: disable=broad-except
-            msg = f"DeepSeek client error: {exc}"
-            log.error(msg, exc_info=True)
-            if hasattr(self, "handle_error"):
-                self.handle_error(
-                    reasoning + assistant_reply, thread_id, assistant_id, run_id
-                )
-            yield json.dumps({"type": "error", "content": msg})
+                # idle flush for <fc>
+                if (
+                    in_function_call
+                    and fc_buffer
+                    and (time.monotonic() - last_fc_ts) * 1000 > FLUSH_MS
+                ):
+                    yield from _flush_fc()
+
+        except Exception as exc:  # noqa: BLE001
+            err = {"type": "error", "content": f"DeepSeek SDK error: {exc}"}
+            if p := self._filter_fc(json.dumps(err)):
+                yield p
+            self._shunt_to_redis_stream(redis, stream_key, err)
             return
 
-        # ---------- conversation bookkeeping -------------------------- #
-        if assistant_reply and hasattr(self, "finalize_conversation"):
+        # ───── emit “complete”
+        end_chunk = {"type": "status", "status": "complete", "run_id": run_id}
+        yield json.dumps(end_chunk)
+        self._shunt_to_redis_stream(redis, stream_key, end_chunk)
+
+        # ───── bookkeeping
+        if assistant_reply:
             self.finalize_conversation(
-                reasoning + assistant_reply, thread_id, assistant_id, run_id
+                reasoning_buf + assistant_reply, thread_id, assistant_id, run_id
             )
 
-        function_call = (
-            self.parse_and_set_function_calls(accumulated, assistant_reply)
-            if accumulated and hasattr(self, "parse_and_set_function_calls")
-            else False
-        )
-
-        if function_call:
-            self.run_service.update_run_status(
-                run_id, ValidationInterface.StatusEnum.pending_action
-            )
-
-        if (
-            hasattr(self, "run_service")
-            and hasattr(ValidationInterface, "StatusEnum")
-            and not self.get_function_call_state()
+        if accumulated and self.parse_and_set_function_calls(
+            accumulated, assistant_reply
         ):
-            self.run_service.update_run_status(
-                run_id, ValidationInterface.StatusEnum.completed
+            self.project_david_client.runs.update_run_status(
+                run_id, ValidationInterface.StatusEnum.pending_action  # type: ignore[attr-defined]
+            )
+        elif not self.get_function_call_state():
+            self.project_david_client.runs.update_run_status(
+                run_id, ValidationInterface.StatusEnum.completed  # type: ignore[attr-defined]
             )
 
-        if reasoning:
-            log.info(f"Run {run_id}: reasoning tokens = {len(reasoning)}")
-
     # ------------------------------------------------------------------ #
-    # 2)  Function‑calls & helper wrappers
+    # Conversation orchestrator wrapper
     # ------------------------------------------------------------------ #
-    def stream_function_call_output(self, *args, **kwargs):
-        """
-        Wrapper so BaseInference can call our `.stream()` instead of its own.
-        """
-        return super().stream_function_call_output(*args, stream=self.stream, **kwargs)
-
-    def process_function_calls(self, *args, **kwargs):
-        return super().process_function_calls(*args, **kwargs)
-
-    # ---------- custom conversation wrapper -------------------------- #
     def process_conversation(  # noqa: PLR0913
         self,
-        thread_id,
-        message_id,
-        run_id,
-        assistant_id,
-        model,
-        stream_reasoning=False,
+        thread_id: str,
+        message_id: str,
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        *,
+        stream_reasoning: bool = False,
         api_key: Optional[str] = None,
-        **kwargs,
-    ):
-        """
-        Custom wrapper that *does not* forward `api_key` to BaseInference
-        (it doesn’t know about that kwarg).  We handle the pipeline locally.
-        """
-        # initial stream
-        for chunk in self.stream(
+    ) -> Generator[str, None, None]:
+
+        # primary stream
+        yield from self.stream(
             thread_id=thread_id,
             message_id=message_id,
             run_id=run_id,
@@ -261,15 +396,10 @@ class DeepSeekChatInference(BaseInference, ABC):
             model=model,
             stream_reasoning=stream_reasoning,
             api_key=api_key,
-        ):
-            yield chunk
+        )
 
-        # function‑call round‑trip
-        for chunk in self.process_function_calls(
-            thread_id=thread_id,
-            run_id=run_id,
-            assistant_id=assistant_id,
-            model=model,
-            api_key=api_key,
-        ):
-            yield chunk
+        # follow-up function call pass
+        if self.get_function_call_state():
+            yield from self.process_function_calls(
+                thread_id, run_id, assistant_id, model=model, api_key=api_key
+            )

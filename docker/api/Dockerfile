@@ -13,6 +13,9 @@ FROM base AS unhashed_builder
 
 COPY api_unhashed_reqs.txt .
 
+# add opencv-python-headless so Ultralytics won’t pull cv2 with libGL
+RUN echo "opencv-python-headless" >> api_unhashed_reqs.txt
+
 RUN pip install \
     --prefix=/install/packages \
     --no-cache-dir \
@@ -38,9 +41,11 @@ RUN pip install \
 FROM python:3.11-slim AS runtime
 WORKDIR /app
 
-# Minimal OS deps  (added libmagic1 for python-magic)
+# Minimal OS deps (+ libgl1 + libglib2.0-0 for any future OpenCV GUI calls)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --no-install-suggests \
+        libgl1 \
+        libglib2.0-0 \
         libmagic1 \
         firejail \
         supervisor \

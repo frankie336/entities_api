@@ -3,15 +3,26 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Generator, List
 
-from entities_api.ptool_handlers.computer.shell_command_interface import (
-    run_shell_commands,
-)
+from entities_api.ptool_handlers.computer.shell_command_interface import \
+    run_shell_commands
 from entities_api.services.logging_service import LoggingUtility
+
+# ---------------------------------------------------------------------------
+# Unified mixins module with explicit **status** chunks injected
+# ---------------------------------------------------------------------------
+# - ShellExecutionMixin (NEW): now emits "started" and "complete" status
+#   wrapper chunks so the UI can track lifecycle just like code execution.
+# ---------------------------------------------------------------------------
 
 LOG = LoggingUtility()
 
 
+# ===========================================================================
+# ShellExecutionMixin – now with status chunks
+# ===========================================================================
 class ShellExecutionMixin:
+    """Executes POSIX‑style shell commands inside the Project‑David sandbox."""
+
     def handle_shell_action(
         self,
         thread_id: str,
@@ -20,142 +31,92 @@ class ShellExecutionMixin:
         arguments_dict: Dict[str, Any],
     ) -> Generator[str, None, None]:
 
-        LOG.info(
-            "ShellExecutionMixin: handle_shell_action started for run_id: %s, thread_id: %s. Args: %s",
-            run_id,
-            thread_id,
-            arguments_dict,
+        LOG.info("ShellExecutionMixin: started for run_id=%s", run_id)
+
+        # ── Emit *started* status ────────────────────────────────────────────
+        yield json.dumps(
+            {
+                "stream_type": "computer_execution",
+                "chunk": {"type": "status", "status": "started", "run_id": run_id},
+            }
         )
 
         action_tool_name = "computer"
-
         action = self.project_david_client.actions.create_action(  # type: ignore[attr-defined]
             tool_name=action_tool_name, run_id=run_id, function_args=arguments_dict
-        )
-        LOG.debug(
-            "ShellExecutionMixin: Action created for tool '%s', run_id: %s, action_id: %s",
-            action_tool_name,
-            run_id,
-            getattr(action, "id", "N/A"),
         )
 
         commands: List[str] = arguments_dict.get("commands", [])
         if not commands:
-            LOG.warning(
-                "ShellExecutionMixin: No commands provided for run_id: %s", run_id
-            )
-            # Yield an error message or handle as appropriate
-            no_command_message = "[No shell commands provided to execute.]"
-            yield json.dumps(
-                {"type": "computer_output", "content": no_command_message}
-            )  # Use a specific type
-
+            no_cmd_msg = "[No shell commands provided to execute.]"
+            yield json.dumps({"type": "computer_output", "content": no_cmd_msg})
             self.project_david_client.messages.submit_tool_output(  # type: ignore[attr-defined]
                 thread_id=thread_id,
                 assistant_id=assistant_id,
-                content=no_command_message,
+                content=no_cmd_msg,
                 action=action,
+            )
+            # ── Emit *complete* even though nothing happened — contracts expect closure.
+            yield json.dumps(
+                {
+                    "stream_type": "computer_execution",
+                    "chunk": {"type": "status", "status": "complete", "run_id": run_id},
+                }
             )
             return
 
         accumulated_content = ""
         chunk_count = 0
 
-        LOG.info(
-            "ShellExecutionMixin: About to call run_shell_commands for run_id: %s with commands: %s",
-            run_id,
-            commands,
-        )
         try:
             for chunk in run_shell_commands(commands, thread_id=thread_id):
                 chunk_count += 1
-                LOG.debug(
-                    "ShellExecutionMixin: Received chunk #%d from run_shell_commands for run_id: %s. Chunk: %s",
-                    chunk_count,
-                    run_id,
-                    chunk[:200],  # Log first 200 chars
-                )
-
                 accumulated_content += chunk
-                LOG.debug(
-                    "ShellExecutionMixin: Yielding chunk #%d for run_id: %s",
-                    chunk_count,
-                    run_id,
-                )
-                yield chunk
-            LOG.info(
-                "ShellExecutionMixin: Finished iterating run_shell_commands for run_id: %s. Total chunks: %d",
-                run_id,
-                chunk_count,
-            )
-
+                yield chunk  # Already a JSON wrapper produced by run_shell_commands
         except Exception as e_run_shell:
-            # Catch any error from run_shell_commands itself
-            LOG.error(
-                "ShellExecutionMixin: Error during run_shell_commands for run_id: %s. Error: %s",
-                run_id,
-                e_run_shell,
-                exc_info=True,
-            )
-            error_message = f"Error during shell command execution: {e_run_shell}"
-            # Yield an error chunk to the UI
+            err_msg = f"Error during shell command execution: {e_run_shell}"
             yield json.dumps(
                 {
-                    "type": "error",
-                    "content": error_message,
                     "stream_type": "computer_execution",
-                }
-            )  # Or a more specific error structure
-            # Submit error to assistant
-            self.submit_tool_output(  # type: ignore[attr-defined]
-                thread_id=thread_id,
-                assistant_id=assistant_id,
-                content=error_message,
-                action=action,
-            )
-            return  # Stop further processing
-
-        if (
-            not accumulated_content and chunk_count == 0
-        ):  # Check if any chunks were processed
-            LOG.warning(
-                "ShellExecutionMixin: No output generated by run_shell_commands for run_id: %s.",
-                run_id,
-            )
-            error_message = "No computer output was generated. The command may have failed silently or produced no output."
-            # Yield a message to UI
-            yield json.dumps(
-                {
-                    "type": "computer_output",
-                    "content": error_message,
-                    "stream_type": "computer_execution",
+                    "chunk": {"type": "error", "content": err_msg},
                 }
             )
             self.submit_tool_output(  # type: ignore[attr-defined]
                 thread_id=thread_id,
                 assistant_id=assistant_id,
-                content=error_message,
+                content=err_msg,
+                action=action,
+            )
+            return
+
+        if not accumulated_content:
+            no_out_msg = "No computer output was generated. The command may have failed silently or produced no output."
+            yield json.dumps(
+                {
+                    "stream_type": "computer_execution",
+                    "chunk": {"type": "computer_output", "content": no_out_msg},
+                }
+            )
+            self.submit_tool_output(  # type: ignore[attr-defined]
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                content=no_out_msg,
+                action=action,
+            )
+        else:
+            self.submit_tool_output(  # type: ignore[attr-defined]
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                content=accumulated_content.strip(),
                 action=action,
             )
 
-            LOG.error(
-                "ShellExecutionMixin: Raising RuntimeError for run_id %s due to no output.",
-                run_id,
-            )
-            # raise RuntimeError(error_message) # Uncomment if strict error propagation is needed
-            return  # Or just return to allow other stream parts to complete
+        # ── Emit *complete* status ───────────────────────────────────────────
+        yield json.dumps(
+            {
+                "stream_type": "computer_execution",
+                "chunk": {"type": "status", "status": "complete", "run_id": run_id},
+            }
+        )
 
-        LOG.info(
-            "ShellExecutionMixin: Submitting final accumulated shell output for run_id: %s. Length: %d",
-            run_id,
-            len(accumulated_content),
-        )
-        self.submit_tool_output(  # type: ignore[attr-defined]
-            thread_id=thread_id,
-            assistant_id=assistant_id,
-            content=accumulated_content.strip(),  # Strip whitespace from final output
-            action=action,
-        )
-        LOG.info(
-            "ShellExecutionMixin: handle_shell_action finished for run_id: %s", run_id
-        )
+        LOG.info("ShellExecutionMixin: finished for run_id=%s", run_id)
