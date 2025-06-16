@@ -1,3 +1,16 @@
+# [1.16.0](https://github.com/frankie336/entities_api/compare/v1.15.1...v1.16.0) (2025-06-16)
+
+
+### Bug Fixes
+
+* --Integrate mixins architecture. This major upgrade splits the original base class into a series of smaller mixin classes for better maintainability and less cognitive load. ([80e54ca](https://github.com/frankie336/entities_api/commit/80e54caacecbb7276009639f40fa05deca2fb38f))
+
+
+### Features
+
+* --Integrate mixins architecture. This major upgrade splits the original base class into a series of smaller mixin classes for better maintainability and less cognitive load. ([d02411b](https://github.com/frankie336/entities_api/commit/d02411b0d2aa0c322bdd4a655c713b146bb0b1ac))
+* Restore function call processing in the hyperbolicDs1 class. Function calls json objects can now be suppressed. Improve Mixin Architecture. ([c9a5b1b](https://github.com/frankie336/entities_api/commit/c9a5b1b40301db6e051608788b0e0fec88c85f35))
+
 ## [1.15.1](https://github.com/frankie336/entities_api/compare/v1.15.0...v1.15.1) (2025-05-25)
 
 
