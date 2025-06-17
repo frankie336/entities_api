@@ -1,3 +1,10 @@
+# [1.18.0](https://github.com/frankie336/entities_api/compare/v1.17.0...v1.18.0) (2025-06-17)
+
+
+### Features
+
+* Release. ([cf082d0](https://github.com/frankie336/entities_api/commit/cf082d09aaee97ef7bd56384e06142ebf1af96f3))
+
 # [1.17.0](https://github.com/frankie336/entities_api/compare/v1.16.0...v1.17.0) (2025-06-16)
 
 
