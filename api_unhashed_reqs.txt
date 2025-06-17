@@ -12,7 +12,7 @@ websockets==15.0.1
 transformers>=4.33.0,<5.0.0
 # ------------------------------------------------------------------
 # Internal packages
-projectdavid==1.33.13
+projectdavid==1.33.23
 projectdavid_common==0.17.2
 
 

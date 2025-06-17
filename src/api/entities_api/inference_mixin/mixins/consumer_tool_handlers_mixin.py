@@ -113,9 +113,7 @@ class ConsumerToolHandlersMixin:
     ) -> None:
         """Logs, surfaces, and propagates errors."""
         error_payload = self._format_error_payload(exc, SURFACE_TRACEBACK)
-        LOG.error(
-            "Tool error [action=%s]: %s", action.id, error_payload, exc_info=True
-        )
+        LOG.error("Tool error [action=%s]: %s", action.id, error_payload, exc_info=True)
         self.submit_tool_output(
             thread_id=thread_id,
             assistant_id=assistant_id,
