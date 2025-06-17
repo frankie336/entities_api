@@ -121,7 +121,7 @@ class ConsumerToolHandlersMixin:
             action=action,
             is_error=True,
         )
-        raise exc  # Propagate for upstream metrics/retries
+        raise exc
 
     # ------------------------------------------------------------------ #
     # Generic Tool-Call Lifecycle                                        #
