@@ -106,19 +106,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
         return self._assistant_cache
 
     # ------------------------------------------------------------------ #
-    # helper – suppress provider-labelled JSON function calls **only**
-    # ------------------------------------------------------------------ #
-    @staticmethod
-    def _filter_fc(chunk_json: str) -> Optional[str]:
-        try:
-            if json.loads(chunk_json).get("type") == "function_call":
-                return None
-        except Exception:  # malformed → pass through
-            pass
-        return chunk_json
-
-    # ------------------------------------------------------------------ #
-    # streaming loop (raw pass-through, Llama-3 style)
+    # streaming loop
     # ------------------------------------------------------------------ #
     def stream(
         self,
@@ -128,12 +116,12 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
         assistant_id: str,
         model: Any,
         *,
-        stream_reasoning: bool = True,  # retained for API parity; unused here
+        stream_reasoning: bool = True,
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
         redis = get_redis()
         stream_key = f"stream:{run_id}"
-        self.start_cancellation_listener(run_id)
+        stop_event = self.start_cancellation_monitor(run_id)
 
         if mapped := self._get_model_map(model):
             model = mapped
@@ -153,9 +141,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
             "stream": True,
         }
 
-        # ------------------------------------------------------------------ #
-        # emit “started” so UI shows Stop button instantly
-        # ------------------------------------------------------------------ #
+        # Emit "started" so UI shows Stop button
         start_chunk = {"type": "status", "status": "started", "run_id": run_id}
         yield json.dumps(start_chunk)
         self._shunt_to_redis_stream(redis, stream_key, start_chunk)
@@ -164,7 +150,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
             client = self._get_openai_client(
                 base_url=os.getenv("HYPERBOLIC_BASE_URL"), api_key=api_key
             )
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             err = {"type": "error", "content": f"client init failed: {exc}"}
             yield json.dumps(err)
             self._shunt_to_redis_stream(redis, stream_key, err)
@@ -176,11 +162,9 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
 
         try:
             for token in client.chat.completions.create(**payload):
-                # cancellation check
-                if self.check_cancellation_flag():
+                if stop_event.is_set():
                     err = {"type": "error", "content": "Run cancelled"}
-                    if p := self._filter_fc(json.dumps(err)):
-                        yield p
+                    yield json.dumps(err)
                     self._shunt_to_redis_stream(redis, stream_key, err)
                     break
 
@@ -191,7 +175,6 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                 if not seg:
                     continue
 
-                # ----- hot-code / code-interpreter detection --------------
                 assistant_reply += seg
                 accumulated += seg
 
@@ -202,8 +185,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                     code_mode = True
                     code_buf = ci_match.get("code", "")
                     start = {"type": "hot_code", "content": "```python\n"}
-                    if p := self._filter_fc(json.dumps(start)):
-                        yield p
+                    yield json.dumps(start)
                     self._shunt_to_redis_stream(redis, stream_key, start)
 
                     if code_buf and hasattr(self, "_process_code_interpreter_chunks"):
@@ -211,8 +193,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                             "", code_buf
                         )
                         for r in res:
-                            if p := self._filter_fc(r):
-                                yield p
+                            yield r
                             self._shunt_to_redis_stream(
                                 redis, stream_key, json.loads(r)
                             )
@@ -224,39 +205,30 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                             seg, code_buf
                         )
                         for r in res:
-                            if p := self._filter_fc(r):
-                                yield p
+                            yield r
                             self._shunt_to_redis_stream(
                                 redis, stream_key, json.loads(r)
                             )
                     else:
                         hot = {"type": "hot_code", "content": seg}
-                        if p := self._filter_fc(json.dumps(hot)):
-                            yield p
+                        yield json.dumps(hot)
                         self._shunt_to_redis_stream(redis, stream_key, hot)
                     continue
 
-                # ----- plain content --------------------------------------
                 msg = {"type": "content", "content": seg}
-                if p := self._filter_fc(json.dumps(msg)):
-                    yield p
+                yield json.dumps(msg)
                 self._shunt_to_redis_stream(redis, stream_key, msg)
 
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             err = {"type": "error", "content": f"Hyperbolic SDK error: {exc}"}
-            if p := self._filter_fc(json.dumps(err)):
-                yield p
+            yield json.dumps(err)
             self._shunt_to_redis_stream(redis, stream_key, err)
             return
 
-        # ------------------------------------------------------------------ #
-        # emit “complete” so UI hides Stop button
-        # ------------------------------------------------------------------ #
         end_chunk = {"type": "status", "status": "complete", "run_id": run_id}
         yield json.dumps(end_chunk)
         self._shunt_to_redis_stream(redis, stream_key, end_chunk)
 
-        # ---- bookkeeping & tool state ------------------------------------
         if assistant_reply:
             self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
 

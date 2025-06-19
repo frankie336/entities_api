@@ -13,6 +13,7 @@ import json
 import os
 import threading
 import time
+from threading import Event, Thread
 from typing import Callable, Generator, Optional
 
 import redis as redis_py
@@ -33,42 +34,28 @@ class StreamingMixin:
     # ------------------------------------------------------------------ #
     _cancelled: bool = False
 
-    def start_cancellation_listener(self, run_id: str, poll_interval: float = 1.0):
+    def start_cancellation_monitor(self, run_id: str, interval: float = 1.0) -> Event:
         """
-        Spawns a *daemon* thread that flips `self._cancelled`
-        whenever a “cancelled” event appears in the run table.
+        Spawns a daemon thread that watches the run status via the SDK.
+        If the run is marked `cancelled`, we flip an Event flag.
+        Returns the Event instance to be shared with the streaming loop.
         """
-        from projectdavid import Entity
+        stop_event = Event()
 
-        from entities_api.services.event_handler import EntitiesEventHandler
+        def monitor():
+            while not stop_event.is_set():
+                try:
+                    run = self.project_david_client.runs.get_run(run_id)
+                    if run.status == "cancelled":
+                        LOG.warning("Run %s was cancelled via API.", run_id)
+                        stop_event.set()
+                        break
+                except Exception as e:
+                    LOG.warning("Cancellation monitor error: %s", e)
+                time.sleep(interval)
 
-        if getattr(self, "_cancellation_thread", None):
-            if self._cancellation_thread.is_alive():  # type: ignore[attr-defined]
-                return
-
-        pd_client = Entity(
-            api_key=os.getenv("ADMIN_API_KEY"),
-            base_url=os.getenv("BASE_URL"),
-        )
-
-        def handle(evt_type, _):
-            return evt_type == "cancelled"
-
-        def loop():
-            handler = EntitiesEventHandler(
-                run_service=pd_client.runs,
-                action_service=pd_client.actions,
-                event_callback=handle,
-            )
-            while not self._cancelled:
-                if handler._emit_event("cancelled", run_id):
-                    self._cancelled = True
-                    LOG.info("Run %s was cancelled by user", run_id)
-                    break
-                time.sleep(poll_interval)
-
-        self._cancellation_thread = threading.Thread(target=loop, daemon=True)
-        self._cancellation_thread.start()
+        Thread(target=monitor, daemon=True).start()
+        return stop_event
 
     def check_cancellation_flag(self) -> bool:
         return self._cancelled

@@ -81,7 +81,7 @@ class ConsumerToolHandlersMixin:
             )
 
     # ------------------------------------------------------------------ #
-    # Error Formatting & Propagation                                    #
+    # Error Formatting & Propagation                                     #
     # ------------------------------------------------------------------ #
     def _format_error_payload(
         self, exc: Exception, include_traceback: bool = False

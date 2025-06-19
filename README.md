@@ -8,13 +8,28 @@
 ![Entities Emblem](https://raw.githubusercontent.com/frankie336/entities_api/master/assets/entities_emblem_green.png)
 ---
 
-## ⚙️ Bootstrap Setup
-
-For a full admin setup and assistant provisioning guide, see:
-
-👉 [`docs/boot_strap_guide.md`](/docs/boot_strap_guide.md)
 
 ---
+## Build Quick Start
+
+You can  start all API infrastructure and dependencies in three easy steps:
+
+1  Build the docker containers in your development or production machine  
+2. Run the basic admin bootstrap script to provision your admin credentials 
+3. Run the bootstrap script to provision your first consumer user
+
+
+[**Please follow the detailed steps here.**](https://github.com/frankie336/entities_api/blob/master/docs/boot_strap_guide.md)
+
+## Inferece Quick Start 
+
+The Entites API use cases an entpoints are exnesive. That
+being said, please find a basic inference quick start example here: 
+
+[**Inference Quick Start**](https://github.com/frankie336/projectdavid/#quick-Start)
+
+---
+
 The **Entities API** is for developing projects that interact with LLMs.  
 It aggregates inference calls to multiple providers as well as local using the [Ollama](https://github.com/ollama) library.
 
