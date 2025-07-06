@@ -1,3 +1,10 @@
+## [1.18.1](https://github.com/frankie336/entities_api/compare/v1.18.0...v1.18.1) (2025-07-06)
+
+
+### Bug Fixes
+
+* update_assistant association issues. ([d57bf31](https://github.com/frankie336/entities_api/commit/d57bf3142245c47fb3969d7b92c42f37c43077d6))
+
 # [1.18.0](https://github.com/frankie336/entities_api/compare/v1.17.0...v1.18.0) (2025-06-17)
 
 
