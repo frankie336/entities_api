@@ -8,12 +8,9 @@ from fastapi.security import APIKeyHeader
 from redis.asyncio import Redis
 from sqlalchemy.orm import Session
 
-from entities_api.services.cached_assistant import AssistantCache
-
-from .db.database import SessionLocal
-from .models.models import ApiKey, User
-
-# ─── Database ────────────────────────────────────────────────────────────────
+from src.api.entities_api.db.database import SessionLocal
+from src.api.entities_api.models.models import ApiKey, User
+from src.api.entities_api.services.cached_assistant import AssistantCache
 
 
 def get_db() -> Session:
@@ -24,8 +21,6 @@ def get_db() -> Session:
     finally:
         db.close()
 
-
-# ─── API Key Auth ────────────────────────────────────────────────────────────
 
 API_KEY_NAME = "X-API-Key"
 _api_key_scheme = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
@@ -41,7 +36,6 @@ async def get_api_key(
             detail="Missing API Key in 'X-API-Key' header.",
             headers={"WWW-Authenticate": "APIKey"},
         )
-
     prefix = api_key_header[:8]
     if len(api_key_header) <= len(prefix):
         raise HTTPException(
@@ -49,7 +43,6 @@ async def get_api_key(
             detail="Invalid API Key format.",
             headers={"WWW-Authenticate": "APIKey"},
         )
-
     key = (
         db.query(ApiKey)
         .filter(ApiKey.prefix == prefix, ApiKey.is_active.is_(True))
@@ -61,20 +54,16 @@ async def get_api_key(
             detail="Invalid or inactive API Key.",
             headers={"WWW-Authenticate": "APIKey"},
         )
-
     if key.expires_at and key.expires_at < datetime.utcnow():
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="API Key has expired.",
             headers={"WWW-Authenticate": "APIKey"},
         )
-
     return key
 
 
-async def get_current_user(
-    api_key_data: ApiKey = Depends(get_api_key),
-) -> User:
+async def get_current_user(api_key_data: ApiKey = Depends(get_api_key)) -> User:
     if not api_key_data.user:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -82,8 +71,6 @@ async def get_current_user(
         )
     return api_key_data.user
 
-
-# ─── Redis & AssistantCache ─────────────────────────────────────────────────
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
@@ -100,9 +87,7 @@ async def get_redis() -> AsyncGenerator[Redis, None]:
         await client.close()
 
 
-async def get_assistant_cache(
-    redis: Redis = Depends(get_redis),
-) -> AssistantCache:
+async def get_assistant_cache(redis: Redis = Depends(get_redis)) -> AssistantCache:
     """
     Provide an AssistantCache backed by the async Redis client.
     """

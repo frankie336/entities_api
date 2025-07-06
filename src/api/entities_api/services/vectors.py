@@ -10,20 +10,16 @@ from typing import Any, Dict, List, Optional, Union
 from urllib.parse import unquote
 
 from projectdavid_common import UtilsInterface, ValidationInterface
-from sqlalchemy.exc import IntegrityError  # To catch duplicate key errors
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
-# Import specific DB Models
-from entities_api.models.models import Assistant, VectorStore, VectorStoreFile
+from src.api.entities_api.models.models import (Assistant, VectorStore,
+                                                VectorStoreFile)
 
-StatusEnum = ValidationInterface.StatusEnum  # Use the one from ValidationInterface
-
-
-# Get the logger instance
+StatusEnum = ValidationInterface.StatusEnum
 logging_utility = UtilsInterface.LoggingUtility()
 
 
-# --- Define Service-Level Exceptions ---
 class VectorStoreDBError(Exception):
     pass
 
@@ -48,8 +44,8 @@ class DatabaseConflictError(VectorStoreDBError):
     pass
 
 
-# --- Service Class ---
 class VectorStoreDBService:
+
     def __init__(self, db: Session):
         self.db = db
 
@@ -167,8 +163,6 @@ class VectorStoreDBService:
             for store in stores
         ]
 
-    # --- VectorStoreFile Management ---
-
     def create_vector_store_file(
         self,
         vector_store_id: str,
@@ -186,13 +180,11 @@ class VectorStoreDBService:
             raise VectorStoreNotFoundError(
                 f"Vector store '{vector_store_id}' not found or is deleted."
             )
-
-        if meta_data is not None and not isinstance(meta_data, dict):
+        if meta_data is not None and (not isinstance(meta_data, dict)):
             logging_utility.warning(
                 f"Input meta_data for file '{file_id}' is not a dict (type: {type(meta_data)}). Using empty dict."
             )
             meta_data = {}
-
         db_file_record = VectorStoreFile(
             id=file_id,
             vector_store_id=vector_store_id,
@@ -202,10 +194,8 @@ class VectorStoreDBService:
             meta_data=meta_data or {},
             processed_at=int(time.time()) if status == StatusEnum.completed else None,
         )
-        # FIX: update the instance's file_count instead of referencing the class attribute
         store.file_count += 1
         store.updated_at = int(time.time())
-
         self.db.add(db_file_record)
         validation_error = None
         try:
@@ -262,7 +252,6 @@ class VectorStoreDBService:
             raise VectorStoreFileNotFoundError(
                 f"File path '{file_path}' not found in store '{vector_store_id}'."
             )
-        # FIX: decrement the file_count on the instance safely
         store.file_count = max(store.file_count - 1, 0)
         store.updated_at = int(time.time())
         try:
@@ -315,9 +304,6 @@ class VectorStoreDBService:
             self.db.rollback()
             raise VectorStoreDBError(f"DB error updating file status: {e}") from e
 
-    # ------------------------------------------------------------------- #
-    # Assistant attachment helpers  ← **THIS WAS MISSING**
-    # ------------------------------------------------------------------- #
     def attach_vector_store_to_assistant(
         self, vector_store_id: str, assistant_id: str
     ) -> bool:
@@ -327,14 +313,11 @@ class VectorStoreDBService:
             raise VectorStoreNotFoundError(
                 f"Store '{vector_store_id}' not found or deleted."
             )
-
         assistant: Assistant | None = self.db.get(Assistant, assistant_id)
         if not assistant:
             raise AssistantNotFoundError(f"Assistant '{assistant_id}' not found.")
-
-        if store in assistant.vector_stores:  # already attached
+        if store in assistant.vector_stores:
             return True
-
         assistant.vector_stores.append(store)
         try:
             self.db.commit()
@@ -357,13 +340,11 @@ class VectorStoreDBService:
         )
         if not assistant:
             raise AssistantNotFoundError(f"Assistant '{assistant_id}' not found.")
-
         match = next(
             (vs for vs in assistant.vector_stores if vs.id == vector_store_id), None
         )
         if not match:
-            return True  # nothing to do – already detached
-
+            return True
         assistant.vector_stores.remove(match)
         try:
             self.db.commit()

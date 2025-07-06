@@ -12,7 +12,6 @@ from tenacity import (retry, retry_if_exception_type, stop_after_attempt,
 from websockets.legacy.protocol import WebSocketCommonProtocol
 
 load_dotenv()
-
 logging_utility = LoggingUtility()
 
 
@@ -37,6 +36,7 @@ class ExecutionSecurityViolation(CodeExecutionClientError):
 
 
 class CodeExecutionClient:
+
     def __init__(self, config: Optional[ExecutionClientConfig] = None):
         self.config = config or ExecutionClientConfig()
         self._connection: Optional[WebSocketCommonProtocol] = None
@@ -84,30 +84,24 @@ class CodeExecutionClient:
         if not self._connection:
             logging_utility.error("Execution attempt without active connection.")
             raise CodeExecutionClientError("Not connected to execution endpoint")
-
         try:
             logging_utility.info("Sending code execution request.")
             await self._connection.send(
                 json.dumps({"code": code, "metadata": metadata})
             )
-
             while True:
                 message = await self._connection.recv()
                 if not message:
                     continue
-
                 try:
                     data = json.loads(message)
-
                     if isinstance(data, dict):
                         if "error" in data:
                             logging_utility.error(
                                 "ExecutionSecurityViolation: %s", data["error"]
                             )
                             raise ExecutionSecurityViolation(data["error"])
-
                         if "status" in data and "uploaded_files" in data:
-                            # Final message with files
                             yield json.dumps(
                                 {
                                     "type": "status",
@@ -118,17 +112,14 @@ class CodeExecutionClient:
                             )
                             break
                         elif "status" in data:
-                            # Intermediate status message
                             yield json.dumps(
                                 {"type": "status", "content": data["status"]}
                             )
-                            # Do NOT break — we may not be done yet
                         elif "output" in data:
                             yield json.dumps(
                                 {"type": "output", "content": data["output"]}
                             )
                         else:
-                            # Unrecognized dict – treat as raw
                             yield json.dumps(
                                 {"type": "hot_code_output", "content": str(data)}
                             )
@@ -136,18 +127,17 @@ class CodeExecutionClient:
                         yield json.dumps(
                             {"type": "hot_code_output", "content": str(data)}
                         )
-
                 except json.JSONDecodeError:
                     logging_utility.warning("Received non-JSON output: %s", message)
                     yield json.dumps({"type": "hot_code_output", "content": message})
-
         except websockets.exceptions.ConnectionClosed:
             logging_utility.error("WebSocket connection closed unexpectedly.")
             raise CodeExecutionClientError("Connection closed unexpectedly")
 
 
 class StreamOutput:
-    def __init__(self) -> None:  # <-- NEW: no *args / **kwargs
+
+    def __init__(self) -> None:
         """
         Stateless helper class.
 
@@ -181,34 +171,7 @@ class StreamOutput:
 if __name__ == "__main__":
     logging_utility.info("Starting code execution.")
     output = StreamOutput()
-
-    test_script = """
-import pandas as pd
-import matplotlib.pyplot as plt
-from docx import Document
-
-# Pandas CSV output
-df = pd.DataFrame({
-    'Year': [2021, 2022, 2023],
-    'Revenue': [100, 150, 200]
-})
-df.to_csv('report.csv', index=False)
-
-# Matplotlib plot
-plt.plot(df['Year'], df['Revenue'], marker='o')
-plt.title('Revenue by Year')
-plt.xlabel('Year')
-plt.ylabel('Revenue')
-plt.grid(True)
-plt.savefig('plot.png')
-
-# Word document
-doc = Document()
-doc.add_heading('Automated Report', level=1)
-doc.add_paragraph('This report contains a CSV file, a chart, and a Word document.')
-doc.save('summary.docx')
-"""
-
+    test_script = "\nimport pandas as pd\nimport matplotlib.pyplot as plt\nfrom docx import Document\n\n# Pandas CSV output\ndf = pd.DataFrame({\n    'Year': [2021, 2022, 2023],\n    'Revenue': [100, 150, 200]\n})\ndf.to_csv('report.csv', index=False)\n\n# Matplotlib plot\nplt.plot(df['Year'], df['Revenue'], marker='o')\nplt.title('Revenue by Year')\nplt.xlabel('Year')\nplt.ylabel('Revenue')\nplt.grid(True)\nplt.savefig('plot.png')\n\n# Word document\ndoc = Document()\ndoc.add_heading('Automated Report', level=1)\ndoc.add_paragraph('This report contains a CSV file, a chart, and a Word document.')\ndoc.save('summary.docx')\n"
     for chunk in output.stream_output(test_script):
         message = json.loads(chunk)
         if message["type"] == "status" and "uploaded_files" in message:

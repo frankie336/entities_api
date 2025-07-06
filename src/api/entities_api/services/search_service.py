@@ -4,10 +4,9 @@ import time
 import requests
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.constants.platform import WEB_SEARCH_BASE_URL
-from entities_api.utils import count_tokens
+from src.api.entities_api.constants.platform import WEB_SEARCH_BASE_URL
+from src.api.entities_api.utils import count_tokens
 
-# Initialize the logging utility
 logging_utility = LoggingUtility()
 
 
@@ -16,21 +15,22 @@ def extract_skip_to_content_url(markdown):
     Extract the 'Skip to content' URL from markdown content.
     Uses regex to find the pattern [Skip to content](URL).
     """
-    match = re.search(r"\[Skip to content\]\((https?://[^\s\)]+)\)", markdown)
+    match = re.search("\\[Skip to content\\]\\((https?://[^\\s\\)]+)\\)", markdown)
     if match:
-        return match.group(1)  # Return the captured URL
-    return None  # Return None if no match is found
+        return match.group(1)
+    return None
 
 
 class FirecrawlService:
+
     def __init__(self, firecrawl_url="http://localhost:3002/v1/crawl"):
         """
         Initialize the FirecrawlService with the Firecrawl API URL.
         Set retry parameters for job completion checks.
         """
         self.firecrawl_url = firecrawl_url
-        self.max_retries = 10  # Maximum number of retries
-        self.retry_delay = 2  # Delay between retries in seconds
+        self.max_retries = 10
+        self.retry_delay = 2
         self.token_count = []
 
     def crawl_url(self, url: str) -> str:
@@ -98,13 +98,9 @@ class FirecrawlService:
 
     def search_orchestrator(self, query, max_pages):
         for i in range(max_pages):
-            # Properly format the URL using f-string
             url_to_crawl = f"{WEB_SEARCH_BASE_URL}{query}&page={i + 1}"
-
             job_id = self.crawl_url(url_to_crawl)
-
             if job_id:
-                # Wait for the job to complete
                 results = self.wait_for_completion(job_id)
                 if results:
                     logging_utility.info("Crawl results retrieved successfully.")
@@ -123,11 +119,9 @@ class FirecrawlService:
                         self.token_count.append(tokens_per_current_page)
                         print(self.token_count)
                         print(current_page)
-
                     time.sleep(0.1)
 
 
-# Example usage
 if __name__ == "__main__":
     service = FirecrawlService()
     query = "war"

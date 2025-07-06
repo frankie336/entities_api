@@ -1,27 +1,21 @@
-# src/api/entities_api/routers/api_keys_router.py
-
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-# Assuming schemas are correctly located now
 from projectdavid_common.schemas.api_key_schemas import (ApiKeyCreateRequest,
                                                          ApiKeyCreateResponse,
                                                          ApiKeyDetails,
                                                          ApiKeyListResponse)
 from sqlalchemy.orm import Session
 
-from ..dependencies import get_api_key, get_db  # Import your dependencies
-from ..models.models import \
-    ApiKey as ApiKeyModel  # Rename to avoid schema conflict
-from ..services.api_key_service import ApiKeyService
+from src.api.entities_api.dependencies import get_api_key, get_db
+from src.api.entities_api.models.models import ApiKey as ApiKeyModel
+from src.api.entities_api.services.api_key_service import ApiKeyService
 
-# --- FIX: Add the prefix and tags ---
 router = APIRouter(
-    prefix="/users/{user_id}/apikeys",  # <--- ADD THIS PREFIX
-    tags=["API Keys"],  # <--- ADD TAGS
+    prefix="/users/{user_id}/apikeys",
+    tags=["API Keys"],
     responses={404: {"description": "User or Key not found"}},
 )
 
 
-# --- Helper for Authorization ---
 def verify_user_access(requested_user_id: str, authenticated_key: ApiKeyModel):
     """Checks if the authenticated user matches the requested user ID."""
     if authenticated_key.user_id != requested_user_id:
@@ -31,18 +25,15 @@ def verify_user_access(requested_user_id: str, authenticated_key: ApiKeyModel):
         )
 
 
-# --- API Endpoints (Code below this line is correct based on the added prefix) ---
-
-
 @router.post(
-    "",  # Path is relative to the prefix -> /users/{user_id}/apikeys
+    "",
     response_model=ApiKeyCreateResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create API Key",
     description="Generates a new API key for the specified user. The plain key is returned only once.",
 )
 def create_api_key(
-    user_id: str,  # Matches {user_id} in prefix
+    user_id: str,
     request_data: ApiKeyCreateRequest,
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
@@ -54,7 +45,6 @@ def create_api_key(
     - **Output**: The generated plain API key and its details. **Store the key immediately.**
     """
     verify_user_access(requested_user_id=user_id, authenticated_key=auth_key)
-
     service = ApiKeyService(db=db)
     try:
         plain_key, created_key_record = service.create_key(
@@ -74,13 +64,13 @@ def create_api_key(
 
 
 @router.get(
-    "",  # Path relative to prefix -> /users/{user_id}/apikeys
+    "",
     response_model=ApiKeyListResponse,
     summary="List API Keys",
     description="Retrieves a list of API keys for the specified user.",
 )
 def list_api_keys(
-    user_id: str,  # Matches prefix
+    user_id: str,
     include_inactive: bool = False,
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
@@ -92,7 +82,6 @@ def list_api_keys(
     - **Output**: A list of API key details (prefix, name, dates, status). **Does not include the key itself.**
     """
     verify_user_access(requested_user_id=user_id, authenticated_key=auth_key)
-
     service = ApiKeyService(db=db)
     try:
         keys_orm = service.list_keys_for_user(
@@ -110,14 +99,14 @@ def list_api_keys(
 
 
 @router.get(
-    "/{key_prefix}",  # Path relative to prefix -> /users/{user_id}/apikeys/{key_prefix}
+    "/{key_prefix}",
     response_model=ApiKeyDetails,
     summary="Get API Key Details",
     description="Retrieves details for a specific API key using its prefix.",
 )
 def get_api_key_details(
-    user_id: str,  # Matches prefix
-    key_prefix: str,  # Matches path parameter
+    user_id: str,
+    key_prefix: str,
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
@@ -127,7 +116,6 @@ def get_api_key_details(
     - **Output**: API key details (prefix, name, dates, status). **Does not include the key itself.**
     """
     verify_user_access(requested_user_id=user_id, authenticated_key=auth_key)
-
     service = ApiKeyService(db=db)
     try:
         key_orm = service.get_key_details_by_prefix(
@@ -149,14 +137,14 @@ def get_api_key_details(
 
 
 @router.delete(
-    "/{key_prefix}",  # Path relative to prefix -> /users/{user_id}/apikeys/{key_prefix}
+    "/{key_prefix}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Revoke API Key",
     description="Revokes (deactivates) a specific API key using its prefix.",
 )
 def revoke_api_key(
-    user_id: str,  # Matches prefix
-    key_prefix: str,  # Matches path parameter
+    user_id: str,
+    key_prefix: str,
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
@@ -166,7 +154,6 @@ def revoke_api_key(
     - **Output**: `204 No Content` on success. Returns `404` if the key prefix is not found for the user.
     """
     verify_user_access(requested_user_id=user_id, authenticated_key=auth_key)
-
     service = ApiKeyService(db=db)
     try:
         revoked = service.revoke_key(user_id=user_id, key_prefix=key_prefix)

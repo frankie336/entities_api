@@ -14,33 +14,29 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Generator, Optional
 
-# ----------------------------------------------------------------------
-# Bring in all mix-ins --------------------------------------------------
-# ----------------------------------------------------------------------
-from entities_api.inference_mixin.mixins.client_factory_mixin import \
+from src.api.entities_api.inference_mixin.mixins.client_factory_mixin import \
     ClientFactoryMixin
-from entities_api.inference_mixin.mixins.code_execution_mixin import \
+from src.api.entities_api.inference_mixin.mixins.code_execution_mixin import \
     CodeExecutionMixin
-from entities_api.inference_mixin.mixins.consumer_tool_handlers_mixin import \
+from src.api.entities_api.inference_mixin.mixins.consumer_tool_handlers_mixin import \
     ConsumerToolHandlersMixin
-from entities_api.inference_mixin.mixins.conversation_context_mixin import \
+from src.api.entities_api.inference_mixin.mixins.conversation_context_mixin import \
     ConversationContextMixin
-from entities_api.inference_mixin.mixins.json_utils_mixin import JsonUtilsMixin
-from entities_api.inference_mixin.mixins.platform_tool_handlers_mixin import \
+from src.api.entities_api.inference_mixin.mixins.json_utils_mixin import \
+    JsonUtilsMixin
+from src.api.entities_api.inference_mixin.mixins.platform_tool_handlers_mixin import \
     PlatformToolHandlersMixin
-from entities_api.inference_mixin.mixins.service_registry_mixin import \
+from src.api.entities_api.inference_mixin.mixins.service_registry_mixin import \
     ServiceRegistryMixin
-from entities_api.inference_mixin.mixins.shell_execution_mixin import \
+from src.api.entities_api.inference_mixin.mixins.shell_execution_mixin import \
     ShellExecutionMixin
-from entities_api.inference_mixin.mixins.streaming_mixin import StreamingMixin
-from entities_api.inference_mixin.mixins.tool_routing_mixin import \
+from src.api.entities_api.inference_mixin.mixins.streaming_mixin import \
+    StreamingMixin
+from src.api.entities_api.inference_mixin.mixins.tool_routing_mixin import \
     ToolRoutingMixin
 
 
-# ----------------------------------------------------------------------
-# Lightweight orchestrator ---------------------------------------------
-# ----------------------------------------------------------------------
-class OrchestratorCore(  # pylint: disable=too-many-ancestors
+class OrchestratorCore(
     ClientFactoryMixin,
     ServiceRegistryMixin,
     JsonUtilsMixin,
@@ -51,7 +47,7 @@ class OrchestratorCore(  # pylint: disable=too-many-ancestors
     StreamingMixin,
     CodeExecutionMixin,
     ShellExecutionMixin,
-    ABC,  # keep ABC **last** so abstract checks still work
+    ABC,
 ):
     """
     All behaviour resides in the mix-ins.
@@ -63,17 +59,11 @@ class OrchestratorCore(  # pylint: disable=too-many-ancestors
     Everything else (tool routing, history, JSON hygiene, …) is inherited.
     """
 
-    # ------------------------------------------------------------------
-    # Shared flags touched by several mix-ins
-    # ------------------------------------------------------------------
     tool_response: Optional[bool] = None
     function_call: Optional[dict] = None
     _cancelled: bool = False
     code_mode: bool = False
 
-    # ------------------------------------------------------------------
-    # Provider-specific low-level streaming loop
-    # ------------------------------------------------------------------
     @abstractmethod
     def stream(
         self,
@@ -94,9 +84,6 @@ class OrchestratorCore(  # pylint: disable=too-many-ancestors
         abstract.
         """
 
-    # ------------------------------------------------------------------
-    # High-level workflow = stream  →  tool routing  →  (maybe) re-stream
-    # ------------------------------------------------------------------
     @abstractmethod
     def process_conversation(
         self,

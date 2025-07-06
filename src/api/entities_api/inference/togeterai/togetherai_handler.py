@@ -2,10 +2,10 @@ from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.inference.inference_arbiter import InferenceArbiter
-from entities_api.inference.togeterai.together_deepseek_R1 import \
+from src.api.entities_api.inference.inference_arbiter import InferenceArbiter
+from src.api.entities_api.inference.togeterai.together_deepseek_R1 import \
     TogetherDeepSeekR1Inference
-from entities_api.inference.togeterai.together_deepseek_v3 import \
+from src.api.entities_api.inference.togeterai.together_deepseek_v3 import \
     TogetherDeepSeekV3Inference
 
 logging_utility = LoggingUtility()
@@ -19,13 +19,11 @@ class TogetherAIHandler:
     """
 
     SUBMODEL_CLASS_MAP: dict[str, Type[Any]] = {
-        # DeepSeek@TogetherAI
         "deepseek-ai/DeepSeek-R1": TogetherDeepSeekR1Inference,
         "deepseek-ai/DeepSeek-V3": TogetherDeepSeekV3Inference,
         "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B": TogetherDeepSeekR1Inference,
         "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B": TogetherDeepSeekR1Inference,
         "deepseek-ai/DeepSeek-R1-Distill-Llama-70B-free": TogetherDeepSeekR1Inference,
-        # Llama@TogetherAI
         "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": TogetherDeepSeekV3Inference,
         "meta-llama/Llama-4-Scout-17B-16E-Instruct": TogetherDeepSeekV3Inference,
         "meta-llama/Llama-3.3-70B-Instruct-Turbo": TogetherDeepSeekV3Inference,
@@ -33,12 +31,9 @@ class TogetherAIHandler:
         "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo": TogetherDeepSeekV3Inference,
         "meta-llama/Llama-Vision-Free": TogetherDeepSeekV3Inference,
         "meta-llama/LlamaGuard-2-8b": TogetherDeepSeekV3Inference,
-        # Google Gemma@TogetherAI
         "google/gemma-2-9b-it": TogetherDeepSeekV3Inference,
-        # Mistral@TogetherAI
         "mistralai/Mistral-7B-Instruct-v0.2": TogetherDeepSeekV3Inference,
         "mistralai/Mistral-7B-Instruct-v0.3": TogetherDeepSeekV3Inference,
-        # Qwen@TogetherAI
         "Qwen/QwQ-32B": TogetherDeepSeekV3Inference,
         "Qwen/Qwen2.5-Coder-32B-Instruct": TogetherDeepSeekV3Inference,
         "Qwen/Qwen2-VL-72B-Instruct": TogetherDeepSeekV3Inference,
@@ -58,7 +53,6 @@ class TogetherAIHandler:
         """
         prefix = "together-ai/"
         lower_id = unified_model_id.lower()
-
         if lower_id.startswith(prefix):
             sub_model_id = lower_id[len(prefix) :]
         else:
@@ -66,24 +60,20 @@ class TogetherAIHandler:
             logging_utility.warning(
                 f"Model ID '{unified_model_id}' did not start with expected prefix '{prefix}'."
             )
-
         specific_cls: Optional[Type[Any]] = None
         for route_key in self._sorted_sub_routes:
             key_lc = route_key.lower()
-
             if key_lc.endswith("/") and sub_model_id.startswith(key_lc):
                 specific_cls = self.SUBMODEL_CLASS_MAP[route_key]
                 break
             if not key_lc.endswith("/") and key_lc in sub_model_id:
                 specific_cls = self.SUBMODEL_CLASS_MAP[route_key]
                 break
-
         if specific_cls is None:
             logging_utility.error(
                 f"No handler found for model ID '{sub_model_id}' (original: '{unified_model_id}')"
             )
             raise ValueError(f"Unsupported TogetherAI model: {unified_model_id}")
-
         logging_utility.debug(f"Dispatching to: {specific_cls.__name__}")
         return self.arbiter.get_provider_instance(specific_cls)
 
@@ -134,12 +124,7 @@ class TogetherAIHandler:
         )
 
     def process_function_calls(
-        self,
-        thread_id,
-        run_id,
-        assistant_id,
-        model=None,
-        api_key: Optional[str] = None,
+        self, thread_id, run_id, assistant_id, model=None, api_key: Optional[str] = None
     ) -> Generator[str, None, None]:
         handler = self._get_specific_handler_instance(model)
         yield from handler.process_function_calls(

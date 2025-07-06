@@ -9,16 +9,13 @@ from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 from starlette import status
 
-from entities_api.dependencies import get_api_key, get_db
-from entities_api.models.models import ApiKey as ApiKeyModel
-from entities_api.services.actions_service import ActionService
-from entities_api.services.runs_service import RunService
+from src.api.entities_api.dependencies import get_api_key, get_db
+from src.api.entities_api.models.models import ApiKey as ApiKeyModel
+from src.api.entities_api.services.actions_service import ActionService
+from src.api.entities_api.services.runs_service import RunService
 
-# Instantiate utilities.
 ent_validator = ValidationInterface()
 logging_utility = UtilsInterface.LoggingUtility()
-
-# FastAPI router
 router = APIRouter()
 
 
@@ -30,13 +27,11 @@ def create_run(
 ):
     user_id = auth_key.user_id
     logging_utility.info("[%s] Creating run for thread %s", user_id, run.thread_id)
-
     run_service = RunService(db)
     try:
         new_run = run_service.create_run(run, user_id=user_id)
         logging_utility.info("Run created successfully: %s", new_run.id)
         return new_run
-
     except HTTPException as e:
         logging_utility.error("HTTP error during run creation: %s", str(e))
         raise
@@ -133,23 +128,17 @@ async def stream_run_events(
         while True:
             if await request.is_disconnected():
                 break
-
             run = run_svc.get_run(run_id)
             if not run:
                 yield {"event": "error", "data": '{"msg":"run not found"}'}
                 break
-
             if run.status == StatusEnum.pending_action:
                 pending = action_svc.get_pending_actions(run_id)
                 if pending:
                     for act in pending:
                         data = act.dict() if hasattr(act, "dict") else act
-                        yield {
-                            "event": "action_required",
-                            "data": json.dumps(data),
-                        }
+                        yield {"event": "action_required", "data": json.dumps(data)}
                     break
-
             await asyncio.sleep(0.5)
 
     return EventSourceResponse(event_generator())

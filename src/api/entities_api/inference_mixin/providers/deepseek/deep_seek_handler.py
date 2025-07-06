@@ -2,9 +2,9 @@ from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.inference.deepseek.deepseek_chat_inference import \
+from src.api.entities_api.inference.deepseek.deepseek_chat_inference import \
     DeepSeekChatInference
-from entities_api.inference.inference_arbiter import InferenceArbiter
+from src.api.entities_api.inference.inference_arbiter import InferenceArbiter
 
 LOG = LoggingUtility()
 
@@ -35,12 +35,10 @@ class DeepseekHandler:
             if unified_model_id.lower().startswith(prefix)
             else unified_model_id.lower()
         )
-
         if not unified_model_id.lower().startswith(prefix):
             LOG.warning(
                 f"Model ID '{unified_model_id}' did not start with expected prefix '{prefix}'."
             )
-
         SpecificHandlerClass = None
         for route_key, handler_cls in self.SUBMODEL_CLASS_MAP.items():
             route_key_lc = route_key.lower()
@@ -52,15 +50,12 @@ class DeepseekHandler:
                 LOG.debug(f"Matched substring route: '{route_key}'")
                 SpecificHandlerClass = handler_cls
                 break
-
         if not SpecificHandlerClass:
             LOG.error(
                 f"No handler found for model ID '{sub_model_id}' (original: '{unified_model_id}')"
             )
             raise ValueError(f"Unsupported DeepSeek model: {unified_model_id}")
-
         LOG.debug(f"Dispatching to: {SpecificHandlerClass.__name__}")
-
         try:
             return self.arbiter.get_provider_instance(SpecificHandlerClass)
         except Exception as e:
@@ -121,12 +116,7 @@ class DeepseekHandler:
         )
 
     def process_function_calls(
-        self,
-        thread_id,
-        run_id,
-        assistant_id,
-        model=None,
-        api_key=None,
+        self, thread_id, run_id, assistant_id, model=None, api_key=None
     ) -> Generator[str, None, None]:
         LOG.debug(f"Dispatching process_function_calls for: {model}")
         handler = self._get_specific_handler_instance(model)

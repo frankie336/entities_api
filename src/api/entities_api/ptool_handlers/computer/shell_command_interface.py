@@ -1,8 +1,8 @@
 from typing import List, Optional
 
-from entities_api.ptool_handlers.computer.shell_command_client import (
+from src.api.entities_api.ptool_handlers.computer.shell_command_client import (
     run_commands, run_commands_sync)
-from entities_api.services.logging_service import LoggingUtility
+from src.api.entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 
@@ -19,10 +19,9 @@ class ShellCommandInterface:
         idle_timeout: float = 2.0,
     ):
         self.logging_utility = LoggingUtility()
-        # Endpoint now should point to the updated shell command server
         self.endpoint = endpoint or "ws://sandbox:8000/ws/computer"
         self.default_thread_id = thread_id or "thread_cJq1gVLSCpLYI8zzZNRbyc"
-        self.idle_timeout = idle_timeout  # Retained for backward compatibility (not used by new ShellClient)
+        self.idle_timeout = idle_timeout
 
     def run_commands(
         self,
@@ -36,12 +35,10 @@ class ShellCommandInterface:
         The idle_timeout parameter is logged but not used, since the new client uses an explicit completion signal.
         """
         target_room = thread_id or self.default_thread_id
-        # Use the provided idle_timeout for logging purposes only
         timeout = idle_timeout if idle_timeout is not None else self.idle_timeout
         self.logging_utility.info(
             f"Executing sync commands on room: {target_room} with elevation={elevated} (idle_timeout={timeout} ignored)"
         )
-        # Call the updated synchronous client interface (idle_timeout is no longer needed)
         return run_commands_sync(commands, target_room, elevated=elevated)
 
     async def _execute_commands(
@@ -70,7 +67,6 @@ class ShellCommandInterface:
         self.logging_utility.info("Shutdown called (no clients persist to shutdown).")
 
 
-# Maintain backward-compatible function interface
 def run_shell_commands(
     commands: List[str],
     thread_id: Optional[str] = None,
@@ -86,7 +82,6 @@ def run_shell_commands(
     )
 
 
-# Example & Debugging Usage preserved exactly:
 if __name__ == "__main__":
     commands = ["echo 'Hello from your personal Linux computer'", "ls -la", "pwd"]
     output = run_shell_commands(commands, elevated=True, idle_timeout=5.0)

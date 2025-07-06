@@ -6,22 +6,21 @@ from projectdavid_common.constants.tools import TOOLS_ID_MAP
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
-from entities_api.models.models import Assistant, Tool
-from entities_api.services.logging_service import LoggingUtility
+from src.api.entities_api.models.models import Assistant, Tool
+from src.api.entities_api.services.logging_service import LoggingUtility
 
 validator = ValidationInterface()
 logging_utility = LoggingUtility()
 
 
 class ToolService:
+
     def __init__(self, db: Session):
         self.db = db
         logging_utility.info("ToolService initialized with database session.")
 
     def create_tool(
-        self,
-        tool: validator.ToolCreate,
-        set_id: Optional[str] = None,
+        self, tool: validator.ToolCreate, set_id: Optional[str] = None
     ) -> validator.ToolRead:
         """
         Create a tool.
@@ -36,29 +35,18 @@ class ToolService:
           (provided it is not in the reserved map **and** not already taken)
           or generate a fresh one.
         """
-
         logging_utility.info("Starting create_tool %s (requested id=%s)", tool, set_id)
-
-        # ── 1.  Resolve whether this is a “reserved” tool ──────────────────────────
-        # Accept either the name OR the type as the lookup key
         reserved_key = None
         if tool.name in TOOLS_ID_MAP:
             reserved_key = tool.name
         elif tool.type in TOOLS_ID_MAP:
             reserved_key = tool.type
-
-        # ── 2.  Determine the final ID we are going to use ─────────────────────────
         if reserved_key:
             canonical_id = TOOLS_ID_MAP[reserved_key]
-
-            # The caller may optionally pass the same ID – anything else is forbidden
             if set_id and set_id != canonical_id:
                 raise HTTPException(
                     status_code=400,
-                    detail=(
-                        f"Invalid set_id for reserved tool '{reserved_key}'. "
-                        f"Expected '{canonical_id}'."
-                    ),
+                    detail=f"Invalid set_id for reserved tool '{reserved_key}'. Expected '{canonical_id}'.",
                 )
             tool_id = canonical_id
             logging_utility.debug(
@@ -66,23 +54,16 @@ class ToolService:
                 tool_id,
                 reserved_key,
             )
-
+        elif set_id:
+            if set_id in TOOLS_ID_MAP.values():
+                raise HTTPException(
+                    status_code=400, detail="set_id collides with a reserved tool id"
+                )
+            tool_id = set_id
+            logging_utility.debug("Using client-supplied id: %s", tool_id)
         else:
-            # Not a reserved tool  →  use provided id or generate one
-            if set_id:
-                if set_id in TOOLS_ID_MAP.values():
-                    # Guard-rail: a client must not hijack a reserved ID
-                    raise HTTPException(
-                        status_code=400,
-                        detail="set_id collides with a reserved tool id",
-                    )
-                tool_id = set_id
-                logging_utility.debug("Using client-supplied id: %s", tool_id)
-            else:
-                tool_id = UtilsInterface.IdentifierService.generate_tool_id()
-                logging_utility.debug("Generated tool id: %s", tool_id)
-
-        # ── 3.  Persist to DB ──────────────────────────────────────────────────────
+            tool_id = UtilsInterface.IdentifierService.generate_tool_id()
+            logging_utility.debug("Generated tool id: %s", tool_id)
         try:
             db_tool = Tool(
                 id=tool_id,
@@ -93,18 +74,12 @@ class ToolService:
             self.db.add(db_tool)
             self.db.commit()
             self.db.refresh(db_tool)
-
             logging_utility.info("Tool created successfully with ID: %s", tool_id)
             return validator.ToolRead.model_validate(db_tool)
-
         except IntegrityError as e:
             self.db.rollback()
             logging_utility.error("IntegrityError during tool creation: %s", str(e))
-            raise HTTPException(
-                status_code=400,
-                detail="Duplicate tool id or name",
-            )
-
+            raise HTTPException(status_code=400, detail="Duplicate tool id or name")
         except Exception as e:
             self.db.rollback()
             logging_utility.error("Unexpected error during tool creation: %s", str(e))
@@ -121,17 +96,14 @@ class ToolService:
             assistant = (
                 self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
             )
-
             if not assistant:
                 logging_utility.warning("Assistant with ID %s not found.", assistant_id)
                 raise HTTPException(
                     status_code=404,
                     detail=f"Assistant with id {assistant_id} not found",
                 )
-
             assistant.tools.append(tool)
             self.db.commit()
-
             logging_utility.info(
                 "Successfully associated tool ID %s with assistant ID %s",
                 tool_id,
@@ -144,8 +116,7 @@ class ToolService:
             self.db.rollback()
             logging_utility.error("Error associating tool with assistant: %s", str(e))
             raise HTTPException(
-                status_code=500,
-                detail="An error occurred while creating the tool",
+                status_code=500, detail="An error occurred while creating the tool"
             )
 
     def disassociate_tool_from_assistant(self, tool_id: str, assistant_id: str) -> None:
@@ -159,14 +130,12 @@ class ToolService:
             assistant = (
                 self.db.query(Assistant).filter(Assistant.id == assistant_id).first()
             )
-
             if not assistant:
                 logging_utility.warning("Assistant with ID %s not found.", assistant_id)
                 raise HTTPException(
                     status_code=404,
                     detail=f"Assistant with id {assistant_id} not found",
                 )
-
             if tool in assistant.tools:
                 assistant.tools.remove(tool)
                 self.db.commit()
@@ -217,7 +186,6 @@ class ToolService:
                 raise HTTPException(
                     status_code=404, detail=f"Tool with name {name} not found"
                 )
-
             logging_utility.info("Tool retrieved successfully: %s", db_tool)
             return validator.ToolRead.model_validate(db_tool)
         except Exception as e:
@@ -236,13 +204,10 @@ class ToolService:
             db_tool = self._get_tool_or_404(tool_id)
             update_data = tool_update.model_dump(exclude_unset=True)
             logging_utility.debug("Updating tool with data: %s", update_data)
-
             for key, value in update_data.items():
                 setattr(db_tool, key, value)
-
             self.db.commit()
             self.db.refresh(db_tool)
-
             logging_utility.info("Tool with ID %s updated successfully", tool_id)
             return validator.ToolRead.model_validate(db_tool)
         except HTTPException as e:
@@ -261,7 +226,6 @@ class ToolService:
             db_tool = self._get_tool_or_404(tool_id)
             self.db.delete(db_tool)
             self.db.commit()
-
             logging_utility.info("Tool with ID %s deleted successfully", tool_id)
         except HTTPException as e:
             logging_utility.error("HTTPException: %s", str(e))
@@ -286,7 +250,6 @@ class ToolService:
                     .first()
                 )
                 logging_utility.debug("Assistant found: %s", assistant)
-
                 if not assistant:
                     logging_utility.warning(
                         "Assistant with ID %s not found", assistant_id
@@ -295,20 +258,13 @@ class ToolService:
                         status_code=404,
                         detail=f"Assistant with id {assistant_id} not found",
                     )
-
                 tools = assistant.tools
             else:
                 tools = self.db.query(Tool).all()
-
             logging_utility.info("Found %d tools", len(tools))
-
-            # Convert ORM objects to dictionaries manually
             tool_list = [self._tool_to_dict(tool) for tool in tools]
-
-            # Optionally restructure tools
             if restructure:
                 tool_list = self.restructure_tools({"tools": tool_list})
-
             return tool_list
         except Exception as e:
             logging_utility.error("Error listing tools: %s", str(e))
@@ -324,7 +280,6 @@ class ToolService:
             if isinstance(parameters, dict):
                 parsed = {}
                 for key, value in parameters.items():
-                    # If the value is a dict, recursively parse it
                     if isinstance(value, dict):
                         parsed[key] = parse_parameters(value)
                     else:
@@ -333,38 +288,27 @@ class ToolService:
             return parameters
 
         restructured_tools = []
-
         for tool in assistant_tools["tools"]:
             function_info = tool["function"]
-
-            # Check if the 'function' key is nested and extract accordingly
             if "function" in function_info:
                 function_info = function_info["function"]
-
-            # Dynamically handle all function information
             restructured_tool = {
-                "type": tool["type"],  # Keep the type information
+                "type": tool["type"],
                 "name": function_info.get("name", "Unnamed tool"),
                 "description": function_info.get(
                     "description", "No description provided"
                 ),
-                "parameters": parse_parameters(
-                    function_info.get("parameters", {})
-                ),  # Recursively parse parameters
+                "parameters": parse_parameters(function_info.get("parameters", {})),
             }
-
-            # Add the restructured tool to the list
             restructured_tools.append(restructured_tool)
-
         return restructured_tools
 
     def _tool_to_dict(self, tool: Tool) -> dict:
-        # Manually convert the ORM Tool object to a dictionary
         return {
             "id": tool.id,
-            "name": tool.name,  # Include the new name field
+            "name": tool.name,
             "type": tool.type,
-            "function": tool.function,  # Assuming function is stored as a dictionary or JSON-like structure
+            "function": tool.function,
         }
 
     def _get_tool_or_404(self, tool_id: str) -> Tool:

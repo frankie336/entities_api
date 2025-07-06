@@ -16,19 +16,17 @@ from typing import Any, Dict, List
 
 from projectdavid_common import ValidationInterface
 
-from entities_api.constants.assistant import \
+from src.api.entities_api.constants.assistant import \
     WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS
-from entities_api.constants.platform import ERROR_NO_CONTENT
-from entities_api.services.logging_service import LoggingUtility
+from src.api.entities_api.constants.platform import ERROR_NO_CONTENT
+from src.api.entities_api.services.logging_service import LoggingUtility
 
 LOG = LoggingUtility()
 logger = logging.getLogger(__name__)
 
 
 class PlatformToolHandlersMixin:
-    # ------------------------------------------------------------------ #
-    # 🔑 Helpers reused by several handlers                               #
-    # ------------------------------------------------------------------ #
+
     def _submit_platform_tool_output(
         self, *, thread_id: str, assistant_id: str, content: str, action
     ):
@@ -36,22 +34,20 @@ class PlatformToolHandlersMixin:
         Thin wrapper around ConsumerToolHandlersMixin.submit_tool_output
         (kept separate to avoid circular import).
         """
-        from .consumer_tool_handlers_mixin import ConsumerToolHandlersMixin
+        from src.api.entities_api.inference_mixin.mixins.consumer_tool_handlers_mixin import \
+            ConsumerToolHandlersMixin
 
-        if not isinstance(self, ConsumerToolHandlersMixin):  # type: ignore
+        if not isinstance(self, ConsumerToolHandlersMixin):
             raise TypeError(
                 "PlatformToolHandlersMixin must be combined with ConsumerToolHandlersMixin"
             )
-        self.submit_tool_output(  # type: ignore[attr-defined]
+        self.submit_tool_output(
             thread_id=thread_id,
             assistant_id=assistant_id,
             content=content,
             action=action,
         )
 
-    # ------------------------------------------------------------------ #
-    # 1️⃣  Individual handlers                                            #
-    # ------------------------------------------------------------------ #
     def _handle_web_search(
         self, *, thread_id: str, assistant_id: str, output: List[Any], action
     ):
@@ -67,7 +63,7 @@ class PlatformToolHandlersMixin:
                 content=rendered,
                 action=action,
             )
-        except Exception as exc:  # ultra-defensive – a broken envelope must not crash
+        except Exception as exc:
             LOG.error("web_search handler failed: %s", exc, exc_info=True)
             self._submit_platform_tool_output(
                 thread_id=thread_id,
@@ -87,7 +83,6 @@ class PlatformToolHandlersMixin:
         except Exception as exc:
             LOG.error("code_interpreter output malformed: %s", exc, exc_info=True)
             output_text = f"ERROR: {exc}"
-
         self._submit_platform_tool_output(
             thread_id=thread_id,
             assistant_id=assistant_id,
@@ -115,15 +110,8 @@ class PlatformToolHandlersMixin:
             action=action,
         )
 
-    # ------------------------------------------------------------------ #
-    # 2️⃣  Main dispatcher (called by ToolRoutingMixin)                   #
-    # ------------------------------------------------------------------ #
     def _process_platform_tool_calls(
-        self,
-        thread_id: str,
-        assistant_id: str,
-        content: Dict[str, Any],
-        run_id: str,
+        self, thread_id: str, assistant_id: str, content: Dict[str, Any], run_id: str
     ):
         """
         • creates an *Action* row
@@ -131,38 +119,25 @@ class PlatformToolHandlersMixin:
         • calls the real platform service via `PlatformToolService`
         • routes the result to one of _handle_* helpers above
         """
-        # Lazily import to avoid hard coupling
-
-        # --- 0. derive helpers & ids -------------------------------------
-        self.set_assistant_id(assistant_id)  # type: ignore[attr-defined]
-        self.set_thread_id(thread_id)  # type: ignore[attr-defined]
+        self.set_assistant_id(assistant_id)
+        self.set_thread_id(thread_id)
         tool_name = content["name"]
         arguments = content["arguments"]
-
-        # --- 1. create Action -------------------------------------------
         action = self.project_david_client.actions.create_action(
             tool_name="code_interpreter", run_id=run_id, function_args=arguments
         )
-
         LOG.debug("Action %s created for %s", action.id, tool_name)
-
-        # --- 2. mark run → pending_action -------------------------------
-        self.run_service.update_run_status(  # type: ignore
+        self.run_service.update_run_status(
             run_id, ValidationInterface.StatusEnum.pending_action
         )
-
-        # --- 3. call platform service -----------------------------------
-        platform = self.platform_tool_service  # type: ignore[attr-defined]
+        platform = self.platform_tool_service
         result = platform.call_function(tool_name, arguments)
-
-        # --- 4. fan-out to handler --------------------------------------
         handlers = {
             "web_search": self._handle_web_search,
             "code_interpreter": self._handle_code_interpreter,
             "vector_store_search": self._handle_vector_search,
             "computer": self._handle_computer,
         }
-
         handler = handlers.get(tool_name)
         if handler:
             handler(
@@ -172,12 +147,10 @@ class PlatformToolHandlersMixin:
                 action=action,
             )
         else:
-            # fallback – treat as plain text
             self._submit_platform_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 content=str(result),
                 action=action,
             )
-
         LOG.debug("Platform-tool %s finished for run %s", tool_name, run_id)

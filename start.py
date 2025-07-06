@@ -66,6 +66,8 @@ class DockerManager:
         "SMBCLIENT_USERNAME": ("fastapi_cosmic_catalyst", "SMBCLIENT_USERNAME"),
         "SMBCLIENT_PASSWORD": ("fastapi_cosmic_catalyst", "SMBCLIENT_PASSWORD"),
         "SMBCLIENT_PORT": ("fastapi_cosmic_catalyst", "SMBCLIENT_PORT"),
+        # NEW → automatically pick up the flag we just added in compose
+        "AUTO_MIGRATE": ("fastapi_cosmic_catalyst", "AUTO_MIGRATE"),
         "DISABLE_FIREJAIL": ("sandbox_api", "DISABLE_FIREJAIL"),
     }
 
@@ -106,6 +108,8 @@ class DockerManager:
         "MYSQL_PORT": DEFAULT_DB_CONTAINER_PORT,
         "MYSQL_DATABASE": "cosmic_catalyst",  # Default name, can be overridden by compose
         "MYSQL_USER": "ollama",  # Default user, can be overridden by compose
+        # --- Alembic migration Settings ---
+        "AUTO_MIGRATE": "1",
         # --- Platform Settings ---
         "BASE_URL_HEALTH": "http://localhost:9000/v1/health",
         "SHELL_SERVER_URL": "ws://sandbox_api:8000/ws/computer",
@@ -150,6 +154,7 @@ class DockerManager:
             "SIGNED_URL_SECRET",
             "DISABLE_FIREJAIL",
             "SECRET_KEY",  # Moved here from defaults/generated
+            "AUTO_MIGRATE",
         ],
         "SMB Client Configuration": [
             "SMBCLIENT_SERVER",

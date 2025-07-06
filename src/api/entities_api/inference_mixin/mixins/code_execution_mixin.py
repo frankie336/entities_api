@@ -6,8 +6,7 @@ import mimetypes
 import pprint
 from typing import Generator, List
 
-from entities_api.services.logging_service import \
-    LoggingUtility  # adjust path if needed
+from src.api.entities_api.services.logging_service import LoggingUtility
 
 LOG = LoggingUtility()
 
@@ -19,34 +18,25 @@ class CodeExecutionMixin:
     """
 
     def handle_code_interpreter_action(
-        self,
-        thread_id: str,
-        run_id: str,
-        assistant_id: str,
-        arguments_dict: dict,
+        self, thread_id: str, run_id: str, assistant_id: str, arguments_dict: dict
     ) -> Generator[str, None, None]:
         """
         Streams sandbox output **live** while accumulating a plain-text
         summary and optional file previews.
         """
-        # Send a start status chunk to the UI
         yield json.dumps(
             {
                 "stream_type": "code_execution",
                 "chunk": {"type": "status", "status": "started", "run_id": run_id},
             }
         )
-
-        # Register the action first
         action = self.project_david_client.actions.create_action(
             tool_name="code_interpreter", run_id=run_id, function_args=arguments_dict
         )
-
         code: str = arguments_dict.get("code", "")
         uploaded_files: List[dict] = []
         hot_code_buffer: List[str] = []
         final_content_for_assistant = ""
-
         LOG.info("Run %s: streaming sandbox output…", run_id)
         try:
             for chunk_str in self.code_execution_client.stream_output(code):
@@ -62,7 +52,6 @@ class CodeExecutionMixin:
                         continue
                     ctype = payload.get("type")
                     content = payload.get("content")
-
                     if ctype == "status":
                         status = content
                         LOG.debug("Run %s: sandbox status → %s", run_id, status)
@@ -106,8 +95,6 @@ class CodeExecutionMixin:
             )
             uploaded_files = []
             hot_code_buffer.append(f"[Streaming error] {stream_err}")
-
-        # Build plain-text summary
         if hot_code_buffer:
             final_content_for_assistant = "\n".join(hot_code_buffer).strip()
         elif not uploaded_files:
@@ -118,8 +105,6 @@ class CodeExecutionMixin:
             final_content_for_assistant = (
                 "[Code executed successfully, files generated but no textual output.]"
             )
-
-        # Stream Base-64 previews
         for file_meta in uploaded_files:
             file_id = file_meta.get("id")
             filename = file_meta.get("filename")
@@ -161,32 +146,24 @@ class CodeExecutionMixin:
                     },
                 }
             )
-
-        # Final content chunk
         yield json.dumps(
             {
                 "stream_type": "code_execution",
                 "chunk": {"type": "content", "content": final_content_for_assistant},
             }
         )
-
-        # Emit a completion status chunk
         yield json.dumps(
             {
                 "stream_type": "code_execution",
                 "chunk": {"type": "status", "status": "complete", "run_id": run_id},
             }
         )
-
-        # Log uploaded file metadata
         if uploaded_files:
             LOG.info(
                 "Run %s: uploaded_files metadata:\n%s",
                 run_id,
                 pprint.pformat(uploaded_files),
             )
-
-        # Submit summary back to assistant
         try:
             self.submit_tool_output(
                 thread_id=thread_id,

@@ -1,39 +1,26 @@
-# src/api/entities_api/routers/users_router.py
-
-from fastapi import APIRouter, Depends, HTTPException, status  # Added status
+from fastapi import APIRouter, Depends, HTTPException, status
 from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.orm import Session
 
-# --- Updated Imports ---
-from entities_api.dependencies import get_api_key, get_db  # Added get_api_key
-from entities_api.models.models import \
-    ApiKey as ApiKeyModel  # Added ApiKeyModel for type hint
-from entities_api.models.models import \
-    User as UserModel  # Added UserModel for authorization check
-from entities_api.serializers import UserUpdate
-from entities_api.services.user_service import UserService
-
-# --- End Updated Imports ---
+from src.api.entities_api.dependencies import get_api_key, get_db
+from src.api.entities_api.models.models import ApiKey as ApiKeyModel
+from src.api.entities_api.models.models import User as UserModel
+from src.api.entities_api.serializers import UserUpdate
+from src.api.entities_api.services.user_service import UserService
 
 validation = ValidationInterface()
-
-router = APIRouter(
-    prefix="/users",  # Apply prefix here consistently
-    tags=["Users"],  # Add tag for Swagger UI
-)
+router = APIRouter(prefix="/users", tags=["Users"])
 logging_utility = LoggingUtility()
 
 
 @router.post(
-    "",  # Path relative to prefix, so "" for POST /v1/users
-    response_model=validation.UserRead,
-    status_code=status.HTTP_201_CREATED,  # Use status constant
+    "", response_model=validation.UserRead, status_code=status.HTTP_201_CREATED
 )
 def create_user(
-    user_data: validation.UserCreate,  # Use specific name for input data
+    user_data: validation.UserCreate,
     db: Session = Depends(get_db),
-    auth_key: ApiKeyModel = Depends(get_api_key),  # Require API key
+    auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     """
     Creates a new user. Requires **Admin** authentication via API Key.
@@ -47,8 +34,6 @@ def create_user(
         f"User '{auth_key.user_id}' (Key Prefix: {auth_key.prefix}) requesting to create a new user."
     )
     logging_utility.debug(f"User creation payload: {user_data.model_dump()}")
-
-    # --- Authorization Check: Must be Admin ---
     requesting_admin = (
         db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
     )
@@ -60,26 +45,22 @@ def create_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required to create users.",
         )
-    # --- End Authorization Check ---
-
     logging_utility.info(
         f"Admin user {requesting_admin.id} authorized. Proceeding with user creation."
     )
     user_service = UserService(db)
     try:
-        new_user = user_service.create_user(user_data)  # Pass the input data
+        new_user = user_service.create_user(user_data)
         logging_utility.info(
             f"User '{new_user.email}' (ID: {new_user.id}) created successfully by admin {requesting_admin.id}."
         )
         return new_user
     except HTTPException as e:
-        # Log HTTP exceptions raised possibly by the service
         logging_utility.error(
             f"HTTP error during user creation by admin {requesting_admin.id}: {e.detail} (Status: {e.status_code})"
         )
         raise e
     except Exception as e:
-        # Log unexpected errors
         logging_utility.error(
             f"Unexpected error during user creation by admin {requesting_admin.id}: {str(e)}",
             exc_info=True,
@@ -94,7 +75,7 @@ def create_user(
 def get_user(
     user_id: str,
     db: Session = Depends(get_db),
-    auth_key: ApiKeyModel = Depends(get_api_key),  # Require API key
+    auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     """
     Retrieves details for a specific user.
@@ -108,18 +89,14 @@ def get_user(
     logging_utility.info(
         f"User '{auth_key.user_id}' requesting details for user ID: {user_id}"
     )
-
-    # --- Authorization Check: Admin or Self ---
     requesting_user = (
         db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
     )
     if not requesting_user:
-        # Should not happen if get_api_key works correctly, but good practice
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
         )
-
     if not requesting_user.is_admin and requesting_user.id != user_id:
         logging_utility.warning(
             f"Authorization Failed: User {auth_key.user_id} attempted to access details for user {user_id}."
@@ -128,16 +105,12 @@ def get_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Insufficient permissions to access this user's details.",
         )
-    # --- End Authorization Check ---
-
     logging_utility.info(
         f"User {auth_key.user_id} authorized to access user {user_id}."
     )
     user_service = UserService(db)
     try:
-        user = user_service.get_user(
-            user_id
-        )  # Service handles the 404 if user_id not found
+        user = user_service.get_user(user_id)
         logging_utility.info(
             f"User {user_id} retrieved successfully by {auth_key.user_id}."
         )
@@ -160,7 +133,7 @@ def update_user(
     user_id: str,
     user_update: UserUpdate,
     db: Session = Depends(get_db),
-    auth_key: ApiKeyModel = Depends(get_api_key),  # Require API key
+    auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     """
     Updates details for a specific user.
@@ -177,8 +150,6 @@ def update_user(
     logging_utility.debug(
         f"Update payload for {user_id}: {user_update.model_dump(exclude_unset=True)}"
     )
-
-    # --- Authorization Check: Admin or Self ---
     requesting_user = (
         db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
     )
@@ -187,11 +158,9 @@ def update_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication credentials",
         )
-
     is_admin_request = requesting_user.is_admin
     is_self_request = requesting_user.id == user_id
-
-    if not is_admin_request and not is_self_request:
+    if not is_admin_request and (not is_self_request):
         logging_utility.warning(
             f"Authorization Failed: User {auth_key.user_id} attempted to update user {user_id}."
         )
@@ -199,33 +168,18 @@ def update_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Insufficient permissions to update this user.",
         )
-
-    # Prevent non-admins from escalating privileges or changing sensitive fields
     update_data = user_update.model_dump(exclude_unset=True)
     if not is_admin_request:
         if "is_admin" in update_data:
             logging_utility.warning(
                 f"Attempt by non-admin user {auth_key.user_id} to modify 'is_admin' field for user {user_id}."
             )
-            del update_data["is_admin"]  # Silently ignore or raise 403 if preferred
-        # Add checks for other sensitive fields if necessary (e.g., email verification status)
-
-    # Re-validate after potentially removing fields (optional, depends on UserUpdate flexibility)
-    # try:
-    #    validated_update = UserUpdate(**update_data)
-    # except ValidationError:
-    #    raise HTTPException(...) # Handle case where removing fields makes it invalid
-
-    # --- End Authorization Check ---
-
+            del update_data["is_admin"]
     logging_utility.info(
         f"User {auth_key.user_id} authorized to update user {user_id}."
     )
     user_service = UserService(db)
     try:
-        # Pass the potentially filtered update data
-        # Note: The service layer's update_user method should ideally handle Pydantic models
-        # If it expects a dict, pass update_data. If it expects UserUpdate, pass validated_update
         updated_user = user_service.update_user(user_id, UserUpdate(**update_data))
         logging_utility.info(
             f"User {user_id} updated successfully by {auth_key.user_id}."
@@ -248,7 +202,7 @@ def update_user(
 def delete_user(
     user_id: str,
     db: Session = Depends(get_db),
-    auth_key: ApiKeyModel = Depends(get_api_key),  # Require API key
+    auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     """
     Deletes a specific user. Requires **Admin** authentication.
@@ -262,8 +216,6 @@ def delete_user(
     logging_utility.info(
         f"User '{auth_key.user_id}' requesting to delete user ID: {user_id}"
     )
-
-    # --- Authorization Check: Must be Admin ---
     requesting_admin = (
         db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
     )
@@ -275,9 +227,6 @@ def delete_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required to delete users.",
         )
-    # --- End Authorization Check ---
-
-    # Prevent admin from deleting themselves via API? Optional safeguard.
     if requesting_admin.id == user_id:
         logging_utility.warning(
             f"Admin user {auth_key.user_id} attempted self-deletion via API."
@@ -286,17 +235,15 @@ def delete_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin self-deletion via API is disallowed.",
         )
-
     logging_utility.info(
         f"Admin user {requesting_admin.id} authorized to delete user {user_id}."
     )
     user_service = UserService(db)
     try:
-        user_service.delete_user(user_id)  # Service handles 404 if user_id not found
+        user_service.delete_user(user_id)
         logging_utility.info(
             f"User {user_id} deleted successfully by admin {requesting_admin.id}."
         )
-        # Return None for 204 response
         return None
     except HTTPException as e:
         logging_utility.error(

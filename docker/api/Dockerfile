@@ -9,13 +9,10 @@ WORKDIR /install
 RUN pip install --upgrade pip setuptools wheel
 
 # === Stage 1: install UNHASHABLE packages (PyTorch, Nvidia, etc.) ======================
+# ... (This stage remains the same) ...
 FROM base AS unhashed_builder
-
 COPY api_unhashed_reqs.txt .
-
-# add opencv-python-headless so Ultralytics won’t pull cv2 with libGL
 RUN echo "opencv-python-headless" >> api_unhashed_reqs.txt
-
 RUN pip install \
     --prefix=/install/packages \
     --no-cache-dir \
@@ -25,10 +22,9 @@ RUN pip install \
     -r api_unhashed_reqs.txt
 
 # === Stage 2: install HASHED stable trusted packages ===================================
+# ... (This stage remains the same) ...
 FROM base AS hashed_builder
-
 COPY api_reqs_hashed.txt .
-
 RUN pip install \
     --prefix=/install/packages \
     --require-hashes \
@@ -37,11 +33,12 @@ RUN pip install \
     --retries 10 \
     -r api_reqs_hashed.txt
 
+
 # === Stage 3: runtime container ========================================================
 FROM python:3.11-slim AS runtime
 WORKDIR /app
 
-# Minimal OS deps (+ libgl1 + libglib2.0-0 for any future OpenCV GUI calls)
+# Minimal OS deps (+ dos2unix)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --no-install-suggests \
         libgl1 \
@@ -53,7 +50,8 @@ RUN apt-get update && \
         wget \
         vim \
         nano \
-        git && \
+        git \
+        dos2unix && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
@@ -61,18 +59,28 @@ RUN apt-get update && \
 COPY --from=unhashed_builder /install/packages /usr/local
 COPY --from=hashed_builder   /install/packages /usr/local
 
-# Application source
-COPY src/api /app/api
+# --- THE CRITICAL FIX IS HERE ---
+# Copy the entire 'src' directory, preserving the structure
+COPY src /app/src
+
+# Copy Alembic files to the WORKDIR
+COPY alembic.ini /app/alembic.ini
+COPY migrations /app/migrations
+# --- END OF CRITICAL FIX ---
+
 
 # Runtime scripts & config
-COPY docker/common/wait-for-it.sh       /app/wait-for-it.sh
 COPY docker/api/init_and_run_api.sh     /app/init_and_run_api.sh
 COPY docker/api/supervisord.conf        /etc/supervisor/conf.d/supervisord.conf
-RUN chmod +x /app/wait-for-it.sh /app/init_and_run_api.sh
 
+# Fix line endings on the remaining script and make it executable
+RUN dos2unix /app/init_and_run_api.sh && chmod +x /app/init_and_run_api.sh
+
+# --- SET THE CORRECT PYTHONPATH ---
 ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app/api
+ENV PYTHONPATH=/app
 
 EXPOSE 9000
 
+ENTRYPOINT ["/app/init_and_run_api.sh"]
 CMD ["/usr/bin/supervisord", "-n"]

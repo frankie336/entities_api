@@ -1,4 +1,3 @@
-# deepseek_async_client.py
 import asyncio
 import json
 from typing import AsyncGenerator, Dict, List, Union
@@ -15,7 +14,7 @@ class AsyncDeepSeekClient:
     def __init__(
         self,
         api_key: str,
-        base_url: str = "https://api.deepseek.com/v1",  # note the /v1
+        base_url: str = "https://api.deepseek.com/v1",
         max_retries: int = 3,
         timeout: int = 20,
     ):
@@ -23,23 +22,14 @@ class AsyncDeepSeekClient:
         self.api_key = api_key
         self.max_retries = max_retries
         self.timeout = timeout
-
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-
-        # one shared HTTP/2 session
         self.client = httpx.AsyncClient(
-            timeout=timeout,
-            headers=self.headers,
-            follow_redirects=True,
-            http2=True,
+            timeout=timeout, headers=self.headers, follow_redirects=True, http2=True
         )
 
-    # --------------------------------------------------------- #
-    # Public helper – accept either a raw prompt *or* a messages list
-    # --------------------------------------------------------- #
     @staticmethod
     def _normalise_messages(
         prompt_or_messages: Union[str, List[Dict[str, str]]],
@@ -48,9 +38,6 @@ class AsyncDeepSeekClient:
             return [{"role": "user", "content": prompt_or_messages}]
         return prompt_or_messages
 
-    # --------------------------------------------------------- #
-    # Streaming chat completion
-    # --------------------------------------------------------- #
     async def stream_chat_completion(
         self,
         prompt_or_messages: Union[str, List[Dict[str, str]]],
@@ -74,34 +61,27 @@ class AsyncDeepSeekClient:
             "temperature": temperature,
             "top_p": top_p,
             "max_tokens": max_tokens,
-            "stream": True,  # ← enable SSE
+            "stream": True,
         }
-
         for attempt in range(1, self.max_retries + 1):
             try:
                 async with self.client.stream("POST", url, json=payload) as resp:
                     resp.raise_for_status()
-
-                    # DeepSeek follows the same text/event‑stream format as OpenAI
                     async for raw in resp.aiter_lines():
                         if not raw:
                             continue
                         if raw.startswith("data: "):
                             raw = raw[6:]
-
                         if raw.strip() == "[DONE]":
                             return
-
                         try:
                             chunk = json.loads(raw)
                         except json.JSONDecodeError:
                             print(f"[!] malformed JSON: {raw[:100]} …")
                             continue
-
                         if chunk.get("object") == "error":
                             msg = chunk.get("message", "Unknown DeepSeek error")
                             raise RuntimeError(msg)
-
                         delta = (
                             chunk.get("choices", [{}])[0]
                             .get("delta", {})
@@ -109,8 +89,7 @@ class AsyncDeepSeekClient:
                         )
                         if delta:
                             yield delta
-                    return  # finished successfully
-
+                    return
             except Exception as exc:
                 if attempt >= self.max_retries:
                     raise
@@ -118,8 +97,5 @@ class AsyncDeepSeekClient:
                 print(f"[Retry {attempt}] {exc}  – sleeping {backoff}s")
                 await asyncio.sleep(backoff)
 
-    # --------------------------------------------------------- #
-    # Close the shared httpx session
-    # --------------------------------------------------------- #
     async def aclose(self):
         await self.client.aclose()

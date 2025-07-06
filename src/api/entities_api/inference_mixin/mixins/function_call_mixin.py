@@ -22,17 +22,13 @@ LOG = LoggingUtility()
 
 
 class FunctionCallFilterMixin:
-    _FC_OPEN = re.compile(r"<\s*fc\s*>", re.IGNORECASE)
-    _FC_CLOSE = re.compile(r"</\s*fc\s*>", re.IGNORECASE)
+    _FC_OPEN = re.compile("<\\s*fc\\s*>", re.IGNORECASE)
+    _FC_CLOSE = re.compile("</\\s*fc\\s*>", re.IGNORECASE)
 
-    # ──────────────────────────────────────────────────────────────
-    # helpers
-    # ──────────────────────────────────────────────────────────────
     def _peek_for_fc(self, raw: str) -> None:
         """Run exactly once on the first outbound payload."""
         if getattr(self, "_fc_peek_done", False):
             return
-
         self._fc_peek_done = True
         lead4 = raw.lstrip()[:4].lower()
         self._fc_force_block = lead4.startswith("<fc")
@@ -46,26 +42,18 @@ class FunctionCallFilterMixin:
         Return None to hide payload from the client;
         return payload_str (unchanged) to forward it.
         """
-        # One-time peek (runs on first call)
         self._peek_for_fc(payload_str)
-
-        # Fast path when global flag is set
         if getattr(self, "_fc_force_block", False):
             if "<fc" in payload_str or '"function_call"' in payload_str:
                 LOG.debug("Suppressed payload (global block active).")
                 return None
-
-        # Provider-labelled JSON check (cheap)
         try:
             if json.loads(payload_str).get("type") == "function_call":
                 LOG.debug("Suppressed provider-labelled function_call chunk.")
                 return None
         except Exception:
-            pass  # not JSON → continue
-
-        # Inline tag pair check (rare once peek flag set)
+            pass
         if self._FC_OPEN.search(payload_str) and self._FC_CLOSE.search(payload_str):
             LOG.debug("Suppressed inline <fc> … </fc> payload.")
             return None
-
         return payload_str

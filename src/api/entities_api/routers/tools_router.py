@@ -3,9 +3,9 @@ from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.orm import Session
 
-from entities_api.dependencies import get_api_key, get_db
-from entities_api.models.models import ApiKey as ApiKeyModel
-from entities_api.services.tools import ToolService
+from src.api.entities_api.dependencies import get_api_key, get_db
+from src.api.entities_api.models.models import ApiKey as ApiKeyModel
+from src.api.entities_api.services.tools import ToolService
 
 validation = ValidationInterface()
 router = APIRouter()

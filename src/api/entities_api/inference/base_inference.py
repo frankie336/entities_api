@@ -15,7 +15,7 @@ from datetime import datetime
 from functools import lru_cache
 from typing import Any, Callable, Dict, Generator, List, Optional
 
-import httpx  # <-- for type checks / repr
+import httpx
 from fastapi import Depends
 from openai import OpenAI
 from projectdavid import Entity
@@ -34,25 +34,24 @@ from projectdavid_common.schemas.enums import StatusEnum
 from redis import Redis
 from together import Together
 
-from entities_api.constants.assistant import (
+from src.api.entities_api.constants.assistant import (
     CODE_ANALYSIS_TOOL_MESSAGE, CODE_INTERPRETER_MESSAGE,
     DEFAULT_REMINDER_MESSAGE, PLATFORM_TOOLS,
     WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS)
-from entities_api.constants.platform import (ERROR_NO_CONTENT,
-                                             SPECIAL_CASE_TOOL_HANDLING)
-from entities_api.dependencies import get_assistant_cache
-from entities_api.ptool_handlers.code_interpreter.code_execution_client import \
+from src.api.entities_api.constants.platform import (
+    ERROR_NO_CONTENT, SPECIAL_CASE_TOOL_HANDLING)
+from src.api.entities_api.dependencies import get_assistant_cache
+from src.api.entities_api.ptool_handlers.code_interpreter.code_execution_client import \
     StreamOutput
-from entities_api.ptool_handlers.platform_tool_service import \
+from src.api.entities_api.ptool_handlers.platform_tool_service import \
     PlatformToolService
-from entities_api.services.cached_assistant import AssistantCache
-from entities_api.services.conversation_truncator import ConversationTruncator
-from entities_api.services.logging_service import LoggingUtility
+from src.api.entities_api.services.cached_assistant import AssistantCache
+from src.api.entities_api.services.conversation_truncator import \
+    ConversationTruncator
+from src.api.entities_api.services.logging_service import LoggingUtility
 
 LOG = logging.getLogger(__name__)
 SURFACE_TRACEBACK = os.getenv("SURFACE_TRACEBACK", "false").lower() == "true"
-
-
 logging_utility = LoggingUtility()
 validator = ValidationInterface()
 
@@ -70,11 +69,9 @@ class AuthenticationError(PermissionError):
 
 
 class BaseInference(ABC):
-
-    REASONING_PATTERN = re.compile(r"(<think>|</think>)")
-
+    REASONING_PATTERN = re.compile("(<think>|</think>)")
     FC_REGEX = re.compile(
-        r"<fc>\s*(?P<payload>\{.*?\})\s*</fc>", re.DOTALL | re.IGNORECASE
+        "<fc>\\s*(?P<payload>\\{.*?\\})\\s*</fc>", re.DOTALL | re.IGNORECASE
     )
 
     def __init__(
@@ -104,8 +101,6 @@ class BaseInference(ABC):
         self.tool_response = None
         self.function_call = None
         self.client = Together(api_key=os.getenv("TOGETHER_API_KEY"))
-
-        # Instantiate the default OpenAI client
         try:
             self.openai_client = OpenAI(
                 api_key=os.getenv("TOGETHER_API_KEY"),
@@ -117,24 +112,15 @@ class BaseInference(ABC):
                 "Failed to initialize default OpenAI client: %s", e, exc_info=True
             )
             self.openai_client = None
-
-        # Instantiate the default Together client
         try:
-            self.together_client = Together(
-                api_key=os.getenv("TOGETHER_API_KEY"),
-            )
-
+            self.together_client = Together(api_key=os.getenv("TOGETHER_API_KEY"))
         except Exception as e:
             logging_utility.error(
                 "Failed to initialize default OpenAI client: %s", e, exc_info=True
             )
             self.openai_client = None
-
-        # 2. Initialize the default project_david client
         project_david_api_key = os.getenv("ADMIN_API_KEY")
-
         project_david_base_url = self.base_url
-
         try:
             if not project_david_api_key:
                 raise ConfigurationError("ADMIN_API_KEY is not set.")
@@ -142,11 +128,8 @@ class BaseInference(ABC):
                 raise ConfigurationError(
                     "Base URL for Project David client is not set."
                 )
-
             self.project_david_client = Entity(
-                api_key=project_david_api_key,
-                base_url=project_david_base_url,
-                # time out handled internally
+                api_key=project_david_api_key, base_url=project_david_base_url
             )
             logging_utility.debug(
                 "Default project_david client initialized successfully."
@@ -157,14 +140,12 @@ class BaseInference(ABC):
                 e,
                 exc_info=True,
             )
-            self.project_david_client = None  # Ensure it's None on failure
-
+            self.project_david_client = None
         self.truncator_params = {
             "model_name": model_name,
             "max_context_window": max_context_window,
             "threshold_percentage": threshold_percentage,
         }
-
         logging_utility.info("BaseInference initialized with lazy service loading.")
         self.setup_services()
 
@@ -252,15 +233,10 @@ class BaseInference(ABC):
         if api_key:
             logging_utility.debug("Creating client for specific key (not cached).")
             try:
-                return Together(
-                    api_key=api_key,
-                    # base_url=base_url,
-                )
+                return Together(api_key=api_key)
             except Exception as e:
                 logging_utility.error(
-                    "Failed to create specific TogetherAI client: %s",
-                    e,
-                    exc_info=True,
+                    "Failed to create specific TogetherAI client: %s", e, exc_info=True
                 )
                 if self.together_client:
                     logging_utility.warning(
@@ -271,14 +247,13 @@ class BaseInference(ABC):
                     raise RuntimeError(
                         "Default TogetherAI client is not initialized, and specific client creation failed."
                     )
+        elif self.together_client:
+            logging_utility.debug(
+                "Using default project_david client (no specific key provided)."
+            )
+            return self.together_client
         else:
-            if self.together_client:
-                logging_utility.debug(
-                    "Using default project_david client (no specific key provided)."
-                )
-                return self.together_client
-            else:
-                raise RuntimeError("Default TogetherAI client is not initialized.")
+            raise RuntimeError("Default TogetherAI client is not initialized.")
 
     @lru_cache(maxsize=32)
     def _get_project_david_client(
@@ -291,10 +266,7 @@ class BaseInference(ABC):
         if api_key:
             logging_utility.debug("Creating client for specific key (not cached).")
             try:
-                return Entity(
-                    api_key=api_key,
-                    base_url=base_url,
-                )
+                return Entity(api_key=api_key, base_url=base_url)
             except Exception as e:
                 logging_utility.error(
                     "Failed to create specific project_david client: %s",
@@ -310,14 +282,13 @@ class BaseInference(ABC):
                     raise RuntimeError(
                         "Default project_david client is not initialized, and specific client creation failed."
                     )
+        elif self.project_david_client:
+            logging_utility.debug(
+                "Using default project_david client (no specific key provided)."
+            )
+            return self.project_david_client
         else:
-            if self.project_david_client:
-                logging_utility.debug(
-                    "Using default project_david client (no specific key provided)."
-                )
-                return self.project_david_client
-            else:
-                raise RuntimeError("Default project_david client is not initialized.")
+            raise RuntimeError("Default project_david client is not initialized.")
 
     @lru_cache(maxsize=32)
     def _get_openai_client(
@@ -348,14 +319,13 @@ class BaseInference(ABC):
                     raise RuntimeError(
                         "Default OpenAI client is not initialized, and specific client creation failed."
                     )
+        elif self.openai_client:
+            logging_utility.debug(
+                "Using default OpenAI client (no specific key provided)."
+            )
+            return self.openai_client
         else:
-            if self.openai_client:
-                logging_utility.debug(
-                    "Using default OpenAI client (no specific key provided)."
-                )
-                return self.openai_client
-            else:
-                raise RuntimeError("Default OpenAI client is not initialized.")
+            raise RuntimeError("Default OpenAI client is not initialized.")
 
     def get_assistant_id(self):
         return self.assistant_id
@@ -374,10 +344,6 @@ class BaseInference(ABC):
             custom_params=[os.getenv("BASE_URL"), os.getenv("ADMIN_API_KEY")],
         )
 
-    # ----------------------
-    # A tread is never created
-    # by processing logic
-    # -------------------------
     @property
     def thread_service(self):
         return self._get_service(
@@ -442,21 +408,13 @@ class BaseInference(ABC):
     def conversation_truncator(self):
         return self._get_service(ConversationTruncator)
 
-    # -------------------------------------------------
-    # -ENTITIES STATE INFORMATION-
-    # From time to time we need to pass
-    # Some state information into PlatformToolService
-    # This is the cleanest way to do that
-    # -------------------------------------------------
     def set_assistant_id(self, assistant_id):
         if self.assistant_id != assistant_id:
-            # Clear cached services that depend on assistant_id
             self._invalidate_service_cache(PlatformToolService)
             self.assistant_id = assistant_id
 
     def set_thread_id(self, thread_id):
         if self.thread_id != thread_id:
-            # Clear cached services that depend on thread_id
             self._invalidate_service_cache(PlatformToolService)
             self.thread_id = thread_id
 
@@ -523,14 +481,9 @@ class BaseInference(ABC):
             or None if no match is found.
         """
         pattern = re.compile(
-            r"""
-            \{\s*['"]name['"]\s*:\s*['"]code_interpreter['"]\s*,\s*   # "name": "code_interpreter"
-            ['"]arguments['"]\s*:\s*\{\s*['"]code['"]\s*:\s*             # "arguments": {"code":
-            (?P<code>.*)                                               # Capture the rest as code content
-        """,
+            '\n            \\{\\s*[\'"]name[\'"]\\s*:\\s*[\'"]code_interpreter[\'"]\\s*,\\s*   # "name": "code_interpreter"\n            [\'"]arguments[\'"]\\s*:\\s*\\{\\s*[\'"]code[\'"]\\s*:\\s*             # "arguments": {"code":\n            (?P<code>.*)                                               # Capture the rest as code content\n        ',
             re.VERBOSE | re.DOTALL,
         )
-
         match = pattern.search(text)
         if match:
             return {"code": match.group("code").strip()}
@@ -564,20 +517,9 @@ class BaseInference(ABC):
         If no match is found, returns None.
         """
         pattern = re.compile(
-            r"""
-            \{\s*                                                      # Opening brace of outer object
-            (?P<q1>["']) (?P<first_key> [^"']+?) (?P=q1) \s* : \s*      # First key
-            (?P<q2>["']) (?P<first_value> [^"']+?) (?P=q2) \s* , \s*    # First value
-            (?P<q3>["']) (?P<second_key> [^"']+?) (?P=q3) \s* : \s*     # Second key
-            \{\s*                                                      # Opening brace of nested object
-            (?P<q4>["']) (?P<nested_key> [^"']+?) (?P=q4) \s* : \s*     # Nested key
-            (?P<q5>["']) (?P<nested_value> .*?) (?P=q5) \s*             # Nested value (multiline allowed)
-            } \s*                                                     # Closing brace of nested object
-            } \s*                                                     # Closing brace of outer object
-        """,
+            "\n            \\{\\s*                                                      # Opening brace of outer object\n            (?P<q1>[\"']) (?P<first_key> [^\"']+?) (?P=q1) \\s* : \\s*      # First key\n            (?P<q2>[\"']) (?P<first_value> [^\"']+?) (?P=q2) \\s* , \\s*    # First value\n            (?P<q3>[\"']) (?P<second_key> [^\"']+?) (?P=q3) \\s* : \\s*     # Second key\n            \\{\\s*                                                      # Opening brace of nested object\n            (?P<q4>[\"']) (?P<nested_key> [^\"']+?) (?P=q4) \\s* : \\s*     # Nested key\n            (?P<q5>[\"']) (?P<nested_value> .*?) (?P=q5) \\s*             # Nested value (multiline allowed)\n            } \\s*                                                     # Closing brace of nested object\n            } \\s*                                                     # Closing brace of outer object\n        ",
             re.VERBOSE | re.DOTALL,
-        )  # re.DOTALL allows matching multiline values
-
+        )
         match = pattern.search(text)
         if match:
             return {
@@ -585,21 +527,13 @@ class BaseInference(ABC):
                 "first_value": match.group("first_value"),
                 "second_key": match.group("second_key"),
                 "nested_key": match.group("nested_key"),
-                "nested_value": match.group(
-                    "nested_value"
-                ).strip(),  # Remove trailing whitespace
+                "nested_value": match.group("nested_value").strip(),
             }
         else:
             return None
 
     def convert_smart_quotes(self, text: str) -> str:
-
-        replacements = {
-            "‘": "'",  # smart single quote to standard single quote
-            "’": "'",
-            "“": '"',  # smart double quote to standard double quote
-            "”": '"',
-        }
+        replacements = {"‘": "'", "’": "'", "“": '"', "”": '"'}
         for smart, standard in replacements.items():
             text = text.replace(smart, standard)
         return text
@@ -611,31 +545,20 @@ class BaseInference(ABC):
         Doesn't validate specific parameter values, just ensures proper structure.
         """
         try:
-            # Base structure check
             if not isinstance(json_data, dict):
                 return False
-
-            # Required top-level keys
             if {"name", "arguments"} - json_data.keys():
                 return False
-
-            # Name validation
             if not isinstance(json_data["name"], str) or not json_data["name"].strip():
                 return False
-
-            # Arguments validation
             if not isinstance(json_data["arguments"], dict):
                 return False
-
-            # Value type preservation check
             for key, value in json_data["arguments"].items():
                 if not isinstance(key, str):
                     return False
                 if isinstance(value, (list, dict)):
-                    return False  # Prevent nested structures per guidelines
-
+                    return False
             return True
-
         except (TypeError, KeyError):
             return False
 
@@ -643,25 +566,21 @@ class BaseInference(ABC):
         """Recursively validate operators with $ prefix"""
         for key, value in data.items():
             if key.startswith("$"):
-                # Operator values can be primitives or nested structures
-                if isinstance(value, dict) and not self.is_complex_vector_search(value):
+                if isinstance(value, dict) and (
+                    not self.is_complex_vector_search(value)
+                ):
                     return False
                 elif isinstance(value, list):
                     for item in value:
-                        if isinstance(item, dict) and not self.is_complex_vector_search(
-                            item
+                        if isinstance(item, dict) and (
+                            not self.is_complex_vector_search(item)
                         ):
                             return False
-            else:
-                # Non-operator keys can have any value EXCEPT unvalidated dicts
-                if isinstance(value, dict):
-                    if not self.is_complex_vector_search(
-                        value
-                    ):  # Recurse into nested dicts
-                        return False
-                elif isinstance(value, list):
-                    return False  # Maintain original list prohibition
-
+            elif isinstance(value, dict):
+                if not self.is_complex_vector_search(value):
+                    return False
+            elif isinstance(value, list):
+                return False
         return True
 
     def normalize_roles(self, conversation_history):
@@ -683,31 +602,16 @@ class BaseInference(ABC):
         Extracts potential JSON function call patterns from arbitrary text positions.
         Handles cases where function calls are embedded within other content.
         """
-        # Regex pattern explanation:
-        # - Looks for {...} structures with 'name' and 'arguments' keys
-        # - Allows for nested JSON structures
-        # - Tolerates some invalid JSON formatting that might appear in streams
-        pattern = r"""
-            \{                      # Opening curly brace
-            \s*                     # Optional whitespace
-            (["'])name\1\s*:\s*     # 'name' key with quotes
-            (["'])(.*?)\2\s*,\s*    # Capture tool name
-            (["'])arguments\4\s*:\s* # 'arguments' key
-            (\{.*?\})               # Capture arguments object
-            \s*\}                   # Closing curly brace
-        """
-
+        pattern = "\n            \\{                      # Opening curly brace\n            \\s*                     # Optional whitespace\n            ([\"'])name\\1\\s*:\\s*     # 'name' key with quotes\n            ([\"'])(.*?)\\2\\s*,\\s*    # Capture tool name\n            ([\"'])arguments\\4\\s*:\\s* # 'arguments' key\n            (\\{.*?\\})               # Capture arguments object\n            \\s*\\}                   # Closing curly brace\n        "
         candidates = []
         try:
             matches = re.finditer(pattern, text, re.DOTALL | re.VERBOSE)
             for match in matches:
                 candidate = match.group(0)
-                # Validate basic structure before adding
                 if '"name"' in candidate and '"arguments"' in candidate:
                     candidates.append(candidate)
         except Exception as e:
             logging_utility.error(f"Candidate extraction error: {str(e)}")
-
         return candidates
 
     def extract_function_calls_within_body_of_text(self, text: str):
@@ -715,41 +619,22 @@ class BaseInference(ABC):
         Extracts and validates all tool invocation patterns from unstructured text.
         Handles multi-line JSON and schema validation without recursive patterns.
         """
-        # Remove markdown code fences (e.g., ```json ... ```)
-        text = re.sub(r"```(?:json)?(.*?)```", r"\1", text, flags=re.DOTALL)
-
-        # Normalization phase
-        text = re.sub(r"[“”]", '"', text)
-        text = re.sub(r"(\s|\\n)+", " ", text)
-
-        # Simplified pattern without recursion
-        pattern = r"""
-            \{         # Opening curly brace
-            .*?        # Any characters
-            "name"\s*:\s*"(?P<name>[^"]+)"
-            .*?        # Any characters
-            "arguments"\s*:\s*\{(?P<args>.*?)\}
-            .*?        # Any characters
-            \}         # Closing curly brace
-        """
-
+        text = re.sub("```(?:json)?(.*?)```", "\\1", text, flags=re.DOTALL)
+        text = re.sub("[“”]", '"', text)
+        text = re.sub("(\\s|\\\\n)+", " ", text)
+        pattern = '\n            \\{         # Opening curly brace\n            .*?        # Any characters\n            "name"\\s*:\\s*"(?P<name>[^"]+)"\n            .*?        # Any characters\n            "arguments"\\s*:\\s*\\{(?P<args>.*?)\\}\n            .*?        # Any characters\n            \\}         # Closing curly brace\n        '
         tool_matches = []
         for match in re.finditer(pattern, text, re.DOTALL | re.VERBOSE):
             try:
-                # Reconstruct with proper JSON formatting
                 raw_json = match.group()
                 parsed = json.loads(raw_json)
-
-                # Schema validation
-                if not all(key in parsed for key in ["name", "arguments"]):
+                if not all((key in parsed for key in ["name", "arguments"])):
                     continue
                 if not isinstance(parsed["arguments"], dict):
                     continue
-
                 tool_matches.append(parsed)
             except (json.JSONDecodeError, KeyError):
                 continue
-
         return tool_matches
 
     def ensure_valid_json(self, text: str):
@@ -757,7 +642,7 @@ class BaseInference(ABC):
         Ensures the input text represents a valid JSON dictionary.
         Handles:
         - Direct JSON parsing.
-        - JSON strings that are escaped within an outer string (e.g., '"{\"key\": \"value\"}"').
+        - JSON strings that are escaped within an outer string (e.g., '"{"key": "value"}"').
         - Incorrect single quotes (`'`) -> double quotes (`"`).
         - Trailing commas before closing braces/brackets.
 
@@ -769,109 +654,59 @@ class BaseInference(ABC):
                 "Received empty or non-string content for JSON validation."
             )
             return False
-
-        original_text_for_logging = text[:200] + (
-            "..." if len(text) > 200 else ""
-        )  # Log snippet
+        original_text_for_logging = text[:200] + ("..." if len(text) > 200 else "")
         processed_text = text.strip()
         parsed_json = None
-
-        # --- Stage 1: Attempt Direct or Unescaping Parse ---
         try:
-            # Attempt parsing directly. This might succeed if the input is already valid JSON,
-            # OR if it's an escaped JSON string like "\"{\\\"key\\\": \\\"value\\\"}\"".
-            # In the latter case, json.loads() will return the *inner* string "{\"key\": \"value\"}".
             intermediate_parse = json.loads(processed_text)
-
             if isinstance(intermediate_parse, dict):
-                # Direct parse successful and it's a dictionary!
                 logging_utility.debug("Direct JSON parse successful.")
                 parsed_json = intermediate_parse
-                # We can return early if we don't suspect trailing commas in this clean case
-                # Let's apply comma fix just in case, doesn't hurt.
-                # Fall through to Stage 2 for potential comma fixing.
-
             elif isinstance(intermediate_parse, str):
-                # Parsed successfully, but resulted in a string.
-                # This means the original 'processed_text' was an escaped JSON string.
-                # 'intermediate_parse' now holds the actual JSON string we need to parse.
                 logging_utility.warning(
                     "Initial parse resulted in string, attempting inner JSON parse."
                 )
-                processed_text = (
-                    intermediate_parse  # Use the unescaped string for the next stage
-                )
-                # Fall through to Stage 2 for parsing and fixes
-
+                processed_text = intermediate_parse
             else:
-                # Parsed to something other than dict or string (e.g., list, number)
                 logging_utility.error(
                     f"Direct JSON parse resulted in unexpected type: {type(intermediate_parse)}. Expected dict or escaped string."
                 )
-                return False  # Not suitable for function call structure
-
+                return False
         except json.JSONDecodeError:
-            # Direct parse failed. This is expected if it needs quote/comma fixes,
-            # or if it wasn't an escaped string to begin with.
             logging_utility.debug(
                 "Direct/Unescaping parse failed. Proceeding to fixes."
             )
-            # Fall through to Stage 2 where 'processed_text' is still the original stripped text.
-            pass  # Continue to Stage 2
+            pass
         except Exception as e:
-            # Catch unexpected errors during the first parse attempt
             logging_utility.error(
                 f"Unexpected error during initial JSON parse stage: {e}. Text: {original_text_for_logging}",
                 exc_info=True,
             )
             return False
-
-        # --- Stage 2: Apply Fixes and Attempt Final Parse ---
-        # This stage runs if:
-        # 1. Direct parse succeeded yielding a dict (parsed_json is set) -> mainly for comma fix.
-        # 2. Direct parse yielded a string (processed_text updated) -> needs parsing + fixes.
-        # 3. Direct parse failed (processed_text is original) -> needs parsing + fixes.
-
         if parsed_json and isinstance(parsed_json, dict):
-            # If already parsed to dict, just check for/fix trailing commas in string representation
-            # This is less common, usually fix before parsing. Let's skip for simplicity unless needed.
             logging_utility.debug(
                 "JSON already parsed, skipping fix stage (commas assumed handled or valid)."
             )
-            # If trailing commas *after* initial parse are a problem, convert dict back to string, fix, re-parse (complex).
-            # Let's assume the initial parse handled it or it was valid.
-            pass  # proceed to return parsed_json
+            pass
         else:
-            # We need to parse 'processed_text' (either original or unescaped string) after fixes
             try:
-                # Fix 1: Standardize Single Quotes (Use cautiously)
-                # Only apply if single quotes are present and double quotes are likely not intentional structure
-                # This is heuristic and might break valid JSON with single quotes in string values.
                 if "'" in processed_text and '"' not in processed_text.replace(
                     "\\'", ""
-                ):  # Avoid replacing escaped quotes if possible
+                ):
                     logging_utility.warning(
                         f"Attempting single quote fix on: {processed_text[:100]}..."
                     )
                     fixed_text = processed_text.replace("'", '"')
                 else:
-                    fixed_text = processed_text  # No quote fix needed or too risky
-
-                # Fix 2: Remove Trailing Commas (before closing brace/bracket)
-                # Handles cases like [1, 2,], {"a":1, "b":2,}
-                fixed_text = re.sub(r",(\s*[}\]])", r"\1", fixed_text)
-
-                # Final Parse Attempt
+                    fixed_text = processed_text
+                fixed_text = re.sub(",(\\s*[}\\]])", "\\1", fixed_text)
                 parsed_json = json.loads(fixed_text)
-
                 if not isinstance(parsed_json, dict):
                     logging_utility.error(
                         f"Parsed JSON after fixes is not a dictionary (type: {type(parsed_json)}). Text after fixes: {fixed_text[:200]}..."
                     )
                     return False
-
                 logging_utility.info("JSON successfully parsed after fixes.")
-
             except json.JSONDecodeError as e:
                 logging_utility.error(
                     f"Failed to parse JSON even after fixes. Error: {e}. Text after fixes attempt: {fixed_text[:200]}..."
@@ -883,12 +718,9 @@ class BaseInference(ABC):
                     exc_info=True,
                 )
                 return False
-
-        # --- Stage 3: Final Check and Return ---
         if isinstance(parsed_json, dict):
             return parsed_json
         else:
-            # Should technically be caught earlier, but as a safeguard
             logging_utility.error(
                 "Final check failed: parsed_json is not a dictionary."
             )
@@ -897,25 +729,21 @@ class BaseInference(ABC):
     def normalize_content(self, content):
         """Smart format normalization with fallback."""
         try:
-            # If already a dictionary, use it as-is; otherwise, try to parse the JSON
             if isinstance(content, dict):
                 return content
             else:
                 validated = self.ensure_valid_json(str(content))
-                # If validation fails (i.e. returns False), then we simply return False
                 return validated if validated is not False else False
         except Exception as e:
             logging_utility.warning(f"Normalization failed: {str(e)}")
-            return content  # Preserve for legacy handling if needed
+            return content
 
     def handle_error(self, assistant_reply, thread_id, assistant_id, run_id):
         """Handle errors and store partial assistant responses."""
         if assistant_reply:
-
             client = self._get_project_david_client(
                 api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
             )
-
             client.messages.save_assistant_message_chunk(
                 thread_id=thread_id,
                 content=assistant_reply,
@@ -925,22 +753,17 @@ class BaseInference(ABC):
                 is_last_chunk=True,
             )
             logging_utility.info("Partial assistant response stored successfully.")
-
             client = self._get_project_david_client(
                 api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
             )
-
             client.runs.update_run_status(run_id, validator.StatusEnum.failed)
 
     def finalize_conversation(self, assistant_reply, thread_id, assistant_id, run_id):
         """Finalize the conversation by storing the assistant's reply."""
-
         if assistant_reply:
-
             client = self._get_project_david_client(
                 api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
             )
-
             message = client.messages.save_assistant_message_chunk(
                 thread_id=thread_id,
                 content=assistant_reply,
@@ -949,15 +772,11 @@ class BaseInference(ABC):
                 sender_id=assistant_id,
                 is_last_chunk=True,
             )
-
             logging_utility.info("Assistant response stored successfully.")
-
             client = self._get_project_david_client(
                 api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
             )
-
             client.runs.update_run_status(run_id, validator.StatusEnum.completed)
-
             return message
 
     def get_vector_store_id_for_assistant(
@@ -973,15 +792,10 @@ class BaseInference(ABC):
         Returns:
             str: The collection name of the vector store.
         """
-        # Retrieve a list of vector stores per assistant
         vector_stores = self.vector_store_service.get_vector_stores_for_assistant(
             assistant_id=assistant_id
         )
-
-        # Map name to collection_name
         vector_store_mapping = {vs.name: vs.collection_name for vs in vector_stores}
-
-        # Return the collection name for the specific store
         return vector_store_mapping[f"{assistant_id}-{store_suffix}"]
 
     def start_cancellation_listener(
@@ -991,7 +805,8 @@ class BaseInference(ABC):
         Starts a background thread to listen for cancellation events.
         Only starts if it hasn't already been started.
         """
-        from entities_api.services.event_handler import EntitiesEventHandler
+        from src.api.entities_api.services.event_handler import \
+            EntitiesEventHandler
 
         if (
             hasattr(self, "_cancellation_thread")
@@ -1042,18 +857,12 @@ class BaseInference(ABC):
         poll_interval: float = 1.0,
         max_wait: float = 60.0,
     ) -> Dict[str, Any]:
-
-        # 1) Create the action
         action = self.action_client.create_action(
-            tool_name=content["name"],
-            run_id=run_id,
-            function_args=content["arguments"],
+            tool_name=content["name"], run_id=run_id, function_args=content["arguments"]
         )
         logging_utility.debug(
             "Created action %s for tool %s", action.id, content["name"]
         )
-
-        # 2) Flip the run to pending_action
         pd_client = self._get_project_david_client(
             api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
         )
@@ -1062,28 +871,20 @@ class BaseInference(ABC):
             run_id=run_id, new_status=validator.StatusEnum.pending_action.value
         )
         logging_utility.info(f"Run {run_id} status updated to action_required")
-
-        # 3) Poll until the action is picked up (i.e. no longer pending)
         start = time.time()
         while True:
-            # 3a) Check for pending actions — if none, we’re done
             pending = self.action_client.get_pending_actions(run_id)
             if not pending:
                 break
-
-            # 3b) Optionally also check run status for a terminal state
             run = runs_client.retrieve_run(run_id)
             if run.status not in (StatusEnum.pending_action.value,):
                 break
-
             if time.time() - start > max_wait:
                 logging_utility.warning(
                     f"Timeout waiting for action {action.id} on run {run_id}"
                 )
                 break
-
             time.sleep(poll_interval)
-
         logging_utility.info(
             "Action status transition complete. Reprocessing conversation."
         )
@@ -1092,11 +893,9 @@ class BaseInference(ABC):
     def _handle_web_search(self, thread_id, assistant_id, function_output, action):
         """Special handling for web search results."""
         try:
-
             search_output = (
                 str(function_output[0]) + WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS
             )
-
             self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
@@ -1106,7 +905,6 @@ class BaseInference(ABC):
             logging_utility.info(
                 "Web search results submitted for action %s", action.id
             )
-
         except IndexError as e:
             logging_utility.error(
                 "Invalid web search output format for action %s: %s", action.id, str(e)
@@ -1120,7 +918,6 @@ class BaseInference(ABC):
         try:
             parsed_output = json.loads(function_output)
             output_value = parsed_output["result"]["output"]
-
             self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
@@ -1130,7 +927,6 @@ class BaseInference(ABC):
             logging_utility.info(
                 "Code interpreter output submitted for action %s", action.id
             )
-
         except json.JSONDecodeError as e:
             logging_utility.error(
                 "Failed to parse code interpreter output for action %s: %s",
@@ -1142,9 +938,7 @@ class BaseInference(ABC):
     def _handle_vector_search(self, thread_id, assistant_id, function_output, action):
         """Special handling for web search results."""
         try:
-
             search_output = str(function_output)
-
             self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
@@ -1154,7 +948,6 @@ class BaseInference(ABC):
             logging_utility.info(
                 "Web search results submitted for action %s", action.id
             )
-
         except IndexError as e:
             logging_utility.error(
                 "Invalid web search output format for action %s: %s", action.id, str(e)
@@ -1164,7 +957,6 @@ class BaseInference(ABC):
     def _handle_computer(self, thread_id, assistant_id, function_output, action):
         """Special handling for web search results."""
         try:
-
             self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
@@ -1174,7 +966,6 @@ class BaseInference(ABC):
             logging_utility.info(
                 "Web search results submitted for action %s", action.id
             )
-
         except IndexError as e:
             logging_utility.error(
                 "Invalid web search output format for action %s: %s", action.id, str(e)
@@ -1183,13 +974,10 @@ class BaseInference(ABC):
 
     def _submit_code_interpreter_output(self, thread_id, assistant_id, content, action):
         """special case code interpreter output submission"""
-
         try:
-
             client = self._get_project_david_client(
                 api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
             )
-
             client.messages.submit_tool_output(
                 thread_id=thread_id,
                 content=content,
@@ -1197,12 +985,10 @@ class BaseInference(ABC):
                 assistant_id=assistant_id,
                 tool_id="dummy",
             )
-
             self.action_client.update_action(action_id=action.id, status="completed")
             logging_utility.debug(
                 "Tool output submitted successfully for action %s", action.id
             )
-
         except Exception as e:
             logging_utility.error(
                 "Failed to submit tool output for action %s: %s", action.id, str(e)
@@ -1212,33 +998,25 @@ class BaseInference(ABC):
 
     def _process_platform_tool_calls(self, thread_id, assistant_id, content, run_id):
         """Process platform tool calls with enhanced logging and error handling."""
-
         self.set_assistant_id(assistant_id=assistant_id)
         self.set_thread_id(thread_id=thread_id)
-
         try:
             logging_utility.info(
                 "Starting tool call processing for run %s. Tool: %s",
                 run_id,
                 content["name"],
             )
-
-            # Create action with sanitized logging
             action = self.action_client.create_action(
                 tool_name=content["name"],
                 run_id=run_id,
                 function_args=content["arguments"],
             )
-
             logging_utility.debug(
                 "Created action %s for tool %s", action.id, content["name"]
             )
-
-            # Update run status
             client = self._get_project_david_client(
                 api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
             )
-
             client.runs.update_run_status(
                 run_id=run_id, new_status=validator.StatusEnum.pending_action
             )
@@ -1247,27 +1025,19 @@ class BaseInference(ABC):
                 run_id,
                 content["name"],
             )
-
-            # Execute tool call
             platform_tool_service = self.platform_tool_service
-
             function_output = platform_tool_service.call_function(
-                function_name=content["name"],
-                arguments=content["arguments"],
+                function_name=content["name"], arguments=content["arguments"]
             )
-
             logging_utility.debug(
                 "Tool %s executed successfully for run %s", content["name"], run_id
             )
-
-            # Handle specific tool types
             tool_handlers = {
                 "code_interpreter": self._handle_code_interpreter,
                 "web_search": self._handle_web_search,
                 "vector_store_search": self._handle_vector_search,
                 "computer": self._handle_computer,
             }
-
             handler = tool_handlers.get(content["name"])
             if handler:
                 handler(
@@ -1287,7 +1057,6 @@ class BaseInference(ABC):
                     content=function_output,
                     action=action,
                 )
-
         except Exception as e:
             logging_utility.error(
                 "Failed to process tool call for run %s: %s",
@@ -1296,7 +1065,7 @@ class BaseInference(ABC):
                 exc_info=True,
             )
             self.action_client.update_action(action_id=action.id, status="failed")
-            raise  # Re-raise for upstream handling
+            raise
 
     def submit_tool_output(self, thread_id, content, assistant_id, action):
         """
@@ -1306,49 +1075,36 @@ class BaseInference(ABC):
         if not content:
             content = ERROR_NO_CONTENT
             logging_utility.error("No content returned for action %s", action.id)
-
         try:
-
             client = self._get_project_david_client(
                 api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
             )
-
             client.messages.submit_tool_output(
                 thread_id=thread_id,
                 content=content,
                 role="tool",
                 assistant_id=assistant_id,
-                tool_id="dummy",  # Replace with actual tool_id if available
+                tool_id="dummy",
             )
-
-            # Update action status
             self.action_client.update_action(action_id=action.id, status="completed")
             logging_utility.debug(
                 "Tool output submitted successfully for action %s", action.id
             )
         except Exception as e:
-            # Log the error
             logging_utility.error(
                 "Failed to submit tool output for action %s: %s", action.id, str(e)
             )
-
             client = self._get_project_david_client(
                 api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
             )
-
-            # Send the error message to the user
             client.messages.submit_tool_output(
                 thread_id=thread_id,
                 content=f"ERROR: {str(e)}",
                 role="tool",
                 assistant_id=assistant_id,
-                tool_id="dummy",  # Replace with actual tool_id if available
+                tool_id="dummy",
             )
-
-            # Update action status to 'failed'
             self.action_client.update_action(action_id=action.id, status="failed")
-
-            # Re-raise the exception for further handling
             raise
 
     def _handle_file_search(
@@ -1366,9 +1122,7 @@ class BaseInference(ABC):
         """
         ts_start = time.perf_counter()
         action = self.action_client.create_action(
-            tool_name="file_search",
-            run_id=run_id,
-            function_args=arguments_dict,
+            tool_name="file_search", run_id=run_id, function_args=arguments_dict
         )
         LOG.debug(
             "[%s] Created action id=%s args=%s",
@@ -1376,58 +1130,40 @@ class BaseInference(ABC):
             action.id,
             json.dumps(arguments_dict, indent=2),
         )
-
         try:
             query_text: str = arguments_dict["query_text"]
             vector_store_id = "vect_vsnpCIHB71ilrpKz8BkgmF"
-
             LOG.debug(
                 "[%s] file_search → store=%s  query=%s",
                 run_id,
                 vector_store_id,
                 query_text,
             )
-
             pd_client = self._get_project_david_client(
-                api_key=os.getenv("ADMIN_API_KEY"),
-                base_url=os.getenv("BASE_URL"),
+                api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
             )
-
-            # -----------------------------------------------
-            # We need to deal with the internal url here
-            # ------------------------------------------------
             search_envelope = pd_client.vectors.file_search(
                 vector_store_id=vector_store_id,
                 query_text=query_text,
                 vector_store_host="qdrant",
             )
-
             LOG.debug(
-                "[%s] file_search raw‑envelope (%d bytes)",
+                "[%s] file_search raw‑envelope (%d\u202fbytes)",
                 run_id,
                 len(json.dumps(search_envelope)),
             )
-
-            # ── Extract assistant answer ───────────────────────────
             extracted: List[Dict[str, Any]] = [
-                {
-                    "text": c.get("text", ""),
-                    "annotations": c.get("annotations", []),
-                }
+                {"text": c.get("text", ""), "annotations": c.get("annotations", [])}
                 for item in search_envelope.get("output", [])
                 if item.get("type") == "message"
                 for c in item.get("content", [])
                 if c.get("type") == "output_text"
             ]
-
             if not extracted:
                 raise RuntimeError(
                     "No `output_text` blocks found in file‑search envelope"
                 )
-
             LOG.debug("[%s] extracted %d blocks", run_id, len(extracted))
-
-            # ── Ship back to thread ────────────────────────────────
             self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
@@ -1441,8 +1177,6 @@ class BaseInference(ABC):
                 time.perf_counter() - ts_start,
                 action.id,
             )
-
-        # ── Failure path ─────────────────────────────────────────────
         except Exception as exc:
             tb = traceback.format_exc()
             LOG.error(
@@ -1453,14 +1187,7 @@ class BaseInference(ABC):
                 tb,
             )
             self.action_client.update_action(action_id=action.id, status="failed")
-
-            # Compose a user‑friendly error payload
-            err_block = {
-                "error_type": exc.__class__.__name__,
-                "message": str(exc),
-            }
-
-            # Include HTTP details if we have them
+            err_block = {"error_type": exc.__class__.__name__, "message": str(exc)}
             if isinstance(exc, httpx.HTTPStatusError):
                 err_block.update(
                     {
@@ -1469,12 +1196,8 @@ class BaseInference(ABC):
                         "url": str(exc.request.url),
                     }
                 )
-
             if SURFACE_TRACEBACK:
                 err_block["traceback"] = tb
-
-            # Surface the error to the assistant thread so the front‑end
-            # can render *something* instead of timing‑out.
             try:
                 self.submit_tool_output(
                     thread_id=thread_id,
@@ -1483,12 +1206,9 @@ class BaseInference(ABC):
                     action=action,
                 )
             except Exception as inner:
-                # last‑ditch: at least log it
                 LOG.exception(
                     "[%s] Failed to surface error to assistant: %s", run_id, inner
                 )
-
-            # Re‑raise so upper layers / metrics still see the failure
             raise
 
     def handle_code_interpreter_action(
@@ -1497,22 +1217,15 @@ class BaseInference(ABC):
         action = self.action_client.create_action(
             tool_name="code_interpreter", run_id=run_id, function_args=arguments_dict
         )
-
         code = arguments_dict.get("code")
-
         uploaded_files = []
         hot_code_buffer = []
         final_content_for_assistant = ""
-
-        # -------------------------------
-        # Step 1: Stream raw code execution output as-is
-        # -------------------------------
         logging_utility.info("Starting code execution streaming...")
         try:
             execution_chunks = []
             for chunk_str in self.code_execution_client.stream_output(code):
                 execution_chunks.append(chunk_str)
-
             for chunk_str in execution_chunks:
                 try:
                     parsed_wrapper = json.loads(chunk_str)
@@ -1524,10 +1237,8 @@ class BaseInference(ABC):
                         yield json.dumps(
                             {"stream_type": "code_execution", "chunk": parsed}
                         )
-
                     chunk_type = parsed.get("type")
                     content = parsed.get("content")
-
                     if chunk_type == "status":
                         status = content
                         logging_utility.debug("Status chunk: %s", status)
@@ -1542,16 +1253,13 @@ class BaseInference(ABC):
                                 "Process completed with exit code: %s",
                                 parsed.get("exit_code"),
                             )
-
                     elif chunk_type == "hot_code_output":
                         hot_code_buffer.append(content)
-
                     elif chunk_type == "error":
                         logging_utility.error(
                             "Error chunk during execution: %s", content
                         )
                         hot_code_buffer.append(f"[Code Execution Error: {content}]")
-
                 except json.JSONDecodeError:
                     logging_utility.error("Invalid JSON chunk: %s", chunk_str)
                     yield json.dumps(
@@ -1579,7 +1287,6 @@ class BaseInference(ABC):
                             },
                         }
                     )
-
         except Exception as stream_err:
             logging_utility.error("Streaming error: %s", str(stream_err), exc_info=True)
             yield json.dumps(
@@ -1592,19 +1299,11 @@ class BaseInference(ABC):
                 }
             )
             uploaded_files = []
-
-        # -------------------------------
-        # Step 2: Build final content from code buffer (suppress markdown)
-        # -------------------------------
         logging_utility.info("Building final content from code output buffer...")
         if hot_code_buffer:
             final_content_for_assistant = "\n".join(hot_code_buffer).strip()
         else:
             final_content_for_assistant = "[Code executed successfully, no output.]"
-
-        # -------------------------------
-        # Step 3: Stream base64 previews (unchanged)
-        # -------------------------------
         if uploaded_files:
             logging_utility.info(
                 "Streaming base64 previews for %d files...", len(uploaded_files)
@@ -1614,7 +1313,6 @@ class BaseInference(ABC):
                 filename = file_meta.get("filename")
                 if not file_id or not filename:
                     continue
-
                 guessed_mime, _ = mimetypes.guess_type(filename)
                 mime_type = guessed_mime or "application/octet-stream"
                 try:
@@ -1630,7 +1328,6 @@ class BaseInference(ABC):
                         f"Error retrieving content: {str(e)}".encode()
                     ).decode()
                     mime_type = "text/plain"
-
                 yield json.dumps(
                     {
                         "stream_type": "code_execution",
@@ -1645,10 +1342,6 @@ class BaseInference(ABC):
                         },
                     }
                 )
-
-        # -------------------------------
-        # Step 4: Final frontend-visible chunk
-        # -------------------------------
         logging_utility.info("Yielding final content chunk.")
         yield json.dumps(
             {
@@ -1656,17 +1349,9 @@ class BaseInference(ABC):
                 "chunk": {"type": "content", "content": final_content_for_assistant},
             }
         )
-
-        # -------------------------------
-        # Step 5: Debug log uploaded_files metadata
-        # -------------------------------
         logging_utility.info(
             "Final uploaded_files metadata:\n%s", pprint.pformat(uploaded_files)
         )
-
-        # -------------------------------
-        # Step 6: Submit only text output to assistant
-        # -------------------------------
         try:
             logging_utility.info("Submitting text-only output to assistant.")
             self.submit_tool_output(
@@ -1693,29 +1378,19 @@ class BaseInference(ABC):
     def handle_shell_action(self, thread_id, run_id, assistant_id, arguments_dict):
         import json
 
-        from entities_api.ptool_handlers.computer.shell_command_interface import \
+        from src.api.entities_api.ptool_handlers.computer.shell_command_interface import \
             run_shell_commands
 
-        # Create an action for the computer command execution
         action = self.action_client.create_action(
             tool_name="computer", run_id=run_id, function_args=arguments_dict
         )
-
-        # Extract commands from the arguments dictionary
         commands = arguments_dict.get("commands", [])
-
         accumulated_content = ""
-
-        # Stream the execution output and accumulate chunks
         for chunk in run_shell_commands(commands, thread_id=thread_id):
             try:
-
                 accumulated_content += chunk
-
-                yield chunk  # Preserve streaming for real-time output
-
+                yield chunk
             except json.JSONDecodeError:
-                # Handle invalid JSON chunks
                 error_message = "Error: Invalid JSON chunk received from computer command execution."
                 self.submit_tool_output(
                     thread_id=thread_id,
@@ -1724,8 +1399,6 @@ class BaseInference(ABC):
                     action=action,
                 )
                 raise RuntimeError(error_message)
-
-        # Check if bash_buffer is empty (no output was generated)
         if not accumulated_content:
             error_message = "Error: No computer output was generated. The command may have failed or produced no output."
             self.submit_tool_output(
@@ -1735,8 +1408,6 @@ class BaseInference(ABC):
                 action=action,
             )
             raise RuntimeError(error_message)
-
-        # Submit the final output after execution completes
         self.submit_tool_output(
             thread_id=thread_id,
             assistant_id=assistant_id,
@@ -1798,20 +1469,14 @@ class BaseInference(ABC):
             run_id,
             assistant_id,
         )
-
-        # Choose reminder message based on tool
         reminder = (
             CODE_INTERPRETER_MESSAGE
             if name == "code_interpreter"
             else DEFAULT_REMINDER_MESSAGE
         )
-
-        # Inject system reminder into context
-
         client = self._get_project_david_client(
             api_key=os.getenv("ADMIN_API_KEY"), base_url=os.getenv("BASE_URL")
         )
-
         client.messages.create_message(
             thread_id=thread_id,
             assistant_id=assistant_id,
@@ -1819,7 +1484,6 @@ class BaseInference(ABC):
             role="user",
         )
         logging_utility.info("Sent reminder message to assistant: %s", reminder)
-
         try:
             stream_generator = stream(
                 thread_id=thread_id,
@@ -1830,42 +1494,30 @@ class BaseInference(ABC):
                 stream_reasoning=True,
                 api_key=api_key,
             )
-
             assistant_reply = ""
             reasoning_content = ""
-
             for chunk in stream_generator:
                 parsed = json.loads(chunk) if isinstance(chunk, str) else chunk
-
                 chunk_type = parsed.get("type")
                 content = parsed.get("content", "")
-
                 if chunk_type == "reasoning":
                     reasoning_content += content
                     yield json.dumps({"type": "reasoning", "content": content})
-
                 elif chunk_type == "content":
                     assistant_reply += content
-                    yield json.dumps({"type": "content", "content": content}) + "\n"
-
+                    yield (json.dumps({"type": "content", "content": content}) + "\n")
                 elif chunk_type == "error":
                     logging_utility.error("Error in assistant stream: %s", content)
                     yield json.dumps({"type": "error", "content": content})
                     return
-
                 else:
-                    # Default fallback for other chunk types (optional: forward raw)
                     yield json.dumps(parsed)
-
                 time.sleep(0.01)
-
         except Exception as e:
             error_msg = f"[ERROR] Hyperbolic stream failed: {str(e)}"
             logging_utility.error(error_msg, exc_info=True)
             yield json.dumps({"type": "error", "content": error_msg})
             return
-
-        # Finalize only if content was generated
         if assistant_reply:
             full_output = reasoning_content + assistant_reply
             self.finalize_conversation(
@@ -1875,7 +1527,6 @@ class BaseInference(ABC):
                 run_id=run_id,
             )
             logging_utility.info("Assistant response finalized and stored.")
-
         self.run_service.update_run_status(run_id, validator.StatusEnum.completed)
         if reasoning_content:
             logging_utility.info("Final reasoning content: %s", reasoning_content)
@@ -1892,27 +1543,18 @@ class BaseInference(ABC):
                 - results: list of JSON strings representing code chunks.
                 - updated code_buffer: the remaining buffer content.
         """
-
         self.code_mode = True
-
         results = []
         code_buffer += content_chunk
-
-        # Process one line at a time if a newline is present.
         if "\n" in code_buffer:
             newline_pos = code_buffer.find("\n") + 1
             line_chunk = code_buffer[:newline_pos]
             code_buffer = code_buffer[newline_pos:]
-            # Optionally, you can add security checks here for forbidden patterns.
             results.append(json.dumps({"type": "hot_code", "content": line_chunk}))
-
-        # Buffer overflow protection: if the code_buffer grows too large,
-        # yield its content as a chunk and reset it.
         if len(code_buffer) > 100:
             results.append(json.dumps({"type": "hot_code", "content": code_buffer}))
             code_buffer = ""
-
-        return results, code_buffer
+        return (results, code_buffer)
 
     def _shunt_to_redis_stream(
         self, redis, stream_key, chunk_dict, *, maxlen=1000, ttl_seconds=3600
@@ -1920,15 +1562,10 @@ class BaseInference(ABC):
         try:
             if isinstance(chunk_dict, str):
                 chunk_dict = json.loads(chunk_dict)
-
-            # Push to Redis stream with capped maxlen
             redis.xadd(stream_key, chunk_dict, maxlen=maxlen, approximate=True)
-
-            # Ensure the stream will expire (set once per run)
             if not redis.exists(f"{stream_key}::ttl_set"):
                 redis.expire(stream_key, ttl_seconds)
                 redis.set(f"{stream_key}::ttl_set", "1", ex=ttl_seconds)
-
         except Exception as e:
             logging_utility.warning(
                 f"[Redis Shunt] Failed to XADD or EXPIRE {stream_key}: {e}",
@@ -1941,19 +1578,11 @@ class BaseInference(ABC):
         • pulls instructions/tools from Redis‑backed AssistantCache
         • injects the current timestamp
         """
-        # <‑‑‑ FIX: use the synchronous wrapper so this method stays sync
         cfg = self.assistant_cache.retrieve_sync(assistant_id)
-        # -----------------------------------------------------------------
-
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return {
             "role": "system",
-            "content": (
-                "tools:\n"
-                f"{json.dumps(cfg['tools'])}\n"
-                f"{cfg['instructions']}\n"
-                f"Today's date and time: {today}"
-            ),
+            "content": f"tools:\n{json.dumps(cfg['tools'])}\n{cfg['instructions']}\nToday's date and time: {today}",
         }
 
     def _set_up_context_window(
@@ -1993,14 +1622,10 @@ class BaseInference(ABC):
             Uses LRU-cached service calls for assistant/message retrieval to optimize
             repeated requests with identical parameters.
         """
-        # 1) get system message
         system_msg = self._build_system_message(assistant_id)
-
-        # 2) fetch your Redis list
         redis_key = f"thread:{thread_id}:history"
         raw_list = self.redis.lrange(redis_key, 0, -1)
         if not raw_list:
-            # cold start: fallback to DB once, then repopulate
             client = Entity(
                 base_url=os.getenv("ASSISTANTS_BASE_URL"),
                 api_key=os.getenv("ADMIN_API_KEY"),
@@ -2008,19 +1633,12 @@ class BaseInference(ABC):
             full_hist = client.messages.get_formatted_messages(
                 thread_id, system_message=system_msg["content"]
             )
-            # push each into Redis
             for msg in full_hist[-200:]:
                 self.redis.rpush(redis_key, json.dumps(msg))
             self.redis.ltrim(redis_key, -200, -1)
             raw_list = [json.dumps(m) for m in full_hist]
-
-        # 3) reconstruct
         msgs = [system_msg] + [json.loads(x) for x in raw_list]
-
-        # 4) normalize roles
         normalized = self.normalize_roles(msgs)
-
-        # 5) optional truncation
         return self.conversation_truncator.truncate(normalized) if trunk else normalized
 
     def parse_and_set_function_calls(
@@ -2037,7 +1655,6 @@ class BaseInference(ABC):
             if not match:
                 return None
             raw_json = match.group("payload")
-            # Normalise smart quotes, trailing commas, etc.
             parsed = self.ensure_valid_json(raw_json)
             if parsed and (
                 self.is_valid_function_call_response(parsed)
@@ -2046,23 +1663,18 @@ class BaseInference(ABC):
                 return parsed
             return None
 
-        # -- 1️⃣  Primary search inside accumulated buffer (may have full block) --
         parsed_fc = _extract_json_block(accumulated_content)
         if parsed_fc:
             self.set_tool_response_state(True)
             self.set_function_call_state(parsed_fc)
             logging_utility.debug("Function-call found in accumulated buffer.")
             return parsed_fc
-
-        # -- 2️⃣  Fallback: search entire assistant reply text --
         parsed_fc = _extract_json_block(assistant_reply)
-        if parsed_fc and not self.get_tool_response_state():
+        if parsed_fc and (not self.get_tool_response_state()):
             self.set_tool_response_state(True)
             self.set_function_call_state(parsed_fc)
             logging_utility.debug("Embedded Function-call found in assistant reply.")
             return parsed_fc
-
-        # -- 3️⃣  Legacy heuristic search (optional): JSON without <fc> tags --
         if not parsed_fc:
             embedded = self.extract_function_calls_within_body_of_text(assistant_reply)
             if embedded:
@@ -2070,7 +1682,6 @@ class BaseInference(ABC):
                 self.set_function_call_state(embedded[0])
                 logging_utility.debug("Legacy JSON pattern detected.")
                 return embedded[0]
-
         return None
 
     def process_function_calls(
@@ -2082,20 +1693,15 @@ class BaseInference(ABC):
         fc_state = self.get_function_call_state()
         if not fc_state:
             return
-
         tool_name = fc_state.get("name")
         arguments_dict = fc_state.get("arguments")
-
-        # --- Specific Platform Tool Handling ---
         if tool_name == "code_interpreter":
-
             yield from self.handle_code_interpreter_action(
                 thread_id=thread_id,
                 run_id=run_id,
                 assistant_id=assistant_id,
                 arguments_dict=arguments_dict,
             )
-
         elif tool_name == "computer":
             yield from self.handle_shell_action(
                 thread_id=thread_id,
@@ -2103,7 +1709,6 @@ class BaseInference(ABC):
                 assistant_id=assistant_id,
                 arguments_dict=arguments_dict,
             )
-
         elif tool_name == "file_search":
             self._handle_file_search(
                 thread_id=thread_id,
@@ -2111,13 +1716,8 @@ class BaseInference(ABC):
                 assistant_id=assistant_id,
                 arguments_dict=arguments_dict,
             )
-
-        # --- General Platform Tool Handling ---
-        elif tool_name in PLATFORM_TOOLS:  # Assumes PLATFORM_TOOLS is defined
-
-            # Assumes SPECIAL_CASE_TOOL_HANDLING is defined
+        elif tool_name in PLATFORM_TOOLS:
             if tool_name not in SPECIAL_CASE_TOOL_HANDLING:
-                # Standard platform tools
                 self._process_platform_tool_calls(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
@@ -2125,7 +1725,6 @@ class BaseInference(ABC):
                     run_id=run_id,
                 )
             else:
-                # Special-case platform tools (using consumer tool processing)
                 self._process_tool_calls(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
@@ -2133,11 +1732,7 @@ class BaseInference(ABC):
                     run_id=run_id,
                     api_key=api_key,
                 )
-
-        # --- Consumer Tool Handling ---
         else:
-            # Non-platform (consumer) tools
-
             self._process_tool_calls(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
@@ -2145,17 +1740,6 @@ class BaseInference(ABC):
                 run_id=run_id,
                 api_key=api_key,
             )
-
-        # --- Stream Output ---
-        # if processed:
-        # yield from self.stream_function_call_output(
-        # thread_id=thread_id,
-        # run_id=run_id,
-        # model=model,
-        # stream=self.stream,
-        # assistant_id=assistant_id,
-        # api_key=api_key,
-        # )
 
     @abstractmethod
     def process_conversation(

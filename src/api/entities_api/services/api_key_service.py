@@ -1,18 +1,13 @@
-# src/api/entities_api/services/api_key_service.py
-
 import logging
 from datetime import datetime, timedelta
-from typing import List, Optional, Tuple  # Added List
+from typing import List, Optional, Tuple
 
 from fastapi import HTTPException, status
-from projectdavid_common import (  # Assuming common contains ValidationInterface
-    UtilsInterface, ValidationInterface)
+from projectdavid_common import UtilsInterface, ValidationInterface
 from sqlalchemy.orm import Session
 
-# Assuming models and ValidationInterface are accessible
-from ..models.models import ApiKey, User
+from src.api.entities_api.models.models import ApiKey, User
 
-# Initialize logging utility (assuming it's accessible)
 logging_utility = UtilsInterface.LoggingUtility()
 validator = ValidationInterface()
 
@@ -36,22 +31,19 @@ class ApiKeyService:
             A tuple containing (plain_api_key, unique_prefix).
         """
         attempts = 0
-        max_attempts = 10  # Prevent infinite loops in unlikely collision scenarios
+        max_attempts = 10
         while attempts < max_attempts:
             plain_key = ApiKey.generate_key(prefix=desired_prefix)
-            # Ensure prefix length matches model definition (e.g., 8 characters)
             prefix = plain_key[:8]
             existing_prefix = (
                 self.db.query(ApiKey).filter(ApiKey.prefix == prefix).first()
             )
             if not existing_prefix:
-                return plain_key, prefix
+                return (plain_key, prefix)
             attempts += 1
             logging_utility.warning(
                 f"API key prefix collision detected for {prefix}. Retrying..."
             )
-
-        # If loop finishes without finding a unique prefix (highly unlikely)
         raise RuntimeError(
             "Failed to generate a unique API key prefix after multiple attempts."
         )
@@ -61,7 +53,7 @@ class ApiKeyService:
         user_id: str,
         key_name: Optional[str] = None,
         expires_in_days: Optional[int] = None,
-        key_prefix: str = "ea_",  # Allow customizing prefix if needed
+        key_prefix: str = "ea_",
     ) -> Tuple[str, ApiKey]:
         """
         Creates and stores an API key for a given user ID.
@@ -91,7 +83,6 @@ class ApiKeyService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"User with ID '{user_id}' not found.",
             )
-
         try:
             plain_key_str, unique_prefix = self._generate_unique_key_and_prefix(
                 desired_prefix=key_prefix
@@ -100,7 +91,6 @@ class ApiKeyService:
             expires_at = None
             if expires_in_days is not None:
                 expires_at = datetime.utcnow() + timedelta(days=expires_in_days)
-
             db_api_key = ApiKey(
                 key_name=key_name,
                 hashed_key=hashed_key,
@@ -108,7 +98,6 @@ class ApiKeyService:
                 user_id=user.id,
                 expires_at=expires_at,
                 is_active=True,
-                # created_at and last_used_at have defaults or are handled elsewhere
             )
             self.db.add(db_api_key)
             self.db.commit()
@@ -116,14 +105,12 @@ class ApiKeyService:
             logging_utility.info(
                 f"API Key created successfully (Prefix: {db_api_key.prefix}) for User ID: {user.id}"
             )
-            return plain_key_str, db_api_key
-
+            return (plain_key_str, db_api_key)
         except Exception as e:
             self.db.rollback()
             logging_utility.error(
                 f"Error creating API key for user {user_id}: {e}", exc_info=True
             )
-            # Re-raise a more generic internal server error or the specific exception
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="An error occurred while creating the API key.",
@@ -151,11 +138,9 @@ class ApiKeyService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"User with ID '{user_id}' not found.",
             )
-
         query = self.db.query(ApiKey).filter(ApiKey.user_id == user_id)
         if not include_inactive:
-            query = query.filter(ApiKey.is_active.is_(True))  # ✅ FIXED
-
+            query = query.filter(ApiKey.is_active.is_(True))
         keys = query.order_by(ApiKey.created_at.desc()).all()
         return keys
 
@@ -179,28 +164,24 @@ class ApiKeyService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"User with ID '{user_id}' not found.",
             )
-
         api_key = (
             self.db.query(ApiKey)
             .filter(ApiKey.user_id == user_id, ApiKey.prefix == key_prefix)
             .first()
         )
-
         if not api_key:
             logging_utility.warning(
                 f"Attempted to revoke non-existent key prefix {key_prefix} for user {user_id}"
             )
             return False
-
         if not api_key.is_active:
             logging_utility.info(
                 f"API Key with prefix {key_prefix} for user {user_id} is already inactive."
             )
-            return True  # Or False if you want to indicate no change was made
-
+            return True
         try:
             api_key.is_active = False
-            api_key.last_used_at = None  # Optional: Clear last used time on revoke
+            api_key.last_used_at = None
             self.db.commit()
             logging_utility.info(
                 f"API Key with prefix {key_prefix} for user {user_id} revoked successfully."
@@ -240,11 +221,9 @@ class ApiKeyService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"User with ID '{user_id}' not found.",
             )
-
         api_key = (
             self.db.query(ApiKey)
             .filter(ApiKey.user_id == user_id, ApiKey.prefix == key_prefix)
             .first()
         )
-
         return api_key

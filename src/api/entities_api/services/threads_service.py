@@ -7,13 +7,14 @@ from projectdavid_common import UtilsInterface, ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.orm import Session
 
-from entities_api.models.models import Message, Thread, User
+from src.api.entities_api.models.models import Message, Thread, User
 
 logging_utility = LoggingUtility()
 validator = ValidationInterface()
 
 
 class ThreadService:
+
     def __init__(self, db: Session):
         self.db = db
 
@@ -25,7 +26,6 @@ class ThreadService:
         )
         if len(existing_users) != len(thread.participant_ids):
             raise HTTPException(status_code=400, detail="Invalid user IDs")
-
         db_thread = Thread(
             id=UtilsInterface.IdentifierService.generate_thread_id(),
             created_at=int(time.time()),
@@ -34,13 +34,10 @@ class ThreadService:
             tool_resources=json.dumps({}),
         )
         self.db.add(db_thread)
-
         for user in existing_users:
             db_thread.participants.append(user)
-
         self.db.commit()
         self.db.refresh(db_thread)
-
         return self._create_thread_read_detailed(db_thread)
 
     def get_thread(self, thread_id: str) -> validator.ThreadReadDetailed:
@@ -53,7 +50,6 @@ class ThreadService:
         db_thread.participants = []
         self.db.delete(db_thread)
         self.db.commit()
-
         return True
 
     def list_threads_by_user(self, user_id: str) -> List[str]:
@@ -81,16 +77,13 @@ class ThreadService:
         logging_utility.info(f"Update data: {thread_update.dict()}")
         db_thread = self._get_thread_or_404(thread_id)
         update_data = thread_update.dict(exclude_unset=True)
-
         if "meta_data" in update_data:
             current_metadata = json.loads(db_thread.meta_data)
             current_metadata.update(update_data["meta_data"])
             db_thread.meta_data = json.dumps(current_metadata)
-
         for key, value in update_data.items():
             if key != "meta_data":
                 setattr(db_thread, key, value)
-
         self.db.commit()
         self.db.refresh(db_thread)
         logging_utility.info(f"Successfully updated thread with id: {thread_id}")

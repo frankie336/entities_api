@@ -1,16 +1,6 @@
-# entities_api/inference/deepseek/deepseek_chat_inference.py
 from __future__ import annotations
 
-"""
-DeepSeekChatInference – mixin-driven provider (Hyperbolic-style)
-================================================================
-• Async streaming via **AsyncDeepSeekClient**
-• Emits “started” / “complete” status deltas
-• Buffers <fc> blocks ≤ 80 ms
-• Streams reasoning (<think>) and hot-code
-• Shares the exact mixin/OrchestratorCore contract used by HyperbolicDs1
-"""
-
+"\nDeepSeekChatInference – mixin-driven provider (Hyperbolic-style)\n================================================================\n• Async streaming via **AsyncDeepSeekClient**\n• Emits “started” / “complete” status deltas\n• Buffers <fc> blocks ≤ 80 ms\n• Streams reasoning (<think>) and hot-code\n• Shares the exact mixin/OrchestratorCore contract used by HyperbolicDs1\n"
 import json
 import os
 import re
@@ -21,27 +11,21 @@ from dotenv import load_dotenv
 from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.dependencies import get_redis
-from entities_api.inference.deepseek.deepseek_async_client import \
+from src.api.entities_api.dependencies import get_redis
+from src.api.entities_api.inference.deepseek.deepseek_async_client import \
     AsyncDeepSeekClient
-# ───────── unified mixin stack ──────────────────────────────────────── #
-from entities_api.inference_mixin.mixins import (AssistantCacheMixin,
-                                                 CodeExecutionMixin,
-                                                 ConsumerToolHandlersMixin,
-                                                 ConversationContextMixin,
-                                                 FileSearchMixin,
-                                                 JsonUtilsMixin,
-                                                 PlatformToolHandlersMixin,
-                                                 ShellExecutionMixin,
-                                                 ToolRoutingMixin)
-from entities_api.inference_mixin.orchestrator_core import OrchestratorCore
-from entities_api.utils.async_to_sync import async_to_sync_stream
+from src.api.entities_api.inference_mixin.mixins import (
+    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
+    ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
+    PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
+from src.api.entities_api.inference_mixin.orchestrator_core import \
+    OrchestratorCore
+from src.api.entities_api.utils.async_to_sync import async_to_sync_stream
 
 load_dotenv()
 LOG = LoggingUtility()
 
 
-# ---------- composite class of shared mixins ------------------------- #
 class _ProviderMixins(
     AssistantCacheMixin,
     JsonUtilsMixin,
@@ -58,15 +42,12 @@ class _ProviderMixins(
     pass
 
 
-class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):  # ❶ no BaseInference
+class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):
     """
     Generic DeepSeek provider that follows the same streaming contract
     as HyperbolicDs1 while keeping the async DeepSeek client.
     """
 
-    # ------------------------------------------------------------------ #
-    # Init
-    # ------------------------------------------------------------------ #
     def __init__(
         self,
         *,
@@ -82,19 +63,14 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):  # ❶ no BaseIn
         self.assistant_id = assistant_id
         self.thread_id = thread_id
         self.api_key = api_key
-
         self.model_name = extra.get("model_name", "deepseek-ai/DeepSeek-V3")
-        self.max_context_window = extra.get("max_context_window", 128_000)
+        self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
-
-        self.setup_services()  # from mixins / OrchestratorCore
+        self.setup_services()
         LOG.debug(
             "DeepSeekChatInference ready (assistant=%s)", assistant_id or "<lazy>"
         )
 
-    # ------------------------------------------------------------------ #
-    # assistant_cache property required by AssistantCacheMixin
-    # ------------------------------------------------------------------ #
     @property
     def assistant_cache(self) -> dict:
         return self._assistant_cache
@@ -108,22 +84,16 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):  # ❶ no BaseIn
     def get_assistant_cache(self) -> dict:
         return self._assistant_cache
 
-    # ------------------------------------------------------------------ #
-    # Helper: drop function_call payloads from UI stream
-    # ------------------------------------------------------------------ #
     @staticmethod
     def _filter_fc(chunk_json: str) -> Optional[str]:
         try:
             if json.loads(chunk_json).get("type") == "function_call":
                 return None
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
         return chunk_json
 
-    # ------------------------------------------------------------------ #
-    # Main streaming generator (Hyperbolic-style)
-    # ------------------------------------------------------------------ #
-    def stream(  # noqa: PLR0915, PLR0912
+    def stream(
         self,
         thread_id: str,
         message_id: str,
@@ -134,19 +104,12 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):  # ❶ no BaseIn
         stream_reasoning: bool = True,
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
-
         self.start_cancellation_listener(run_id)
         redis = get_redis()
         stream_key = f"stream:{run_id}"
-
-        # canonical model mapping
         if mapped := self._get_model_map(model):
             model = mapped
-
-        # build context window
         messages = self._set_up_context_window(assistant_id, thread_id, trunk=True)
-
-        # DeepSeek client
         api_key = api_key or self.api_key
         if not api_key:
             err = {
@@ -156,25 +119,19 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):  # ❶ no BaseIn
             yield json.dumps(err)
             self._shunt_to_redis_stream(redis, stream_key, err)
             return
-
         client = AsyncDeepSeekClient(
             api_key=api_key,
             base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
         )
-
-        # ───── emit “started” status
         start_chunk = {"type": "status", "status": "started", "run_id": run_id}
         yield json.dumps(start_chunk)
         self._shunt_to_redis_stream(redis, stream_key, start_chunk)
-
-        # ───── state
         assistant_reply = accumulated = reasoning_buf = ""
         partial_tag = ""
         fc_buffer: list[str] = []
         in_reasoning = in_function_call = code_mode = False
         code_buf = ""
-        tag_re = re.compile(r"(<think>|</think>|<fc>|</fc>)")
-
+        tag_re = re.compile("(<think>|</think>|<fc>|</fc>)")
         FLUSH_MS = 80
         last_fc_ts = time.monotonic()
 
@@ -186,61 +143,46 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):  # ❶ no BaseIn
             payload_fc = {"type": "content", "content": content}
             self._shunt_to_redis_stream(redis, stream_key, payload_fc)
             if p := self._filter_fc(json.dumps(payload_fc)):
-                yield p  # type: ignore
+                yield p
             fc_buffer.clear()
             last_fc_ts = time.monotonic()
 
-        # ───── async->sync bridge
         try:
             async_stream = client.stream_chat_completion(
-                prompt_or_messages=messages,
-                model=model,
-                temperature=0.6,
-                top_p=0.9,
+                prompt_or_messages=messages, model=model, temperature=0.6, top_p=0.9
             )
-
             for token in async_to_sync_stream(async_stream):
-
-                # cancellation check
                 if self.check_cancellation_flag():
                     err = {"type": "error", "content": "Run cancelled"}
                     if p := self._filter_fc(json.dumps(err)):
                         yield p
                     self._shunt_to_redis_stream(redis, stream_key, err)
                     break
-
                 if not token:
                     continue
                 raw = token
-
-                # normalise tags
                 cleaned = (
                     raw.replace("[content]", "")
                     .replace("<fc ", "<fc>")
                     .replace("</ fc>", "</fc>")
                 )
-                cleaned = re.sub(r"<fc\s*>", "<fc>", cleaned, flags=re.I)
-                cleaned = re.sub(r"</fc\s*>", "</fc>", cleaned, flags=re.I)
-                cleaned = re.sub(r"<think\s*>", "<think>", cleaned, flags=re.I)
-                cleaned = re.sub(r"</think\s*>", "</think>", cleaned, flags=re.I)
-
+                cleaned = re.sub("<fc\\s*>", "<fc>", cleaned, flags=re.I)
+                cleaned = re.sub("</fc\\s*>", "</fc>", cleaned, flags=re.I)
+                cleaned = re.sub("<think\\s*>", "<think>", cleaned, flags=re.I)
+                cleaned = re.sub("</think\\s*>", "</think>", cleaned, flags=re.I)
                 piece = partial_tag + cleaned
                 partial_tag = ""
-
-                segs, last = [], 0
+                segs, last = ([], 0)
                 for m in tag_re.finditer(piece):
                     if last < m.start():
                         segs.append(piece[last : m.start()])
                     segs.append(m.group())
                     last = m.end()
                 segs.append(piece[last:])
-
                 for seg in segs:
-                    if seg.startswith("<") and not tag_re.fullmatch(seg):
+                    if seg.startswith("<") and (not tag_re.fullmatch(seg)):
                         partial_tag = seg
                         break
-
-                    # <think>
                     if seg == "<think>":
                         in_reasoning = True
                         if stream_reasoning:
@@ -257,8 +199,6 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):  # ❶ no BaseIn
                                 yield p
                             self._shunt_to_redis_stream(redis, stream_key, msg)
                         continue
-
-                    # <fc>
                     if seg == "<fc>":
                         in_function_call = True
                         fc_buffer = []
@@ -268,14 +208,10 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):  # ❶ no BaseIn
                         in_function_call = False
                         yield from _flush_fc()
                         continue
-
-                    # inside <fc>
                     if in_function_call:
                         fc_buffer.append(seg)
                         last_fc_ts = time.monotonic()
                         continue
-
-                    # inside reasoning
                     if in_reasoning:
                         reasoning_buf += seg
                         if stream_reasoning:
@@ -284,8 +220,6 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):  # ❶ no BaseIn
                                 yield p
                             self._shunt_to_redis_stream(redis, stream_key, msg)
                         continue
-
-                    # code-interpreter detection
                     assistant_reply += seg
                     accumulated += seg
                     partial_ci = (
@@ -293,7 +227,6 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):  # ❶ no BaseIn
                         if not code_mode
                         else None
                     )
-
                     if partial_ci:
                         code_mode = True
                         code_buf = partial_ci["code"]
@@ -301,8 +234,6 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):  # ❶ no BaseIn
                         if p := self._filter_fc(json.dumps(start_hot)):
                             yield p
                         self._shunt_to_redis_stream(redis, stream_key, start_hot)
-
-                        # prime existing buffer
                         if code_buf and hasattr(
                             self, "_process_code_interpreter_chunks"
                         ):
@@ -316,7 +247,6 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):  # ❶ no BaseIn
                                     redis, stream_key, json.loads(r)
                                 )
                         continue
-
                     if code_mode:
                         res, code_buf = self._process_code_interpreter_chunks(
                             seg, code_buf
@@ -328,54 +258,41 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):  # ❶ no BaseIn
                                 redis, stream_key, json.loads(r)
                             )
                         continue
-
-                    # plain content
                     msg = {"type": "content", "content": seg}
                     if p := self._filter_fc(json.dumps(msg)):
                         yield p
                     self._shunt_to_redis_stream(redis, stream_key, msg)
-
-                # idle flush for <fc>
                 if (
                     in_function_call
                     and fc_buffer
-                    and (time.monotonic() - last_fc_ts) * 1000 > FLUSH_MS
+                    and ((time.monotonic() - last_fc_ts) * 1000 > FLUSH_MS)
                 ):
                     yield from _flush_fc()
-
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             err = {"type": "error", "content": f"DeepSeek SDK error: {exc}"}
             if p := self._filter_fc(json.dumps(err)):
                 yield p
             self._shunt_to_redis_stream(redis, stream_key, err)
             return
-
-        # ───── emit “complete”
         end_chunk = {"type": "status", "status": "complete", "run_id": run_id}
         yield json.dumps(end_chunk)
         self._shunt_to_redis_stream(redis, stream_key, end_chunk)
-
-        # ───── bookkeeping
         if assistant_reply:
             self.finalize_conversation(
                 reasoning_buf + assistant_reply, thread_id, assistant_id, run_id
             )
-
         if accumulated and self.parse_and_set_function_calls(
             accumulated, assistant_reply
         ):
             self.project_david_client.runs.update_run_status(
-                run_id, ValidationInterface.StatusEnum.pending_action  # type: ignore[attr-defined]
+                run_id, ValidationInterface.StatusEnum.pending_action
             )
         elif not self.get_function_call_state():
             self.project_david_client.runs.update_run_status(
-                run_id, ValidationInterface.StatusEnum.completed  # type: ignore[attr-defined]
+                run_id, ValidationInterface.StatusEnum.completed
             )
 
-    # ------------------------------------------------------------------ #
-    # Conversation orchestrator wrapper
-    # ------------------------------------------------------------------ #
-    def process_conversation(  # noqa: PLR0913
+    def process_conversation(
         self,
         thread_id: str,
         message_id: str,
@@ -386,8 +303,6 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):  # ❶ no BaseIn
         stream_reasoning: bool = False,
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
-
-        # primary stream
         yield from self.stream(
             thread_id=thread_id,
             message_id=message_id,
@@ -397,8 +312,6 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):  # ❶ no BaseIn
             stream_reasoning=stream_reasoning,
             api_key=api_key,
         )
-
-        # follow-up function call pass
         if self.get_function_call_state():
             yield from self.process_function_calls(
                 thread_id, run_id, assistant_id, model=model, api_key=api_key

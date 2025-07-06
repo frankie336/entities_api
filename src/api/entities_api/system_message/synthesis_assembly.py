@@ -1,13 +1,7 @@
 from typing import Dict, List, Optional
 
-SYSTEM_PROMPT = """You are an expert research assistant.\n"
-    "Answer the user question using ONLY the provided excerpts.\n"
-    "After each claim, cite the supporting file like (citation: <file_id>).\n"
-    "Do NOT fabricate information.\n"""
-
-DEFAULT_INSTRUCTIONS = {
-    "system_prompt": SYSTEM_PROMPT,
-}
+SYSTEM_PROMPT = 'You are an expert research assistant.\n"\n    "Answer the user question using ONLY the provided excerpts.\n"\n    "After each claim, cite the supporting file like (citation: <file_id>).\n"\n    "Do NOT fabricate information.\n'
+DEFAULT_INSTRUCTIONS = {"system_prompt": SYSTEM_PROMPT}
 
 
 def assemble_instructions(
@@ -31,7 +25,6 @@ def assemble_instructions(
         instruction_set = DEFAULT_INSTRUCTIONS
     if include_keys and exclude_keys:
         raise ValueError("Cannot specify both include_keys and exclude_keys")
-
     final_instructions = []
     if include_keys:
         for key in include_keys:
@@ -44,5 +37,4 @@ def assemble_instructions(
         for key, text in instruction_set.items():
             if key not in exclude_set:
                 final_instructions.append(text)
-
     return "\n\n".join(final_instructions)

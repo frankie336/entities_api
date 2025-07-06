@@ -9,30 +9,21 @@ from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
-from entities_api.dependencies import get_redis
-from entities_api.inference_mixin.mixins import (AssistantCacheMixin,
-                                                 CodeExecutionMixin,
-                                                 ConsumerToolHandlersMixin,
-                                                 ConversationContextMixin,
-                                                 FileSearchMixin,
-                                                 JsonUtilsMixin,
-                                                 PlatformToolHandlersMixin,
-                                                 ShellExecutionMixin,
-                                                 ToolRoutingMixin)
-from entities_api.inference_mixin.orchestrator_core import OrchestratorCore
-# Custom client imports for R1
-from entities_api.inference_mixin.providers.hypherbolic.hyperbolic_async_client import \
-    AsyncHyperbolicClient  # Assuming this path is correct
-from entities_api.utils.async_to_sync import \
-    async_to_sync_stream  # Assuming this path is correct
+from src.api.entities_api.dependencies import get_redis
+from src.api.entities_api.inference_mixin.mixins import (
+    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
+    ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
+    PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
+from src.api.entities_api.inference_mixin.orchestrator_core import \
+    OrchestratorCore
+from src.api.entities_api.inference_mixin.providers.hypherbolic.hyperbolic_async_client import \
+    AsyncHyperbolicClient
+from src.api.entities_api.utils.async_to_sync import async_to_sync_stream
 
 load_dotenv()
 LOG = LoggingUtility()
 
 
-# --------------------------------------------------------------------------- #
-# composite mix-in (C3-MRO safe)                                              #
-# --------------------------------------------------------------------------- #
 class _ProviderMixins(
     AssistantCacheMixin,
     JsonUtilsMixin,
@@ -47,10 +38,8 @@ class _ProviderMixins(
     """Flat mix-in bundle so the concrete provider only inherits once."""
 
 
-# --------------------------------------------------------------------------- #
-# provider                                                                    #
-# --------------------------------------------------------------------------- #
 class HyperbolicR1Inference(_ProviderMixins, OrchestratorCore):
+
     def __init__(
         self,
         *,
@@ -69,7 +58,7 @@ class HyperbolicR1Inference(_ProviderMixins, OrchestratorCore):
         self.base_url = base_url or os.getenv("HYPERBOLIC_BASE_URL")
         self.api_key = api_key
         self.model_name = extra.get("model_name", "deepseek-ai/DeepSeek-R1")
-        self.max_context_window = extra.get("max_context_window", 128_000)
+        self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
         super().__init__(**extra)
         LOG.debug(
@@ -115,7 +104,6 @@ class HyperbolicR1Inference(_ProviderMixins, OrchestratorCore):
         redis = self.redis
         stream_key = f"stream:{run_id}"
         self.start_cancellation_listener(run_id)
-
         if mapped := self._get_model_map(model):
             model = mapped
         ctx_messages = self._set_up_context_window(assistant_id, thread_id, trunk=True)
@@ -152,18 +140,14 @@ class HyperbolicR1Inference(_ProviderMixins, OrchestratorCore):
             yield err_json
             self._shunt_to_redis_stream(redis, stream_key, err_dict)
             return
-
-        # R1 state mirroring V3's intent:
         current_assistant_text_reply = ""
         raw_llm_stream_accumulator = ""
         current_reasoning_text = ""
         current_fc_json_buffer = ""
-
         in_reasoning_block = False
         in_function_call_block = False
         in_code_interpreter_mode = False
         code_interpreter_code_buffer = ""
-
         try:
             prompt_for_client = (
                 json.dumps(ctx_messages)
@@ -173,7 +157,6 @@ class HyperbolicR1Inference(_ProviderMixins, OrchestratorCore):
             async_stream = client.stream_chat_completion(
                 prompt=prompt_for_client, model=model, temperature=0.6
             )
-
             for token_str in async_to_sync_stream(async_stream):
                 if self.check_cancellation_flag():
                     err_dict = {"type": "error", "content": "Run cancelled"}
@@ -183,12 +166,10 @@ class HyperbolicR1Inference(_ProviderMixins, OrchestratorCore):
                     break
                 if not token_str:
                     continue
-
                 for seg in filter(
-                    None, re.split(r"(<think>|</think>|<fc>|</fc>)", token_str)
+                    None, re.split("(<think>|</think>|<fc>|</fc>)", token_str)
                 ):
                     raw_llm_stream_accumulator += seg
-
                     if seg in ("<think>", "</think>", "<fc>", "</fc>"):
                         if seg == "<fc>":
                             in_function_call_block = True
@@ -199,8 +180,6 @@ class HyperbolicR1Inference(_ProviderMixins, OrchestratorCore):
                             try:
                                 parsed_fc = json.loads(stripped_fc_json)
                                 if self.is_valid_function_call_response(parsed_fc):
-                                    # Unlike V3, we don't add stripped_fc_json to current_assistant_text_reply here.
-                                    # It's already in raw_llm_stream_accumulator for parse_and_set_function_calls.
                                     self._shunt_to_redis_stream(
                                         redis,
                                         stream_key,
@@ -222,19 +201,16 @@ class HyperbolicR1Inference(_ProviderMixins, OrchestratorCore):
                             in_reasoning_block = True
                         elif seg == "</think>":
                             in_reasoning_block = False
-
                         if stream_reasoning and seg in ("<think>", "</think>"):
                             msg_dict = {"type": "reasoning", "content": seg}
                             msg_json = json.dumps(msg_dict)
                             if p := self._filter_fc(msg_json):
-                                yield p  # FC filter shouldn't affect reasoning
+                                yield p
                             self._shunt_to_redis_stream(redis, stream_key, msg_dict)
                         continue
-
                     if in_function_call_block:
                         current_fc_json_buffer += seg
                         continue
-
                     if in_reasoning_block:
                         current_reasoning_text += seg
                         if stream_reasoning:
@@ -244,28 +220,19 @@ class HyperbolicR1Inference(_ProviderMixins, OrchestratorCore):
                                 yield p
                             self._shunt_to_redis_stream(redis, stream_key, msg_dict)
                         continue
-
-                    # At this point, 'seg' is either plain content or part of a potential code block.
-                    # We accumulate it into current_assistant_text_reply for the final message.
                     current_assistant_text_reply += seg
-
                     parse_ci = getattr(self, "parse_code_interpreter_partial", None)
-                    # Use raw_llm_stream_accumulator for detecting start of code block
                     partial_match = (
                         parse_ci(raw_llm_stream_accumulator) if parse_ci else None
                     )
-
                     if not in_code_interpreter_mode and partial_match:
                         in_code_interpreter_mode = True
-                        # code_interpreter_code_buffer stores code *inside* the ```python ... ```
                         code_interpreter_code_buffer = partial_match.get("code", "")
-
                         start_msg_dict = {"type": "hot_code", "content": "```python\n"}
                         start_msg_json = json.dumps(start_msg_dict)
                         if p := self._filter_fc(start_msg_json):
                             yield p
                         self._shunt_to_redis_stream(redis, stream_key, start_msg_dict)
-
                         if code_interpreter_code_buffer and hasattr(
                             self, "_process_code_interpreter_chunks"
                         ):
@@ -274,20 +241,13 @@ class HyperbolicR1Inference(_ProviderMixins, OrchestratorCore):
                                     "", code_interpreter_code_buffer
                                 )
                             )
-                            for (
-                                r_json_str
-                            ) in (
-                                results
-                            ):  # results are expected to be JSON strings from mixin
+                            for r_json_str in results:
                                 if p := self._filter_fc(r_json_str):
                                     yield p
                                 self._shunt_to_redis_stream(
                                     redis, stream_key, json.loads(r_json_str)
                                 )
-                        # This 'seg' might have been part of what triggered the partial_match.
-                        # If it's content after the opening ```python, it'll be handled in the next block.
                         continue
-
                     if in_code_interpreter_mode:
                         if hasattr(self, "_process_code_interpreter_chunks"):
                             results, code_interpreter_code_buffer = (
@@ -301,14 +261,13 @@ class HyperbolicR1Inference(_ProviderMixins, OrchestratorCore):
                                 self._shunt_to_redis_stream(
                                     redis, stream_key, json.loads(r_json_str)
                                 )
-                                # Check if the result indicates end of hot code
                                 try:
                                     r_dict = json.loads(r_json_str)
                                     if r_dict.get("type") == "end_hot_code":
                                         in_code_interpreter_mode = False
                                 except:
                                     pass
-                        else:  # Fallback
+                        else:
                             fallback_msg_dict = {"type": "hot_code", "content": seg}
                             fallback_msg_json = json.dumps(fallback_msg_dict)
                             if p := self._filter_fc(fallback_msg_json):
@@ -316,21 +275,16 @@ class HyperbolicR1Inference(_ProviderMixins, OrchestratorCore):
                             self._shunt_to_redis_stream(
                                 redis, stream_key, fallback_msg_dict
                             )
-
-                        # If parse_ci no longer matches the accumulator, it means the code block syntax has ended
                         if not (
                             parse_ci(raw_llm_stream_accumulator) if parse_ci else False
                         ):
                             in_code_interpreter_mode = False
                         continue
-
-                    # Plain content if not in any other mode
                     msg_dict = {"type": "content", "content": seg}
                     msg_json = json.dumps(msg_dict)
                     if p := self._filter_fc(msg_json):
                         yield p
                     self._shunt_to_redis_stream(redis, stream_key, msg_dict)
-
         except Exception as exc:
             LOG.error(
                 f"Run {run_id}: Hyperbolic R1 SDK error in stream: {exc}", exc_info=True
@@ -340,8 +294,6 @@ class HyperbolicR1Inference(_ProviderMixins, OrchestratorCore):
             yield err_json
             self._shunt_to_redis_stream(redis, stream_key, err_dict)
             return
-
-        # Final bookkeeping
         if current_assistant_text_reply or current_reasoning_text:
             self.finalize_conversation(
                 current_reasoning_text + current_assistant_text_reply,
@@ -349,7 +301,6 @@ class HyperbolicR1Inference(_ProviderMixins, OrchestratorCore):
                 assistant_id,
                 run_id,
             )
-
         if raw_llm_stream_accumulator and self.parse_and_set_function_calls(
             raw_llm_stream_accumulator, current_assistant_text_reply
         ):
@@ -360,7 +311,6 @@ class HyperbolicR1Inference(_ProviderMixins, OrchestratorCore):
             self.project_david_client.runs.update_run_status(
                 run_id, StatusEnum.completed.value
             )
-
         if current_reasoning_text:
             LOG.info(
                 "Run %s: Final R1 reasoning length %d",

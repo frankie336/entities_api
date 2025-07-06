@@ -8,28 +8,24 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from entities_api.models.models import Action, Run, Tool
-from entities_api.utils.conversion_utils import datetime_to_iso
+from src.api.entities_api.models.models import Action, Run, Tool
+from src.api.entities_api.utils.conversion_utils import datetime_to_iso
 
 client = Entity()
-
 validator = ValidationInterface()
-
-
 logging_utility = LoggingUtility()
 
 
 class ActionService:
+
     def __init__(self, db: Session):
         self.db = db
         logging_utility.info("ActionService initialized with database session.")
 
-    # In ActionService class
     def update_action_stream_state(self, action_id: str, state: dict):
         action = self.db.query(Action).get(action_id)
         if not action:
             raise HTTPException(status_code=404, detail="Action not found")
-
         action.meta = action.meta or {}
         action.meta["stream_state"] = {
             "buffer": state.get("buffer", []),
@@ -44,11 +40,8 @@ class ActionService:
         action = self.db.query(Action).get(action_id)
         if not action:
             raise HTTPException(status_code=404, detail="Action not found")
-
-        # Initialize structured result
         if not action.result or isinstance(action.result, str):
             action.result = {"full_output": "", "partials": [], "status": "in_progress"}
-
         if is_partial:
             action.result["partials"].append(
                 {"content": new_content, "timestamp": datetime.utcnow().isoformat()}
@@ -58,7 +51,6 @@ class ActionService:
             action.result["status"] = "completed"
             action.status = validator.ActionStatus.completed
             action.processed_at = datetime.utcnow()
-
         self.db.commit()
 
     def create_action(
@@ -70,12 +62,9 @@ class ActionService:
             action_data.run_id,
         )
         try:
-            # Log the received ActionCreate data
             logging_utility.debug(
                 "Received ActionCreate payload: %s", action_data.dict()
             )
-
-            # Validate that the tool_name exists in the tools table
             tool = (
                 self.db.query(Tool).filter(Tool.name == action_data.tool_name).first()
             )
@@ -87,21 +76,13 @@ class ActionService:
                     status_code=404,
                     detail=f"Tool with name {action_data.tool_name} not found",
                 )
-
-            # Log the fetched tool details
             logging_utility.debug(
                 "Fetched tool: %s", {"id": tool.id, "name": tool.name}
             )
-
-            # Generate a new action id (or decide if you want to use action_data.id)
             new_action_id = UtilsInterface.IdentifierService.generate_action_id()
             logging_utility.debug("Generated new action ID: %s", new_action_id)
-
-            # Use the provided status (should be a string, as expected)
             status = action_data.status
             logging_utility.debug("Using status: %s", status)
-
-            # Build the Action model object
             new_action = Action(
                 id=new_action_id,
                 tool_id=tool.id,
@@ -112,12 +93,10 @@ class ActionService:
                 status=status,
             )
             logging_utility.debug("New Action object details: %s", new_action.__dict__)
-
             self.db.add(new_action)
             self.db.commit()
             self.db.refresh(new_action)
             logging_utility.info("New action committed with ID: %s", new_action.id)
-
             return validator.ActionRead(
                 id=new_action.id, status=new_action.status, result=new_action.result
             )
@@ -140,9 +119,8 @@ class ActionService:
         """Retrieve an action by its ID with proper datetime conversion."""
         logging_utility.info("Retrieving action with ID: %s", action_id)
         try:
-            self.db.commit()  # Refresh session state
+            self.db.commit()
             action = self.db.query(Action).filter(Action.id == action_id).first()
-
             if not action:
                 logging_utility.error(
                     "Action not found in DB. Queried ID: %s", action_id
@@ -150,18 +128,13 @@ class ActionService:
                 raise HTTPException(
                     status_code=404, detail=f"Action {action_id} not found"
                 )
-
-            # we indirectly fetch the tool name by id which is already available on another end point
             tool = client.tool_service.get_tool_by_id(tool_id=action.tool_id)
-
             return validator.ActionRead(
                 id=action.id,
                 run_id=action.run_id,
                 tool_id=action.tool_id,
                 tool_name=tool.name,
-                triggered_at=datetime_to_iso(
-                    action.triggered_at
-                ),  # Use conversion utility
+                triggered_at=datetime_to_iso(action.triggered_at),
                 expires_at=datetime_to_iso(action.expires_at),
                 is_processed=action.is_processed,
                 processed_at=datetime_to_iso(action.processed_at),
@@ -169,7 +142,6 @@ class ActionService:
                 function_args=action.function_args,
                 result=action.result,
             )
-
         except Exception as e:
             logging_utility.error("Database error: %s", str(e))
             raise HTTPException(status_code=500, detail="Internal server error")
@@ -184,33 +156,21 @@ class ActionService:
                 raise HTTPException(
                     status_code=404, detail=f"Action with ID {action_id} not found"
                 )
-
-            # Validate status value by checking the ActionStatus enum
             if action_update.status not in validator.ActionStatus.__members__:
                 raise HTTPException(status_code=400, detail="Invalid status value")
-
-            # Update fields
             action.status = action_update.status
             action.result = action_update.result
-            if (
-                action_update.status == validator.ActionStatus.completed
-            ):  # Use the enum value here
+            if action_update.status == validator.ActionStatus.completed:
                 action.is_processed = True
                 action.processed_at = datetime.now()
-
             self.db.commit()
             self.db.refresh(action)
-
-            # Return the updated ActionRead object
             return validator.ActionRead(
                 id=action.id,
                 status=action.status,
                 result=action.result,
-                processed_at=datetime_to_iso(
-                    action.processed_at
-                ),  # Add converted field
+                processed_at=datetime_to_iso(action.processed_at),
             )
-
         except Exception as e:
             self.db.rollback()
             logging_utility.error(f"Error updating action status: {str(e)}")
@@ -233,7 +193,7 @@ class ActionService:
                 validator.ActionRead(
                     id=action.id,
                     run_id=action.run_id,
-                    triggered_at=datetime_to_iso(action.triggered_at),  # Convert here
+                    triggered_at=datetime_to_iso(action.triggered_at),
                     expires_at=datetime_to_iso(action.expires_at),
                     is_processed=action.is_processed,
                     processed_at=datetime_to_iso(action.processed_at),
@@ -243,7 +203,6 @@ class ActionService:
                 )
                 for action in actions
             ]
-
         except Exception as e:
             logging_utility.error(f"Error retrieving actions: {str(e)}")
             raise HTTPException(status_code=500, detail="Error retrieving actions")
@@ -266,12 +225,9 @@ class ActionService:
             .join(Run, Action.run_id == Run.id)
             .filter(Action.status == "pending")
         )
-
         if run_id:
             query = query.filter(Action.run_id == run_id)
-
         pending_actions = query.all()
-
         return [row._asdict() for row in pending_actions]
 
     def delete_action(self, action_id: str) -> None:
@@ -279,16 +235,13 @@ class ActionService:
         logging_utility.info("Deleting action with ID: %s", action_id)
         try:
             action = self.db.query(Action).filter(Action.id == action_id).first()
-
             if not action:
                 logging_utility.warning("Action with ID %s not found", action_id)
                 raise HTTPException(
                     status_code=404, detail=f"Action with id {action_id} not found"
                 )
-
             self.db.delete(action)
             self.db.commit()
-
             logging_utility.info("Action with ID %s deleted successfully", action_id)
         except Exception as e:
             self.db.rollback()

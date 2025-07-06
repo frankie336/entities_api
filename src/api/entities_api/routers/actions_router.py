@@ -5,9 +5,9 @@ from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.orm import Session
 
-from entities_api.dependencies import get_api_key, get_db
-from entities_api.models.models import ApiKey as ApiKeyModel
-from entities_api.services.actions_service import ActionService
+from src.api.entities_api.dependencies import get_api_key, get_db
+from src.api.entities_api.models.models import ApiKey as ApiKeyModel
+from src.api.entities_api.services.actions_service import ActionService
 
 router = APIRouter()
 logging_utility = LoggingUtility()
@@ -156,7 +156,6 @@ def get_pending_actions(
     )
     action_service = ActionService(db)
     try:
-        # Assuming get_pending_actions only uses the run_id parameter
         pending_actions = action_service.get_pending_actions(run_id)
         logging_utility.info(
             f"User '{auth_key.user_id}' - Successfully retrieved {len(pending_actions)} pending action(s) for run_id: {run_id}."

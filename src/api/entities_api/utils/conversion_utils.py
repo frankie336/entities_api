@@ -32,7 +32,7 @@ def convert_dict_keys_to_camel_case(data: dict) -> dict:
 def _snake_to_camel(s: str) -> str:
     """Helper function to convert snake_case to camelCase."""
     parts = s.split("_")
-    return parts[0] + "".join(part.title() for part in parts[1:])
+    return parts[0] + "".join((part.title() for part in parts[1:]))
 
 
 def convert_nested_dict(data: dict, key_converter: callable) -> dict:

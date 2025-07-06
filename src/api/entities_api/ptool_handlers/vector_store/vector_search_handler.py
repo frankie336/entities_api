@@ -7,11 +7,10 @@ from qdrant_client.http import models
 
 
 class VectorSearchHandler:
+
     def __init__(self, assistant_id: str):
         self.assistant_id = assistant_id
-
         self.vector_store_client = VectorStoreClient()
-
         self.source_mapping = self._build_dynamic_source_mapping()
 
     def _build_dynamic_source_mapping(self) -> Dict[str, str]:
@@ -19,7 +18,6 @@ class VectorSearchHandler:
         stores = self.vector_store_client.get_vector_stores_for_assistant(
             assistant_id=self.assistant_id
         )
-
         mapping = {}
         for store in stores:
             try:
@@ -27,12 +25,10 @@ class VectorSearchHandler:
                 mapping[source_type] = store.collection_name
             except ValueError:
                 logging.warning(
-                    f"Skipping store '{store.name}' - invalid name format. "
-                    f"Expected '{self.assistant_id}-<source_type>'"
+                    f"Skipping store '{store.name}' - invalid name format. Expected '{self.assistant_id}-<source_type>'"
                 )
         return mapping
 
-    # Add to VectorSearchHandler
     def execute_search(
         self, **kwargs
     ) -> List[ValidationInterface.VectorStoreSearchResult]:
@@ -49,8 +45,8 @@ class VectorSearchHandler:
                     text=f"Search Error: {str(e)}",
                     metadata={"error": True, "type": type(e).__name__},
                     score=0.0,
-                    vector_id="",  # Return empty string
-                    store_id="",  # Return empty string
+                    vector_id="",
+                    store_id="",
                 )
             ]
 
@@ -59,8 +55,7 @@ class VectorSearchHandler:
     ) -> List[ValidationInterface.VectorStoreSearchResult]:
         """Basic vector similarity search"""
         return self.vector_store_client.search_vector_store(
-            query_text=params["query"],
-            top_k=params.get("top_k", 5),
+            query_text=params["query"], top_k=params.get("top_k", 5)
         )
 
     def handle_filtered(
@@ -68,8 +63,7 @@ class VectorSearchHandler:
     ) -> List[ValidationInterface.VectorStoreSearchResult]:
         """Metadata-filtered search"""
         return self.vector_store_client.search_vector_store(
-            query_text=params["query"],
-            filters=params.get("filters", {}),
+            query_text=params["query"], filters=params.get("filters", {})
         )
 
     def handle_complex_filters(
@@ -86,9 +80,8 @@ class VectorSearchHandler:
     def _validate_search_params(self, params: Dict):
         """Ensure assistant-provided parameters match tool schema"""
         required = {"query", "search_type", "source_type"}
-        if missing := required - params.keys():
+        if missing := (required - params.keys()):
             raise ValueError(f"Missing required params: {missing}")
-
         if params["search_type"] not in [
             "basic_semantic",
             "filtered",
@@ -98,7 +91,6 @@ class VectorSearchHandler:
             "hybrid",
         ]:
             raise ValueError(f"Invalid search_type: {params['search_type']}")
-
         if params["source_type"] not in ["chat", "documents", "memory"]:
             raise ValueError(f"Invalid source_type: {params['source_type']}")
 
@@ -124,21 +116,16 @@ class VectorSearchHandler:
         self, params: Dict
     ) -> List[ValidationInterface.VectorStoreSearchResult]:
         """Time-weighted search with validation"""
-
-        self._validate_search_params(params)  # ✅ New validation
-
+        self._validate_search_params(params)
         return self.vector_store_client.search_vector_store(
-            query_text=params["query"],
-            filters=params.get("filters", {}),
+            query_text=params["query"], filters=params.get("filters", {})
         )
 
     def handle_explainable(
         self, params: Dict
     ) -> List[ValidationInterface.VectorStoreSearchResult]:
         """Search with scoring explanations"""
-        return self.vector_store_client.search_vector_store(
-            query_text=params["query"],
-        )
+        return self.vector_store_client.search_vector_store(query_text=params["query"])
 
     def handle_hybrid(
         self, params: Dict
@@ -148,7 +135,7 @@ class VectorSearchHandler:
             query_text=params["query"],
             search_type="hybrid",
             filters=params.get("filters", {}),
-            score_boosts=params.get("score_boosts", {}),  # ✅ Added
+            score_boosts=params.get("score_boosts", {}),
             explain=params.get("explain", False),
         )
 
@@ -158,8 +145,7 @@ class VectorSearchHandler:
         if not collection_name:
             available = list(self.source_mapping.keys())
             raise ValueError(
-                f"No store found for source_type '{source_type}'. "
-                f"Available types: {available}"
+                f"No store found for source_type '{source_type}'. Available types: {available}"
             )
         return collection_name
 
@@ -224,7 +210,6 @@ class VectorSearchHandler:
                 match_params["any"] = value
             else:
                 raise ValueError(f"Unsupported operator: {op}")
-
         if range_params:
             return models.FieldCondition(
                 key=f"metadata.{field}", range=models.Range(**range_params)

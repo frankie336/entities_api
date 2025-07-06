@@ -21,25 +21,18 @@ from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
-from entities_api.dependencies import get_redis
-from entities_api.inference_mixin.mixins import (AssistantCacheMixin,
-                                                 CodeExecutionMixin,
-                                                 ConsumerToolHandlersMixin,
-                                                 ConversationContextMixin,
-                                                 FileSearchMixin,
-                                                 JsonUtilsMixin,
-                                                 PlatformToolHandlersMixin,
-                                                 ShellExecutionMixin,
-                                                 ToolRoutingMixin)
-from entities_api.inference_mixin.orchestrator_core import OrchestratorCore
+from src.api.entities_api.dependencies import get_redis
+from src.api.entities_api.inference_mixin.mixins import (
+    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
+    ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
+    PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
+from src.api.entities_api.inference_mixin.orchestrator_core import \
+    OrchestratorCore
 
 load_dotenv()
 LOG = LoggingUtility()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# composite mix-in
-# ─────────────────────────────────────────────────────────────────────────────
 class _ProviderMixins(
     AssistantCacheMixin,
     JsonUtilsMixin,
@@ -54,13 +47,8 @@ class _ProviderMixins(
     """Flattened mix-ins so the concrete provider inherits only once."""
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# provider
-# ─────────────────────────────────────────────────────────────────────────────
 class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
-    # --------------------------------------------------------------------- #
-    # construction
-    # --------------------------------------------------------------------- #
+
     def __init__(
         self,
         *,
@@ -73,27 +61,19 @@ class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
         **extra,
     ):
         self._assistant_cache = assistant_cache or {}
-
-        # runtime plumbing
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
         self.base_url = base_url or os.getenv("TOGETHER_BASE_URL")
         self.api_key = api_key
-
-        # model / truncator parameters
         self.model_name = extra.get("model_name", "deepseek-ai/DeepSeek-R1")
-        self.max_context_window = extra.get("max_context_window", 128_000)
+        self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
-
         self.setup_services()
         LOG.debug("TogetherDeepSeekR1 ready (assistant=%s)", assistant_id or "<lazy>")
 
-    # ------------------------------------------------------------------ #
-    # cache shim for ConversationContextMixin
-    # ------------------------------------------------------------------ #
     @property
-    def assistant_cache(self) -> dict:  # noqa: D401
+    def assistant_cache(self) -> dict:
         return self._assistant_cache
 
     @assistant_cache.setter
@@ -102,12 +82,9 @@ class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
             raise AttributeError("assistant_cache already initialised")
         self._assistant_cache = value
 
-    def get_assistant_cache(self) -> dict:  # noqa: D401
+    def get_assistant_cache(self) -> dict:
         return self._assistant_cache
 
-    # ------------------------------------------------------------------ #
-    # helper – hide function_call chunks from the CLIENT
-    # ------------------------------------------------------------------ #
     def _filter_fc(self, chunk_json: str) -> Optional[str]:
         try:
             if json.loads(chunk_json).get("type") == "function_call":
@@ -116,10 +93,7 @@ class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
             pass
         return chunk_json
 
-    # ------------------------------------------------------------------ #
-    # unified streaming loop
-    # ------------------------------------------------------------------ #
-    def stream(  # noqa: C901
+    def stream(
         self,
         thread_id: str,
         message_id: str,
@@ -139,11 +113,8 @@ class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
         redis = self.redis
         stream_key = f"stream:{run_id}"
         self.start_cancellation_listener(run_id)
-
-        # optional model aliasing
         if mapped := self._get_model_map(model):
             model = mapped
-
         req_payload = {
             "model": model,
             "messages": self._set_up_context_window(
@@ -153,8 +124,6 @@ class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
             "temperature": 0.6,
             "stream": True,
         }
-
-        # Together-AI client
         try:
             client = self._get_together_client(api_key=api_key or self.api_key)
         except Exception as exc:
@@ -163,12 +132,9 @@ class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
                 yield p
             self._shunt_to_redis_stream(redis, stream_key, err)
             return
-
         start_chunk = {"type": "status", "status": "started", "run_id": run_id}
         yield json.dumps(start_chunk)
         self._shunt_to_redis_stream(redis, stream_key, start_chunk)
-
-        # ── state vars ───────────────────────────────────────────────
         assistant_reply = ""
         accumulated_content = ""
         reasoning_content = ""
@@ -177,38 +143,29 @@ class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
         in_function_call = False
         code_mode = False
         code_buffer = ""
-
         try:
             for token in client.chat.completions.create(**req_payload):
-                # cancellation?
                 if self.check_cancellation_flag():
                     err = {"type": "error", "content": "Run cancelled"}
                     if p := self._filter_fc(json.dumps(err)):
                         yield p
                     self._shunt_to_redis_stream(redis, stream_key, err)
                     break
-
                 if not token.choices or not token.choices[0].delta:
                     continue
                 delta = token.choices[0].delta
-
-                # reasoning delta
                 delta_reason = getattr(delta, "reasoning_content", "")
                 if delta_reason and stream_reasoning:
                     msg = {"type": "reasoning", "content": delta_reason}
                     if p := self._filter_fc(json.dumps(msg)):
                         yield p
                     self._shunt_to_redis_stream(redis, stream_key, msg)
-
                 delta_content = getattr(delta, "content", "")
                 if not delta_content:
                     continue
-
-                # tag-aware split
                 for seg in filter(
-                    None, re.split(r"(<think>|</think>|<fc>|</fc>)", delta_content)
+                    None, re.split("(<think>|</think>|<fc>|</fc>)", delta_content)
                 ):
-                    # tag state machine
                     if seg in ("<think>", "</think>", "<fc>", "</fc>"):
                         if seg == "<fc>":
                             in_function_call = True
@@ -232,20 +189,15 @@ class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
                             in_reasoning = True
                         elif seg == "</think>":
                             in_reasoning = False
-
                         if stream_reasoning and seg in ("<think>", "</think>"):
                             msg = {"type": "reasoning", "content": seg}
                             if p := self._filter_fc(json.dumps(msg)):
                                 yield p
                             self._shunt_to_redis_stream(redis, stream_key, msg)
                         continue
-
-                    # inside <fc>
                     if in_function_call:
                         fc_buffer += seg
                         continue
-
-                    # reasoning mode
                     if in_reasoning:
                         reasoning_content += seg
                         if stream_reasoning:
@@ -254,14 +206,10 @@ class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
                                 yield p
                             self._shunt_to_redis_stream(redis, stream_key, msg)
                         continue
-
-                    # code-interpreter / plain content
                     assistant_reply += seg
                     accumulated_content += seg
-
                     parse_ci = getattr(self, "parse_code_interpreter_partial", None)
                     ci_match = parse_ci(accumulated_content) if parse_ci else None
-
                     if not code_mode and ci_match:
                         code_mode = True
                         code_buffer = ci_match.get("code", "")
@@ -269,7 +217,6 @@ class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
                         if p := self._filter_fc(json.dumps(start_msg)):
                             yield p
                         self._shunt_to_redis_stream(redis, stream_key, start_msg)
-
                         if code_buffer and hasattr(
                             self, "_process_code_interpreter_chunks"
                         ):
@@ -283,7 +230,6 @@ class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
                                     redis, stream_key, json.loads(r)
                                 )
                         continue
-
                     if code_mode:
                         if hasattr(self, "_process_code_interpreter_chunks"):
                             results, code_buffer = (
@@ -301,31 +247,23 @@ class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
                                 yield p
                             self._shunt_to_redis_stream(redis, stream_key, msg)
                         continue
-
-                    # plain content
                     msg = {"type": "content", "content": seg}
                     if p := self._filter_fc(json.dumps(msg)):
                         yield p
                     self._shunt_to_redis_stream(redis, stream_key, msg)
-
         except Exception as exc:
             err = {"type": "error", "content": f"TogetherAI SDK error: {exc}"}
             if p := self._filter_fc(json.dumps(err)):
                 yield p
             self._shunt_to_redis_stream(redis, stream_key, err)
             return
-
-        # ───── emit “complete”
         end_chunk = {"type": "status", "status": "complete", "run_id": run_id}
         yield json.dumps(end_chunk)
         self._shunt_to_redis_stream(redis, stream_key, end_chunk)
-
-        # final bookkeeping
         if assistant_reply:
             self.finalize_conversation(
                 reasoning_content + assistant_reply, thread_id, assistant_id, run_id
             )
-
         if accumulated_content and self.parse_and_set_function_calls(
             accumulated_content, assistant_reply
         ):
@@ -336,15 +274,11 @@ class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
             self.project_david_client.runs.update_run_status(
                 run_id, StatusEnum.completed.value
             )
-
         if reasoning_content:
             LOG.info(
                 "Run %s: Final reasoning length %d", run_id, len(reasoning_content)
             )
 
-    # ------------------------------------------------------------------ #
-    # conversation orchestrator
-    # ------------------------------------------------------------------ #
     def process_conversation(
         self,
         thread_id: str,
@@ -357,8 +291,6 @@ class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
         """two-pass contract: model → tools → model (if tools executed)."""
-
-        # ① first stream
         yield from self.stream(
             thread_id,
             message_id,
@@ -368,19 +300,11 @@ class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
             stream_reasoning=stream_reasoning,
             api_key=api_key,
         )
-
         fc_pending = bool(self.get_function_call_state())
-
-        # ② run tools if needed, then second stream
         if fc_pending:
             yield from self.process_function_calls(
-                thread_id,
-                run_id,
-                assistant_id,
-                model=model,
-                api_key=api_key,
+                thread_id, run_id, assistant_id, model=model, api_key=api_key
             )
-
             yield from self.stream(
                 thread_id,
                 message_id,

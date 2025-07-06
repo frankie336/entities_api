@@ -1,8 +1,6 @@
-# assistant_cache_mixin.py
-
 from fastapi import Depends
 
-from entities_api.dependencies import get_assistant_cache
+from src.api.entities_api.dependencies import get_assistant_cache
 
 
 class AssistantCacheMixin:

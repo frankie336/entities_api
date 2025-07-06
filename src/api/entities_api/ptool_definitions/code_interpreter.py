@@ -6,10 +6,7 @@ code_interpreter = {
         "parameters": {
             "type": "object",
             "properties": {
-                "code": {
-                    "type": "string",
-                    "description": "Python code to execute",
-                },
+                "code": {"type": "string", "description": "Python code to execute"}
             },
             "required": ["code"],
         },

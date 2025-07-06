@@ -6,19 +6,18 @@ from fastapi import HTTPException
 from projectdavid_common import UtilsInterface, ValidationInterface
 from sqlalchemy.orm import Session
 
-from entities_api.models.models import Message, Thread
-from entities_api.services.logging_service import LoggingUtility
+from src.api.entities_api.models.models import Message, Thread
+from src.api.entities_api.services.logging_service import LoggingUtility
 
 validator = ValidationInterface()
 logging_utility = LoggingUtility()
 
 
 class MessageService:
+
     def __init__(self, db: Session):
         self.db = db
-        self.message_chunks: Dict[str, List[str]] = (
-            {}
-        )  # Temporary storage for message chunks
+        self.message_chunks: Dict[str, List[str]] = {}
         logging_utility.info(
             f"Initialized MessageService with database session. Source: {__file__}"
         )
@@ -30,19 +29,15 @@ class MessageService:
         logging_utility.info(
             f"Creating message for thread_id={message.thread_id}, role={message.role}. Source: {__file__}"
         )
-
-        # Check if thread exists
         db_thread = self.db.query(Thread).filter(Thread.id == message.thread_id).first()
         if not db_thread:
             logging_utility.error(
                 f"Thread not found: {message.thread_id}. Source: {__file__}"
             )
             raise HTTPException(status_code=404, detail="Thread not found")
-
-        # Create the message
         db_message = Message(
             id=UtilsInterface.IdentifierService.generate_message_id(),
-            assistant_id=message.assistant_id,  # Include assistant_id
+            assistant_id=message.assistant_id,
             attachments=[],
             completed_at=None,
             content=message.content,
@@ -57,7 +52,6 @@ class MessageService:
             thread_id=message.thread_id,
             sender_id=message.sender_id,
         )
-
         try:
             self.db.add(db_message)
             self.db.commit()
@@ -71,7 +65,6 @@ class MessageService:
                 f"Error creating message: {str(e)}. Source: {__file__}"
             )
             raise HTTPException(status_code=500, detail="Failed to create message")
-
         return ValidationInterface.MessageRead(
             id=db_message.id,
             assistant_id=db_message.assistant_id,
@@ -97,14 +90,12 @@ class MessageService:
         logging_utility.info(
             f"Retrieving message with id={message_id}. Source: {__file__}"
         )
-
         db_message = self.db.query(Message).filter(Message.id == message_id).first()
         if not db_message:
             logging_utility.error(
                 f"Message not found: {message_id}. Source: {__file__}"
             )
             raise HTTPException(status_code=404, detail="Message not found")
-
         logging_utility.info(
             f"Message retrieved successfully: id={db_message.id}. Source: {__file__}"
         )
@@ -135,23 +126,19 @@ class MessageService:
         logging_utility.info(
             f"Listing messages for thread_id={thread_id}, limit={limit}, order={order}. Source: {__file__}"
         )
-
         db_thread = self.db.query(Thread).filter(Thread.id == thread_id).first()
         if not db_thread:
             logging_utility.error(f"Thread not found: {thread_id}. Source: {__file__}")
             raise HTTPException(status_code=404, detail="Thread not found")
-
         query = self.db.query(Message).filter(Message.thread_id == thread_id)
         if order == "asc":
             query = query.order_by(Message.created_at.asc())
         else:
             query = query.order_by(Message.created_at.desc())
-
         db_messages = query.limit(limit).all()
         logging_utility.info(
             f"Retrieved {len(db_messages)} messages for thread_id={thread_id}. Source: {__file__}"
         )
-
         return [
             ValidationInterface.MessageRead(
                 id=db_message.id,
@@ -189,25 +176,16 @@ class MessageService:
         logging_utility.info(
             f"Saving assistant message chunk for thread_id={thread_id}, sender_id={sender_id}, assistant_id={assistant_id}, role={role}, is_last_chunk={is_last_chunk}."
         )
-
-        # Accumulate message chunks
         if thread_id not in self.message_chunks:
             self.message_chunks[thread_id] = []
-
         self.message_chunks[thread_id].append(content)
-
-        # Return early if this is not the last chunk
         if not is_last_chunk:
             logging_utility.debug(
                 f"Chunk saved for thread_id={thread_id}. Waiting for more chunks."
             )
-            return None  # Return None or a placeholder if not the last chunk
-
-        # Combine chunks into a complete message
+            return None
         complete_message = "".join(self.message_chunks[thread_id])
         del self.message_chunks[thread_id]
-
-        # Create and save the message
         db_message = Message(
             id=UtilsInterface.IdentifierService.generate_message_id(),
             assistant_id=assistant_id,
@@ -226,18 +204,15 @@ class MessageService:
             thread_id=thread_id,
             sender_id=sender_id,
         )
-
         try:
             self.db.add(db_message)
             self.db.commit()
-            self.db.refresh(db_message)  # Refresh to get the updated object
+            self.db.refresh(db_message)
             logging_utility.info(f"Message saved successfully: id={db_message.id}.")
         except Exception as e:
             self.db.rollback()
             logging_utility.error(f"Error saving message: {str(e)}.")
             raise HTTPException(status_code=500, detail="Failed to save message")
-
-        # Return the saved message as a Pydantic object
         return ValidationInterface.MessageRead(
             id=db_message.id,
             assistant_id=db_message.assistant_id,
@@ -263,23 +238,19 @@ class MessageService:
         logging_utility.info(
             f"Listing formatted messages for thread_id={thread_id}. Source: {__file__}"
         )
-
         db_thread = self.db.query(Thread).filter(Thread.id == thread_id).first()
         if not db_thread:
             logging_utility.error(f"Thread not found: {thread_id}. Source: {__file__}")
             raise HTTPException(status_code=404, detail="Thread not found")
-
         db_messages = (
             self.db.query(Message)
             .filter(Message.thread_id == thread_id)
             .order_by(Message.created_at.asc())
             .all()
         )
-
         formatted_messages = [
             {"role": "system", "content": "Be as kind, intelligent, and helpful"}
         ]
-
         for db_message in db_messages:
             if db_message.role == "tool" and db_message.tool_id:
                 formatted_messages.append(
@@ -293,7 +264,6 @@ class MessageService:
                 formatted_messages.append(
                     {"role": db_message.role, "content": db_message.content}
                 )
-
         logging_utility.info(
             f"Retrieved {len(formatted_messages)} formatted messages for thread_id={thread_id}. Source: {__file__}"
         )
@@ -308,19 +278,15 @@ class MessageService:
         logging_utility.info(
             f"Creating message for thread_id={message.thread_id}, role={message.role}. Source: {__file__}"
         )
-
-        # Check if thread exists
         db_thread = self.db.query(Thread).filter(Thread.id == message.thread_id).first()
         if not db_thread:
             logging_utility.error(
                 f"Thread not found: {message.thread_id}. Source: {__file__}"
             )
             raise HTTPException(status_code=404, detail="Thread not found")
-
-        # Create the message
         db_message = Message(
             id=UtilsInterface.IdentifierService.generate_message_id(),
-            assistant_id=message.assistant_id,  # Include assistant_id
+            assistant_id=message.assistant_id,
             attachments=[],
             completed_at=None,
             content=message.content,
@@ -334,9 +300,8 @@ class MessageService:
             tool_id=message.tool_id,
             status=None,
             thread_id=message.thread_id,
-            sender_id=message.sender_id,  # Allow sender_id to be None
+            sender_id=message.sender_id,
         )
-
         try:
             self.db.add(db_message)
             self.db.commit()
@@ -350,7 +315,6 @@ class MessageService:
                 f"Error creating message: {str(e)}. Source: {__file__}"
             )
             raise HTTPException(status_code=500, detail="Failed to create message")
-
         return ValidationInterface.MessageRead(
             id=db_message.id,
             assistant_id=db_message.assistant_id,

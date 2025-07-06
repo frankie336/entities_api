@@ -13,16 +13,15 @@ from typing import Dict, List
 
 from projectdavid import Entity
 
-from entities_api.services.logging_service import LoggingUtility
-from entities_api.system_message.main_assembly import assemble_instructions
+from src.api.entities_api.services.logging_service import LoggingUtility
+from src.api.entities_api.system_message.main_assembly import \
+    assemble_instructions
 
 LOG = LoggingUtility()
 
 
 class ConversationContextMixin:
-    # ------------------------------------------------------------------ #
-    # Tiny helper – consistent role names                                #
-    # ------------------------------------------------------------------ #
+
     @staticmethod
     def _normalize_roles(msgs: List[Dict]) -> List[Dict]:
         out: List[Dict] = []
@@ -33,26 +32,17 @@ class ConversationContextMixin:
             out.append({"role": role, "content": str(m.get("content", "")).strip()})
         return out
 
-    # ------------------------------------------------------------------ #
-    # Build the *single* system-prompt block                             #
-    # ------------------------------------------------------------------ #
     def _build_system_message(self, assistant_id: str) -> Dict:
         """
         Pull the assistant’s cached tool list + instructions through
         AssistantCacheMixin’s accessor, then craft the final system prompt.
         """
-        cache = self.get_assistant_cache()  # <- AssistantCacheMixin
-        cfg = cache.retrieve_sync(assistant_id)  # synchronous helper
+        cache = self.get_assistant_cache()
+        cfg = cache.retrieve_sync(assistant_id)
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
         return {
             "role": "system",
-            "content": (
-                "tools:\n"
-                f"{json.dumps(cfg['tools'])}\n"
-                f"{cfg['instructions']}\n"
-                f"Today's date and time: {today}"
-            ),
+            "content": f"tools:\n{json.dumps(cfg['tools'])}\n{cfg['instructions']}\nToday's date and time: {today}",
         }
 
     def _build_amended_system_message(self, assistant_id: str) -> Dict:
@@ -62,26 +52,14 @@ class ConversationContextMixin:
         cache = self.get_assistant_cache()
         cfg = cache.retrieve_sync(assistant_id)
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
         excluded_instructions = assemble_instructions(
-            exclude_keys=[
-                "TOOL_USAGE_PROTOCOL",
-            ]
+            exclude_keys=["TOOL_USAGE_PROTOCOL"]
         )
-
         return {
             "role": "system",
-            "content": (
-                "tools:\n"
-                f"{json.dumps(cfg['tools'])}\n"
-                f"{excluded_instructions}\n"
-                f"Today's date and time: {today}"
-            ),
+            "content": f"tools:\n{json.dumps(cfg['tools'])}\n{excluded_instructions}\nToday's date and time: {today}",
         }
 
-    # ------------------------------------------------------------------ #
-    # Final public helper used by providers                              #
-    # ------------------------------------------------------------------ #
     def _set_up_context_window(
         self, assistant_id: str, thread_id: str, trunk: bool = True
     ):
@@ -119,14 +97,10 @@ class ConversationContextMixin:
             Uses LRU-cached service calls for assistant/message retrieval to optimize
             repeated requests with identical parameters.
         """
-        # 1) get system message
         system_msg = self._build_system_message(assistant_id)
-
-        # 2) fetch your Redis list
         redis_key = f"thread:{thread_id}:history"
         raw_list = self.redis.lrange(redis_key, 0, -1)
         if not raw_list:
-            # cold start: fallback to DB once, then repopulate
             client = Entity(
                 base_url=os.getenv("ASSISTANTS_BASE_URL"),
                 api_key=os.getenv("ADMIN_API_KEY"),
@@ -134,19 +108,12 @@ class ConversationContextMixin:
             full_hist = client.messages.get_formatted_messages(
                 thread_id, system_message=system_msg["content"]
             )
-            # push each into Redis
             for msg in full_hist[-200:]:
                 self.redis.rpush(redis_key, json.dumps(msg))
             self.redis.ltrim(redis_key, -200, -1)
             raw_list = [json.dumps(m) for m in full_hist]
-
-        # 3) reconstruct
         msgs = [system_msg] + [json.loads(x) for x in raw_list]
-
-        # 4) normalize roles
         normalized = self._normalize_roles(msgs)
-
-        # 5) optional truncation
         return self.conversation_truncator.truncate(normalized) if trunk else normalized
 
     def replace_system_message(
@@ -162,12 +129,8 @@ class ConversationContextMixin:
         Returns:
             Updated context window without the original system message (and optionally a new one).
         """
-        # 1. Filter out all system messages
         filtered_messages = [msg for msg in context_window if msg["role"] != "system"]
-
-        # 2. Prepend a new system message (if provided)
         if new_system_message is not None:
             new_system_msg = {"role": "system", "content": new_system_message}
-            filtered_messages.insert(0, new_system_msg)  # Add at the start
-
+            filtered_messages.insert(0, new_system_msg)
         return filtered_messages

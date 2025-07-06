@@ -12,36 +12,27 @@ from sqlalchemy import (ForeignKey, Index, Integer, String, Table, Text,
                         UniqueConstraint)
 from sqlalchemy.orm import declarative_base, joinedload, relationship
 
-# Configure logging
 logger = LoggingUtility()
-
 Base = declarative_base()
-
 validation = ValidationInterface
-
-
-# Association tables
 thread_participants = Table(
     "thread_participants",
     Base.metadata,
     Column("thread_id", String(64), ForeignKey("threads.id"), primary_key=True),
     Column("user_id", String(64), ForeignKey("users.id"), primary_key=True),
 )
-
 assistant_tools = Table(
     "assistant_tools",
     Base.metadata,
     Column("assistant_id", String(64), ForeignKey("assistants.id")),
     Column("tool_id", String(64), ForeignKey("tools.id")),
 )
-
 user_assistants = Table(
     "user_assistants",
     Base.metadata,
     Column("user_id", String(64), ForeignKey("users.id"), primary_key=True),
     Column("assistant_id", String(64), ForeignKey("assistants.id"), primary_key=True),
 )
-
 vector_store_assistants = Table(
     "vector_store_assistants",
     Base.metadata,
@@ -50,7 +41,6 @@ vector_store_assistants = Table(
     ),
     Column("assistant_id", String(64), ForeignKey("assistants.id"), primary_key=True),
 )
-
 thread_vector_stores = Table(
     "thread_vector_stores",
     Base.metadata,
@@ -63,7 +53,7 @@ thread_vector_stores = Table(
 
 class StatusEnum(PyEnum):
     deleted = "deleted"
-    active = "active"  # Added this member
+    active = "active"
     queued = "queued"
     in_progress = "in_progress"
     pending_action = "action_required"
@@ -77,18 +67,11 @@ class StatusEnum(PyEnum):
     retrying = "retrying"
 
 
-# -----------------------------------------------------------------------------
-# Models
-# -----------------------------------------------------------------------------
-
-# Configure password/key hashing
-# Use bcrypt which is robust for passwords and suitable for API keys too.
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 class ApiKey(Base):
     __tablename__ = "api_keys"
-    # ... (columns as defined before: id, key_name, hashed_key, prefix, user_id, created_at, etc.)
     id = Column(Integer, primary_key=True, index=True)
     key_name = Column(String(100), nullable=True)
     hashed_key = Column(String(255), unique=True, nullable=False, index=True)
@@ -103,14 +86,9 @@ class ApiKey(Base):
     expires_at = Column(DateTime, nullable=True)
     last_used_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
-
-    user = relationship(
-        "User", back_populates="api_keys"
-    )  # Ensure back_populates matches User model
-
+    user = relationship("User", back_populates="api_keys")
     __table_args__ = (Index("idx_apikey_user_id_active", "user_id", "is_active"),)
 
-    # ... (static methods generate_key, hash_key, verify_key as before)
     @staticmethod
     def generate_key(prefix="sk_"):
         return f"{prefix}{secrets.token_urlsafe(32)}"
@@ -125,8 +103,6 @@ class ApiKey(Base):
 
 class User(Base):
     __tablename__ = "users"
-
-    # --- Core Internal Fields ---
     id = Column(
         String(64),
         primary_key=True,
@@ -137,17 +113,13 @@ class User(Base):
     updated_at = Column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
-    # --- Added is_admin flag ---
     is_admin = Column(
         Boolean,
         default=False,
         nullable=False,
-        server_default="0",  # Explicit default for DB level (adjust if not MySQL/MariaDB)
+        server_default="0",
         comment="Flag indicating administrative privileges",
     )
-    # --- End added is_admin flag ---
-
-    # --- OAuth / Profile Information ---
     email = Column(
         String(255),
         unique=True,
@@ -167,8 +139,6 @@ class User(Base):
     picture_url = Column(
         Text, nullable=True, comment="URL to the user's profile picture"
     )
-
-    # --- OAuth Provider Linking ---
     oauth_provider = Column(
         String(50),
         nullable=True,
@@ -181,57 +151,42 @@ class User(Base):
         index=True,
         comment="The unique ID assigned by the OAuth provider",
     )
-
-    # --- Relationships (Keep existing ones) ---
     api_keys = relationship(
         "ApiKey", back_populates="user", cascade="all, delete-orphan", lazy="select"
     )
     threads = relationship(
         "Thread",
-        secondary=thread_participants,  # Assumes thread_participants table is defined
+        secondary=thread_participants,
         back_populates="participants",
         lazy="select",
     )
     assistants = relationship(
-        "Assistant",
-        secondary=user_assistants,  # Assumes user_assistants table is defined
-        back_populates="users",
-        lazy="select",
+        "Assistant", secondary=user_assistants, back_populates="users", lazy="select"
     )
     sandboxes = relationship(
-        "Sandbox",
-        back_populates="user",
-        cascade="all, delete-orphan",
-        lazy="select",
+        "Sandbox", back_populates="user", cascade="all, delete-orphan", lazy="select"
     )
     vector_stores = relationship("VectorStore", back_populates="user", lazy="select")
     files = relationship(
         "File", back_populates="user", cascade="all, delete-orphan", lazy="select"
     )
-
-    # --- Constraints ---
     __table_args__ = (
         UniqueConstraint(
             "oauth_provider", "provider_user_id", name="uq_user_oauth_provider_id"
         ),
         Index("idx_user_email", "email"),
-        # --- Added index for is_admin ---
         Index("idx_user_is_admin", "is_admin"),
-        # --- End added index ---
     )
-
     runs = relationship("Run", back_populates="user", lazy="select")
 
 
 class Thread(Base):
     __tablename__ = "threads"
-
     id = Column(String(64), primary_key=True, index=True)
     created_at = Column(Integer, nullable=False)
     meta_data = Column(JSON, nullable=False, default={})
     object = Column(String(64), nullable=False)
     tool_resources = Column(JSON, nullable=False, default={})
-    # Reintroduce the participants relationship
     participants = relationship(
         "User", secondary=thread_participants, back_populates="threads"
     )
@@ -245,14 +200,11 @@ class Thread(Base):
 
 class Message(Base):
     __tablename__ = "messages"
-
     id = Column(String(64), primary_key=True, index=True)
     assistant_id = Column(String(64), index=True)
     attachments = Column(JSON, default=[])
     completed_at = Column(Integer, nullable=True)
-    content = Column(
-        Text(length=4294967295), nullable=False
-    )  # Specify LONGTEXT size explicitly
+    content = Column(Text(length=4294967295), nullable=False)
     created_at = Column(Integer, nullable=False)
     incomplete_at = Column(Integer, nullable=True)
     incomplete_details = Column(JSON, nullable=True)
@@ -268,7 +220,6 @@ class Message(Base):
 
 class Run(Base):
     __tablename__ = "runs"
-
     user_id = Column(
         String(64),
         ForeignKey("users.id", ondelete="CASCADE"),
@@ -276,7 +227,6 @@ class Run(Base):
         index=True,
     )
     user = relationship("User", back_populates="runs")
-
     id = Column(String(64), primary_key=True)
     assistant_id = Column(String(64), nullable=False)
     cancelled_at = Column(DateTime, nullable=True)
@@ -305,14 +255,11 @@ class Run(Base):
     temperature = Column(Integer, nullable=True)
     top_p = Column(Integer, nullable=True)
     tool_resources = Column(JSON, nullable=True)
-
     actions = relationship("Action", back_populates="run")
 
 
 class Assistant(Base):
     __tablename__ = "assistants"
-
-    # ───────────────────────────── core columns ────────────────────────────
     id = Column(String(64), primary_key=True, index=True)
     object = Column(String(64), nullable=False)
     created_at = Column(Integer, nullable=False)
@@ -320,48 +267,22 @@ class Assistant(Base):
     description = Column(String(256))
     model = Column(String(64))
     instructions = Column(Text)
-    tool_configs = Column(JSON)  # legacy list-of-tools block
+    tool_configs = Column(JSON)
     meta_data = Column(JSON)
     top_p = Column(Integer)
     temperature = Column(Integer)
     response_format = Column(String(64))
-
-    # ───────────────────────────── new 0.4-series columns ──────────────────
-    # 1) inline platform-tool specs (array style)
-    platform_tools = Column(
-        JSON,  # use JSONB on Postgres if desired
-        nullable=True,
-        comment=(
-            "Optional array of inline tool specs, e.g. "
-            '[{"type": "file_search", "vector_store_ids": ["vs_123"]}]'
-        ),
-    )
-
-    # 2) per-tool resource map (dict style)
     tool_resources = Column(
         JSON,
         nullable=True,
-        comment=(
-            "Resource map keyed by tool type, e.g. "
-            '{"file_search": {"vector_store_ids": ["vs_123","vs_456"]}}'
-        ),
+        comment='Resource map keyed by tool type, e.g. {"file_search": {"vector_store_ids": ["vs_123","vs_456"]}}',
     )
-
-    # ───────────────────────────── relationships ───────────────────────────
     tools = relationship(
-        "Tool",
-        secondary=assistant_tools,
-        back_populates="assistants",
-        lazy="joined",
+        "Tool", secondary=assistant_tools, back_populates="assistants", lazy="joined"
     )
-
     users = relationship(
-        "User",
-        secondary=user_assistants,
-        back_populates="assistants",
-        lazy="select",
+        "User", secondary=user_assistants, back_populates="assistants", lazy="select"
     )
-
     vector_stores = relationship(
         "VectorStore",
         secondary="vector_store_assistants",
@@ -373,12 +294,10 @@ class Assistant(Base):
 
 class Tool(Base):
     __tablename__ = "tools"
-
     id = Column(String(64), primary_key=True, index=True)
     name = Column(String(128), nullable=False)
     type = Column(String(64), nullable=False)
     function = Column(JSON, nullable=True)
-
     assistants = relationship(
         "Assistant", secondary=assistant_tools, back_populates="tools"
     )
@@ -387,7 +306,6 @@ class Tool(Base):
 
 class Action(Base):
     __tablename__ = "actions"
-
     id = Column(String(64), primary_key=True, index=True)
     run_id = Column(String(64), ForeignKey("runs.id"), nullable=True)
     tool_id = Column(String(64), ForeignKey("tools.id"), nullable=True)
@@ -398,7 +316,6 @@ class Action(Base):
     status = Column(String(64), nullable=True)
     function_args = Column(JSON, nullable=True)
     result = Column(JSON, nullable=True)
-
     tool = relationship("Tool", back_populates="actions")
     run = relationship("Run", back_populates="actions")
 
@@ -411,7 +328,6 @@ class Action(Base):
 
 class Sandbox(Base):
     __tablename__ = "sandboxes"
-
     id = Column(String(64), primary_key=True, index=True)
     user_id = Column(String(64), ForeignKey("users.id"), nullable=False)
     name = Column(String(128), nullable=False)
@@ -423,7 +339,6 @@ class Sandbox(Base):
 
 class File(Base):
     __tablename__ = "files"
-
     id = Column(String(64), primary_key=True, index=True)
     object = Column(String(64), nullable=False, default="file")
     bytes = Column(Integer, nullable=False)
@@ -441,7 +356,6 @@ class File(Base):
 
 class FileStorage(Base):
     __tablename__ = "file_storage"
-
     id = Column(Integer, primary_key=True, autoincrement=True)
     file_id = Column(
         String(64), ForeignKey("files.id", ondelete="CASCADE"), nullable=False
@@ -474,7 +388,6 @@ class FileStorage(Base):
 
 class VectorStore(Base):
     __tablename__ = "vector_stores"
-
     id = Column(String(64), primary_key=True, index=True)
     name = Column(String(128), nullable=False, unique=False)
     user_id = Column(String(64), ForeignKey("users.id"), nullable=False)
@@ -485,7 +398,7 @@ class VectorStore(Base):
     updated_at = Column(BigInteger, onupdate=lambda: int(datetime.now().timestamp()))
     status = Column(SAEnum(StatusEnum), nullable=False)
     config = Column(JSON, nullable=True)
-    file_count = Column(Integer, default=0, nullable=False)  # Added field
+    file_count = Column(Integer, default=0, nullable=False)
     user = relationship("User", back_populates="vector_stores", lazy="select")
     threads = relationship(
         "Thread",
@@ -510,7 +423,6 @@ class VectorStore(Base):
 
 class VectorStoreFile(Base):
     __tablename__ = "vector_store_files"
-
     id = Column(String(64), primary_key=True, index=True)
     vector_store_id = Column(String(64), ForeignKey("vector_stores.id"), nullable=False)
     file_name = Column(String(256), nullable=False)

@@ -1,17 +1,6 @@
 from __future__ import annotations
 
-"""
-Hyperbolic-Llama-3-33B provider
-———————————————
-• Re-uses the C3-safe mix-in bundle.
-• Keeps the **same streaming semantics** you had:
-    – live SSE JSON (“type”: "content", "hot_code", …)
-    – inline buffering of code-interpreter blocks
-    – Redis fan-out identical to Ds1
-• No <think>/<fc> tagging in Llama-3 responses, but we still honour it
-  in case your prompt template inserts them.
-"""
-
+'\nHyperbolic-Llama-3-33B provider\n———————————————\n• Re-uses the C3-safe mix-in bundle.\n• Keeps the **same streaming semantics** you had:\n    – live SSE JSON (“type”: "content", "hot_code", …)\n    – inline buffering of code-interpreter blocks\n    – Redis fan-out identical to Ds1\n• No <think>/<fc> tagging in Llama-3 responses, but we still honour it\n  in case your prompt template inserts them.\n'
 import json
 import os
 from typing import Any, Generator, Optional
@@ -20,26 +9,19 @@ from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
-from entities_api.dependencies import get_redis
-from entities_api.inference_mixin.mixins import (AssistantCacheMixin,
-                                                 CodeExecutionMixin,
-                                                 ConsumerToolHandlersMixin,
-                                                 ConversationContextMixin,
-                                                 FileSearchMixin,
-                                                 JsonUtilsMixin,
-                                                 PlatformToolHandlersMixin,
-                                                 ShellExecutionMixin,
-                                                 ToolRoutingMixin)
-from entities_api.inference_mixin.orchestrator_core import OrchestratorCore
+from src.api.entities_api.dependencies import get_redis
+from src.api.entities_api.inference_mixin.mixins import (
+    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
+    ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
+    PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
+from src.api.entities_api.inference_mixin.orchestrator_core import \
+    OrchestratorCore
 
 load_dotenv()
 LOG = LoggingUtility()
 
 
-# --------------------------------------------------------------------------- #
-# mix-in bundle (identical to Ds1)
-# --------------------------------------------------------------------------- #
-class _ProviderMixins(  # pylint: disable=too-many-ancestors
+class _ProviderMixins(
     AssistantCacheMixin,
     JsonUtilsMixin,
     ConversationContextMixin,
@@ -53,18 +35,12 @@ class _ProviderMixins(  # pylint: disable=too-many-ancestors
     """Flat bundle → single inheritance in the concrete class."""
 
 
-# --------------------------------------------------------------------------- #
-# provider
-# --------------------------------------------------------------------------- #
 class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
     """
     Meta-Llama-3-33B served by Hyperbolic – streaming & tool orchestration.
     """
 
-    # ------------------------------------------------------------------ #
-    # construction
-    # ------------------------------------------------------------------ #
-    def __init__(  # noqa: D401
+    def __init__(
         self,
         *,
         assistant_id: str | None = None,
@@ -76,26 +52,19 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
         **extra,
     ) -> None:
         self._assistant_cache: dict = assistant_cache or {}
-
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
         self.base_url = base_url or os.getenv("BASE_URL")
         self.api_key = api_key
-
-        # model defaults
         self.model_name = extra.get(
             "model_name", "meta-llama/Meta-Llama-3-33B-Instruct"
         )
-        self.max_context_window = extra.get("max_context_window", 128_000)
+        self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
-
         self.setup_services()
         LOG.debug("Hyperbolic-Llama-3 provider ready (assistant=%s)", assistant_id)
 
-    # ------------------------------------------------------------------ #
-    # ConversationContextMixin shim
-    # ------------------------------------------------------------------ #
     @property
     def assistant_cache(self) -> dict:
         return self._assistant_cache
@@ -106,24 +75,18 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
             raise AttributeError("assistant_cache already initialised")
         self._assistant_cache = value
 
-    def get_assistant_cache(self) -> dict:  # noqa: D401
+    def get_assistant_cache(self) -> dict:
         return self._assistant_cache
 
-    # ------------------------------------------------------------------ #
-    # helper – suppress provider-labelled JSON function calls **only**
-    # ------------------------------------------------------------------ #
     @staticmethod
     def _filter_fc(chunk_json: str) -> Optional[str]:
         try:
             if json.loads(chunk_json).get("type") == "function_call":
                 return None
-        except Exception:  # malformed → pass through
+        except Exception:
             pass
         return chunk_json
 
-    # ------------------------------------------------------------------ #
-    # streaming loop  (no <think> tags in Llama-3 by default)
-    # ------------------------------------------------------------------ #
     def stream(
         self,
         thread_id: str,
@@ -138,12 +101,9 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
         redis = get_redis()
         stream_key = f"stream:{run_id}"
         self.start_cancellation_listener(run_id)
-
         if mapped := self._get_model_map(model):
             model = mapped
-
         ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
-
         payload = {
             "model": model,
             "messages": ctx,
@@ -151,50 +111,40 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
             "temperature": 0.6,
             "stream": True,
         }
-
         try:
             client = self._get_openai_client(
                 base_url=os.getenv("HYPERBOLIC_BASE_URL"), api_key=api_key
             )
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             err = {"type": "error", "content": f"client init failed: {exc}"}
             yield json.dumps(err)
             self._shunt_to_redis_stream(redis, stream_key, err)
             return
-
         assistant_reply = accumulated = ""
         code_mode = False
         code_buf = ""
-
-        # ① Emit a “started” status so front-end can immediately show Stop button
         start_chunk = {"type": "status", "status": "started", "run_id": run_id}
         yield json.dumps(start_chunk)
         self._shunt_to_redis_stream(redis, stream_key, start_chunk)
-
         try:
             for token in client.chat.completions.create(**payload):
-                # cancellation check
                 if self.check_cancellation_flag():
                     err = {"type": "error", "content": "Run cancelled"}
                     if p := self._filter_fc(json.dumps(err)):
                         yield p
                     self._shunt_to_redis_stream(redis, stream_key, err)
                     break
-
                 if not token.choices or not token.choices[0].delta:
                     continue
-
                 seg = getattr(token.choices[0].delta, "content", "")
                 if not seg:
                     continue
-
-                # ----- hot-code / code-interpreter detection --------------
                 assistant_reply += seg
                 accumulated += seg
-
                 parse_ci = getattr(self, "parse_code_interpreter_partial", None)
-                ci_match = parse_ci(accumulated) if parse_ci and not code_mode else None
-
+                ci_match = (
+                    parse_ci(accumulated) if parse_ci and (not code_mode) else None
+                )
                 if ci_match:
                     code_mode = True
                     code_buf = ci_match.get("code", "")
@@ -202,7 +152,6 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
                     if p := self._filter_fc(json.dumps(start)):
                         yield p
                     self._shunt_to_redis_stream(redis, stream_key, start)
-
                     if code_buf and hasattr(self, "_process_code_interpreter_chunks"):
                         res, code_buf = self._process_code_interpreter_chunks(
                             "", code_buf
@@ -214,7 +163,6 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
                                 redis, stream_key, json.loads(r)
                             )
                     continue
-
                 if code_mode:
                     if hasattr(self, "_process_code_interpreter_chunks"):
                         res, code_buf = self._process_code_interpreter_chunks(
@@ -232,29 +180,21 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
                             yield p
                         self._shunt_to_redis_stream(redis, stream_key, hot)
                     continue
-
-                # ----- plain content --------------------------------------
                 msg = {"type": "content", "content": seg}
                 if p := self._filter_fc(json.dumps(msg)):
                     yield p
                 self._shunt_to_redis_stream(redis, stream_key, msg)
-
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             err = {"type": "error", "content": f"Llama-3 SDK error: {exc}"}
             if p := self._filter_fc(json.dumps(err)):
                 yield p
             self._shunt_to_redis_stream(redis, stream_key, err)
             return
-
-        # ③ Emit a “complete” status so front-end can hide the Stop button
         end_chunk = {"type": "status", "status": "complete", "run_id": run_id}
         yield json.dumps(end_chunk)
         self._shunt_to_redis_stream(redis, stream_key, end_chunk)
-
-        # ---- bookkeeping & tool state ----------------------------------
         if assistant_reply:
             self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
-
         if accumulated and self.parse_and_set_function_calls(
             accumulated, assistant_reply
         ):
@@ -266,10 +206,7 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
                 run_id, StatusEnum.completed.value
             )
 
-    # ------------------------------------------------------------------ #
-    # orchestrator (single pass + tools)
-    # ------------------------------------------------------------------ #
-    def process_conversation(  # noqa: D401
+    def process_conversation(
         self,
         thread_id: str,
         message_id: str,
@@ -280,7 +217,6 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
         stream_reasoning: bool = False,
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
-        # main model pass
         yield from self.stream(
             thread_id,
             message_id,
@@ -290,8 +226,6 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
             stream_reasoning=stream_reasoning,
             api_key=api_key,
         )
-
-        # tool pass (if a function_call was queued)
         if self.get_function_call_state():
             yield from self.process_function_calls(
                 thread_id, run_id, assistant_id, model=model, api_key=api_key

@@ -1,4 +1,3 @@
-# api/routers/serializers.py
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict
@@ -7,7 +6,6 @@ from pydantic import BaseModel, ConfigDict
 class UserBase(BaseModel):
     id: str
     name: str
-
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -34,7 +32,6 @@ class ThreadRead(BaseModel):
     metadata: Dict[str, Any]
     object: str
     tool_resources: Dict[str, Any]
-
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -43,7 +40,7 @@ class ThreadParticipant(UserBase):
 
 
 class ThreadReadDetailed(ThreadRead):
-    participants: List[UserBase]  # This is only for detailed views if needed
+    participants: List[UserBase]
 
 
 class Content(BaseModel):
@@ -73,7 +70,6 @@ class MessageRead(BaseModel):
     run_id: Optional[str]
     status: Optional[str]
     thread_id: str
-
     model_config = ConfigDict(from_attributes=True)
 
 

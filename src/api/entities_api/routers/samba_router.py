@@ -1,4 +1,3 @@
-# src/api/entities_api/routers/samba_router.py
 import hashlib
 import hmac
 import os
@@ -9,10 +8,10 @@ from fastapi import (APIRouter, Depends, File, Form, HTTPException, Response,
 from projectdavid_common import ValidationInterface
 from sqlalchemy.orm import Session
 
-from entities_api.dependencies import get_api_key, get_db
-from entities_api.models.models import ApiKey as ApiKeyModel
-from entities_api.services.file_service import FileService
-from entities_api.services.logging_service import LoggingUtility
+from src.api.entities_api.dependencies import get_api_key, get_db
+from src.api.entities_api.models.models import ApiKey as ApiKeyModel
+from src.api.entities_api.services.file_service import FileService
+from src.api.entities_api.services.logging_service import LoggingUtility
 
 router = APIRouter()
 logging_utility = LoggingUtility()
@@ -111,13 +110,10 @@ def download_file_via_signed_url(
         expected_signature = hmac.new(
             key=secret_key.encode(), msg=data.encode(), digestmod=hashlib.sha256
         ).hexdigest()
-
         if not hmac.compare_digest(signature, expected_signature):
             raise HTTPException(status_code=403, detail="Invalid signature")
-
         if int(datetime.utcnow().timestamp()) > expires:
             raise HTTPException(status_code=410, detail="URL has expired")
-
         file_service = FileService(db)
         file_obj = file_service.get_file_as_object(file_id)
         return Response(

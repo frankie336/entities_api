@@ -16,13 +16,8 @@ def count_tokens(input_string: str, tokenizer_name: str = "gpt2") -> int:
         Exception: If the tokenizer fails to load or tokenize the input.
     """
     try:
-        # Dynamically load the tokenizer from Hugging Face's model hub
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-
-        # Tokenize the input string
         tokens = tokenizer.encode(input_string, add_special_tokens=False)
-
-        # Return the number of tokens
         return len(tokens)
     except Exception as e:
         raise Exception(
@@ -30,11 +25,9 @@ def count_tokens(input_string: str, tokenizer_name: str = "gpt2") -> int:
         )
 
 
-# Example usage
 if __name__ == "__main__":
     input_text = "This is an example string to test tokenization."
-    tokenizer_name = "bert-base-uncased"  # Replace with the desired tokenizer name
-
+    tokenizer_name = "bert-base-uncased"
     try:
         token_count = count_tokens(input_text, tokenizer_name)
         print(f"Number of tokens: {token_count}")

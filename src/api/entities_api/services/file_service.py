@@ -14,15 +14,15 @@ from projectdavid_common.constants.mime_types import (SUPPORTED_MIME_TYPES,
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.orm import Session
 
-from entities_api.models.models import File, FileStorage, User
-from entities_api.utils.samba_client import SambaClient
+from src.api.entities_api.models.models import File, FileStorage, User
+from src.api.entities_api.utils.samba_client import SambaClient
 
 logging_utility = LoggingUtility()
-
 validator = ValidationInterface()
 
 
 class FileService:
+
     def __init__(self, db: Session):
         """
         Initialize FileService with a database session.
@@ -47,13 +47,11 @@ class FileService:
                 status_code=400,
                 detail=f"Unsupported file type: {os.path.splitext(filename)[1].lower()}. Supported types: {list(SUPPORTED_MIME_TYPES.keys())}",
             )
-
         if content_type and content_type != mime_type:
             raise HTTPException(
                 status_code=400,
                 detail=f"Content type mismatch: expected {mime_type}, got {content_type}",
             )
-
         return mime_type
 
     def validate_user(self, user_id: str) -> User:
@@ -72,14 +70,11 @@ class FileService:
         mime_type = self.validate_file_type(
             file.filename, getattr(file, "content_type", None)
         )
-
         try:
             temp_file_path = f"/tmp/{file.filename}"
             with open(temp_file_path, "wb") as f:
                 file.file.seek(0)
                 f.write(file.file.read())
-
-            # Generate unique filename using file ID
             file_metadata = File(
                 id=self.identifier_service.generate_file_id(),
                 object="file",
@@ -91,14 +86,10 @@ class FileService:
                 user_id=request.user_id,
                 mime_type=mime_type,
             )
-
             self.db.add(file_metadata)
             self.db.flush()
-
-            # Use unique filename for Samba storage
             unique_filename = f"{file_metadata.id}_{file.filename}"
             self.samba_client.upload_file(temp_file_path, unique_filename)
-
             file_storage = FileStorage(
                 file_id=file_metadata.id,
                 storage_system="samba",
@@ -106,14 +97,11 @@ class FileService:
                 is_primary=True,
                 created_at=datetime.now(),
             )
-
             self.db.add(file_storage)
             self.db.commit()
             self.db.refresh(file_metadata)
-
             os.remove(temp_file_path)
             return file_metadata
-
         except Exception as e:
             self.db.rollback()
             logging_utility.error(f"Error uploading file: {str(e)}")
@@ -132,11 +120,9 @@ class FileService:
             if not file_record:
                 logging_utility.warning(f"File with ID {file_id} not found in database")
                 return False
-
             storage_locations = (
                 self.db.query(FileStorage).filter(FileStorage.file_id == file_id).all()
             )
-
             for storage_location in storage_locations:
                 if storage_location.storage_system == "samba":
                     try:
@@ -145,11 +131,9 @@ class FileService:
                         logging_utility.error(
                             f"Failed to delete file from Samba: {str(e)}"
                         )
-
             self.db.delete(file_record)
             self.db.commit()
             return True
-
         except Exception as e:
             self.db.rollback()
             logging_utility.error(f"Error deleting file with ID {file_id}: {str(e)}")
@@ -165,7 +149,6 @@ class FileService:
             file_record = self.db.query(File).filter(File.id == file_id).first()
             if not file_record:
                 return None
-
             return {
                 "id": file_record.id,
                 "object": "file",
@@ -189,7 +172,6 @@ class FileService:
         )
         if not file_storage:
             raise HTTPException(status_code=404, detail="File storage record not found")
-
         try:
             file_bytes = self.samba_client.download_file_to_bytes(
                 file_storage.storage_path
@@ -222,27 +204,21 @@ class FileService:
             raise HTTPException(
                 status_code=404, detail=f"File with ID {file_id} not found"
             )
-
         secret_key = os.getenv("SIGNED_URL_SECRET", "default_secret_key")
         expiration_time = datetime.utcnow() + timedelta(seconds=expires_in)
         expiration_timestamp = int(expiration_time.timestamp())
-
         data = f"{file_id}:{expiration_timestamp}"
         signature = hmac.new(
             key=secret_key.encode(), msg=data.encode(), digestmod=hashlib.sha256
         ).hexdigest()
-
         query_params = {
             "file_id": file_id,
             "expires": expiration_timestamp,
             "signature": signature,
         }
-
         base_url = os.getenv("BASE_URL", "http://localhost:9000")
         signed_url = f"{base_url}/v1/files/download?{urlencode(query_params)}"
-
         if label:
-            # Return Markdown-formatted clickable link
             return f"[{label}](<{signed_url}>)"
         else:
             return f"<{signed_url}>"
@@ -256,7 +232,6 @@ class FileService:
         )
         if not file_storage:
             raise HTTPException(status_code=404, detail="File storage record not found")
-
         try:
             file_bytes = self.samba_client.download_file_to_bytes(
                 file_storage.storage_path
@@ -276,11 +251,8 @@ class FileService:
         """
         file_obj = self.get_file_as_object(file_id)
         file_record = self.db.query(File).filter(File.id == file_id).first()
-
         if not file_record:
             raise HTTPException(status_code=404, detail="File metadata not found")
-
         filename = file_record.filename or f"{file_id}"
         mime_type = file_record.mime_type or "application/octet-stream"
-
-        return file_obj, filename, mime_type
+        return (file_obj, filename, mime_type)

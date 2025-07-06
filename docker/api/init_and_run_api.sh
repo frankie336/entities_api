@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
-# docker/api/init_and_run_api.sh
+# Runs Alembic migrations, then starts the main command (Supervisor)
+set -e
 
-set -e  # Exit immediately if any command fails
+# The wait-for-it.sh line is GONE. Python handles it now.
 
-# Wait for the database to be available using the correct path
-echo "Waiting for database..."
-/app/wait-for-it.sh db:3306 --timeout=30 --strict
+# Auto-migrate when flag is on
+if [ "$AUTO_MIGRATE" = "1" ]; then
+  echo "🗄️  Running Alembic migrations…"
+  alembic upgrade head
+fi
 
-# Run startup scripts (e.g., necessary initialization tasks)
-echo "Running startup scripts..."
-python -m entities.services.assistant_set_up_service
-
-# Start the FastAPI server using uvicorn
-echo "Starting API server..."
-exec uvicorn entities_api.app:app --host 0.0.0.0 --port 9000 --workers 1
+echo "🚀 Starting Supervisor (which will run Uvicorn)…"
+exec "$@"

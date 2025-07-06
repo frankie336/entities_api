@@ -1,5 +1,3 @@
-# entities_api/routers/inference_router.py
-
 import asyncio
 import json
 import time
@@ -11,17 +9,11 @@ from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from redis import Redis
 
-from entities_api.inference_mixin.inference_arbiter import InferenceArbiter
-from entities_api.inference_mixin.inference_provider_selector import \
+from src.api.entities_api.dependencies import get_redis
+from src.api.entities_api.inference_mixin.inference_arbiter import \
+    InferenceArbiter
+from src.api.entities_api.inference_mixin.inference_provider_selector import \
     InferenceProviderSelector
-
-# Import the correct shared Redis dependency
-# Adjust the relative path '..' if your dependencies.py is elsewhere
-from ..dependencies import get_redis
-
-# from entities_api.inference.inference_arbiter import InferenceArbiter
-# from entities_api.inference.inference_provider_selector import InferenceProviderSelector
-
 
 router = APIRouter()
 logging_utility = LoggingUtility()
@@ -50,7 +42,6 @@ async def run_sync_generator_in_thread(
             )
 
     thread_task = loop.run_in_executor(None, run_generator)
-
     try:
         while True:
             item = await queue.get()
@@ -97,8 +88,7 @@ async def run_sync_generator_in_thread(
     response_description="A stream of JSON-formatted completions chunks",
 )
 async def completions(
-    stream_request: ValidationInterface.StreamRequest,
-    redis: Redis = Depends(get_redis),
+    stream_request: ValidationInterface.StreamRequest, redis: Redis = Depends(get_redis)
 ):
     """Handles streaming completion requests using the appropriate inference provider."""
     log_payload = stream_request.dict()
@@ -108,13 +98,11 @@ async def completions(
             if len(log_payload.get("api_key", "")) > 4
             else "***"
         )
-
     logging_utility.info(
         "Completions endpoint called with unified model_id: %s, payload: %s",
         stream_request.model,
         log_payload,
     )
-
     try:
         arbiter = InferenceArbiter(redis=redis)
         selector = InferenceProviderSelector(arbiter)
@@ -127,7 +115,6 @@ async def completions(
         raise HTTPException(
             status_code=500, detail="Internal server error during inference setup."
         )
-
     try:
         general_handler_instance, api_model_name = selector.select_provider(
             model_id=stream_request.model
@@ -154,40 +141,27 @@ async def completions(
         start_time = time.time()
         run_id = stream_request.run_id
         error_occurred = False
-
         logging_utility.info(
             "Starting stream_generator for model: %s, run_id: %s",
             stream_request.model,
             run_id,
         )
-
-        # Optional: Initial SSE handshake/status messages
-        # yield "data: " + json.dumps({"status": "handshake", "run_id": run_id}) + "\n\n"
-        # await asyncio.sleep(0.01)
-        # yield "data: " + json.dumps({"status": "initializing", "run_id": run_id}) + "\n\n"
-        # await asyncio.sleep(0.01)
-
         try:
-            # Prepare arguments for the synchronous handler function
             sync_gen_args = {
                 "thread_id": stream_request.thread_id,
                 "message_id": stream_request.message_id,
                 "run_id": run_id,
                 "assistant_id": stream_request.assistant_id,
-                "model": stream_request.model,  # Pass the original requested model ID
-                # --- FIX: Hardcode stream_reasoning as StreamRequest lacks this field ---
+                "model": stream_request.model,
                 "stream_reasoning": True,
-                # --- END FIX ---
-                "api_key": stream_request.api_key,  # Pass API key if provided
+                "api_key": stream_request.api_key,
             }
-
             async for chunk in run_sync_generator_in_thread(
                 general_handler_instance.process_conversation, **sync_gen_args
             ):
                 idx += 1
                 if chunk is None:
                     continue
-
                 chunk_data = None
                 if isinstance(chunk, str):
                     if chunk.strip().startswith(("{", "[")):
@@ -207,19 +181,15 @@ async def completions(
                         f"Skipping unknown chunk type from generator: {type(chunk)}"
                     )
                     continue
-
                 chunk_data.setdefault("type", "content")
                 if "content" not in chunk_data and chunk_data.get("type") not in (
                     "error",
                     "status",
                 ):
                     chunk_data["content"] = ""
-
                 chunk_data["run_id"] = run_id
-
                 yield f"data: {json.dumps(chunk_data)}\n\n"
                 await asyncio.sleep(0.01)
-
         except Exception as e:
             error_occurred = True
             logging_utility.error(

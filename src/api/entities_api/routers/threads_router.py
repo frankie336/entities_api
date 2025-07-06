@@ -2,16 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from projectdavid_common import UtilsInterface, ValidationInterface
 from sqlalchemy.orm import Session
 
-from entities_api.dependencies import get_api_key, get_db
-from entities_api.models.models import ApiKey as ApiKeyModel
-from entities_api.services.threads_service import ThreadService
+from src.api.entities_api.dependencies import get_api_key, get_db
+from src.api.entities_api.models.models import ApiKey as ApiKeyModel
+from src.api.entities_api.services.threads_service import ThreadService
 
 router = APIRouter(
     prefix="/threads",
     tags=["Threads"],
     responses={404: {"description": "Thread not found"}},
 )
-
 validator = ValidationInterface()
 logging_utility = UtilsInterface.LoggingUtility()
 
@@ -27,15 +26,10 @@ def create_thread(
     we infer the caller from the authenticated API‑key.
     """
     logging_utility.info(f"[{auth_key.user_id}] Creating thread")
-
-    # ➋ Fallback to the caller’s user_id
     participant_ids = thread.participant_ids or [auth_key.user_id]
-
     thread_in = ValidationInterface.ThreadCreate(
-        participant_ids=participant_ids,
-        meta_data=thread.meta_data,
+        participant_ids=participant_ids, meta_data=thread.meta_data
     )
-
     try:
         return ThreadService(db).create_thread(thread_in)
     except Exception as e:

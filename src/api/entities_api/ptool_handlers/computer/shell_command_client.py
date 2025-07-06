@@ -10,24 +10,22 @@ from dotenv import load_dotenv
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logging_utility = logging.getLogger("ShellClient")
-
-# Update the endpoint to match the server-side router
 SHELL_SERVER_URL = os.getenv("SHELL_SERVER_URL", "ws://localhost:8000/ws/computer")
 
 
 class ShellClient:
+
     def __init__(
         self, endpoint: str, room: str, elevated: bool = False, timeout: int = 30
     ):
         self.endpoint = endpoint
         self.room = room
-        self.elevated = elevated  # Matches server-side parameter
+        self.elevated = elevated
         self.timeout = timeout
         self.ws = None
         self.lock = asyncio.Lock()
 
     async def __aenter__(self):
-        # Include the elevated parameter in the query string
         conn_str = (
             f"{self.endpoint}?room={self.room}&elevated={str(self.elevated).lower()}"
         )
@@ -48,18 +46,15 @@ class ShellClient:
         """
         if not self.ws:
             raise RuntimeError("WebSocket connection not established.")
-
         buffer = ""
         expected_completions = len(commands)
         completions_received = 0
 
         async def send_commands():
-            # Send each command. The server will append an echo marker to each.
             for cmd in commands:
                 payload = {"action": "shell_command", "command": cmd}
                 await self.ws.send(json.dumps(payload))
                 logging_utility.info(f"Sent command: {cmd}")
-                # Slight delay between commands
                 await asyncio.sleep(0.5)
 
         async def receive_output():
@@ -96,7 +91,6 @@ class ShellClient:
             await send_commands()
             await receive_output()
             await send_disconnect()
-
         logging_utility.info("Command execution completed.")
         return buffer
 

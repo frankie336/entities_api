@@ -1,4 +1,3 @@
-# Tool schemas with strict validation rules
 BASE_TOOLS = [
     {
         "type": "function",
@@ -8,10 +7,7 @@ BASE_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "code": {
-                        "type": "string",
-                        "description": "Python code to execute",
-                    },
+                    "code": {"type": "string", "description": "Python code to execute"}
                 },
                 "required": ["code"],
             },
@@ -21,11 +17,7 @@ BASE_TOOLS = [
         "type": "function",
         "function": {
             "name": "file_search",
-            "description": (
-                "Runs a semantic (embedding‑based) + keyword filter search over files that "
-                "have been embedded into one or more vector stores. Results are returned as "
-                "an array of metadata objects with relevance scores."
-            ),
+            "description": "Runs a semantic (embedding‑based) + keyword filter search over files that have been embedded into one or more vector stores. Results are returned as an array of metadata objects with relevance scores.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -36,11 +28,7 @@ BASE_TOOLS = [
                     "vector_store_ids": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": (
-                            "Vector‑store IDs to search. Omit to use the assistant‑level "
-                            'binding supplied in tools=[{"type": "file_search", '
-                            '"vector_store_ids": [...] }].'
-                        ),
+                        "description": 'Vector‑store IDs to search. Omit to use the assistant‑level binding supplied in tools=[{"type": "file_search", "vector_store_ids": [...] }].',
                     },
                     "top_k": {
                         "type": "integer",
@@ -51,10 +39,7 @@ BASE_TOOLS = [
                     },
                     "filters": {
                         "type": "object",
-                        "description": (
-                            "Optional Qdrant payload‑filter object, identical in structure "
-                            "to the `filters` argument of search_vector_store()."
-                        ),
+                        "description": "Optional Qdrant payload‑filter object, identical in structure to the `filters` argument of search_vector_store().",
                     },
                 },
                 "required": ["query"],
@@ -76,7 +61,7 @@ BASE_TOOLS = [
                             "filetype:pdf cybersecurity report 2023",
                             "site:github.com AI framework",
                         ],
-                    },
+                    }
                 },
                 "required": ["query"],
             },
@@ -86,20 +71,15 @@ BASE_TOOLS = [
         "type": "function",
         "function": {
             "name": "computer",
-            "description": (
-                "Simulates a personal Linux workstation with internet access. Executes a "
-                "list of terminal commands in a recoverable session, streaming output."
-            ),
+            "description": "Simulates a personal Linux workstation with internet access. Executes a list of terminal commands in a recoverable session, streaming output.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "commands": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": (
-                            "Sequential Linux commands as if typed directly into the terminal."
-                        ),
-                    },
+                        "description": "Sequential Linux commands as if typed directly into the terminal.",
+                    }
                 },
                 "required": ["commands"],
             },
@@ -139,13 +119,10 @@ BASE_TOOLS = [
                         "description": "Qdrant‑compatible filter syntax.",
                         "examples": {
                             "temporal": {
-                                "created_at": {"$gte": 1672531200, "$lte": 1704067200},
+                                "created_at": {"$gte": 1672531200, "$lte": 1704067200}
                             },
                             "boolean": {
-                                "$or": [
-                                    {"status": "active"},
-                                    {"priority": {"$gte": 7}},
-                                ],
+                                "$or": [{"status": "active"}, {"priority": {"$gte": 7}}]
                             },
                         },
                     },

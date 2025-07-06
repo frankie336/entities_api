@@ -7,10 +7,11 @@ from projectdavid_common import UtilsInterface
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from entities_api.dependencies import get_api_key
-from entities_api.models.models import ApiKey as ApiKeyModel
-from entities_api.services.event_handler_service import EventMonitoringService
-from entities_api.services.sse_manager import SSEManager
+from src.api.entities_api.dependencies import get_api_key
+from src.api.entities_api.models.models import ApiKey as ApiKeyModel
+from src.api.entities_api.services.event_handler_service import \
+    EventMonitoringService
+from src.api.entities_api.services.sse_manager import SSEManager
 
 logging_utility = UtilsInterface.LoggingUtility()
 logging.basicConfig(level=logging.INFO)
@@ -68,7 +69,6 @@ async def subscribe_to_run_events(
     logging_utility.info(
         f"User '{auth_key.user_id}' - SSE: Client requesting subscription for run_id: {run_id}"
     )
-
     subscriber_queue = asyncio.Queue()
     await sse_manager.add_subscriber(run_id, subscriber_queue)
 
@@ -78,14 +78,12 @@ async def subscribe_to_run_events(
             logging_utility.info(
                 f"User '{auth_key.user_id}' - SSE: Connection active for run_id: {run_id}"
             )
-
             while True:
                 if await request.is_disconnected():
                     logging_utility.info(
                         f"User '{auth_key.user_id}' - SSE: Client disconnected for run_id: {run_id}. Closing generator."
                     )
                     break
-
                 try:
                     message = await asyncio.wait_for(
                         subscriber_queue.get(), timeout=30.0
@@ -95,7 +93,6 @@ async def subscribe_to_run_events(
                 except asyncio.TimeoutError:
                     yield ": keep-alive\n\n"
                     continue
-
         except asyncio.CancelledError:
             logging_utility.info(
                 f"User '{auth_key.user_id}' - SSE: Event generator task cancelled for run_id: {run_id}"

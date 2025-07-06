@@ -13,7 +13,7 @@ web_search = {
                         "filetype:pdf cybersecurity report 2023",
                         "site:github.com AI framework",
                     ],
-                },
+                }
             },
             "required": ["query"],
         },

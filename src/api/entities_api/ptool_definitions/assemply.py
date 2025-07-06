@@ -1,7 +1,8 @@
-from entities_api.ptool_definitions.code_interpreter import code_interpreter
-from entities_api.ptool_definitions.computer import computer
-from entities_api.ptool_definitions.file_search import file_search
-from entities_api.ptool_definitions.web_search import web_search
+from src.api.entities_api.ptool_definitions.code_interpreter import \
+    code_interpreter
+from src.api.entities_api.ptool_definitions.computer import computer
+from src.api.entities_api.ptool_definitions.file_search import file_search
+from src.api.entities_api.ptool_definitions.web_search import web_search
 
 
 def assemble_tools():

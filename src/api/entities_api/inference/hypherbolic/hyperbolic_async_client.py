@@ -6,6 +6,7 @@ import httpx
 
 
 class AsyncHyperbolicClient:
+
     def __init__(
         self,
         api_key: str,
@@ -17,12 +18,10 @@ class AsyncHyperbolicClient:
         self.base_url = base_url
         self.max_retries = max_retries
         self.timeout = timeout
-
         self.headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}",
         }
-
         self.client = httpx.AsyncClient(
             timeout=timeout, headers=self.headers, follow_redirects=True, http2=True
         )
@@ -48,7 +47,6 @@ class AsyncHyperbolicClient:
             "max_tokens": max_tokens,
             "stream": True,
         }
-
         for attempt in range(1, self.max_retries + 1):
             try:
                 async with self.client.stream("POST", url, json=payload) as response:
@@ -60,13 +58,11 @@ class AsyncHyperbolicClient:
                             line = line[6:]
                         try:
                             chunk = json.loads(line)
-
                             if chunk.get("object") == "error":
                                 print(
                                     f"[!] Server error: {chunk.get('message', 'Unknown error')}"
                                 )
                                 break
-
                             content = (
                                 chunk.get("choices", [{}])[0]
                                 .get("delta", {})
@@ -76,7 +72,7 @@ class AsyncHyperbolicClient:
                                 yield content
                         except json.JSONDecodeError:
                             print(f"[!] Invalid JSON: {line}")
-                    return  # Exit on success
+                    return
             except Exception as e:
                 if attempt < self.max_retries:
                     backoff = 2 ** (attempt - 1)

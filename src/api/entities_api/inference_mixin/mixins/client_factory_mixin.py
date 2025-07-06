@@ -13,24 +13,20 @@ from openai import OpenAI
 from projectdavid import Entity
 from together import Together
 
-from entities_api.services.logging_service import LoggingUtility
+from src.api.entities_api.services.logging_service import LoggingUtility
 
 load_dotenv()
-
 LOG = LoggingUtility()
 
 
 class ClientFactoryMixin:
-    # --------------------------------------------------------------------- #
-    # OpenAI / Hyperbolic client ------------------------------------------ #
-    # --------------------------------------------------------------------- #
+
     @lru_cache(maxsize=32)
     def _get_openai_client(
         self, *, api_key: Optional[str], base_url: Optional[str] = None
     ) -> OpenAI:
         if not api_key:
             raise RuntimeError("api_key required for OpenAI client")
-
         try:
             return OpenAI(
                 api_key=api_key,
@@ -41,25 +37,18 @@ class ClientFactoryMixin:
             LOG.error("OpenAI client init failed: %s", exc, exc_info=True)
             raise
 
-    # --------------------------------------------------------------------- #
-    # Together client ----------------------------------------------------- #
-    # --------------------------------------------------------------------- #
     @lru_cache(maxsize=32)
     def _get_together_client(
         self, *, api_key: Optional[str], base_url: Optional[str] = None
     ) -> Together:
         if not api_key:
             raise RuntimeError("api_key required for Together client")
-
         try:
             return Together(api_key=api_key, base_url=base_url)
         except Exception as exc:
             LOG.error("Together client init failed: %s", exc, exc_info=True)
             raise
 
-    # --------------------------------------------------------------------- #
-    # Project-David client ------------------------------------------------ #
-    # --------------------------------------------------------------------- #
     @lru_cache(maxsize=32)
     def _get_project_david_client(
         self, *, api_key: Optional[str], base_url: Optional[str]

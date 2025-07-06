@@ -2,20 +2,20 @@ import inspect
 import threading
 from typing import Any, Dict, Generator, Union
 
-from entities_api.ptool_handlers.code_interpreter.code_execution_client import \
+from src.api.entities_api.ptool_handlers.code_interpreter.code_execution_client import \
     StreamOutput
-from entities_api.ptool_handlers.computer.shell_command_interface import \
+from src.api.entities_api.ptool_handlers.computer.shell_command_interface import \
     ShellCommandInterface
-from entities_api.ptool_handlers.vector_store.vector_search_handler import \
+from src.api.entities_api.ptool_handlers.vector_store.vector_search_handler import \
     VectorSearchHandler
-from entities_api.ptool_handlers.web.web_search_handler import FirecrawlService
-from entities_api.services.logging_service import LoggingUtility
+from src.api.entities_api.ptool_handlers.web.web_search_handler import \
+    FirecrawlService
+from src.api.entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 
 
 class PlatformToolService:
-    # Class-level cache for function handlers
     function_handlers = {
         "code_interpreter": None,
         "web_search": None,
@@ -24,7 +24,6 @@ class PlatformToolService:
     }
 
     def __init__(self, base_url=None, api_key=None, assistant_id=None, thread_id=None):
-        # Lazy initialization of handlers
         self._stream_output_handler = None
         self._web_search_handler = None
         self._vector_search_handler = None
@@ -60,12 +59,9 @@ class PlatformToolService:
             - A generator for streaming outputs, or
             - A dict for static results.
         """
-
         if not isinstance(arguments, dict):
             logging_utility.error("Invalid arguments type: %s", type(arguments))
             return {"error": "Arguments must be a dictionary"}
-
-        # Cache handling (disable caching for streams)
         cache_key = None
         if function_name != "code_interpreter":
             try:
@@ -75,8 +71,6 @@ class PlatformToolService:
                         return self._call_cache[cache_key]
             except TypeError as e:
                 logging_utility.warning("Cache bypassed: %s", str(e))
-
-        # Handler initialization
         if self.function_handlers[function_name] is None:
             if function_name == "code_interpreter__":
                 self.function_handlers[function_name] = (
@@ -91,31 +85,21 @@ class PlatformToolService:
                     self._get_vector__search_handler().execute_search
                 )
             elif function_name == "computer":
-                # Use our new ShellCommandInterface for streaming computer commands.
                 shell_service = ShellCommandInterface(
                     thread_id=self.thread_id, idle_timeout=5
                 )
                 self.function_handlers[function_name] = shell_service.run_commands
             else:
                 return {"error": f"Unsupported function: {function_name}"}
-
         handler = self.function_handlers[function_name]
-
-        # Execution
         try:
             result = handler(**arguments)
-
-            # If the result is a generator (streamed output), return it directly.
             if inspect.isgenerator(result):
                 return result
-
-            # Cache static results (if applicable)
             if cache_key is not None:
                 with self._cache_lock:
                     self._call_cache[cache_key] = result
-
             return result
-
         except Exception as e:
             logging_utility.error("Execution failed: %s", str(e))
             return {"error": str(e)}

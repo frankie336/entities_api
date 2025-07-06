@@ -19,14 +19,14 @@ from projectdavid.clients.tools_client import ToolsClient
 from projectdavid.clients.users_client import UsersClient
 from projectdavid.clients.vectors import VectorStoreClient
 
-from entities_api.ptool_handlers.code_interpreter.code_execution_client import \
+from src.api.entities_api.ptool_handlers.code_interpreter.code_execution_client import \
     StreamOutput
-from entities_api.services.cached_assistant import AssistantCache
-from entities_api.services.conversation_truncator import ConversationTruncator
-from entities_api.services.logging_service import LoggingUtility
+from src.api.entities_api.services.cached_assistant import AssistantCache
+from src.api.entities_api.services.conversation_truncator import \
+    ConversationTruncator
+from src.api.entities_api.services.logging_service import LoggingUtility
 
 load_dotenv()
-
 LOG = LoggingUtility()
 
 
@@ -35,13 +35,10 @@ class MissingParameterError(ValueError):
 
 
 class ServiceRegistryMixin:
-    # ------------------------------------------------------------------ #
-    # Lazy init helpers                                                  #
-    # ------------------------------------------------------------------ #
+
     def _get_service(self, service_cls, *, custom_params=None):
         if not hasattr(self, "_services"):
             self._services = {}
-
         if service_cls not in self._services:
             try:
                 obj = (
@@ -62,9 +59,6 @@ class ServiceRegistryMixin:
         if hasattr(self, "_services") and service_cls in self._services:
             del self._services[service_cls]
 
-    # ------------------------------------------------------------------ #
-    # Helper to map __init__ signature → attributes                      #
-    # ------------------------------------------------------------------ #
     @lru_cache(maxsize=32)
     def _resolve_init_parameters(self, service_cls):
         sig = inspect.signature(service_cls.__init__)
@@ -83,20 +77,17 @@ class ServiceRegistryMixin:
         return tuple(resolved)
 
     @property
-    def project_david_client(self) -> Entity:  # NEW
+    def project_david_client(self) -> Entity:
         """
         Lazily-cached default Project-David SDK handle.
 
         Uses ADMIN_API_KEY + BASE_URL, exactly like the old BaseInference.
         """
-        return self._get_project_david_client(  # type: ignore[attr-defined]
+        return self._get_project_david_client(
             api_key=os.getenv("ADMIN_API_KEY"),
             base_url=os.getenv("ASSISTANTS_BASE_URL"),
         )
 
-    # ------------------------------------------------------------------ #
-    # Core services                                                      #
-    # ------------------------------------------------------------------ #
     @property
     def conversation_truncator(self) -> ConversationTruncator:
         return self._get_service(ConversationTruncator)
@@ -141,24 +132,15 @@ class ServiceRegistryMixin:
     def assistant_cache(self) -> AssistantCache:
         return self._get_service(AssistantCache)
 
-    # ------------------------------------------------------------------ #
-    # Example utility that used to be on BaseInference                   #
-    # ------------------------------------------------------------------ #
     @lru_cache(maxsize=128)
     def cached_user_details(self, user_id):
         """Thin wrapper around UsersClient to avoid redundant calls."""
         return self.user_client.get_user(user_id)
 
-    # ------------------------------------------------------------------ #
-    # Ptools handlers                                                    #
-    # ------------------------------------------------------------------ #
     @property
     def code_execution_client(self) -> StreamOutput:
         return self._get_service(StreamOutput)
 
-    # ------------------------------------------------------------------ #
-    # Placeholder for future service setups                             #
-    # ------------------------------------------------------------------ #
     def setup_services(self):
         """Sub-classes may pre-register services here."""
         pass

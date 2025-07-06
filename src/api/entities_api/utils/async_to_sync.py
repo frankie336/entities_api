@@ -11,7 +11,6 @@ def async_to_sync_stream(agen: AsyncGenerator[str, None]) -> Generator[str, None
             yield item
 
     gen = runner()
-
     try:
         while True:
             yield loop.run_until_complete(gen.__anext__())

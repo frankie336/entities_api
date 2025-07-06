@@ -2,10 +2,7 @@ file_search = {
     "type": "function",
     "function": {
         "name": "file_search",
-        "description": (
-            "Runs a semantic (embedding‑based) and optionally filtered search over files. "
-            "The vector store is selected automatically based on the assistant's configuration."
-        ),
+        "description": "Runs a semantic (embedding‑based) and optionally filtered search over files. The vector store is selected automatically based on the assistant's configuration.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -22,9 +19,7 @@ file_search = {
                 },
                 "filters": {
                     "type": "object",
-                    "description": (
-                        "Optional payload filter (e.g., {'page': {'$lte': 5}})."
-                    ),
+                    "description": "Optional payload filter (e.g., {'page': {'$lte': 5}}).",
                 },
             },
             "required": ["query_text"],
