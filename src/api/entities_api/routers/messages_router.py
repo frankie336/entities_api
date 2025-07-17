@@ -107,7 +107,7 @@ def get_message(
 
 @router.get(
     "/threads/{thread_id}/messages",
-    response_model=List[ValidationInterface.MessageRead],
+    response_model=ValidationInterface.MessagesList,
 )
 def list_messages(
     thread_id: str,
@@ -125,7 +125,7 @@ def list_messages(
     except HTTPException:
         raise
     except Exception as e:
-        logging_utility.error(f"Error listing messages: {e}", exc_info=True)
+        logging_utility.error("Error listing messages: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred.",
@@ -190,6 +190,29 @@ async def save_assistant_message(
         raise
     except Exception as e:
         logging_utility.error(f"Error saving assistant message: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred.",
+        )
+
+
+@router.delete(
+    "/messages/{message_id}",
+    response_model=ValidationInterface.MessageDeleted,
+)
+def delete_message(
+    message_id: str,
+    db: Session = Depends(get_db),
+    auth_key: ApiKeyModel = Depends(get_api_key),
+):
+    logging_utility.info(f"[{auth_key.user_id}] Deleting message {message_id}")
+    svc = MessageService(db)
+    try:
+        return svc.delete_message(message_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging_utility.error("Error deleting message: %s", e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred.",

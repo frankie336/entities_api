@@ -47,7 +47,9 @@ def get_thread(
     return ThreadService(db).get_thread(thread_id)
 
 
-@router.delete("/{thread_id}", response_model=bool)
+@router.delete(
+    "/{thread_id}", response_model=ValidationInterface.ThreadDeleted
+)  # ← change
 def delete_thread(
     thread_id: str,
     db: Session = Depends(get_db),

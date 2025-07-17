@@ -14,28 +14,38 @@ validator = ValidationInterface()
 
 
 class ThreadService:
+    """CRUD logic for Thread objects."""
 
+    # ──────────────────────────────────────────────────────────
+    # Constructor
+    # ──────────────────────────────────────────────────────────
     def __init__(self, db: Session):
         self.db = db
 
+    # ──────────────────────────────────────────────────────────
+    # Public CRUD
+    # ──────────────────────────────────────────────────────────
     def create_thread(
-        self, thread: validator.ThreadCreate
+        self,
+        thread: validator.ThreadCreate,
     ) -> validator.ThreadReadDetailed:
+        """Create a new thread and attach participants."""
         existing_users = (
             self.db.query(User).filter(User.id.in_(thread.participant_ids)).all()
         )
         if len(existing_users) != len(thread.participant_ids):
             raise HTTPException(status_code=400, detail="Invalid user IDs")
+
         db_thread = Thread(
             id=UtilsInterface.IdentifierService.generate_thread_id(),
             created_at=int(time.time()),
-            meta_data=json.dumps({}),
+            meta_data=json.dumps({}),  # stored as str for now
             object="thread",
             tool_resources=json.dumps({}),
         )
         self.db.add(db_thread)
         for user in existing_users:
-            db_thread.participants.append(user)
+            db_thread.participants.append(user)  # many-to-many
         self.db.commit()
         self.db.refresh(db_thread)
         return self._create_thread_read_detailed(db_thread)
@@ -44,13 +54,15 @@ class ThreadService:
         db_thread = self._get_thread_or_404(thread_id)
         return self._create_thread_read_detailed(db_thread)
 
-    def delete_thread(self, thread_id: str) -> bool:
+    def delete_thread(self, thread_id: str) -> validator.ThreadDeleted:
         db_thread = self._get_thread_or_404(thread_id)
+
+        # cascade delete messages & links
         self.db.query(Message).filter(Message.thread_id == thread_id).delete()
-        db_thread.participants = []
+        db_thread.participants = []  # break M2M
         self.db.delete(db_thread)
         self.db.commit()
-        return True
+        return validator.ThreadDeleted(id=thread_id)
 
     def list_threads_by_user(self, user_id: str) -> List[str]:
         threads = (
@@ -62,7 +74,9 @@ class ThreadService:
         return [thread.id for thread in threads]
 
     def update_thread_metadata(
-        self, thread_id: str, new_metadata: Dict[str, Any]
+        self,
+        thread_id: str,
+        new_metadata: Dict[str, Any],
     ) -> validator.ThreadReadDetailed:
         db_thread = self._get_thread_or_404(thread_id)
         db_thread.meta_data = json.dumps(new_metadata)
@@ -71,33 +85,68 @@ class ThreadService:
         return self._create_thread_read_detailed(db_thread)
 
     def update_thread(
-        self, thread_id: str, thread_update: validator.ThreadUpdate
+        self,
+        thread_id: str,
+        thread_update: validator.ThreadUpdate,
     ) -> validator.ThreadReadDetailed:
         logging_utility.info(f"Attempting to update thread with id: {thread_id}")
         logging_utility.info(f"Update data: {thread_update.dict()}")
+
         db_thread = self._get_thread_or_404(thread_id)
         update_data = thread_update.dict(exclude_unset=True)
-        if "meta_data" in update_data:
-            current_metadata = json.loads(db_thread.meta_data)
+
+        # 1️⃣  Merge meta_data safely
+        if "meta_data" in update_data and update_data["meta_data"] is not None:
+            current_metadata = self._ensure_dict(db_thread.meta_data)
             current_metadata.update(update_data["meta_data"])
-            db_thread.meta_data = json.dumps(current_metadata)
+            db_thread.meta_data = current_metadata  # let ORM serialise
+
+        # 2️⃣  Overwrite tool_resources if provided
+        if (
+            "tool_resources" in update_data
+            and update_data["tool_resources"] is not None
+        ):
+            db_thread.tool_resources = update_data["tool_resources"]
+
+        # 3️⃣  Any scalar fields (e.g., participant_ids future-proof)
         for key, value in update_data.items():
-            if key != "meta_data":
+            if key not in ("meta_data", "tool_resources"):
                 setattr(db_thread, key, value)
+
+        # 4️⃣  Persist
         self.db.commit()
         self.db.refresh(db_thread)
         logging_utility.info(f"Successfully updated thread with id: {thread_id}")
         return self._create_thread_read_detailed(db_thread)
 
+    # ──────────────────────────────────────────────────────────
+    # Internal helpers
+    # ──────────────────────────────────────────────────────────
     def _get_thread_or_404(self, thread_id: str) -> Thread:
         db_thread = self.db.query(Thread).filter(Thread.id == thread_id).first()
         if not db_thread:
             raise HTTPException(status_code=404, detail="Thread not found")
         return db_thread
 
+    @staticmethod
+    def _ensure_dict(value: Any) -> Dict[str, Any]:
+        """Coerce JSON/text column to dict (handles legacy str rows)."""
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            return value
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except (TypeError, ValueError):
+                return {}
+        return {}
+
     def _create_thread_read_detailed(
-        self, db_thread: Thread
+        self,
+        db_thread: Thread,
     ) -> validator.ThreadReadDetailed:
+        """Convert SQLAlchemy Thread → Pydantic ThreadReadDetailed."""
         participants = [
             ValidationInterface.UserBase.from_orm(user)
             for user in db_thread.participants
@@ -105,8 +154,8 @@ class ThreadService:
         return validator.ThreadReadDetailed(
             id=db_thread.id,
             created_at=db_thread.created_at,
-            meta_data=json.loads(db_thread.meta_data),
+            meta_data=self._ensure_dict(db_thread.meta_data),
             object=db_thread.object,
-            tool_resources=json.loads(db_thread.tool_resources),
+            tool_resources=self._ensure_dict(db_thread.tool_resources),
             participants=participants,
         )

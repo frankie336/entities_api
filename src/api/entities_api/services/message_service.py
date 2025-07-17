@@ -118,47 +118,77 @@ class MessageService:
         )
 
     def list_messages(
-        self, thread_id: str, limit: int = 20, order: str = "asc"
-    ) -> List[ValidationInterface.MessageRead]:
+        self,
+        thread_id: str,
+        limit: int = 20,
+        order: str = "asc",
+    ) -> validator.MessagesList:
         """
-        List messages for a thread, ordered by creation time.
+        List messages for a thread, ordered by creation time, wrapped
+        in an OpenAI-style list envelope.
         """
         logging_utility.info(
-            f"Listing messages for thread_id={thread_id}, limit={limit}, order={order}. Source: {__file__}"
+            f"Listing messages for thread_id={thread_id}, limit={limit}, "
+            f"order={order}. Source: {__file__}"
         )
+
+        # ── 1. Ensure thread exists ──────────────────────────────────────
         db_thread = self.db.query(Thread).filter(Thread.id == thread_id).first()
         if not db_thread:
             logging_utility.error(f"Thread not found: {thread_id}. Source: {__file__}")
             raise HTTPException(status_code=404, detail="Thread not found")
+
+        # ── 2. Query & order ─────────────────────────────────────────────
         query = self.db.query(Message).filter(Message.thread_id == thread_id)
-        if order == "asc":
-            query = query.order_by(Message.created_at.asc())
-        else:
-            query = query.order_by(Message.created_at.desc())
-        db_messages = query.limit(limit).all()
-        logging_utility.info(
-            f"Retrieved {len(db_messages)} messages for thread_id={thread_id}. Source: {__file__}"
+        query = (
+            query.order_by(Message.created_at.asc())
+            if order == "asc"
+            else query.order_by(Message.created_at.desc())
         )
-        return [
-            ValidationInterface.MessageRead(
-                id=db_message.id,
-                assistant_id=db_message.assistant_id,
-                attachments=db_message.attachments,
-                completed_at=db_message.completed_at,
-                content=db_message.content,
-                created_at=db_message.created_at,
-                incomplete_at=db_message.incomplete_at,
-                incomplete_details=db_message.incomplete_details,
-                meta_data=json.loads(db_message.meta_data),
-                object=db_message.object,
-                role=db_message.role,
-                run_id=db_message.run_id,
-                status=db_message.status,
-                thread_id=db_message.thread_id,
-                sender_id=db_message.sender_id,
+        db_messages = query.limit(limit).all()
+
+        logging_utility.info(
+            f"Retrieved {len(db_messages)} messages for thread_id={thread_id}. "
+            f"Source: {__file__}"
+        )
+
+        # ── 3. Build MessageRead models ──────────────────────────────────
+        messages: List[validator.MessageRead] = []
+        for db_msg in db_messages:
+            meta_data = db_msg.meta_data
+            if isinstance(meta_data, str):
+                try:
+                    meta_data = json.loads(meta_data)
+                except (TypeError, ValueError):
+                    meta_data = {}
+
+            messages.append(
+                validator.MessageRead(
+                    id=db_msg.id,
+                    assistant_id=db_msg.assistant_id,
+                    attachments=db_msg.attachments,
+                    completed_at=db_msg.completed_at,
+                    content=db_msg.content,
+                    created_at=db_msg.created_at,
+                    incomplete_at=db_msg.incomplete_at,
+                    incomplete_details=db_msg.incomplete_details,
+                    meta_data=meta_data,
+                    object=db_msg.object,
+                    role=db_msg.role,
+                    run_id=db_msg.run_id,
+                    status=db_msg.status,
+                    thread_id=db_msg.thread_id,
+                    sender_id=db_msg.sender_id,
+                )
             )
-            for db_message in db_messages
-        ]
+
+        # ── 4. Wrap in envelope ──────────────────────────────────────────
+        return validator.MessagesList(
+            data=messages,
+            first_id=messages[0].id if messages else None,
+            last_id=messages[-1].id if messages else None,
+            has_more=len(db_messages) >= limit,  # crude pagination hint
+        )
 
     def save_assistant_message_chunk(
         self,
@@ -332,3 +362,14 @@ class MessageService:
             status=db_message.status,
             thread_id=db_message.thread_id,
         )
+
+    def delete_message(self, message_id: str) -> validator.MessageDeleted:
+        """Delete message row and return deletion envelope."""
+        db_msg = self.db.query(Message).filter(Message.id == message_id).first()
+        if not db_msg:
+            raise HTTPException(status_code=404, detail="Message not found")
+
+        self.db.delete(db_msg)
+        self.db.commit()
+
+        return validator.MessageDeleted(id=message_id)
