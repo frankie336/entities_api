@@ -1,0 +1,2 @@
+# syntax: <service-name> python <path-inside-container>
+docker compose -f docker-compose.dev.yml exec docs-dev python /workspace/start.py
