@@ -33,10 +33,12 @@ def create_user(
     logging_utility.info(
         f"User '{auth_key.user_id}' (Key Prefix: {auth_key.prefix}) requesting to create a new user."
     )
+
     logging_utility.debug(f"User creation payload: {user_data.model_dump()}")
     requesting_admin = (
         db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
     )
+
     if not requesting_admin or not requesting_admin.is_admin:
         logging_utility.warning(
             f"Authorization Failed: User {auth_key.user_id} attempted to create user without admin rights."

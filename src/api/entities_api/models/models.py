@@ -10,6 +10,7 @@ from sqlalchemy import JSON, BigInteger, Boolean, Column, DateTime
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy import (ForeignKey, Index, Integer, String, Table, Text,
                         UniqueConstraint)
+from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import declarative_base, joinedload, relationship
 
 logger = LoggingUtility()
@@ -33,6 +34,7 @@ user_assistants = Table(
     Column("user_id", String(64), ForeignKey("users.id"), primary_key=True),
     Column("assistant_id", String(64), ForeignKey("assistants.id"), primary_key=True),
 )
+
 vector_store_assistants = Table(
     "vector_store_assistants",
     Base.metadata,
@@ -41,6 +43,7 @@ vector_store_assistants = Table(
     ),
     Column("assistant_id", String(64), ForeignKey("assistants.id"), primary_key=True),
 )
+
 thread_vector_stores = Table(
     "thread_vector_stores",
     Base.metadata,
@@ -133,12 +136,14 @@ class User(Base):
         nullable=True,
         comment="Whether the email address has been verified",
     )
+
     full_name = Column(String(255), nullable=True, comment="User's full display name")
     given_name = Column(String(128), nullable=True, comment="First name")
     family_name = Column(String(128), nullable=True, comment="Last name")
     picture_url = Column(
         Text, nullable=True, comment="URL to the user's profile picture"
     )
+
     oauth_provider = Column(
         String(50),
         nullable=True,
@@ -220,6 +225,7 @@ class Message(Base):
 
 class Run(Base):
     __tablename__ = "runs"
+
     user_id = Column(
         String(64),
         ForeignKey("users.id", ondelete="CASCADE"),
@@ -227,34 +233,53 @@ class Run(Base):
         index=True,
     )
     user = relationship("User", back_populates="runs")
+
     id = Column(String(64), primary_key=True)
     assistant_id = Column(String(64), nullable=False)
-    cancelled_at = Column(DateTime, nullable=True)
-    completed_at = Column(DateTime, nullable=True)
+
+    # timestamps as epoch seconds (ints)
+    cancelled_at = Column(Integer, nullable=True)   # was DateTime
+    completed_at = Column(Integer, nullable=True)   # was DateTime
     created_at = Column(Integer, default=lambda: int(time.time()))
     expires_at = Column(Integer, nullable=True)
-    failed_at = Column(DateTime, nullable=True)
+    failed_at = Column(Integer, nullable=True)      # was DateTime
+    started_at = Column(Integer, nullable=True)     # was DateTime
+
     incomplete_details = Column(String(256), nullable=True)
     instructions = Column(String(1024), nullable=True)
     last_error = Column(String(256), nullable=True)
     max_completion_tokens = Column(Integer, nullable=True)
     max_prompt_tokens = Column(Integer, nullable=True)
-    meta_data = Column(JSON, nullable=True)
+
+    # dict-like JSON uses MutableDict for in-place change tracking
+    meta_data = Column(MutableDict.as_mutable(JSON), nullable=True, default=dict)
+
     model = Column(String(64), nullable=True)
     object = Column(String(64), nullable=False)
     parallel_tool_calls = Column(Boolean, default=False)
     required_action = Column(String(256), nullable=True)
     response_format = Column(String(64), nullable=True)
-    started_at = Column(DateTime, nullable=True)
+
     status = Column(SAEnum(validation.StatusEnum), nullable=False)
     thread_id = Column(String(64), nullable=False)
     tool_choice = Column(String(64), nullable=True)
+
+    # list-valued JSON stays plain JSON (NOT MutableDict)
     tools = Column(JSON, nullable=True)
-    truncation_strategy = Column(JSON, nullable=True)
+
+    # --- HARD-WIRED CHANGE: store as simple enum-like string, default 'auto'
+    truncation_strategy = Column(
+        String(16),
+        nullable=True,
+        default="auto",
+        server_default="auto",
+    )
+
     usage = Column(JSON, nullable=True)
     temperature = Column(Integer, nullable=True)
     top_p = Column(Integer, nullable=True)
     tool_resources = Column(JSON, nullable=True)
+
     actions = relationship("Action", back_populates="run")
 
 
@@ -306,6 +331,7 @@ class Tool(Base):
 
 class Action(Base):
     __tablename__ = "actions"
+
     id = Column(String(64), primary_key=True, index=True)
     run_id = Column(String(64), ForeignKey("runs.id"), nullable=True)
     tool_id = Column(String(64), ForeignKey("tools.id"), nullable=True)

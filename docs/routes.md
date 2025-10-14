@@ -30,7 +30,7 @@
 | GET      | /messages/{message_id}                                            | get_message                      | Messages           |                                                                |
 | POST     | /monitor                                                          | register_run_monitoring          | Event Monitoring   |                                                                |
 | POST     | /runs                                                             | create_run                       | Runs               |                                                                |
-| GET      | /runs/{run_id}                                                    | get_run                          | Runs               |                                                                |
+| GET      | /runs/{run_id}                                                    | retrieve_run                          | Runs               |                                                                |
 | GET      | /runs/{run_id}/actions/status                                     | get_actions_by_status            | Actions            |                                                                |
 | POST     | /runs/{run_id}/cancel                                             | cancel_run                       | Runs               |                                                                |
 | GET      | /runs/{run_id}/events                                             | stream_run_events                | Runs               | Stream run‑lifecycle events (SSE)                              |
