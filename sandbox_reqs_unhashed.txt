@@ -1,14 +1,15 @@
-# ------------------------------------------------------------------
-# Core build tools
 pip==25.0.1
 setuptools==79.0.1
 wheel==0.45.1
 
-# ------------------------------------------------------------------
-# Transformers / AI integration
+# --- Framework and Server ---
+uvicorn[standard]==0.34.2
+uvloop==0.21.0
+watchfiles==1.0.5
+websockets==15.0.1
 transformers>=4.33.0,<5.0.0
+# ------------------------------------------------------------------ #
+# Internal packages
+projectdavid==1.36.1
+projectdavid_common==0.19.0
 
-# ------------------------------------------------------------------
-# Internal packages (Entities stack)
-projectdavid==1.35.0
-projectdavid_common==0.18.0

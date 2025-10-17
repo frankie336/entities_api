@@ -238,12 +238,12 @@ class Run(Base):
     assistant_id = Column(String(64), nullable=False)
 
     # timestamps as epoch seconds (ints)
-    cancelled_at = Column(Integer, nullable=True)   # was DateTime
-    completed_at = Column(Integer, nullable=True)   # was DateTime
+    cancelled_at = Column(Integer, nullable=True)  # was DateTime
+    completed_at = Column(Integer, nullable=True)  # was DateTime
     created_at = Column(Integer, default=lambda: int(time.time()))
     expires_at = Column(Integer, nullable=True)
-    failed_at = Column(Integer, nullable=True)      # was DateTime
-    started_at = Column(Integer, nullable=True)     # was DateTime
+    failed_at = Column(Integer, nullable=True)  # was DateTime
+    started_at = Column(Integer, nullable=True)  # was DateTime
 
     incomplete_details = Column(String(256), nullable=True)
     instructions = Column(String(1024), nullable=True)

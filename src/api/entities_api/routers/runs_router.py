@@ -10,6 +10,9 @@ from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 from starlette import status
 
+from src.api.entities_api.db.database import \
+    SessionLocal  # Needed for the fixed SSE endpoint
+# The `get_db` dependency is now only needed for the admin check.
 from src.api.entities_api.dependencies import get_api_key, get_db
 from src.api.entities_api.models.models import ApiKey as ApiKeyModel
 from src.api.entities_api.models.models import User as UserModel
@@ -24,12 +27,12 @@ router = APIRouter()
 @router.post("/runs", response_model=ValidationInterface.Run)
 def create_run(
     run: ValidationInterface.RunCreate,
-    db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     user_id = auth_key.user_id
     logging_utility.info("[%s] Creating run for thread %s", user_id, run.thread_id)
-    run_service = RunService(db)
+    # --- FIX APPLIED HERE ---
+    run_service = RunService()
     try:
         new_run = run_service.create_run(run, user_id=user_id)
         logging_utility.info("Run created successfully: %s", new_run.id)
@@ -48,12 +51,11 @@ def create_run(
 @router.get("/runs/{run_id}", response_model=ValidationInterface.RunReadDetailed)
 def retrieve_run(
     run_id: str,
-    db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     logging_utility.info(f"[{auth_key.user_id}] Retrieving run ID: {run_id}")
-    run_service = RunService(db)
-
+    # --- FIX APPLIED HERE ---
+    run_service = RunService()
     try:
         run = run_service.retrieve_run(run_id)
         logging_utility.info(f"Run retrieved successfully: {run_id}")
@@ -66,49 +68,37 @@ def retrieve_run(
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
-# ------------------------
-# Admin only
-# -------------------------
 @router.put("/runs/{run_id}/status", response_model=ValidationInterface.Run)
 def update_run_status(
     run_id: str,
     status_update: ValidationInterface.RunStatusUpdate,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db),  # 'db' is kept here for the admin check only
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     logging_utility.info(
         f"[{auth_key.user_id}] Updating status of run {run_id} → {status_update.status}"
     )
-
+    # This direct DB access for an admin check is an exception and can remain.
     requesting_admin = (
         db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
     )
-
     if not requesting_admin or not requesting_admin.is_admin:
-        logging_utility.warning(
-            f"Authorization Failed: User {auth_key.user_id} attempted to create user without admin rights."
-        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required to create users.",
         )
-    logging_utility.info(
-        f"Admin user {requesting_admin.id} authorized. Proceeding with user creation."
-    )
 
-    run_service = RunService(db)
+    # --- FIX APPLIED HERE ---
+    run_service = RunService()
     try:
         updated_run = run_service.update_run_status(run_id, status_update.status)
         logging_utility.info(f"Run status updated: {run_id}")
         return updated_run
     except ValidationError as e:
-        logging_utility.error(f"Validation error for run {run_id}: {str(e)}")
         raise HTTPException(status_code=422, detail=f"Validation error: {e.errors()}")
     except HTTPException as e:
-        logging_utility.error(f"HTTP error updating run {run_id}: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"Unexpected error updating run {run_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
@@ -116,45 +106,37 @@ def update_run_status(
 def update_run_metadata(
     run_id: str,
     payload: Dict[str, Any] = Body(...),
-    db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     logging_utility.info("[%s] Updating metadata for run %s", auth_key.user_id, run_id)
-
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="Body must be a JSON object")
-
-    # Accept either {"metadata": {...}} or a raw dict
     metadata = (
         payload["metadata"]
         if "metadata" in payload and isinstance(payload["metadata"], dict)
         else payload
     )
-
-    svc = RunService(db)
-    updated = svc.update_run(
-        run_id, metadata, user_id=auth_key.user_id
-    )  # ← returns validator.Run
+    # --- FIX APPLIED HERE ---
+    svc = RunService()
+    updated = svc.update_run(run_id, metadata, user_id=auth_key.user_id)
     return updated
 
 
 @router.post("/runs/{run_id}/cancel", response_model=ValidationInterface.Run)
 def cancel_run(
     run_id: str,
-    db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     logging_utility.info(f"[{auth_key.user_id}] Cancelling run {run_id}")
-    run_service = RunService(db)
+    # --- FIX APPLIED HERE ---
+    run_service = RunService()
     try:
         cancelled_run = run_service.cancel_run(run_id)
         logging_utility.info(f"Run cancelled successfully: {run_id}")
         return cancelled_run
     except HTTPException as e:
-        logging_utility.error(f"HTTP error cancelling run {run_id}: {str(e)}")
         raise e
     except Exception as e:
-        logging_utility.error(f"Unexpected error cancelling run {run_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
@@ -162,21 +144,23 @@ def cancel_run(
     "/runs/{run_id}/events",
     summary="Stream run‑lifecycle events (SSE)",
     response_class=EventSourceResponse,
-    response_model=None,
 )
 async def stream_run_events(
     request: Request,
     run_id: str,
-    db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    run_svc = RunService(db)
-    action_svc = ActionService(db)
+    # --- CRITICAL FIX APPLIED HERE ---
+    # Services are now instantiated once. Their methods handle sessions internally,
+    # so they are safe to reuse without holding a connection.
+    run_svc = RunService()
+    action_svc = ActionService()
 
     async def event_generator():
         while True:
             if await request.is_disconnected():
                 break
+            # Each call to a service method will use its own short-lived session.
             run = run_svc.retrieve_run(run_id)
             if not run:
                 yield {"event": "error", "data": '{"msg":"run not found"}'}
@@ -187,7 +171,7 @@ async def stream_run_events(
                     for act in pending:
                         data = act.dict() if hasattr(act, "dict") else act
                         yield {"event": "action_required", "data": json.dumps(data)}
-                    break
+                    break  # Stop streaming after sending the required action.
             await asyncio.sleep(0.5)
 
     return EventSourceResponse(event_generator())
@@ -198,7 +182,6 @@ def list_runs(
     limit: int = Query(20, ge=1, le=100),
     order: Literal["asc", "desc"] = Query("asc"),
     thread_id: Optional[str] = Query(None),
-    db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     user_id = auth_key.user_id
@@ -209,7 +192,8 @@ def list_runs(
         order,
         thread_id,
     )
-    svc = RunService(db)
+    # --- FIX APPLIED HERE ---
+    svc = RunService()
     try:
         runs, has_more = svc.list_runs(
             user_id=user_id, limit=limit, order=order, thread_id=thread_id
@@ -221,10 +205,7 @@ def list_runs(
             "last_id": runs[-1].id if runs else None,
             "has_more": has_more,
         }
-    except HTTPException:
-        raise
     except Exception as e:
-        logging_utility.error("[%s] Unexpected error listing runs: %s", user_id, str(e))
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
@@ -235,7 +216,6 @@ def list_runs_for_thread(
     thread_id: str,
     limit: int = Query(20, ge=1, le=100),
     order: Literal["asc", "desc"] = Query("asc"),
-    db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     user_id = auth_key.user_id
@@ -246,7 +226,8 @@ def list_runs_for_thread(
         limit,
         order,
     )
-    svc = RunService(db)
+    # --- FIX APPLIED HERE ---
+    svc = RunService()
     try:
         runs, has_more = svc.list_runs(
             user_id=user_id, limit=limit, order=order, thread_id=thread_id
@@ -258,13 +239,5 @@ def list_runs_for_thread(
             "last_id": runs[-1].id if runs else None,
             "has_more": has_more,
         }
-    except HTTPException:
-        raise
     except Exception as e:
-        logging_utility.error(
-            "[%s] Unexpected error listing runs for thread %s: %s",
-            user_id,
-            thread_id,
-            str(e),
-        )
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")

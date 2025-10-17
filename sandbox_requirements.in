@@ -1,44 +1,22 @@
-# ------------------------------------------------------------------
-# Web + ASGI stack (aligned with main API)
-fastapi==0.115.5
-starlette==0.41.2
-pydantic==2.9.2
-pydantic-core==2.23.4        # ✅ internal core matched to Pydantic 2.9.2
-
-# --- Explicit ASGI runtime & extras (manual [standard] expansion) ---
-uvicorn==0.30.6
-httptools==0.6.1
-uvloop==0.21.0 ; sys_platform != "win32"
-watchfiles==1.0.5
-websockets==15.0.1
-colorama==0.4.6 ; sys_platform == "win32"
-
-# --- Environment & I/O helpers ---
-python-dotenv==1.0.1
-PyYAML==6.0.2
-aiofiles
+# --- Utilities ---
 python-multipart
+python-dotenv
+aiofiles
+httpx
+redis
+pydantic
 
-# --- Event streaming & async IO ---
-sse-starlette==2.0.0
-anyio>=4,<5
-h11>=0.14,<0.15
-redis>=5,<6
-httpx>=0.25,<0.28
-
-# ------------------------------------------------------------------
-# Data Science stack
+# --- Data Science Stack ---
 pandas
-numpy
+numpy            # <-- Needed explicitly, backend for pandas, sklearn, matplotlib
 matplotlib
 seaborn
 scikit-learn
 openpyxl
 python-docx
 
-# ------------------------------------------------------------------
-# OPTIONALS (enable as needed)
-# tqdm
-# pyarrow
-# reportlab
-# pillow
+# --- OPTIONALS (if needed later) ---
+# tqdm         # Progress bars
+# pyarrow      # Dataframes serialization
+# reportlab    # Advanced PDF generation
+# pillow       # Image processing if needed

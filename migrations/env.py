@@ -24,10 +24,10 @@ if config.config_file_name is not None:
 # Set the target metadata for 'autogenerate' support
 target_metadata = Base.metadata
 
-#------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------
 # Uncomment DB_URL="mysql+pymysql... and comment DB_URL = os.getenv("DATABASE_URL")
 # when deploying model upgrades
-#------------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------
 DB_URL = os.getenv("DATABASE_URL")
 # DB_URL="mysql+pymysql://api_user:ee7d06c5bb265caed9b9d942d210d84d91be511138e498b5682e3a1f463c5539@localhost:3307/entities_db"
 

@@ -7,6 +7,9 @@ from projectdavid_common import UtilsInterface, ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.orm import Session
 
+# Import the SessionLocal factory from your central database file.
+# NOTE: Ensure this import path is correct for your project structure.
+from src.api.entities_api.db.database import SessionLocal
 from src.api.entities_api.models.models import Message, Thread, User
 
 logging_utility = LoggingUtility()
@@ -19,8 +22,9 @@ class ThreadService:
     # ──────────────────────────────────────────────────────────
     # Constructor
     # ──────────────────────────────────────────────────────────
-    def __init__(self, db: Session):
-        self.db = db
+    # The constructor no longer accepts or stores a database session.
+    def __init__(self):
+        pass
 
     # ──────────────────────────────────────────────────────────
     # Public CRUD
@@ -30,59 +34,64 @@ class ThreadService:
         thread: validator.ThreadCreate,
     ) -> validator.ThreadReadDetailed:
         """Create a new thread and attach participants."""
-        existing_users = (
-            self.db.query(User).filter(User.id.in_(thread.participant_ids)).all()
-        )
-        if len(existing_users) != len(thread.participant_ids):
-            raise HTTPException(status_code=400, detail="Invalid user IDs")
+        # Each method now creates and manages its own session.
+        with SessionLocal() as db:
+            existing_users = (
+                db.query(User).filter(User.id.in_(thread.participant_ids)).all()
+            )
+            if len(existing_users) != len(thread.participant_ids):
+                raise HTTPException(status_code=400, detail="Invalid user IDs")
 
-        db_thread = Thread(
-            id=UtilsInterface.IdentifierService.generate_thread_id(),
-            created_at=int(time.time()),
-            meta_data=json.dumps({}),  # stored as str for now
-            object="thread",
-            tool_resources=json.dumps({}),
-        )
-        self.db.add(db_thread)
-        for user in existing_users:
-            db_thread.participants.append(user)  # many-to-many
-        self.db.commit()
-        self.db.refresh(db_thread)
-        return self._create_thread_read_detailed(db_thread)
+            db_thread = Thread(
+                id=UtilsInterface.IdentifierService.generate_thread_id(),
+                created_at=int(time.time()),
+                meta_data=json.dumps({}),
+                object="thread",
+                tool_resources=json.dumps({}),
+            )
+            db.add(db_thread)
+            for user in existing_users:
+                db_thread.participants.append(user)
+            db.commit()
+            db.refresh(db_thread)
+            return self._create_thread_read_detailed(db_thread)
 
     def get_thread(self, thread_id: str) -> validator.ThreadReadDetailed:
-        db_thread = self._get_thread_or_404(thread_id)
-        return self._create_thread_read_detailed(db_thread)
+        with SessionLocal() as db:
+            db_thread = self._get_thread_or_404(thread_id, db)
+            return self._create_thread_read_detailed(db_thread)
 
     def delete_thread(self, thread_id: str) -> validator.ThreadDeleted:
-        db_thread = self._get_thread_or_404(thread_id)
+        with SessionLocal() as db:
+            db_thread = self._get_thread_or_404(thread_id, db)
 
-        # cascade delete messages & links
-        self.db.query(Message).filter(Message.thread_id == thread_id).delete()
-        db_thread.participants = []  # break M2M
-        self.db.delete(db_thread)
-        self.db.commit()
-        return validator.ThreadDeleted(id=thread_id)
+            db.query(Message).filter(Message.thread_id == thread_id).delete()
+            db_thread.participants = []
+            db.delete(db_thread)
+            db.commit()
+            return validator.ThreadDeleted(id=thread_id)
 
     def list_threads_by_user(self, user_id: str) -> List[str]:
-        threads = (
-            self.db.query(Thread)
-            .join(Thread.participants)
-            .filter(User.id == user_id)
-            .all()
-        )
-        return [thread.id for thread in threads]
+        with SessionLocal() as db:
+            threads = (
+                db.query(Thread)
+                .join(Thread.participants)
+                .filter(User.id == user_id)
+                .all()
+            )
+            return [thread.id for thread in threads]
 
     def update_thread_metadata(
         self,
         thread_id: str,
         new_metadata: Dict[str, Any],
     ) -> validator.ThreadReadDetailed:
-        db_thread = self._get_thread_or_404(thread_id)
-        db_thread.meta_data = json.dumps(new_metadata)
-        self.db.commit()
-        self.db.refresh(db_thread)
-        return self._create_thread_read_detailed(db_thread)
+        with SessionLocal() as db:
+            db_thread = self._get_thread_or_404(thread_id, db)
+            db_thread.meta_data = json.dumps(new_metadata)
+            db.commit()
+            db.refresh(db_thread)
+            return self._create_thread_read_detailed(db_thread)
 
     def update_thread(
         self,
@@ -92,38 +101,36 @@ class ThreadService:
         logging_utility.info(f"Attempting to update thread with id: {thread_id}")
         logging_utility.info(f"Update data: {thread_update.dict()}")
 
-        db_thread = self._get_thread_or_404(thread_id)
-        update_data = thread_update.dict(exclude_unset=True)
+        with SessionLocal() as db:
+            db_thread = self._get_thread_or_404(thread_id, db)
+            update_data = thread_update.dict(exclude_unset=True)
 
-        # 1️⃣  Merge meta_data safely
-        if "meta_data" in update_data and update_data["meta_data"] is not None:
-            current_metadata = self._ensure_dict(db_thread.meta_data)
-            current_metadata.update(update_data["meta_data"])
-            db_thread.meta_data = current_metadata  # let ORM serialise
+            if "meta_data" in update_data and update_data["meta_data"] is not None:
+                current_metadata = self._ensure_dict(db_thread.meta_data)
+                current_metadata.update(update_data["meta_data"])
+                db_thread.meta_data = current_metadata
 
-        # 2️⃣  Overwrite tool_resources if provided
-        if (
-            "tool_resources" in update_data
-            and update_data["tool_resources"] is not None
-        ):
-            db_thread.tool_resources = update_data["tool_resources"]
+            if (
+                "tool_resources" in update_data
+                and update_data["tool_resources"] is not None
+            ):
+                db_thread.tool_resources = update_data["tool_resources"]
 
-        # 3️⃣  Any scalar fields (e.g., participant_ids future-proof)
-        for key, value in update_data.items():
-            if key not in ("meta_data", "tool_resources"):
-                setattr(db_thread, key, value)
+            for key, value in update_data.items():
+                if key not in ("meta_data", "tool_resources"):
+                    setattr(db_thread, key, value)
 
-        # 4️⃣  Persist
-        self.db.commit()
-        self.db.refresh(db_thread)
-        logging_utility.info(f"Successfully updated thread with id: {thread_id}")
-        return self._create_thread_read_detailed(db_thread)
+            db.commit()
+            db.refresh(db_thread)
+            logging_utility.info(f"Successfully updated thread with id: {thread_id}")
+            return self._create_thread_read_detailed(db_thread)
 
     # ──────────────────────────────────────────────────────────
     # Internal helpers
     # ──────────────────────────────────────────────────────────
-    def _get_thread_or_404(self, thread_id: str) -> Thread:
-        db_thread = self.db.query(Thread).filter(Thread.id == thread_id).first()
+    # Helper methods that need a session must now accept it as a parameter.
+    def _get_thread_or_404(self, thread_id: str, db: Session) -> Thread:
+        db_thread = db.query(Thread).filter(Thread.id == thread_id).first()
         if not db_thread:
             raise HTTPException(status_code=404, detail="Thread not found")
         return db_thread
@@ -147,6 +154,9 @@ class ThreadService:
         db_thread: Thread,
     ) -> validator.ThreadReadDetailed:
         """Convert SQLAlchemy Thread → Pydantic ThreadReadDetailed."""
+        # This method uses lazy loading which depends on the session from the
+        # calling context. This is safe as it's only called from methods
+        # that already have an active `with SessionLocal() as db:` block.
         participants = [
             ValidationInterface.UserBase.from_orm(user)
             for user in db_thread.participants

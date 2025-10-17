@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from projectdavid_common import ValidationInterface
 from sqlalchemy.orm import Session
 
+# NOTE: get_db is no longer needed in the endpoint signatures.
 from src.api.entities_api.dependencies import get_api_key, get_db
 from src.api.entities_api.models.models import ApiKey as ApiKeyModel
 from src.api.entities_api.services.assistants_service import AssistantService
@@ -16,23 +17,18 @@ logging_utility = LoggingUtility()
 @router.post("/assistants", response_model=ValidationInterface.AssistantRead)
 def create_assistant(
     assistant: ValidationInterface.AssistantCreate,
-    db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     """
     Create a new assistant.
-
-    Accepted payload fields:
-    * `tools`           – legacy config list
-    * `ptool_handlers`  – inline tool specs
-    * `tool_resources`  – per-tool resource map (NEW)
     """
     logging_utility.info(
         "User '%s' – creating assistant id=%s",
         auth_key.user_id,
         assistant.id or "auto-generated",
     )
-    service = AssistantService(db)
+    # --- FIX APPLIED HERE ---
+    service = AssistantService()
     try:
         return service.create_assistant(assistant)
     except HTTPException:
@@ -50,13 +46,13 @@ def create_assistant(
 )
 def get_assistant(
     assistant_id: str,
-    db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     logging_utility.info(
         "User '%s' – get assistant id=%s", auth_key.user_id, assistant_id
     )
-    service = AssistantService(db)
+    # --- FIX APPLIED HERE ---
+    service = AssistantService()
     try:
         return service.retrieve_assistant(assistant_id)
     except HTTPException:
@@ -74,7 +70,6 @@ def get_assistant(
 def update_assistant(
     assistant_id: str,
     assistant_update: ValidationInterface.AssistantUpdate,
-    db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     """
@@ -83,7 +78,8 @@ def update_assistant(
     logging_utility.info(
         "User '%s' – update assistant id=%s", auth_key.user_id, assistant_id
     )
-    service = AssistantService(db)
+    # --- FIX APPLIED HERE ---
+    service = AssistantService()
     try:
         return service.update_assistant(assistant_id, assistant_update)
     except HTTPException:
@@ -96,13 +92,12 @@ def update_assistant(
 
 
 @router.get("/assistants", response_model=list[ValidationInterface.AssistantRead])
-def list_assistants(
-    db: Session = Depends(get_db), auth_key: ApiKeyModel = Depends(get_api_key)
-):
+def list_assistants(auth_key: ApiKeyModel = Depends(get_api_key)):
     """List assistants for the caller (derived from API-key)."""
     user_id = auth_key.user_id
     logging_utility.info("User %s – list assistants", user_id)
-    service = AssistantService(db)
+    # --- FIX APPLIED HERE ---
+    service = AssistantService()
     return service.list_assistants_by_user(user_id)
 
 
@@ -110,7 +105,6 @@ def list_assistants(
 def associate_assistant_with_user(
     user_id: str,
     assistant_id: str,
-    db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     logging_utility.info(
@@ -119,7 +113,8 @@ def associate_assistant_with_user(
         assistant_id,
         user_id,
     )
-    service = AssistantService(db)
+    # --- FIX APPLIED HERE ---
+    service = AssistantService()
     try:
         service.associate_assistant_with_user(user_id, assistant_id)
         return {"message": "Assistant associated with user successfully"}
@@ -136,7 +131,6 @@ def associate_assistant_with_user(
 def disassociate_assistant_from_user(
     user_id: str,
     assistant_id: str,
-    db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     logging_utility.info(
@@ -145,7 +139,8 @@ def disassociate_assistant_from_user(
         assistant_id,
         user_id,
     )
-    service = AssistantService(db)
+    # --- FIX APPLIED HERE ---
+    service = AssistantService()
     try:
         service.disassociate_assistant_from_user(user_id, assistant_id)
     except HTTPException:

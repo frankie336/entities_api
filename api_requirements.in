@@ -3,43 +3,24 @@
 --extra-index-url https://download.pytorch.org/whl/cu121
 #
 
-# ------------------------------------------------------------------
-# Core ASGI + Pydantic stack (Unified Source of Truth)
-fastapi==0.115.5
-starlette==0.41.2
-pydantic==2.9.2
-pydantic-core==2.23.4          # ✅ internal core matched to Pydantic 2.9.2
-
-# --- Explicit ASGI runtime & extras (manual [standard] expansion) ---
-uvicorn==0.30.6
-httptools==0.6.1
-uvloop==0.21.0 ; sys_platform != "win32"
-watchfiles==1.0.5
-websockets==15.0.1
-colorama==0.4.6 ; sys_platform == "win32"
-python-dotenv==1.0.1
-PyYAML==6.0.2
-
-# --- Event streaming & async IO ---
-sse-starlette==2.0.0
-anyio>=4,<5
-h11>=0.14,<0.15
-redis>=5,<6
-httpx>=0.25,<0.28
-python-multipart
 
 # ------------------------------------------------------------------
 # Core libraries
+PyYAML
 alembic
 annotated-types
+anyio
 asyncio
 certifi
 cffi
 click
 cryptography
 exceptiongroup
+fastapi
 greenlet
+h11
 httpcore
+httpx
 idna
 iniconfig
 jinja2
@@ -53,15 +34,21 @@ pluggy
 pycparser
 PyMySQL
 pytest>=7.0.0
+python-dotenv
+python-multipart
 requests
 sniffio
-SQLAlchemy>=2.0,<2.1
+SQLAlchemy
+sse_starlette
+starlette
 sympy
 tenacity
 together
 typing
 typing_extensions
 validators~=0.34.0
+websockets
+redis
 
 # ------------------------------------------------------------------
 # Platform-specific tools
@@ -80,5 +67,6 @@ pysmb
 
 # ------------------------------------------------------------------
 # Security
-passlib[bcrypt]
-lear
+bcrypt==4.0.1
+passlib==1.7.4
+

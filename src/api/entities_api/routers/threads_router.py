@@ -31,7 +31,7 @@ def create_thread(
         participant_ids=participant_ids, meta_data=thread.meta_data
     )
     try:
-        return ThreadService(db).create_thread(thread_in)
+        return ThreadService().create_thread(thread_in)
     except Exception as e:
         logging_utility.error(f"Error creating thread: {e}")
         raise HTTPException(status_code=500, detail="Failed to create thread")
@@ -44,7 +44,7 @@ def get_thread(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     logging_utility.info(f"[{auth_key.user_id}] Fetching thread: {thread_id}")
-    return ThreadService(db).get_thread(thread_id)
+    return ThreadService().get_thread(thread_id)
 
 
 @router.delete(
@@ -56,7 +56,7 @@ def delete_thread(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     logging_utility.info(f"[{auth_key.user_id}] Deleting thread: {thread_id}")
-    return ThreadService(db).delete_thread(thread_id)
+    return ThreadService().delete_thread(thread_id)
 
 
 @router.get("/user/{user_id}", response_model=list[str])
@@ -66,7 +66,7 @@ def list_user_threads(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     logging_utility.info(f"[{auth_key.user_id}] Listing threads for user {user_id}")
-    return ThreadService(db).list_threads_by_user(user_id)
+    return ThreadService().list_threads_by_user(user_id)
 
 
 @router.put(
@@ -81,7 +81,7 @@ def update_thread_metadata(
     logging_utility.info(
         f"[{auth_key.user_id}] Updating metadata for thread {thread_id}"
     )
-    return ThreadService(db).update_thread_metadata(thread_id, metadata)
+    return ThreadService().update_thread_metadata(thread_id, metadata)
 
 
 @router.put("/{thread_id}", response_model=ValidationInterface.ThreadReadDetailed)
@@ -92,4 +92,4 @@ def update_thread(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     logging_utility.info(f"[{auth_key.user_id}] Updating thread {thread_id}")
-    return ThreadService(db).update_thread(thread_id, thread_update)
+    return ThreadService().update_thread(thread_id, thread_update)
