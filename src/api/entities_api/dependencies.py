@@ -8,24 +8,20 @@ from fastapi.security import APIKeyHeader
 from redis.asyncio import Redis
 from sqlalchemy.orm import Session
 
-from src.api.entities_api.db.database import SessionLocal
+# Import the single, authoritative 'get_db' function from your central database file.
+# This ensures all dependencies use the same database session configuration.
+from src.api.entities_api.db.database import get_db
+
 from src.api.entities_api.models.models import ApiKey, User
 from src.api.entities_api.services.cached_assistant import AssistantCache
-
-
-def get_db() -> Session:
-    """Yield a transactional DB session, closed at the end of the request."""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
 
 
 API_KEY_NAME = "X-API-Key"
 _api_key_scheme = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
 
+# This dependency now correctly uses the imported get_db, which provides
+# sessions from the properly configured engine.
 async def get_api_key(
     api_key_header: Optional[str] = Security(_api_key_scheme),
     db: Session = Depends(get_db),
@@ -36,6 +32,7 @@ async def get_api_key(
             detail="Missing API Key in 'X-API-Key' header.",
             headers={"WWW-Authenticate": "APIKey"},
         )
+
     prefix = api_key_header[:8]
     if len(api_key_header) <= len(prefix):
         raise HTTPException(
@@ -43,17 +40,20 @@ async def get_api_key(
             detail="Invalid API Key format.",
             headers={"WWW-Authenticate": "APIKey"},
         )
+
     key = (
         db.query(ApiKey)
         .filter(ApiKey.prefix == prefix, ApiKey.is_active.is_(True))
         .first()
     )
+
     if not key or not key.verify_key(api_key_header):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or inactive API Key.",
             headers={"WWW-Authenticate": "APIKey"},
         )
+
     if key.expires_at and key.expires_at < datetime.utcnow():
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
