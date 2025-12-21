@@ -37,14 +37,14 @@ This enables rapid and flexible deployment of advanced features such as conversa
 [function calling](/docs/function_calling.md), [code interpretation](/docs/code_interpretation.md), and more through easy-to-use API endpoints.
 
 
-### 💎 Universal Tool Use.  
+###  Universal Tool Use.  
 Tool calling works the same — across all models, all vendors, and all threads.  
 We’re not shouting about it. It just works.
 
 This enables rapid and flexible deployment of advanced features such as conversation management,  
 [function calling](/docs/function_calling.md), [code interpretation](/docs/code_interpretation.md), and more through easy-to-use API endpoints.
 
-### 🛠️ Tools. 🧠 Function Calls. Same Thing.
+###  Tools
 
 From the model’s point of view: **they’re functions**.  
 From your point of view: **they’re tools**.  
@@ -59,19 +59,19 @@ Entities treats it as **first-class memory.**
 
 We don’t just support RAG — we orchestrate it:
 
-- 💾 **Native Integration**  
+-   **Native Integration**  
   Built-in, not wrapped. Zero abstraction. Fully optimized.
 
-- 📁 **File-to-Vector Pipeline**  
+-   **File-to-Vector Pipeline**  
   Drop in `.pdf`, `.csv`, `.txt`, or `.docx` — chunked, embedded, and stored instantly.
 
-- 🔍 **Real Search, Not Toy Examples**  
+-   **Real Search, Not Toy Examples**  
   Fast, accurate similarity search with rich metadata and filtering support.
 
-- 🔐 **Persistent & Private**  
+-   **Persistent & Private**  
   Your vector store lives on your terms — no hidden quotas or deletions.
 
-- 🏷 **Per-Assistant or Per-User Memory**  
+-   **Per-Assistant or Per-User Memory**  
   Attach stores to assistants or keep them user-scoped — all via API or SDK.
 
 > OpenAI charges `$0.10 / GB / day` + `$2.50 per 1,000 vector tool calls`.  
@@ -81,7 +81,7 @@ We don’t just support RAG — we orchestrate it:
 
 ---
 
-## 🔍 Supported Models
+##   Supported Models
 
 > These are the primary models supported or targeted in Entities.  
 > Availability may depend on provider integration status.
@@ -128,7 +128,7 @@ We don’t just support RAG — we orchestrate it:
 ![Gemini-2.0-Flash](https://img.shields.io/badge/Gemini--2.0--Flash-🟡%20In%20Progress-yellow)
 ![Gemini-2.5-Pro](https://img.shields.io/badge/Gemini--2.5--Pro-🟡%20In%20Progress-yellow)
 
-<!-- ⚠️ Experimental / Beta / Pending -->
+<!--  Experimental / Beta / Pending -->
 ![LearnLM-1.5-Pro](https://img.shields.io/badge/LearnLM--1.5--Pro-⚠️%20Experimental-orange)
 ![GPT-4](https://img.shields.io/badge/GPT--4-⚠️%20Beta-orange)
 ![Claude-3](https://img.shields.io/badge/Claude--3-❌%20Pending-lightgrey)
@@ -195,7 +195,7 @@ We don’t just support RAG — we orchestrate it:
 ---
 
 
-## 📘 Entities  Cookbook
+##  Entities  Cookbook
 
 Looking for real examples and hands-on recipes?
 
@@ -206,9 +206,9 @@ The [Entities  Cookbook](https://github.com/frankie336/entities_cook_book) is a 
 - Streaming and code interpretation patterns
 - Local + remote inference setup walkthroughs
 
-> 🧪 It's where the *how-to* lives — fork it, clone it, and run it today.
+>  It's where the *how-to* lives — fork it, clone it, and run it today.
 
-👉 [Visit the Cookbook](https://github.com/frankie336/entities_cook_book)
+  [Visit the Cookbook](https://github.com/frankie336/entities_cook_book)
 
 
 ---
@@ -227,7 +227,7 @@ The [Entities Docker Orchestration Repository](https://github.com/frankie336/ent
 
 > ⚙️ Built for rapid deployment in both development and production.
 
-👉 [Visit the Orchestration Repo](https://github.com/frankie336/entities)
+  [Visit the Orchestration Repo](https://github.com/frankie336/entities)
 
 ---
 
@@ -248,7 +248,7 @@ The [Entities Docker Orchestration Repository](https://github.com/frankie336/ent
 
 ---
 
-## 💡 Why Entities?
+##   Why Entities?
 
 > Entities is a **developer-native**, **security-conscious**, and **deeply composable AI framework** built for:
 >
@@ -274,7 +274,7 @@ This is **AI orchestration for the rest of us.**
 
 For a full admin setup and assistant provisioning guide, see:
 
-👉 [`docs/bootstrap.md`](https://github.com/frankie336/entities/blob/master/docs/boot_strap_guide.md)
+  [`docs/bootstrap.md`](https://github.com/frankie336/entities/blob/master/docs/boot_strap_guide.md)
 
 This includes:
 - Admin user creation
@@ -286,11 +286,11 @@ These scripts can be run directly in development (e.g., `python scripts/bootstra
 or invoked inside containers using the orchestration tools.
 
 ---
-## 🐳 Docker Lifecycle Commands
+##   Docker Lifecycle Commands
 
 Entities provides a unified orchestration script for building, running, and tearing down your container environment.
 
-👉 [`docs/docker_commands.md`](https://github.com/frankie336/entities/blob/master/docs/docker_commands.md)
+  [`docs/docker_commands.md`](https://github.com/frankie336/entities/blob/master/docs/docker_commands.md)
 
 ---
 
@@ -307,7 +307,7 @@ Entities provides a unified orchestration script for building, running, and tear
 
 ---
 
-## 🔐 Security Model
+##   Security Model
 
 Entities places security at the forefront, employing:
 
@@ -316,7 +316,7 @@ Entities places security at the forefront, employing:
 
 ---
 
-## 🧠 State Management
+##   State Management
 
 Entities simplifies dialogue management with the [Threads](/docs/threads.md) endpoint.
 
@@ -336,7 +336,7 @@ Entities simplifies dialogue management with the [Threads](/docs/threads.md) end
 
 ---
 
-## 📚 Documentation Index
+##   Documentation Index
 
 ### Core Concepts
 
@@ -365,7 +365,7 @@ Entities simplifies dialogue management with the [Threads](/docs/threads.md) end
 
 ---
 
-## 🧪 Local Dev
+##   Local Dev
 
 To run setup scripts directly during local development:
 
@@ -387,7 +387,7 @@ pip install projectdavid
 ```
 
 Then follow usage docs at:  
-👉 [`https://github.com/frankie336/projectdavid`](https://github.com/frankie336/projectdavid)
+  [`https://github.com/frankie336/projectdavid`](https://github.com/frankie336/projectdavid)
 
 ---
 
@@ -398,7 +398,7 @@ Then follow usage docs at:
 
 ---
 
-## 📜 License
+##   License
 
 Distributed under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/).  
 Commercial licensing available upon request.
