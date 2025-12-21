@@ -38,7 +38,7 @@ This enables rapid and flexible deployment of advanced features such as conversa
 
 
 ###  Universal Tool Use.  
-Tool calling works the same — across all models, all vendors, and all threads.  
+Tool calling works the same across all models, all vendors, and all threads.  
 We’re not shouting about it. It just works.
 
 This enables rapid and flexible deployment of advanced features such as conversation management,  
@@ -48,7 +48,7 @@ This enables rapid and flexible deployment of advanced features such as conversa
 
 From the model’s point of view: **they’re functions**.  
 From your point of view: **they’re tools**.  
-Entities bridges both — automatically.
+Entities bridges both  automatically.
 
 ---
 
@@ -137,7 +137,7 @@ We don’t just support RAG — we orchestrate it:
 
 ---
 
-## 🔌 Inference Providers
+##  Inference Providers
 
 > The following vendors are integrated or under development for use within the Entities API platform.  
 > Providers may serve multiple models; model support varies by integration phase.
@@ -168,10 +168,10 @@ We don’t just support RAG — we orchestrate it:
 
 ---
 
-# 🗂 Table of Contents
+# Table of Contents
 
 <details>
-<summary><strong>🗂 Table of Contents</strong></summary>
+<summary><strong> Table of Contents</strong></summary>
 
 - [Supported Models](#-supported-models)
 - [Supported Inference Providers](#-supported-inference-providers)
@@ -213,7 +213,7 @@ The [Entities  Cookbook](https://github.com/frankie336/entities_cook_book) is a 
 
 ---
 
-## 🐳 Entities Docker Orchestration
+##  Entities Docker Orchestration
 
 Looking to run the full system in a containerized environment?
 
@@ -225,14 +225,14 @@ The [Entities Docker Orchestration Repository](https://github.com/frankie336/ent
 - Smart CLI tooling (`start.py`) for lifecycle commands
 - Optional GPU-ready Ollama container for local LLMs
 
-> ⚙️ Built for rapid deployment in both development and production.
+>  Built for rapid deployment in both development and production.️
 
   [Visit the Orchestration Repo](https://github.com/frankie336/entities)
 
 ---
 
 
-## 🔍 Entities vs. LangChain (and Friends)
+## Entities vs. LangChain (and Friends)
 
 | Feature                          | **Entities**                                    | LangChain / Others                     |
 |----------------------------------|-------------------------------------------------|----------------------------------------|
@@ -270,7 +270,7 @@ This is **AI orchestration for the rest of us.**
 
 ---
 
-## ⚙️ Bootstrap Setup
+##  Bootstrap Setup
 
 For a full admin setup and assistant provisioning guide, see:
 
