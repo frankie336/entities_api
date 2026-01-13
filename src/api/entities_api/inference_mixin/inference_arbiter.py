@@ -47,7 +47,7 @@ class InferenceArbiter:
             raise TypeError(
                 f"InferenceArbiter expected a redis.Redis or redis.asyncio.Redis instance, got {type(redis)}"
             )
-        base_url = os.getenv("ASSISTANTS_BASE_URL")
+        base_url = os.getenv("BASE_URL")
         admin_api_key = os.getenv("ADMIN_API_KEY")
         if not base_url or not admin_api_key:
             logging_utility.warning(
