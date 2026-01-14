@@ -3,12 +3,15 @@ from typing import Any, Generator, Optional, Type
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from src.api.entities_api.inference.inference_arbiter import InferenceArbiter
-from src.api.entities_api.inference_mixin.providers.hypherbolic.hyperbolic_deepseek import \
-    HyperbolicDs1
-from src.api.entities_api.inference_mixin.providers.hypherbolic.hyperbolic_llama_3_3 import \
-    HyperbolicLlama33
-from src.api.entities_api.inference_mixin.providers.hypherbolic.hyperbolic_quen_qwq_32b import \
-    HyperbolicQuenQwq32B
+from src.api.entities_api.inference_mixin.providers.hypherbolic.hyperbolic_deepseek import (
+    HyperbolicDs1,
+)
+from src.api.entities_api.inference_mixin.providers.hypherbolic.hyperbolic_llama_3_3 import (
+    HyperbolicLlama33,
+)
+from src.api.entities_api.inference_mixin.providers.hypherbolic.hyperbolic_quen_qwq_32b import (
+    HyperbolicQuenQwq32B,
+)
 
 logging_utility = LoggingUtility()
 

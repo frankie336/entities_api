@@ -11,10 +11,8 @@ from sqlalchemy.orm import Session
 # Import the single, authoritative 'get_db' function from your central database file.
 # This ensures all dependencies use the same database session configuration.
 from src.api.entities_api.db.database import get_db
-
 from src.api.entities_api.models.models import ApiKey, User
 from src.api.entities_api.services.cached_assistant import AssistantCache
-
 
 API_KEY_NAME = "X-API-Key"
 _api_key_scheme = APIKeyHeader(name=API_KEY_NAME, auto_error=False)

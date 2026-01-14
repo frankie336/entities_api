@@ -16,8 +16,10 @@ from typing import Callable, Generator, Optional
 
 import redis as redis_py
 
-from src.api.entities_api.constants.assistant import (CODE_INTERPRETER_MESSAGE,
-                                                      DEFAULT_REMINDER_MESSAGE)
+from src.api.entities_api.constants.assistant import (
+    CODE_INTERPRETER_MESSAGE,
+    DEFAULT_REMINDER_MESSAGE,
+)
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 LOG = LoggingUtility()

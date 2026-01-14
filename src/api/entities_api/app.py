@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from projectdavid_common import UtilsInterface
 from sqlalchemy import text
 
 # --- FIX APPLIED HERE ---
@@ -6,7 +7,6 @@ from sqlalchemy import text
 from src.api.entities_api.db.database import engine, wait_for_databases
 from src.api.entities_api.models.models import Base
 from src.api.entities_api.routers import api_router
-from projectdavid_common import UtilsInterface
 
 logging_utility = UtilsInterface.LoggingUtility()
 
@@ -17,6 +17,7 @@ logging_utility = UtilsInterface.LoggingUtility()
 # 1. Wait for the database(s) to be ready before proceeding.
 # This function now lives in and is imported from database.py
 wait_for_databases()
+
 
 # 2. Define the app creation factory
 def create_app(init_db: bool = True) -> FastAPI:
@@ -49,6 +50,7 @@ def create_app(init_db: bool = True) -> FastAPI:
             pass
 
     return app
+
 
 # 3. Create the final app instance
 app = create_app()

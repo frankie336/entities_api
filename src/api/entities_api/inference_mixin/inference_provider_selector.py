@@ -1,23 +1,27 @@
 import threading
 from typing import Any, Type
 
+import inference_arbiter
 from projectdavid_common.constants.ai_model_map import MODEL_MAP
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from src.api.entities_api.inference_mixin.inference_arbiter import InferenceArbiter
-import inference_arbiter
+
 # TODO: Migrate providers to Mixin architecture
 # from src.api.entities_api.inference.azure.azure_handler import AzureHandler
 # from src.api.entities_api.inference.groq.groq_handler import GroqHandler
 # from src.api.entities_api.inference.local.local_handler import LocalHandler
 # from src.api.entities_api.inference_mixin.providers.deepseek.deep_seek_handler import \
 #    DeepseekHandler
-from src.api.entities_api.inference_mixin.providers.google.google_handler import \
-    GoogleHandler
-from src.api.entities_api.inference_mixin.providers.hypherbolic.hyperbolic_handler import \
-    HyperbolicHandler
-from src.api.entities_api.inference_mixin.providers.togeterai.togetherai_handler import \
-    TogetherAIHandler
+from src.api.entities_api.inference_mixin.providers.google.google_handler import (
+    GoogleHandler,
+)
+from src.api.entities_api.inference_mixin.providers.hypherbolic.hyperbolic_handler import (
+    HyperbolicHandler,
+)
+from src.api.entities_api.inference_mixin.providers.togeterai.togetherai_handler import (
+    TogetherAIHandler,
+)
 
 LOG = LoggingUtility()
 TOP_LEVEL_ROUTING_MAP: dict[str, Type[Any]] = {
