@@ -49,7 +49,7 @@ class ToolRoutingMixin:
         Robustly locate a <fc>{...}</fc> JSON block *anywhere* in either
         accumulated_content or assistant_reply, even if split across chunks.
         """
-        from src.api.entities_api.inference_mixin.mixins.json_utils_mixin import (
+        from src.api.entities_api.orchestration.mixins.json_utils_mixin import (
             JsonUtilsMixin,
         )
 

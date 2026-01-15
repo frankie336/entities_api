@@ -35,7 +35,7 @@ class PlatformToolHandlersMixin:
         Thin wrapper around ConsumerToolHandlersMixin.submit_tool_output
         (kept separate to avoid circular import).
         """
-        from src.api.entities_api.inference_mixin.mixins.consumer_tool_handlers_mixin import (
+        from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import (
             ConsumerToolHandlersMixin,
         )
 

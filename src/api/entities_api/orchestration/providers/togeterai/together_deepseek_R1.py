@@ -22,7 +22,7 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.inference_mixin.mixins import (
+from src.api.entities_api.orchestration.mixins import (
     AssistantCacheMixin,
     CodeExecutionMixin,
     ConsumerToolHandlersMixin,
@@ -33,7 +33,7 @@ from src.api.entities_api.inference_mixin.mixins import (
     ShellExecutionMixin,
     ToolRoutingMixin,
 )
-from src.api.entities_api.inference_mixin.orchestrator_core import OrchestratorCore
+from entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
 
 load_dotenv()
 LOG = LoggingUtility()

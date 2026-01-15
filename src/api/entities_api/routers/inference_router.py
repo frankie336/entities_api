@@ -1,3 +1,4 @@
+# src/api/entities_api/routers/inference_router.py
 import asyncio
 import json
 import time
@@ -10,8 +11,8 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from redis import Redis
 
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.inference_mixin.inference_arbiter import InferenceArbiter
-from src.api.entities_api.inference_mixin.inference_provider_selector import (
+from entities_api.orchestration.engine.inference_arbiter import InferenceArbiter
+from entities_api.orchestration.engine.inference_provider_selector import (
     InferenceProviderSelector,
 )
 
