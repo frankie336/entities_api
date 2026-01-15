@@ -22,7 +22,7 @@ from src.api.entities_api.orchestration.mixins import (
     ToolRoutingMixin,
 )
 from entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
-from src.api.entities_api.orchestration.providers.hypherbolic.hyperbolic_async_client import (
+from src.api.entities_api.orchestration.providers.hyperbolic.async_client import (
     AsyncHyperbolicClient,
 )
 from src.api.entities_api.utils.async_to_sync import async_to_sync_stream

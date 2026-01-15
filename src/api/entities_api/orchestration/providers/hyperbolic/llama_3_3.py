@@ -1,6 +1,7 @@
+# src/api/entities_api/orchestration/providers/hyperbolic/llama_3_3.py
 from __future__ import annotations
 
-"\nHyperbolic Ds1 – DeepSeek provider (raw-stream variant)\n───────────────────────────────────────────────────────\n• Streams deltas straight from the provider with **no** pre-cleaning:\n    – we do **not** normalise <fc>/<think> tags or strip “[content]”.\n    – no special buffering for <fc> … </fc> or <think> … </think>.\n• Hot-code (<code-interpreter>) detection, Redis fan-out, status\n  signalling, and function-call suppression remain unchanged.\n"
+'\nHyperbolic-Llama-3-33B provider\n———————————————\n• Re-uses the C3-safe mix-in bundle.\n• Keeps the **same streaming semantics** you had:\n    – live SSE JSON (“type”: "content", "hot_code", …)\n    – inline buffering of code-interpreter blocks\n    – Redis fan-out identical to Ds1\n• No <think>/<fc> tagging in Llama-3 responses, but we still honour it\n  in case your prompt template inserts them.\n'
 import json
 import os
 from typing import Any, Generator, Optional
@@ -11,11 +12,17 @@ from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.dependencies import get_redis
 from src.api.entities_api.orchestration.mixins import (
-    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
-    ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
-    PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+    AssistantCacheMixin,
+    CodeExecutionMixin,
+    ConsumerToolHandlersMixin,
+    ConversationContextMixin,
+    FileSearchMixin,
+    JsonUtilsMixin,
+    PlatformToolHandlersMixin,
+    ShellExecutionMixin,
+    ToolRoutingMixin,
+)
+from entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -35,9 +42,9 @@ class _ProviderMixins(
     """Flat bundle → single inheritance in the concrete class."""
 
 
-class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
+class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
     """
-    DeepSeek-V3 served by Hyperbolic – streaming & tool orchestration.
+    Meta-Llama-3-33B served by Hyperbolic – streaming & tool orchestration.
     """
 
     def __init__(
@@ -57,11 +64,13 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
         self.thread_id = thread_id
         self.base_url = base_url or os.getenv("BASE_URL")
         self.api_key = api_key
-        self.model_name = extra.get("model_name", "deepseek-ai/DeepSeek-V3")
+        self.model_name = extra.get(
+            "model_name", "meta-llama/Meta-Llama-3-33B-Instruct"
+        )
         self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
         self.setup_services()
-        LOG.debug("Hyperbolic-Ds1 provider ready (assistant=%s)", assistant_id)
+        LOG.debug("Hyperbolic-Llama-3 provider ready (assistant=%s)", assistant_id)
 
     @property
     def assistant_cache(self) -> dict:
@@ -76,10 +85,19 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
     def get_assistant_cache(self) -> dict:
         return self._assistant_cache
 
+    @staticmethod
+    def _filter_fc(chunk_json: str) -> Optional[str]:
+        try:
+            if json.loads(chunk_json).get("type") == "function_call":
+                return None
+        except Exception:
+            pass
+        return chunk_json
+
     def stream(
         self,
         thread_id: str,
-        message_id: Optional[str],
+        message_id: str,
         run_id: str,
         assistant_id: str,
         model: Any,
@@ -87,22 +105,12 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
         stream_reasoning: bool = True,
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
-        """
-        Core streaming routine. `message_id` is accepted only for parity with the
-        first pass; it is *ignored* because the context window is rebuilt from the
-        DB each time.
-        """
         redis = get_redis()
         stream_key = f"stream:{run_id}"
-        stop_event = self.start_cancellation_monitor(run_id)
+        self.start_cancellation_listener(run_id)
         if mapped := self._get_model_map(model):
             model = mapped
         ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
-        if model == "deepseek-ai/DeepSeek-R1":
-            amended = self._build_amended_system_message(assistant_id=assistant_id)
-            ctx = self.replace_system_message(
-                ctx, json.dumps(amended, ensure_ascii=False, indent=2)
-            )
         payload = {
             "model": model,
             "messages": ctx,
@@ -110,9 +118,6 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
             "temperature": 0.6,
             "stream": True,
         }
-        start_chunk = {"type": "status", "status": "started", "run_id": run_id}
-        yield json.dumps(start_chunk)
-        self._shunt_to_redis_stream(redis, stream_key, start_chunk)
         try:
             client = self._get_openai_client(
                 base_url=os.getenv("HYPERBOLIC_BASE_URL"), api_key=api_key
@@ -125,11 +130,15 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
         assistant_reply = accumulated = ""
         code_mode = False
         code_buf = ""
+        start_chunk = {"type": "status", "status": "started", "run_id": run_id}
+        yield json.dumps(start_chunk)
+        self._shunt_to_redis_stream(redis, stream_key, start_chunk)
         try:
             for token in client.chat.completions.create(**payload):
-                if stop_event.is_set():
+                if self.check_cancellation_flag():
                     err = {"type": "error", "content": "Run cancelled"}
-                    yield json.dumps(err)
+                    if p := self._filter_fc(json.dumps(err)):
+                        yield p
                     self._shunt_to_redis_stream(redis, stream_key, err)
                     break
                 if not token.choices or not token.choices[0].delta:
@@ -147,14 +156,16 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                     code_mode = True
                     code_buf = ci_match.get("code", "")
                     start = {"type": "hot_code", "content": "```python\n"}
-                    yield json.dumps(start)
+                    if p := self._filter_fc(json.dumps(start)):
+                        yield p
                     self._shunt_to_redis_stream(redis, stream_key, start)
                     if code_buf and hasattr(self, "_process_code_interpreter_chunks"):
                         res, code_buf = self._process_code_interpreter_chunks(
                             "", code_buf
                         )
                         for r in res:
-                            yield r
+                            if p := self._filter_fc(r):
+                                yield p
                             self._shunt_to_redis_stream(
                                 redis, stream_key, json.loads(r)
                             )
@@ -165,21 +176,25 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                             seg, code_buf
                         )
                         for r in res:
-                            yield r
+                            if p := self._filter_fc(r):
+                                yield p
                             self._shunt_to_redis_stream(
                                 redis, stream_key, json.loads(r)
                             )
                     else:
                         hot = {"type": "hot_code", "content": seg}
-                        yield json.dumps(hot)
+                        if p := self._filter_fc(json.dumps(hot)):
+                            yield p
                         self._shunt_to_redis_stream(redis, stream_key, hot)
                     continue
                 msg = {"type": "content", "content": seg}
-                yield json.dumps(msg)
+                if p := self._filter_fc(json.dumps(msg)):
+                    yield p
                 self._shunt_to_redis_stream(redis, stream_key, msg)
         except Exception as exc:
-            err = {"type": "error", "content": f"Hyperbolic SDK error: {exc}"}
-            yield json.dumps(err)
+            err = {"type": "error", "content": f"Llama-3 SDK error: {exc}"}
+            if p := self._filter_fc(json.dumps(err)):
+                yield p
             self._shunt_to_redis_stream(redis, stream_key, err)
             return
         end_chunk = {"type": "status", "status": "complete", "run_id": run_id}
@@ -209,12 +224,6 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
         stream_reasoning: bool = False,
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
-        """
-        1️⃣  First inference pass (`stream`)
-        2️⃣  Tool pass  (if `<fc>{…}</fc>` detected)
-        3️⃣  ONE additional inference pass so the model can react **once**
-            to the tool output (no further recursion).
-        """
         yield from self.stream(
             thread_id,
             message_id,
@@ -228,15 +237,3 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
             yield from self.process_function_calls(
                 thread_id, run_id, assistant_id, model=model, api_key=api_key
             )
-            self.set_tool_response_state(False)
-            self.set_function_call_state(None)
-            yield from self.stream(
-                thread_id,
-                None,
-                run_id,
-                assistant_id,
-                model,
-                stream_reasoning=stream_reasoning,
-                api_key=api_key,
-            )
-

@@ -22,7 +22,7 @@ def create_action(
     logging_utility.info(
         f"User '{auth_key.user_id}' - Received request to create a new action."
     )
-    action_service = ActionService(db)
+    action_service = ActionService()
     try:
         new_action = action_service.create_action(action)
         logging_utility.info(
@@ -53,7 +53,7 @@ def get_action(
     logging_utility.info(
         f"User '{auth_key.user_id}' - Received request to get action with ID: {action_id}"
     )
-    action_service = ActionService(db)
+    action_service = ActionService()
     try:
         action = action_service.get_action(action_id)
         logging_utility.info(
@@ -85,7 +85,7 @@ def update_action_status(
     logging_utility.info(
         f"User '{auth_key.user_id}' - Received request to update status of action ID: {action_id}"
     )
-    action_service = ActionService(db)
+    action_service = ActionService()
     try:
         updated_action = action_service.update_action_status(action_id, action_update)
         logging_utility.info(
@@ -119,7 +119,7 @@ def get_actions_by_status(
     logging_utility.info(
         f"User '{auth_key.user_id}' - Received request to get actions for run ID: {run_id} with status: {status}"
     )
-    action_service = ActionService(db)
+    action_service = ActionService()
     try:
         actions = action_service.get_actions_by_status(run_id, status)
         logging_utility.info(
@@ -154,7 +154,7 @@ def get_pending_actions(
     logging_utility.info(
         f"User '{auth_key.user_id}' - Received request to list pending actions for run_id: {run_id}"
     )
-    action_service = ActionService(db)
+    action_service = ActionService()
     try:
         pending_actions = action_service.get_pending_actions(run_id)
         logging_utility.info(
@@ -185,7 +185,7 @@ def delete_action(
     logging_utility.info(
         f"User '{auth_key.user_id}' - Received request to delete action with ID: {action_id}"
     )
-    action_service = ActionService(db)
+    action_service = ActionService()
     try:
         action_service.delete_action(action_id)
         logging_utility.info(

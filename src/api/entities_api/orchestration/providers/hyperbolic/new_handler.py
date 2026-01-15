@@ -1,4 +1,4 @@
-# src/api/entities_api/orchestration/providers/hypherbolic/hyperbolic_handler.py
+# src/api/entities_api/orchestration/providers/hyperbolic/handler.py
 
 from typing import Any, Type, Optional, Generator
 from projectdavid_common.utilities.logging_service import LoggingUtility

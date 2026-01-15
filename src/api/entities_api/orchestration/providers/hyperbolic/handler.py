@@ -1,16 +1,16 @@
-# src/api/entities_api/orchestration/providers/hypherbolic/hyperbolic_handler.py
+# src/api/entities_api/orchestration/providers/hyperbolic/handler.py
 from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from entities_api.orchestration.engine.inference_arbiter import InferenceArbiter
-from src.api.entities_api.orchestration.providers.hypherbolic.hyperbolic_deepseek import (
+from src.api.entities_api.orchestration.providers.hyperbolic.deepseek import (
     HyperbolicDs1,
 )
-from src.api.entities_api.orchestration.providers.hypherbolic.hyperbolic_llama_3_3 import (
+from src.api.entities_api.orchestration.providers.hyperbolic.llama_3_3 import (
     HyperbolicLlama33,
 )
-from src.api.entities_api.orchestration.providers.hypherbolic.hyperbolic_quen_qwq_32b import (
+from src.api.entities_api.orchestration.providers.hyperbolic.quen_qwq_32b import (
     HyperbolicQuenQwq32B,
 )
 
@@ -89,8 +89,9 @@ class HyperbolicHandler:
         **kwargs,
     ) -> Generator[str, None, None]:
         logging_utility.debug(f"Dispatching process_conversation for: {model}")
-        handler = self._get_specific_handler_instance(model)
-        yield from handler.process_conversation(
+        worker = self._get_specific_handler_instance(model)
+
+        yield from worker.process_conversation(
             thread_id=thread_id,
             message_id=message_id,
             run_id=run_id,
@@ -113,8 +114,9 @@ class HyperbolicHandler:
         **kwargs,
     ) -> Generator[str, None, None]:
         logging_utility.debug(f"Dispatching stream for: {model}")
-        handler = self._get_specific_handler_instance(model)
-        yield from handler.stream(
+        worker = self._get_specific_handler_instance(model)
+
+        yield from worker.stream(
             thread_id=thread_id,
             message_id=message_id,
             run_id=run_id,
@@ -129,8 +131,9 @@ class HyperbolicHandler:
         self, thread_id, run_id, assistant_id, model=None, api_key=None
     ) -> Generator[str, None, None]:
         logging_utility.debug(f"Dispatching process_function_calls for: {model}")
-        handler = self._get_specific_handler_instance(model)
-        yield from handler.process_function_calls(
+        worker = self._get_specific_handler_instance(model)
+
+        yield from worker.process_function_calls(
             thread_id=thread_id,
             run_id=run_id,
             assistant_id=assistant_id,

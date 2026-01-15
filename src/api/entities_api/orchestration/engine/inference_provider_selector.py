@@ -16,13 +16,13 @@ from src.api.entities_api.orchestration.providers.google.google_handler import (
     GoogleHandler,
 )
 
-from src.api.entities_api.orchestration.providers.hypherbolic.hyperbolic_handler import (
+from src.api.entities_api.orchestration.providers.hyperbolic.handler import (
     HyperbolicHandler,
 )
 
 
 # Cut over from old architecture
-#from src.api.entities_api.orchestration.providers.hypherbolic.new_handler import HyperbolicHandler
+#from src.api.entities_api.orchestration.providers.hyperbolic.new_handler import HyperbolicHandler
 
 from src.api.entities_api.orchestration.providers.togeterai.togetherai_handler import (
     TogetherAIHandler,
