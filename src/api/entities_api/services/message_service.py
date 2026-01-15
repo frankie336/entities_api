@@ -245,12 +245,13 @@ class MessageService:
             db_thread = db.query(Thread).filter(Thread.id == message.thread_id).first()
             if not db_thread:
                 raise HTTPException(status_code=404, detail="Thread not found")
+
             db_message = Message(
                 id=UtilsInterface.IdentifierService.generate_message_id(),
                 assistant_id=message.assistant_id,
                 content=message.content,
                 created_at=int(time.time()),
-                meta_data=json.dumps(message.meta_data),
+                meta_data=json.dumps(message.meta_data or {}),  # Serialized to string for DB
                 object="message",
                 role="tool",
                 tool_id=message.tool_id,
@@ -259,12 +260,21 @@ class MessageService:
             try:
                 db.add(db_message)
                 db.commit()
-                db.refresh(db_message)
+                db.refresh(db_message)  # db_message.meta_data is now a string like '{}'
             except Exception as e:
                 db.rollback()
                 raise HTTPException(status_code=500, detail="Failed to create message")
 
+            # --- FIX HERE ---
+            # Manually convert the string back to a dict so Pydantic validation passes
+            if isinstance(db_message.meta_data, str):
+                try:
+                    db_message.meta_data = json.loads(db_message.meta_data)
+                except (json.JSONDecodeError, TypeError):
+                    db_message.meta_data = {}
+            # ----------------
             return ValidationInterface.MessageRead.model_validate(db_message)
+
 
     def delete_message(self, message_id: str) -> validator.MessageDeleted:
         """Delete message row and return deletion envelope."""
