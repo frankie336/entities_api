@@ -75,6 +75,8 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
 
     @assistant_cache.setter
     def assistant_cache(self, value: dict) -> None:
+        if hasattr(self, "_assistant_cache") and self._assistant_cache:
+            raise AttributeError("assistant_cache already initialised")
         self._assistant_cache = value
 
     def get_assistant_cache(self) -> dict:
@@ -93,168 +95,194 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
     ) -> Generator[str, None, None]:
         redis = get_redis()
         stream_key = f"stream:{run_id}"
+
+        # Start background cancellation thread
         stop_event = self.start_cancellation_monitor(run_id)
 
-        if mapped := self._get_model_map(model):
-            model = mapped
-
-        ctx = self._set_up_context_window(assistant_id, thread_id, trunk=False)
-
-        if model == "deepseek-ai/DeepSeek-R1":
-            amended = self._build_amended_system_message(assistant_id=assistant_id)
-            ctx = self.replace_system_message(
-                ctx, json.dumps(amended, ensure_ascii=False, indent=2)
-            )
-
-        payload = {
-            "model": model,
-            "messages": ctx,
-            "max_tokens": 10000,
-            "temperature": 0.6,
-            "stream": True,
-        }
-
-        start_chunk = {"type": "status", "status": "started", "run_id": run_id}
-        yield json.dumps(start_chunk)
-        self._shunt_to_redis_stream(redis, stream_key, start_chunk)
-
         try:
-            client = self._get_openai_client(
-                base_url=os.getenv("HYPERBOLIC_BASE_URL"), api_key=api_key
-            )
-            raw_stream = client.chat.completions.create(**payload)
-        except Exception as exc:
-            err = {"type": "error", "content": f"client init failed: {exc}"}
-            yield json.dumps(err)
-            self._shunt_to_redis_stream(redis, stream_key, err)
-            return
+            if mapped := self._get_model_map(model):
+                model = mapped
 
-        assistant_reply = ""
-        accumulated = ""
-        reasoning_reply = ""
-        code_mode = False
-        code_buf = ""
-        current_block = None
+            ctx = self._set_up_context_window(assistant_id, thread_id, trunk=False)
 
-        for chunk in HyperbolicDeltaNormalizer.iter_deltas(raw_stream, run_id):
-            if stop_event.is_set():
-                err = {"type": "error", "content": "Run cancelled"}
-                yield json.dumps(err)
-                self._shunt_to_redis_stream(redis, stream_key, err)
-                break
-
-            ctype = chunk["type"]
-            ccontent = chunk["content"]
-
-            # TAG INJECTION & STATE TRACKING
-            if ctype == "content":
-                if current_block == "fc":
-                    accumulated += "</fc>"
-                elif current_block == "think":
-                    accumulated += "</think>"
-                current_block = None
-                assistant_reply += ccontent
-                accumulated += ccontent
-            elif ctype == "call_arguments":
-                if current_block != "fc":
-                    if current_block == "think":
-                        accumulated += "</think>"
-                    accumulated += "<fc>"
-                    current_block = "fc"
-                accumulated += ccontent
-            elif ctype == "reasoning":
-                if current_block != "think":
-                    if current_block == "fc":
-                        accumulated += "</fc>"
-                    accumulated += "<think>"
-                    current_block = "think"
-                reasoning_reply += ccontent
-                accumulated += ccontent
-
-            # CODE INTERPRETER INTERLEAVING
-            if ctype == "content":
-                parse_ci = getattr(self, "parse_code_interpreter_partial", None)
-                ci_match = (
-                    parse_ci(accumulated) if parse_ci and (not code_mode) else None
+            if model == "deepseek-ai/DeepSeek-R1":
+                amended = self._build_amended_system_message(assistant_id=assistant_id)
+                ctx = self.replace_system_message(
+                    ctx, json.dumps(amended, ensure_ascii=False, indent=2)
                 )
 
-                if ci_match:
-                    code_mode = True
-                    code_buf = ci_match.get("code", "")
-                    start = {"type": "hot_code", "content": "```python\n"}
-                    yield json.dumps(start)
-                    self._shunt_to_redis_stream(redis, stream_key, start)
-                    if code_buf and hasattr(self, "_process_code_interpreter_chunks"):
-                        res, code_buf = self._process_code_interpreter_chunks(
-                            "", code_buf
-                        )
-                        for r in res:
-                            yield r
-                            self._shunt_to_redis_stream(
-                                redis, stream_key, json.loads(r)
+            payload = {
+                "model": model,
+                "messages": ctx,
+                "max_tokens": 10000,
+                "temperature": 0.6,
+                "stream": True,
+            }
+
+            start_chunk = {"type": "status", "status": "started", "run_id": run_id}
+            yield json.dumps(start_chunk)
+            self._shunt_to_redis_stream(redis, stream_key, start_chunk)
+
+            try:
+                client = self._get_openai_client(
+                    base_url=os.getenv("HYPERBOLIC_BASE_URL"), api_key=api_key
+                )
+                raw_stream = client.chat.completions.create(**payload)
+            except Exception as exc:
+                err = {"type": "error", "content": f"client init failed: {exc}"}
+                yield json.dumps(err)
+                self._shunt_to_redis_stream(redis, stream_key, err)
+                return
+
+            assistant_reply = ""
+            accumulated = ""
+            reasoning_reply = ""
+            code_mode = False
+            code_buf = ""
+            current_block = None
+
+            for chunk in HyperbolicDeltaNormalizer.iter_deltas(raw_stream, run_id):
+                # Check for cancellation signal from the monitor
+                if stop_event.is_set():
+                    err = {"type": "error", "content": "Run cancelled"}
+                    yield json.dumps(err)
+                    self._shunt_to_redis_stream(redis, stream_key, err)
+                    break
+
+                ctype = chunk["type"]
+                ccontent = chunk["content"]
+
+                # TAG INJECTION & STATE TRACKING
+                if ctype == "content":
+                    if current_block == "fc":
+                        accumulated += "</fc>"
+                    elif current_block == "think":
+                        accumulated += "</think>"
+                    current_block = None
+                    assistant_reply += ccontent
+                    accumulated += ccontent
+                elif ctype == "call_arguments":
+                    if current_block != "fc":
+                        if current_block == "think":
+                            accumulated += "</think>"
+                        accumulated += "<fc>"
+                        current_block = "fc"
+                    accumulated += ccontent
+                elif ctype == "reasoning":
+                    if current_block != "think":
+                        if current_block == "fc":
+                            accumulated += "</fc>"
+                        accumulated += "<think>"
+                        current_block = "think"
+                    reasoning_reply += ccontent
+                    accumulated += ccontent
+
+                # CODE INTERPRETER INTERLEAVING
+                if ctype == "content":
+                    parse_ci = getattr(self, "parse_code_interpreter_partial", None)
+                    ci_match = (
+                        parse_ci(accumulated) if parse_ci and (not code_mode) else None
+                    )
+
+                    if ci_match:
+                        code_mode = True
+                        code_buf = ci_match.get("code", "")
+                        start = {"type": "hot_code", "content": "```python\n"}
+                        yield json.dumps(start)
+                        self._shunt_to_redis_stream(redis, stream_key, start)
+                        if code_buf and hasattr(
+                            self, "_process_code_interpreter_chunks"
+                        ):
+                            res, code_buf = self._process_code_interpreter_chunks(
+                                "", code_buf
                             )
-                    continue
+                            for r in res:
+                                yield r
+                                self._shunt_to_redis_stream(
+                                    redis, stream_key, json.loads(r)
+                                )
+                        continue
 
-                if code_mode:
-                    if hasattr(self, "_process_code_interpreter_chunks"):
-                        res, code_buf = self._process_code_interpreter_chunks(
-                            ccontent, code_buf
-                        )
-                        for r in res:
-                            yield r
-                            self._shunt_to_redis_stream(
-                                redis, stream_key, json.loads(r)
+                    if code_mode:
+                        if hasattr(self, "_process_code_interpreter_chunks"):
+                            res, code_buf = self._process_code_interpreter_chunks(
+                                ccontent, code_buf
                             )
-                    else:
-                        hot = {"type": "hot_code", "content": ccontent}
-                        yield json.dumps(hot)
-                        self._shunt_to_redis_stream(redis, stream_key, hot)
-                    continue
+                            for r in res:
+                                yield r
+                                self._shunt_to_redis_stream(
+                                    redis, stream_key, json.loads(r)
+                                )
+                        else:
+                            hot = {"type": "hot_code", "content": ccontent}
+                            yield json.dumps(hot)
+                            self._shunt_to_redis_stream(redis, stream_key, hot)
+                        continue
 
-            yield json.dumps(chunk)
-            self._shunt_to_redis_stream(redis, stream_key, chunk)
+                yield json.dumps(chunk)
+                self._shunt_to_redis_stream(redis, stream_key, chunk)
 
-        # FINAL CLOSE-OUT
-        if current_block == "fc":
-            accumulated += "</fc>"
-        elif current_block == "think":
-            accumulated += "</think>"
+            # FINAL CLOSE-OUT FOR ACCUMULATED STRING
+            if current_block == "fc":
+                accumulated += "</fc>"
+            elif current_block == "think":
+                accumulated += "</think>"
 
-        end_chunk = {"type": "status", "status": "complete", "run_id": run_id}
-        yield json.dumps(end_chunk)
-        self._shunt_to_redis_stream(redis, stream_key, end_chunk)
+            end_chunk = {"type": "status", "status": "complete", "run_id": run_id}
+            yield json.dumps(end_chunk)
+            self._shunt_to_redis_stream(redis, stream_key, end_chunk)
 
-        if assistant_reply:
-            self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
+            if assistant_reply:
+                self.finalize_conversation(
+                    assistant_reply, thread_id, assistant_id, run_id
+                )
 
-        # TOOL ROUTING
-        if accumulated and self.parse_and_set_function_calls(
-            accumulated, assistant_reply
-        ):
-            self.project_david_client.runs.update_run_status(
-                run_id, StatusEnum.pending_action.value
-            )
-        else:
-            self.project_david_client.runs.update_run_status(
-                run_id, StatusEnum.completed.value
-            )
+            # TOOL ROUTING / RUN STATUS UPDATE
+            if accumulated and self.parse_and_set_function_calls(
+                accumulated, assistant_reply
+            ):
+                self.project_david_client.runs.update_run_status(
+                    run_id, StatusEnum.pending_action.value
+                )
+            else:
+                self.project_david_client.runs.update_run_status(
+                    run_id, StatusEnum.completed.value
+                )
+
+        except Exception as exc:
+            err = {"type": "error", "content": f"DeepSeek stream error: {exc}"}
+            yield json.dumps(err)
+            self._shunt_to_redis_stream(redis, stream_key, err)
+
+        finally:
+            # STOP the monitor thread immediately when the stream finishes
+            stop_event.set()
 
     def process_conversation(
         self, thread_id, message_id, run_id, assistant_id, model, **kwargs
     ):
+        api_key_val = kwargs.get("api_key")
+
         yield from self.stream(
             thread_id, message_id, run_id, assistant_id, model, **kwargs
         )
+
         if self.get_function_call_state():
             yield from self.process_function_calls(
                 thread_id,
                 run_id,
                 assistant_id,
                 model=model,
-                api_key=kwargs.get("api_key"),
+                api_key=api_key_val,
             )
             self.set_tool_response_state(False)
             self.set_function_call_state(None)
             yield from self.stream(
-                thread_id, None, run_id, assistant_id, model, **kwargs
+                thread_id,
+                None,
+                run_id,
+                assistant_id,
+                model,
+                api_key=api_key_val,
+                **kwargs,
             )

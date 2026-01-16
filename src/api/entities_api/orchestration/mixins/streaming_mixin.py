@@ -10,11 +10,11 @@ All generic streaming helpers shared by every provider:
 from __future__ import annotations
 
 import json
-import time
 from threading import Event, Thread
 from typing import Callable, Generator, Optional
 
 import redis as redis_py
+from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.constants.assistant import (CODE_INTERPRETER_MESSAGE,
                                                       DEFAULT_REMINDER_MESSAGE)
@@ -28,24 +28,45 @@ class StreamingMixin:
     _cancelled: bool = False
 
     def start_cancellation_monitor(self, run_id: str, interval: float = 1.0) -> Event:
-        """
-        Spawns a daemon thread that watches the run status via the SDK.
-        If the run is marked `cancelled`, we flip an Event flag.
-        Returns the Event instance to be shared with the streaming loop.
-        """
         stop_event = Event()
 
         def monitor():
+            # Define statuses that mean the run is over
+            terminal_statuses = {
+                StatusEnum.completed.value,
+                StatusEnum.failed.value,
+                StatusEnum.cancelled.value,
+                StatusEnum.expired.value,
+                StatusEnum.pending_action.value,  # "action_required"
+                StatusEnum.deleted.value,
+            }
+
             while not stop_event.is_set():
                 try:
                     run = self.project_david_client.runs.retrieve_run(run_id)
-                    if run.status == "cancelled":
+
+                    # Case A: External Cancellation detected via API
+                    if run.status == StatusEnum.cancelled.value:
                         LOG.warning("Run %s was cancelled via API.", run_id)
-                        stop_event.set()
+                        stop_event.set()  # Signal the stream to stop
                         break
+
+                    # Case B: Run finished naturally (or failed/expired)
+                    if run.status in terminal_statuses:
+                        LOG.debug(
+                            "Run %s reached terminal status (%s). Stopping monitor.",
+                            run_id,
+                            run.status,
+                        )
+                        break  # Exit the thread loop
+
                 except Exception as e:
-                    LOG.warning("Cancellation monitor error: %s", e)
-                time.sleep(interval)
+                    LOG.warning("Cancellation monitor error for %s: %s", run_id, e)
+
+                # Wait for next poll, but wake up immediately if stop_event is set elsewhere
+                stop_event.wait(timeout=interval)
+
+            LOG.debug("Cancellation monitor thread for %s has exited.", run_id)
 
         Thread(target=monitor, daemon=True).start()
         return stop_event

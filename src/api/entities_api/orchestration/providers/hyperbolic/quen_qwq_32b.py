@@ -43,7 +43,7 @@ class _ProviderMixins(
 class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
     """
     Modular Async Hyperbolic Qwen-QwQ-32B provider.
-    Aligned with the Specialized Worker architecture.
+    Aligned with the Specialized Worker architecture and optimized cancellation.
     """
 
     def __init__(
@@ -96,43 +96,44 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
         redis = get_redis()
         stream_key = f"stream:{run_id}"
 
-        # Aligned with updated OrchestratorCore cancellation logic
+        # Start the cancellation monitor thread
         stop_event = self.start_cancellation_monitor(run_id)
 
-        if mapped := self._get_model_map(model):
-            model = mapped
-
-        # Context setup
-        messages = self._set_up_context_window(assistant_id, thread_id, trunk=True)
-        prompt = messages[-1]["content"]
-
-        if not api_key:
-            err = {"type": "error", "content": "Missing API key for Hyperbolic."}
-            yield json.dumps(err)
-            self._shunt_to_redis_stream(redis, stream_key, err)
-            return
-
-        base_url = os.getenv("HYPERBOLIC_BASE_URL")
-        client = AsyncHyperbolicClient(api_key=api_key, base_url=base_url)
-        async_stream = client.stream_chat_completion(
-            prompt=prompt, model=model, temperature=0.6, top_p=0.9
-        )
-
-        start_chunk = {"type": "status", "status": "started", "run_id": run_id}
-        yield json.dumps(start_chunk)
-        self._shunt_to_redis_stream(redis, stream_key, start_chunk)
-
-        assistant_reply = ""
-        accumulated = ""
-        reasoning_reply = ""
-        code_mode = False
-        code_buf = ""
-        current_block = None
-
         try:
+            if mapped := self._get_model_map(model):
+                model = mapped
+
+            # Context setup
+            messages = self._set_up_context_window(assistant_id, thread_id, trunk=True)
+            prompt = messages[-1]["content"]
+
+            if not api_key:
+                err = {"type": "error", "content": "Missing API key for Hyperbolic."}
+                yield json.dumps(err)
+                self._shunt_to_redis_stream(redis, stream_key, err)
+                return
+
+            base_url = os.getenv("HYPERBOLIC_BASE_URL")
+            client = AsyncHyperbolicClient(api_key=api_key, base_url=base_url)
+            async_stream = client.stream_chat_completion(
+                prompt=prompt, model=model, temperature=0.6, top_p=0.9
+            )
+
+            start_chunk = {"type": "status", "status": "started", "run_id": run_id}
+            yield json.dumps(start_chunk)
+            self._shunt_to_redis_stream(redis, stream_key, start_chunk)
+
+            assistant_reply = ""
+            accumulated = ""
+            reasoning_reply = ""
+            code_mode = False
+            code_buf = ""
+            current_block = None
+
             token_iterator = async_to_sync_stream(async_stream)
 
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(token_iterator, run_id):
+                # Check if cancellation was requested via the monitor
                 if stop_event.is_set():
                     err = {"type": "error", "content": "Run cancelled"}
                     yield json.dumps(err)
@@ -180,20 +181,29 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
                         start = {"type": "hot_code", "content": "```python\n"}
                         yield json.dumps(start)
                         self._shunt_to_redis_stream(redis, stream_key, start)
-                        if code_buf and hasattr(self, "_process_code_interpreter_chunks"):
-                            res, code_buf = self._process_code_interpreter_chunks("", code_buf)
+                        if code_buf and hasattr(
+                            self, "_process_code_interpreter_chunks"
+                        ):
+                            res, code_buf = self._process_code_interpreter_chunks(
+                                "", code_buf
+                            )
                             for r in res:
                                 yield r
-                                self._shunt_to_redis_stream(redis, stream_key, json.loads(r))
+                                self._shunt_to_redis_stream(
+                                    redis, stream_key, json.loads(r)
+                                )
                         continue
 
                     if code_mode:
                         if hasattr(self, "_process_code_interpreter_chunks"):
-                            res, code_buf = self._process_code_interpreter_chunks(ccontent,
-                                                                                  code_buf)
+                            res, code_buf = self._process_code_interpreter_chunks(
+                                ccontent, code_buf
+                            )
                             for r in res:
                                 yield r
-                                self._shunt_to_redis_stream(redis, stream_key, json.loads(r))
+                                self._shunt_to_redis_stream(
+                                    redis, stream_key, json.loads(r)
+                                )
                         else:
                             hot = {"type": "hot_code", "content": ccontent}
                             yield json.dumps(hot)
@@ -204,47 +214,53 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
                 yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
 
+            # FINAL CLOSE-OUT
+            if current_block == "fc":
+                accumulated += "</fc>"
+            elif current_block == "think":
+                accumulated += "</think>"
+
+            end_chunk = {"type": "status", "status": "complete", "run_id": run_id}
+            yield json.dumps(end_chunk)
+            self._shunt_to_redis_stream(redis, stream_key, end_chunk)
+
+            if assistant_reply:
+                self.finalize_conversation(
+                    reasoning_reply + assistant_reply, thread_id, assistant_id, run_id
+                )
+
+            # TOOL ROUTING
+            if accumulated and self.parse_and_set_function_calls(
+                accumulated, assistant_reply
+            ):
+                self.project_david_client.runs.update_run_status(
+                    run_id, StatusEnum.pending_action.value
+                )
+            else:
+                self.project_david_client.runs.update_run_status(
+                    run_id, StatusEnum.completed.value
+                )
+
         except Exception as exc:
             err = {"type": "error", "content": f"Hyperbolic stream error: {exc}"}
             yield json.dumps(err)
             self._shunt_to_redis_stream(redis, stream_key, err)
-            return
+        finally:
+            # STOP the monitor thread immediately when the stream finishes
+            stop_event.set()
 
-        # FINAL CLOSE-OUT
-        if current_block == "fc":
-            accumulated += "</fc>"
-        elif current_block == "think":
-            accumulated += "</think>"
-
-        end_chunk = {"type": "status", "status": "complete", "run_id": run_id}
-        yield json.dumps(end_chunk)
-        self._shunt_to_redis_stream(redis, stream_key, end_chunk)
-
-        if assistant_reply:
-            self.finalize_conversation(
-                reasoning_reply + assistant_reply, thread_id, assistant_id, run_id
-            )
-
-        # TOOL ROUTING
-        if accumulated and self.parse_and_set_function_calls(accumulated, assistant_reply):
-            self.project_david_client.runs.update_run_status(run_id,
-                                                             StatusEnum.pending_action.value)
-        else:
-            self.project_david_client.runs.update_run_status(run_id, StatusEnum.completed.value)
-
-    def process_conversation(self, thread_id, message_id, run_id, assistant_id, model, **kwargs):
-        # Correctly extracting the api_key for the subsequent process_function_calls
+    def process_conversation(
+        self, thread_id, message_id, run_id, assistant_id, model, **kwargs
+    ):
         api_key_val = kwargs.get("api_key")
 
-        yield from self.stream(thread_id, message_id, run_id, assistant_id, model, **kwargs)
+        yield from self.stream(
+            thread_id, message_id, run_id, assistant_id, model, **kwargs
+        )
 
         if self.get_function_call_state():
             yield from self.process_function_calls(
-                thread_id,
-                run_id,
-                assistant_id,
-                model=model,
-                api_key=api_key_val
+                thread_id, run_id, assistant_id, model=model, api_key=api_key_val
             )
             self.set_tool_response_state(False)
             self.set_function_call_state(None)
@@ -255,5 +271,5 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
                 assistant_id,
                 model,
                 api_key=api_key_val,
-                **kwargs
+                **kwargs,
             )
