@@ -85,7 +85,7 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
     def stream(
         self,
         thread_id: str,
-        message_id: str,
+        message_id: Optional[str],
         run_id: str,
         assistant_id: str,
         model: Any,
@@ -95,12 +95,14 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
     ) -> Generator[str, None, None]:
         redis = get_redis()
         stream_key = f"stream:{run_id}"
-        self.start_cancellation_listener(run_id)
+
+        # Aligned with updated OrchestratorCore cancellation logic
+        stop_event = self.start_cancellation_monitor(run_id)
 
         if mapped := self._get_model_map(model):
             model = mapped
 
-        # Context setup (Qwen uses trunk=True in original logic)
+        # Context setup
         messages = self._set_up_context_window(assistant_id, thread_id, trunk=True)
         prompt = messages[-1]["content"]
 
@@ -128,11 +130,10 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
         current_block = None
 
         try:
-            # Wrap async stream and pass to the Universal Normalizer
             token_iterator = async_to_sync_stream(async_stream)
 
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(token_iterator, run_id):
-                if self.check_cancellation_flag():
+                if stop_event.is_set():
                     err = {"type": "error", "content": "Run cancelled"}
                     yield json.dumps(err)
                     self._shunt_to_redis_stream(redis, stream_key, err)
@@ -179,29 +180,20 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
                         start = {"type": "hot_code", "content": "```python\n"}
                         yield json.dumps(start)
                         self._shunt_to_redis_stream(redis, stream_key, start)
-                        if code_buf and hasattr(
-                            self, "_process_code_interpreter_chunks"
-                        ):
-                            res, code_buf = self._process_code_interpreter_chunks(
-                                "", code_buf
-                            )
+                        if code_buf and hasattr(self, "_process_code_interpreter_chunks"):
+                            res, code_buf = self._process_code_interpreter_chunks("", code_buf)
                             for r in res:
                                 yield r
-                                self._shunt_to_redis_stream(
-                                    redis, stream_key, json.loads(r)
-                                )
+                                self._shunt_to_redis_stream(redis, stream_key, json.loads(r))
                         continue
 
                     if code_mode:
                         if hasattr(self, "_process_code_interpreter_chunks"):
-                            res, code_buf = self._process_code_interpreter_chunks(
-                                ccontent, code_buf
-                            )
+                            res, code_buf = self._process_code_interpreter_chunks(ccontent,
+                                                                                  code_buf)
                             for r in res:
                                 yield r
-                                self._shunt_to_redis_stream(
-                                    redis, stream_key, json.loads(r)
-                                )
+                                self._shunt_to_redis_stream(redis, stream_key, json.loads(r))
                         else:
                             hot = {"type": "hot_code", "content": ccontent}
                             yield json.dumps(hot)
@@ -229,49 +221,39 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
         self._shunt_to_redis_stream(redis, stream_key, end_chunk)
 
         if assistant_reply:
-            # Combined reasoning + content to persist for Qwen
             self.finalize_conversation(
                 reasoning_reply + assistant_reply, thread_id, assistant_id, run_id
             )
 
         # TOOL ROUTING
-        if accumulated and self.parse_and_set_function_calls(
-            accumulated, assistant_reply
-        ):
-            self.project_david_client.runs.update_run_status(
-                run_id, StatusEnum.pending_action.value
-            )
+        if accumulated and self.parse_and_set_function_calls(accumulated, assistant_reply):
+            self.project_david_client.runs.update_run_status(run_id,
+                                                             StatusEnum.pending_action.value)
         else:
-            self.project_david_client.runs.update_run_status(
-                run_id, StatusEnum.completed.value
-            )
+            self.project_david_client.runs.update_run_status(run_id, StatusEnum.completed.value)
 
-    def process_conversation(
-        self,
-        thread_id: str,
-        message_id: str,
-        run_id: str,
-        assistant_id: str,
-        model: Any,
-        *,
-        stream_reasoning: bool = False,
-        api_key: Optional[str] = None,
-    ) -> Generator[str, None, None]:
-        yield from self.stream(
-            thread_id,
-            message_id,
-            run_id,
-            assistant_id,
-            model,
-            stream_reasoning=stream_reasoning,
-            api_key=api_key,
-        )
+    def process_conversation(self, thread_id, message_id, run_id, assistant_id, model, **kwargs):
+        # Correctly extracting the api_key for the subsequent process_function_calls
+        api_key_val = kwargs.get("api_key")
+
+        yield from self.stream(thread_id, message_id, run_id, assistant_id, model, **kwargs)
+
         if self.get_function_call_state():
             yield from self.process_function_calls(
-                thread_id, run_id, assistant_id, model=model, api_key=api_key
+                thread_id,
+                run_id,
+                assistant_id,
+                model=model,
+                api_key=api_key_val
             )
             self.set_tool_response_state(False)
             self.set_function_call_state(None)
             yield from self.stream(
-                thread_id, None, run_id, assistant_id, model, api_key=api_key
+                thread_id,
+                None,
+                run_id,
+                assistant_id,
+                model,
+                api_key=api_key_val,
+                **kwargs
             )
