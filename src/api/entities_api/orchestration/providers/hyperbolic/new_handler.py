@@ -1,13 +1,11 @@
 # src/api/entities_api/orchestration/providers/hyperbolic/handler.py
 
-from typing import Any, Type, Optional, Generator
+from typing import Any, Generator, Optional, Type
+
 from projectdavid_common.utilities.logging_service import LoggingUtility
-from .models import (
-    HyperbolicDs1,
-    HyperbolicLlama33,
-    HyperbolicQuenQwq32B,
-    BaseHyperbolicProvider
-)
+
+from .models import (BaseHyperbolicProvider, HyperbolicDs1, HyperbolicLlama33,
+                     HyperbolicQuenQwq32B)
 
 LOG = LoggingUtility()
 
@@ -66,7 +64,7 @@ class HyperbolicHandler:
             model=model,
             stream_reasoning=stream_reasoning,
             api_key=api_key,
-            **kwargs
+            **kwargs,
         )
 
     def process_conversation(self, **kwargs) -> Generator[str, None, None]:
@@ -74,7 +72,12 @@ class HyperbolicHandler:
         yield from self.stream(**kwargs)
 
     def process_function_calls(
-        self, thread_id: str, run_id: str, assistant_id: str, model: Any = None, api_key: str = None
+        self,
+        thread_id: str,
+        run_id: str,
+        assistant_id: str,
+        model: Any = None,
+        api_key: str = None,
     ) -> Generator[str, None, None]:
         """Delegates tool execution to the resolved worker."""
         worker = self._get_instance(model)
@@ -83,5 +86,5 @@ class HyperbolicHandler:
             run_id=run_id,
             assistant_id=assistant_id,
             model=model,
-            api_key=api_key
+            api_key=api_key,
         )

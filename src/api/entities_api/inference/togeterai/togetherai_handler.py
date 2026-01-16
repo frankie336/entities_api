@@ -3,12 +3,10 @@ from typing import Any, Generator, Optional, Type
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from src.api.entities_api.inference.inference_arbiter import InferenceArbiter
-from src.api.entities_api.inference.togeterai.together_deepseek_R1 import (
-    TogetherDeepSeekR1Inference,
-)
-from src.api.entities_api.inference.togeterai.together_deepseek_v3 import (
-    TogetherDeepSeekV3Inference,
-)
+from src.api.entities_api.inference.togeterai.together_deepseek_R1 import \
+    TogetherDeepSeekR1Inference
+from src.api.entities_api.inference.togeterai.together_deepseek_v3 import \
+    TogetherDeepSeekV3Inference
 
 logging_utility = LoggingUtility()
 

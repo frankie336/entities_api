@@ -10,11 +10,11 @@ from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from redis import Redis
 
+from entities_api.orchestration.engine.inference_arbiter import \
+    InferenceArbiter
+from entities_api.orchestration.engine.inference_provider_selector import \
+    InferenceProviderSelector
 from src.api.entities_api.dependencies import get_redis
-from entities_api.orchestration.engine.inference_arbiter import InferenceArbiter
-from entities_api.orchestration.engine.inference_provider_selector import (
-    InferenceProviderSelector,
-)
 
 router = APIRouter()
 logging_utility = LoggingUtility()
