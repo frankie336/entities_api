@@ -6,15 +6,7 @@ All logic that builds the message list passed to the LLM:
 • role-normalisation + truncation
 """
 
-import json
-import os
-from datetime import datetime
-from typing import Dict, List
-
-from projectdavid import Entity
-
 from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.system_message.main_assembly import assemble_instructions
 
 LOG = LoggingUtility()
 
