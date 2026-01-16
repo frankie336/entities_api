@@ -1,10 +1,10 @@
-# 🐳 Docker Commands Reference
+#  Docker Commands Reference
 
 This document captures all supported Docker orchestration commands used in the `entities` system via `start.py`.
 
 ---
 
-## 🏁 General Startup
+##  General Startup
 
 Use `start.py` to simplify container management:
 
@@ -50,7 +50,7 @@ python start.py --with-ollama --ollama-gpu
 
 ---
 
-## 🔨 Build Specific Services
+##  Build Specific Services
 
 | Service                | Command |
 |------------------------|---------|

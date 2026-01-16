@@ -1,3 +1,4 @@
+# src/api/entities_api/orchestration/providers/hyperbolic/llama_3_3.py
 from __future__ import annotations
 
 '\nHyperbolic-Llama-3-33B provider\n———————————————\n• Re-uses the C3-safe mix-in bundle.\n• Keeps the **same streaming semantics** you had:\n    – live SSE JSON (“type”: "content", "hot_code", …)\n    – inline buffering of code-interpreter blocks\n    – Redis fan-out identical to Ds1\n• No <think>/<fc> tagging in Llama-3 responses, but we still honour it\n  in case your prompt template inserts them.\n'
@@ -10,12 +11,18 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.inference_mixin.mixins import (
-    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
-    ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
-    PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
-from src.api.entities_api.inference_mixin.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.mixins import (
+    AssistantCacheMixin,
+    CodeExecutionMixin,
+    ConsumerToolHandlersMixin,
+    ConversationContextMixin,
+    FileSearchMixin,
+    JsonUtilsMixin,
+    PlatformToolHandlersMixin,
+    ShellExecutionMixin,
+    ToolRoutingMixin,
+)
+from entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
 
 load_dotenv()
 LOG = LoggingUtility()

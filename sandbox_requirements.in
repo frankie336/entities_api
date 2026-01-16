@@ -1,22 +1,37 @@
-# --- Utilities ---
+# ================================================================= #
+# SANDBOX REQUIREMENTS (Lightweight & Stable Version)
+# ================================================================= #
+
+# --- Web Stack ---
+# Mandatory because the Sandbox is a FastAPI application
+fastapi
 python-multipart
+
+# --- Utilities ---
 python-dotenv
 aiofiles
 httpx
 redis
 pydantic
 
-# --- Data Science Stack ---
+# --- Data Science Stack (Stable / Non-Problematic Pins) ---
+# We pin these specifically to prevent the '_spropack' binary crash.
+# Scipy 1.11.4 is the 'safe harbor' for Python 3.11+ environments.
+numpy<2.0.0
+scipy==1.11.4
+scikit-learn==1.3.2
+
+# --- Document Parsing & Visualization ---
+# These are 'Heavy' but do not cause binary crashes
 pandas
-numpy            # <-- Needed explicitly, backend for pandas, sklearn, matplotlib
 matplotlib
 seaborn
-scikit-learn
 openpyxl
+pdfplumber
 python-docx
+python-pptx
+# pillow            # Needed for the Image/PIL imports in FileProcessor
 
-# --- OPTIONALS (if needed later) ---
-# tqdm         # Progress bars
-# pyarrow      # Dataframes serialization
-# reportlab    # Advanced PDF generation
-# pillow       # Image processing if needed
+# --- Project SDK ---
+# IMPORTANT: Install without extras in the Sandbox Dockerfile:
+# RUN pip install projectdavid

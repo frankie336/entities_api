@@ -2,29 +2,24 @@ from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
+from src.api.entities_api.inference.deepseek.deepseek_chat_inference import (
+    DeepSeekChatInference,
+)
 from src.api.entities_api.inference.inference_arbiter import InferenceArbiter
-from src.api.entities_api.inference_mixin.providers.hypherbolic.hyperbolic_deepseek import \
-    HyperbolicDs1
-from src.api.entities_api.inference_mixin.providers.hypherbolic.hyperbolic_llama_3_3 import \
-    HyperbolicLlama33
-from src.api.entities_api.inference_mixin.providers.hypherbolic.hyperbolic_quen_qwq_32b import \
-    HyperbolicQuenQwq32B
 
-logging_utility = LoggingUtility()
+LOG = LoggingUtility()
 
 
-class HyperbolicHandler:
+class DeepseekHandler:
     """
-    Pure synchronous dispatcher for Hyperbolic model requests.
+    Pure synchronous dispatcher for DeepSeek model requests.
     Delegates to concrete handler classes based on model ID.
     """
 
     SUBMODEL_CLASS_MAP: dict[str, Type[Any]] = {
-        "deepseek-v3": HyperbolicDs1,
-        "deepseek-ai/DeepSeek-V3-0324": HyperbolicDs1,
-        "deepseek-r1": HyperbolicDs1,
-        "meta-llama/": HyperbolicLlama33,
-        "Qwen/": HyperbolicQuenQwq32B,
+        "deepseek-chat": DeepSeekChatInference,
+        "DeepSeek-V3-0324": DeepSeekChatInference,
+        "deepseek-reasoner": DeepSeekChatInference,
     }
 
     def __init__(self, arbiter: InferenceArbiter):
@@ -32,40 +27,40 @@ class HyperbolicHandler:
         self._sorted_sub_routes = sorted(
             self.SUBMODEL_CLASS_MAP.keys(), key=len, reverse=True
         )
-        logging_utility.info("HyperbolicHandler dispatcher initialized.")
+        LOG.info("HyperbolicHandler dispatcher initialized.")
 
     def _get_specific_handler_instance(self, unified_model_id: str) -> Any:
-        prefix = "hyperbolic/"
+        prefix = "deepseek-ai/"
         sub_model_id = (
             unified_model_id[len(prefix) :].lower()
             if unified_model_id.lower().startswith(prefix)
             else unified_model_id.lower()
         )
         if not unified_model_id.lower().startswith(prefix):
-            logging_utility.warning(
+            LOG.warning(
                 f"Model ID '{unified_model_id}' did not start with expected prefix '{prefix}'."
             )
         SpecificHandlerClass = None
         for route_key, handler_cls in self.SUBMODEL_CLASS_MAP.items():
             route_key_lc = route_key.lower()
             if route_key_lc.endswith("/") and sub_model_id.startswith(route_key_lc):
-                logging_utility.debug(f"Matched prefix route: '{route_key}'")
+                LOG.debug(f"Matched prefix route: '{route_key}'")
                 SpecificHandlerClass = handler_cls
                 break
             elif not route_key_lc.endswith("/") and route_key_lc in sub_model_id:
-                logging_utility.debug(f"Matched substring route: '{route_key}'")
+                LOG.debug(f"Matched substring route: '{route_key}'")
                 SpecificHandlerClass = handler_cls
                 break
         if not SpecificHandlerClass:
-            logging_utility.error(
+            LOG.error(
                 f"No handler found for model ID '{sub_model_id}' (original: '{unified_model_id}')"
             )
-            raise ValueError(f"Unsupported Hyperbolic model: {unified_model_id}")
-        logging_utility.debug(f"Dispatching to: {SpecificHandlerClass.__name__}")
+            raise ValueError(f"Unsupported DeepSeek model: {unified_model_id}")
+        LOG.debug(f"Dispatching to: {SpecificHandlerClass.__name__}")
         try:
             return self.arbiter.get_provider_instance(SpecificHandlerClass)
         except Exception as e:
-            logging_utility.error(
+            LOG.error(
                 f"Failed to obtain handler instance: {SpecificHandlerClass.__name__}",
                 exc_info=True,
             )
@@ -80,11 +75,11 @@ class HyperbolicHandler:
         run_id,
         assistant_id,
         model,
-        stream_reasoning=True,
+        stream_reasoning=False,
         api_key: Optional[str] = None,
         **kwargs,
     ) -> Generator[str, None, None]:
-        logging_utility.debug(f"Dispatching process_conversation for: {model}")
+        LOG.debug(f"Dispatching process_conversation for: {model}")
         handler = self._get_specific_handler_instance(model)
         yield from handler.process_conversation(
             thread_id=thread_id,
@@ -108,7 +103,7 @@ class HyperbolicHandler:
         api_key: Optional[str] = None,
         **kwargs,
     ) -> Generator[str, None, None]:
-        logging_utility.debug(f"Dispatching stream for: {model}")
+        LOG.debug(f"Dispatching stream for: {model}")
         handler = self._get_specific_handler_instance(model)
         yield from handler.stream(
             thread_id=thread_id,
@@ -124,7 +119,7 @@ class HyperbolicHandler:
     def process_function_calls(
         self, thread_id, run_id, assistant_id, model=None, api_key=None
     ) -> Generator[str, None, None]:
-        logging_utility.debug(f"Dispatching process_function_calls for: {model}")
+        LOG.debug(f"Dispatching process_function_calls for: {model}")
         handler = self._get_specific_handler_instance(model)
         yield from handler.process_function_calls(
             thread_id=thread_id,

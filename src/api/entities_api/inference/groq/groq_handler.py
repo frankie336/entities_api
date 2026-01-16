@@ -1,2 +1,0 @@
-class GroqHandler:
-    pass

@@ -14,7 +14,7 @@ from pathlib import Path
 # main generator
 # --------------------------------------------------------------------------- #
 def generate_dev_docker_compose() -> None:
-    # project root (this file lives in   scripts/   one level below)
+    # project root (this file lives in scripts/ one level below)
     project_root = Path(__file__).resolve().parent.parent
     output_path = project_root / "docker-compose.yml"
 
@@ -85,14 +85,18 @@ services:
     env_file:
       - .env
     environment:
-      # DATABASE_URL will be generated into .env (escaped password etc.)
       - DATABASE_URL=${{DATABASE_URL}}
+      - AUTO_MIGRATE=1
       - SANDBOX_SERVER_URL=http://sandbox:8000
       - QDRANT_URL=http://qdrant:6333
       - DEFAULT_SECRET_KEY=${{DEFAULT_SECRET_KEY}}
       - REDIS_URL=redis://redis:6379/0
     ports:
       - "9000:9000"
+    volumes:
+      - ./src:/app/src
+      - ./alembic.ini:/app/alembic.ini
+      - ./migrations:/app/migrations
     depends_on:
       db:
         condition: service_healthy
@@ -102,16 +106,6 @@ services:
         condition: service_started
       redis:
         condition: service_started
-    command:
-      - ./wait-for-it.sh
-      - "db:3306"
-      - --
-      - uvicorn
-      - entities_api.app:app
-      - --host
-      - "0.0.0.0"
-      - --port
-      - "9000"
     networks:
       - my_custom_network
 
@@ -133,6 +127,7 @@ services:
       db:
         condition: service_healthy
     volumes:
+      - ./src/api/sandbox:/app/sandbox
       - /tmp/sandbox_logs:/app/logs
     env_file:
       - .env
