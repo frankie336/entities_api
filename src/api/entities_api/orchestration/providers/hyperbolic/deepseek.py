@@ -16,7 +16,7 @@ from src.api.entities_api.orchestration.mixins import (
     AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
     ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
     PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
-from src.api.entities_api.orchestration.streaming.delta_normalizer import \
+from src.api.entities_api.orchestration.streaming.hyperbolic import \
     HyperbolicDeltaNormalizer
 
 load_dotenv()
@@ -39,7 +39,8 @@ class _ProviderMixins(
 
 class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
     """
-    DeepSeek-V3/R1 served by Hyperbolic – streaming & tool orchestration.
+    Specialized DeepSeek-V3/R1 Provider.
+    Uses a custom state-machine to handle XML-tagged thinking and tool-calls.
     """
 
     def __init__(
@@ -53,7 +54,10 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
         assistant_cache: dict | None = None,
         **extra,
     ) -> None:
-        self._assistant_cache: dict = assistant_cache or {}
+        # State required by ConversationContextMixin
+        self._assistant_cache: dict = (
+            assistant_cache or extra.get("assistant_cache") or {}
+        )
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
@@ -71,13 +75,10 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
 
     @assistant_cache.setter
     def assistant_cache(self, value: dict) -> None:
-        if hasattr(self, "_assistant_cache"):
-            raise AttributeError("assistant_cache already initialised")
         self._assistant_cache = value
 
     def get_assistant_cache(self) -> dict:
         return self._assistant_cache
-
 
     def stream(
         self,
@@ -98,8 +99,6 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
             model = mapped
 
         ctx = self._set_up_context_window(assistant_id, thread_id, trunk=False)
-
-        # LOG.debug(f"CONTEXT DUMP: {json.dumps(ctx, indent=2, ensure_ascii=False)}")
 
         if model == "deepseek-ai/DeepSeek-R1":
             amended = self._build_amended_system_message(assistant_id=assistant_id)
@@ -130,13 +129,12 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
             self._shunt_to_redis_stream(redis, stream_key, err)
             return
 
-        assistant_reply = ""  # Clean text for DB
-        accumulated = ""  # Raw for Tool Orchestration
-        reasoning_reply = ""  # Thought trace
+        assistant_reply = ""
+        accumulated = ""
+        reasoning_reply = ""
         code_mode = False
         code_buf = ""
-
-        current_block = None  # Track if we are in 'fc' or 'think' for tag injection
+        current_block = None
 
         for chunk in HyperbolicDeltaNormalizer.iter_deltas(raw_stream, run_id):
             if stop_event.is_set():
@@ -148,17 +146,15 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
             ctype = chunk["type"]
             ccontent = chunk["content"]
 
-            # TAG INJECTION & BUFFER MAINTENANCE
+            # TAG INJECTION & STATE TRACKING
             if ctype == "content":
                 if current_block == "fc":
                     accumulated += "</fc>"
                 elif current_block == "think":
                     accumulated += "</think>"
                 current_block = None
-
                 assistant_reply += ccontent
                 accumulated += ccontent
-
             elif ctype == "call_arguments":
                 if current_block != "fc":
                     if current_block == "think":
@@ -166,7 +162,6 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                     accumulated += "<fc>"
                     current_block = "fc"
                 accumulated += ccontent
-
             elif ctype == "reasoning":
                 if current_block != "think":
                     if current_block == "fc":
@@ -176,12 +171,13 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                 reasoning_reply += ccontent
                 accumulated += ccontent
 
-            # CODE INTERPRETER (Triggers only on visible content)
+            # CODE INTERPRETER INTERLEAVING
             if ctype == "content":
                 parse_ci = getattr(self, "parse_code_interpreter_partial", None)
                 ci_match = (
                     parse_ci(accumulated) if parse_ci and (not code_mode) else None
                 )
+
                 if ci_match:
                     code_mode = True
                     code_buf = ci_match.get("code", "")
@@ -198,6 +194,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                                 redis, stream_key, json.loads(r)
                             )
                     continue
+
                 if code_mode:
                     if hasattr(self, "_process_code_interpreter_chunks"):
                         res, code_buf = self._process_code_interpreter_chunks(
@@ -217,7 +214,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
             yield json.dumps(chunk)
             self._shunt_to_redis_stream(redis, stream_key, chunk)
 
-        # Final Close-out for accumulated
+        # FINAL CLOSE-OUT
         if current_block == "fc":
             accumulated += "</fc>"
         elif current_block == "think":
@@ -228,10 +225,9 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
         self._shunt_to_redis_stream(redis, stream_key, end_chunk)
 
         if assistant_reply:
-            # We save assistant_reply. If you wanted to persist thoughts,
-            # you could save reasoning_reply to a separate field here.
             self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
 
+        # TOOL ROUTING
         if accumulated and self.parse_and_set_function_calls(
             accumulated, assistant_reply
         ):

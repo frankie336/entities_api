@@ -1,6 +1,6 @@
+# src/api/entities_api/orchestration/providers/hyperbolic/quen_qwq_32b.py
 from __future__ import annotations
 
-"\nHyperbolic-Quen-Qwq-32B provider\n———————————————\n• Async Hyperbolic SDK (AsyncHyperbolicClient) → streamed through\n  async_to_sync_stream just like the original class.\n• Supports optional <think> … </think> reasoning tags\n  (define self.REASONING_PATTERN in a prompt helper if desired).\n• Code-interpreter hot-code logic copied verbatim.\n"
 import json
 import os
 from typing import Any, Generator, Optional
@@ -18,6 +18,8 @@ from src.api.entities_api.orchestration.mixins import (
     AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
     ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
     PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
+from src.api.entities_api.orchestration.streaming.hyperbolic import \
+    HyperbolicDeltaNormalizer
 from src.api.entities_api.utils.async_to_sync import async_to_sync_stream
 
 load_dotenv()
@@ -39,7 +41,10 @@ class _ProviderMixins(
 
 
 class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
-    """Async Hyperbolic Quen-Qwq-32B streaming provider."""
+    """
+    Modular Async Hyperbolic Qwen-QwQ-32B provider.
+    Aligned with the Specialized Worker architecture.
+    """
 
     def __init__(
         self,
@@ -70,21 +75,12 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
 
     @assistant_cache.setter
     def assistant_cache(self, value: dict) -> None:
-        if hasattr(self, "_assistant_cache"):
+        if hasattr(self, "_assistant_cache") and self._assistant_cache:
             raise AttributeError("assistant_cache already initialised")
         self._assistant_cache = value
 
     def get_assistant_cache(self) -> dict:
         return self._assistant_cache
-
-    @staticmethod
-    def _filter_fc(chunk_json: str) -> Optional[str]:
-        try:
-            if json.loads(chunk_json).get("type") == "function_call":
-                return None
-        except Exception:
-            pass
-        return chunk_json
 
     def stream(
         self,
@@ -100,86 +96,88 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
         redis = get_redis()
         stream_key = f"stream:{run_id}"
         self.start_cancellation_listener(run_id)
+
         if mapped := self._get_model_map(model):
             model = mapped
+
+        # Context setup (Qwen uses trunk=True in original logic)
         messages = self._set_up_context_window(assistant_id, thread_id, trunk=True)
         prompt = messages[-1]["content"]
+
         if not api_key:
             err = {"type": "error", "content": "Missing API key for Hyperbolic."}
             yield json.dumps(err)
             self._shunt_to_redis_stream(redis, stream_key, err)
             return
+
         base_url = os.getenv("HYPERBOLIC_BASE_URL")
-        if not base_url:
-            err = {
-                "type": "error",
-                "content": "Hyperbolic service not configured (HYPERBOLIC_BASE_URL).",
-            }
-            yield json.dumps(err)
-            self._shunt_to_redis_stream(redis, stream_key, err)
-            return
         client = AsyncHyperbolicClient(api_key=api_key, base_url=base_url)
         async_stream = client.stream_chat_completion(
             prompt=prompt, model=model, temperature=0.6, top_p=0.9
         )
-        assistant_reply = accumulated = reasoning_buf = ""
-        in_reasoning = False
-        code_mode = False
-        code_buf = ""
-        reasoning_re = getattr(self, "REASONING_PATTERN", None)
-        splitter = (
-            (lambda txt: reasoning_re.split(txt)) if reasoning_re else lambda txt: [txt]
-        )
+
         start_chunk = {"type": "status", "status": "started", "run_id": run_id}
         yield json.dumps(start_chunk)
         self._shunt_to_redis_stream(redis, stream_key, start_chunk)
+
+        assistant_reply = ""
+        accumulated = ""
+        reasoning_reply = ""
+        code_mode = False
+        code_buf = ""
+        current_block = None
+
         try:
-            for token in async_to_sync_stream(async_stream):
+            # Wrap async stream and pass to the Universal Normalizer
+            token_iterator = async_to_sync_stream(async_stream)
+
+            for chunk in HyperbolicDeltaNormalizer.iter_deltas(token_iterator, run_id):
                 if self.check_cancellation_flag():
                     err = {"type": "error", "content": "Run cancelled"}
-                    if p := self._filter_fc(json.dumps(err)):
-                        yield p
+                    yield json.dumps(err)
                     self._shunt_to_redis_stream(redis, stream_key, err)
                     break
-                for seg in splitter(token):
-                    if not seg:
-                        continue
-                    if seg == "<think>":
-                        in_reasoning = True
-                        if stream_reasoning:
-                            r = {"type": "reasoning", "content": seg}
-                            if p := self._filter_fc(json.dumps(r)):
-                                yield p
-                            self._shunt_to_redis_stream(redis, stream_key, r)
-                        continue
-                    if seg == "</think>":
-                        in_reasoning = False
-                        if stream_reasoning:
-                            r = {"type": "reasoning", "content": seg}
-                            if p := self._filter_fc(json.dumps(r)):
-                                yield p
-                            self._shunt_to_redis_stream(redis, stream_key, r)
-                        continue
-                    if in_reasoning:
-                        reasoning_buf += seg
-                        if stream_reasoning:
-                            r = {"type": "reasoning", "content": seg}
-                            if p := self._filter_fc(json.dumps(r)):
-                                yield p
-                            self._shunt_to_redis_stream(redis, stream_key, r)
-                        continue
-                    assistant_reply += seg
-                    accumulated += seg
+
+                ctype = chunk["type"]
+                ccontent = chunk["content"]
+
+                # TAG INJECTION & STATE TRACKING
+                if ctype == "content":
+                    if current_block == "fc":
+                        accumulated += "</fc>"
+                    elif current_block == "think":
+                        accumulated += "</think>"
+                    current_block = None
+                    assistant_reply += ccontent
+                    accumulated += ccontent
+                elif ctype == "call_arguments":
+                    if current_block != "fc":
+                        if current_block == "think":
+                            accumulated += "</think>"
+                        accumulated += "<fc>"
+                        current_block = "fc"
+                    accumulated += ccontent
+                elif ctype == "reasoning":
+                    if current_block != "think":
+                        if current_block == "fc":
+                            accumulated += "</fc>"
+                        accumulated += "<think>"
+                        current_block = "think"
+                    reasoning_reply += ccontent
+                    accumulated += ccontent
+
+                # CODE INTERPRETER INTERLEAVING
+                if ctype == "content":
                     parse_ci = getattr(self, "parse_code_interpreter_partial", None)
                     ci_match = (
                         parse_ci(accumulated) if parse_ci and (not code_mode) else None
                     )
+
                     if ci_match:
                         code_mode = True
                         code_buf = ci_match.get("code", "")
                         start = {"type": "hot_code", "content": "```python\n"}
-                        if p := self._filter_fc(json.dumps(start)):
-                            yield p
+                        yield json.dumps(start)
                         self._shunt_to_redis_stream(redis, stream_key, start)
                         if code_buf and hasattr(
                             self, "_process_code_interpreter_chunks"
@@ -188,46 +186,55 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
                                 "", code_buf
                             )
                             for r in res:
-                                if p := self._filter_fc(r):
-                                    yield p
+                                yield r
                                 self._shunt_to_redis_stream(
                                     redis, stream_key, json.loads(r)
                                 )
                         continue
+
                     if code_mode:
                         if hasattr(self, "_process_code_interpreter_chunks"):
                             res, code_buf = self._process_code_interpreter_chunks(
-                                seg, code_buf
+                                ccontent, code_buf
                             )
                             for r in res:
-                                if p := self._filter_fc(r):
-                                    yield p
+                                yield r
                                 self._shunt_to_redis_stream(
                                     redis, stream_key, json.loads(r)
                                 )
                         else:
-                            hot = {"type": "hot_code", "content": seg}
-                            if p := self._filter_fc(json.dumps(hot)):
-                                yield p
+                            hot = {"type": "hot_code", "content": ccontent}
+                            yield json.dumps(hot)
                             self._shunt_to_redis_stream(redis, stream_key, hot)
                         continue
-                    msg = {"type": "content", "content": seg}
-                    if p := self._filter_fc(json.dumps(msg)):
-                        yield p
-                    self._shunt_to_redis_stream(redis, stream_key, msg)
+
+                # Standard stream emission
+                yield json.dumps(chunk)
+                self._shunt_to_redis_stream(redis, stream_key, chunk)
+
         except Exception as exc:
             err = {"type": "error", "content": f"Hyperbolic stream error: {exc}"}
-            if p := self._filter_fc(json.dumps(err)):
-                yield p
+            yield json.dumps(err)
             self._shunt_to_redis_stream(redis, stream_key, err)
             return
+
+        # FINAL CLOSE-OUT
+        if current_block == "fc":
+            accumulated += "</fc>"
+        elif current_block == "think":
+            accumulated += "</think>"
+
         end_chunk = {"type": "status", "status": "complete", "run_id": run_id}
         yield json.dumps(end_chunk)
         self._shunt_to_redis_stream(redis, stream_key, end_chunk)
+
         if assistant_reply:
+            # Combined reasoning + content to persist for Qwen
             self.finalize_conversation(
-                reasoning_buf + assistant_reply, thread_id, assistant_id, run_id
+                reasoning_reply + assistant_reply, thread_id, assistant_id, run_id
             )
+
+        # TOOL ROUTING
         if accumulated and self.parse_and_set_function_calls(
             accumulated, assistant_reply
         ):
@@ -262,4 +269,9 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
         if self.get_function_call_state():
             yield from self.process_function_calls(
                 thread_id, run_id, assistant_id, model=model, api_key=api_key
+            )
+            self.set_tool_response_state(False)
+            self.set_function_call_state(None)
+            yield from self.stream(
+                thread_id, None, run_id, assistant_id, model, api_key=api_key
             )

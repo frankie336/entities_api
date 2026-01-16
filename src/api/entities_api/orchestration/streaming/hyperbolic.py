@@ -11,9 +11,14 @@ class HyperbolicDeltaNormalizer:
         state = "content"
 
         for token in raw_stream:
-            if not token.choices or not token.choices[0].delta:
-                continue
-            seg = getattr(token.choices[0].delta, "content", "")
+            # --- NEW: Handle both Objects (OpenAI) and Raw Strings (Custom SDKs) ---
+            seg = ""
+            if isinstance(token, str):
+                seg = token
+            elif hasattr(token, "choices") and token.choices:
+                delta = token.choices[0].delta
+                seg = getattr(delta, "content", "") or ""
+
             if not seg:
                 continue
 
@@ -45,6 +50,10 @@ class HyperbolicDeltaNormalizer:
                             }
                         state = "content"
                         buffer = post
+                    elif any(
+                        cls.FC_END.startswith(buffer[i:]) for i in range(len(buffer))
+                    ):
+                        continue
                     else:
                         yield {
                             "type": "call_arguments",
@@ -64,6 +73,10 @@ class HyperbolicDeltaNormalizer:
                             }
                         state = "content"
                         buffer = post
+                    elif any(
+                        cls.TH_END.startswith(buffer[i:]) for i in range(len(buffer))
+                    ):
+                        continue
                     else:
                         yield {"type": "reasoning", "content": buffer, "run_id": run_id}
                         buffer = ""
