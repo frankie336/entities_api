@@ -18,6 +18,26 @@ from src.api.entities_api.system_message.main_assembly import assemble_instructi
 
 LOG = LoggingUtility()
 
+"""
+All logic that builds the message list passed to the LLM:
+
+• fetch Redis-cached history (or cold-load from DB once)
+• inject current assistant tools / instructions
+• role-normalisation + truncation
+"""
+
+import json
+import os
+from datetime import datetime
+from typing import Dict, List
+
+from projectdavid import Entity
+
+from src.api.entities_api.services.logging_service import LoggingUtility
+from src.api.entities_api.system_message.main_assembly import assemble_instructions
+
+LOG = LoggingUtility()
+
 
 class ConversationContextMixin:
 
@@ -97,9 +117,19 @@ class ConversationContextMixin:
             repeated requests with identical parameters.
         """
         system_msg = self._build_system_message(assistant_id)
+
         redis_key = f"thread:{thread_id}:history"
+
+        # 1. Check Redis
         raw_list = self.redis.lrange(redis_key, 0, -1)
+
+        # --- DEBUG LOGGING: REDIS STATE ---
+        LOG.debug(f"[CTX-BUILD] Redis Key: {redis_key}")
+        LOG.debug(f"[CTX-BUILD] Redis Hit: {bool(raw_list)} | Count: {len(raw_list)}")
+        # ----------------------------------
+
         if not raw_list:
+            LOG.debug("[CTX-BUILD] Redis MISS -> Fetching from DB via API...")
             client = Entity(
                 base_url=os.getenv("ASSISTANTS_BASE_URL"),
                 api_key=os.getenv("ADMIN_API_KEY"),
@@ -107,13 +137,31 @@ class ConversationContextMixin:
             full_hist = client.messages.get_formatted_messages(
                 thread_id, system_message=system_msg["content"]
             )
+
+            # --- DEBUG LOGGING: DB STATE ---
+            LOG.debug(f"[CTX-BUILD] DB Fetch Count: {len(full_hist)}")
+            # -------------------------------
+
             for msg in full_hist[-200:]:
                 self.redis.rpush(redis_key, json.dumps(msg))
             self.redis.ltrim(redis_key, -200, -1)
             raw_list = [json.dumps(m) for m in full_hist]
+
         msgs = [system_msg] + [json.loads(x) for x in raw_list]
+
+        # --- DEBUG LOGGING: PRE-TRUNCATION ---
+        debug_roles = [m.get("role") for m in msgs]
+        LOG.debug(f"[CTX-BUILD] Pre-Truncation Roles: {debug_roles}")
+        # -------------------------------------
+
         normalized = self._normalize_roles(msgs)
-        return self.conversation_truncator.truncate(normalized) if trunk else normalized
+
+        if trunk:
+            truncated = self.conversation_truncator.truncate(normalized)
+            LOG.debug(f"[CTX-BUILD] Post-Truncation Count: {len(truncated)}")
+            return truncated
+
+        return normalized
 
     def replace_system_message(
         self, context_window: list[dict], new_system_message: str | None = None

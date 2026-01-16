@@ -4,10 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 from projectdavid_common import UtilsInterface, ValidationInterface
-from sqlalchemy.orm import Session
 
-# --- FIX: Step 1 ---
-# Import the SessionLocal factory.
 from src.api.entities_api.db.database import SessionLocal
 from src.api.entities_api.models.models import Message, Thread
 from src.api.entities_api.services.logging_service import LoggingUtility
@@ -18,9 +15,6 @@ logging_utility = LoggingUtility()
 
 class MessageService:
 
-    # --- FIX: Step 2 ---
-    # The constructor no longer accepts or stores a database session.
-    # The in-memory message_chunks cache is instance-specific and can remain.
     def __init__(self):
         self.message_chunks: Dict[str, List[str]] = {}
         logging_utility.info(f"Initialized MessageService. Source: {__file__}")
@@ -32,8 +26,6 @@ class MessageService:
         logging_utility.info(
             f"Creating message for thread_id={message.thread_id}, role={message.role}. Source: {__file__}"
         )
-        # --- FIX: Step 3 ---
-        # Each method now creates and manages its own session.
         with SessionLocal() as db:
             db_thread = db.query(Thread).filter(Thread.id == message.thread_id).first()
             if not db_thread:
@@ -67,6 +59,7 @@ class MessageService:
                 db.rollback()
                 raise HTTPException(status_code=500, detail="Failed to create message")
 
+            # Manual construction handles deserialization safely here
             return ValidationInterface.MessageRead(
                 id=db_message.id,
                 assistant_id=db_message.assistant_id,
@@ -143,12 +136,13 @@ class MessageService:
 
             messages: List[validator.MessageRead] = []
             for db_msg in db_messages:
-                meta_data = db_msg.meta_data
-                if isinstance(meta_data, str):
+                # --- FIX: Deserialize meta_data on the object before validation ---
+                if isinstance(db_msg.meta_data, str):
                     try:
-                        meta_data = json.loads(meta_data)
+                        db_msg.meta_data = json.loads(db_msg.meta_data)
                     except (TypeError, ValueError):
-                        meta_data = {}
+                        db_msg.meta_data = {}
+                # ------------------------------------------------------------------
                 messages.append(validator.MessageRead.model_validate(db_msg))
 
             return validator.MessagesList(
@@ -201,6 +195,14 @@ class MessageService:
                 db.rollback()
                 raise HTTPException(status_code=500, detail="Failed to save message")
 
+            # --- FIX: Deserialize meta_data before model_validate ---
+            if isinstance(db_message.meta_data, str):
+                try:
+                    db_message.meta_data = json.loads(db_message.meta_data)
+                except (json.JSONDecodeError, TypeError):
+                    db_message.meta_data = {}
+            # --------------------------------------------------------
+
             return ValidationInterface.MessageRead.model_validate(db_message)
 
     def list_messages_for_thread(self, thread_id: str) -> List[Dict[str, Any]]:
@@ -251,7 +253,7 @@ class MessageService:
                 assistant_id=message.assistant_id,
                 content=message.content,
                 created_at=int(time.time()),
-                meta_data=json.dumps(message.meta_data or {}),  # Serialized to string for DB
+                meta_data=json.dumps(message.meta_data or {}),
                 object="message",
                 role="tool",
                 tool_id=message.tool_id,
@@ -260,21 +262,19 @@ class MessageService:
             try:
                 db.add(db_message)
                 db.commit()
-                db.refresh(db_message)  # db_message.meta_data is now a string like '{}'
+                db.refresh(db_message)
             except Exception as e:
                 db.rollback()
                 raise HTTPException(status_code=500, detail="Failed to create message")
 
-            # --- FIX HERE ---
-            # Manually convert the string back to a dict so Pydantic validation passes
+            # --- FIX: Deserialize meta_data before model_validate ---
             if isinstance(db_message.meta_data, str):
                 try:
                     db_message.meta_data = json.loads(db_message.meta_data)
                 except (json.JSONDecodeError, TypeError):
                     db_message.meta_data = {}
-            # ----------------
+            # --------------------------------------------------------
             return ValidationInterface.MessageRead.model_validate(db_message)
-
 
     def delete_message(self, message_id: str) -> validator.MessageDeleted:
         """Delete message row and return deletion envelope."""

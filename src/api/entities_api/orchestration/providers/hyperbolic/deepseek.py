@@ -1,12 +1,6 @@
 from __future__ import annotations
 
-"""
-Hyperbolic Ds1 – DeepSeek provider (Refined Stream variant)
-───────────────────────────────────────────────────────────
-• Intercepts raw stream to suppress <fc> and <think> tags server-side.
-• Categorizes chunks into 'content', 'call_arguments', and 'reasoning'.
-• Ensures 'accumulated' preserves all tags for final Regex-based orchestration.
-"""
+"\nHyperbolic Ds1 – DeepSeek provider (Refined Stream variant)\n───────────────────────────────────────────────────────\n• Intercepts raw stream to suppress <fc> and <think> tags server-side.\n• Categorizes chunks into 'content', 'call_arguments', and 'reasoning'.\n• Ensures 'accumulated' preserves all tags for final Regex-based orchestration.\n"
 import json
 import os
 from typing import Any, Generator, Optional
@@ -164,11 +158,16 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
         if mapped := self._get_model_map(model):
             model = mapped
 
-        ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
+        ctx = self._set_up_context_window(assistant_id, thread_id, trunk=False)
+
+        LOG.debug(f"CONTEXT DUMP: {json.dumps(ctx, indent=2, ensure_ascii=False)}")
+
+
         if model == "deepseek-ai/DeepSeek-R1":
             amended = self._build_amended_system_message(assistant_id=assistant_id)
             ctx = self.replace_system_message(ctx,
                                               json.dumps(amended, ensure_ascii=False, indent=2))
+
 
         payload = {"model": model, "messages": ctx, "max_tokens": 10000, "temperature": 0.6,
                    "stream": True}

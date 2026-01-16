@@ -5,10 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from redis.asyncio import Redis
-from sqlalchemy.orm import Session
 
 # NOTE: get_db is no longer needed in the endpoint signatures.
-from src.api.entities_api.dependencies import get_api_key, get_db, get_redis
+from src.api.entities_api.dependencies import get_api_key, get_redis
 from src.api.entities_api.models.models import ApiKey as ApiKeyModel
 from src.api.entities_api.services.message_service import MessageService
 
