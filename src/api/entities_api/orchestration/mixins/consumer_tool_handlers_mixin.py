@@ -1,3 +1,4 @@
+# src/api/entities_api/orchestration/mixins/consumer_tool_handlers_mixin.py
 from __future__ import annotations
 
 import json
@@ -31,11 +32,7 @@ class ConsumerToolHandlersMixin:
         action: Any,
         is_error: bool = False,
     ) -> None:
-        """
-        Push tool output (or error) to the thread and update Action status.
-        Args:
-            is_error: If True, marks the Action as failed and formats content as an error payload.
-        """
+        """Push tool output (or error) to the thread and update Action status."""
         if not content:
             content = ERROR_NO_CONTENT
         try:
@@ -46,9 +43,13 @@ class ConsumerToolHandlersMixin:
                 assistant_id=assistant_id,
                 tool_id=getattr(action, "id", "dummy"),
             )
+
+            # Map bool to Enum
+            final_status = StatusEnum.failed if is_error else StatusEnum.completed
+
             self.project_david_client.actions.update_action(
                 action_id=action.id,
-                status=StatusEnum.failed if is_error else StatusEnum.completed,
+                status=final_status.value,
             )
         except Exception as exc:
             LOG.error("submit_tool_output failed: %s", exc, exc_info=True)
@@ -70,7 +71,7 @@ class ConsumerToolHandlersMixin:
             )
         finally:
             self.project_david_client.actions.update_action(
-                action_id=action.id, status=StatusEnum.failed
+                action_id=action.id, status=StatusEnum.failed.value
             )
 
     def _format_error_payload(
@@ -116,18 +117,20 @@ class ConsumerToolHandlersMixin:
         poll_interval: float = 1.0,
         max_wait: float = 60.0,
     ) -> None:
-        """
-        Handles consumer-side tool calls with dual-path error handling.
-        """
+        """Handles consumer-side tool calls with dual-path error handling."""
         action = self.project_david_client.actions.create_action(
             tool_name=content["name"], run_id=run_id, function_args=content["arguments"]
         )
         try:
+            # Signal that we are waiting for user action
             self.project_david_client.runs.update_run_status(
-                run_id, StatusEnum.pending_action
+                run_id, StatusEnum.pending_action.value
             )
+
+            # Start the poll
             self._poll_for_completion(run_id, action.id, max_wait, poll_interval)
-            LOG.debug("Tool %s dispatched (run %s)", content["name"], run_id)
+            LOG.debug("Tool %s completed/processed (run %s)", content["name"], run_id)
+
         except Exception as exc:
             self._handle_tool_error(
                 exc, thread_id=thread_id, assistant_id=assistant_id, action=action
@@ -136,15 +139,46 @@ class ConsumerToolHandlersMixin:
     def _poll_for_completion(
         self, run_id: str, action_id: str, max_wait: float, poll_interval: float
     ) -> None:
-        """Polls until the Action is completed or timeout."""
+        """
+        Polls until the Action is completed OR the Run reaches a terminal state.
+        """
         start = time.time()
+
+        # Define terminal statuses that should break the polling loop
+        terminal_run_statuses = {
+            StatusEnum.completed.value,
+            StatusEnum.failed.value,
+            StatusEnum.cancelled.value,
+            StatusEnum.expired.value,
+            StatusEnum.deleted.value
+        }
+
         while True:
-            if not self.project_david_client.actions.get_pending_actions(run_id=run_id):
+            # 1. Success condition: Are there no pending actions left?
+            # (If empty, it means the consumer submitted and we marked it completed)
+            pending = self.project_david_client.actions.get_pending_actions(run_id=run_id)
+            if not pending:
+                LOG.debug("Action %s resolved for run %s.", action_id, run_id)
                 break
+
+            # 2. Safety condition: Has the Run itself died/finished elsewhere?
+            # (Prevents infinite loops if the user cancels the run while we wait)
+            run = self.project_david_client.runs.retrieve_run(run_id)
+            status_val = run.status.value if hasattr(run.status, "value") else str(run.status)
+
+            if status_val in terminal_run_statuses:
+                LOG.warning(
+                    "Stopping tool poll. Run %s reached terminal state: %s",
+                    run_id, status_val
+                )
+                break
+
+            # 3. Timeout condition
             if time.time() - start > max_wait:
                 raise TimeoutError(
                     f"Timeout waiting for action {action_id} (run {run_id})"
                 )
+
             time.sleep(poll_interval)
 
     def handle_error(
@@ -186,5 +220,5 @@ class ConsumerToolHandlersMixin:
         )
         self.project_david_client.runs.update_run_status(
             run_id=run_id,
-            new_status=StatusEnum.failed if is_error else StatusEnum.completed,
+            new_status=StatusEnum.failed.value if is_error else StatusEnum.completed.value,
         )
