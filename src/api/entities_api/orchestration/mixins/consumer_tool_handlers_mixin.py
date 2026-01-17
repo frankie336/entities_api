@@ -150,13 +150,15 @@ class ConsumerToolHandlersMixin:
             StatusEnum.failed.value,
             StatusEnum.cancelled.value,
             StatusEnum.expired.value,
-            StatusEnum.deleted.value
+            StatusEnum.deleted.value,
         }
 
         while True:
             # 1. Success condition: Are there no pending actions left?
             # (If empty, it means the consumer submitted and we marked it completed)
-            pending = self.project_david_client.actions.get_pending_actions(run_id=run_id)
+            pending = self.project_david_client.actions.get_pending_actions(
+                run_id=run_id
+            )
             if not pending:
                 LOG.debug("Action %s resolved for run %s.", action_id, run_id)
                 break
@@ -164,12 +166,15 @@ class ConsumerToolHandlersMixin:
             # 2. Safety condition: Has the Run itself died/finished elsewhere?
             # (Prevents infinite loops if the user cancels the run while we wait)
             run = self.project_david_client.runs.retrieve_run(run_id)
-            status_val = run.status.value if hasattr(run.status, "value") else str(run.status)
+            status_val = (
+                run.status.value if hasattr(run.status, "value") else str(run.status)
+            )
 
             if status_val in terminal_run_statuses:
                 LOG.warning(
                     "Stopping tool poll. Run %s reached terminal state: %s",
-                    run_id, status_val
+                    run_id,
+                    status_val,
                 )
                 break
 
@@ -220,5 +225,7 @@ class ConsumerToolHandlersMixin:
         )
         self.project_david_client.runs.update_run_status(
             run_id=run_id,
-            new_status=StatusEnum.failed.value if is_error else StatusEnum.completed.value,
+            new_status=(
+                StatusEnum.failed.value if is_error else StatusEnum.completed.value
+            ),
         )
