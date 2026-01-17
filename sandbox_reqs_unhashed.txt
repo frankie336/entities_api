@@ -11,5 +11,5 @@ websockets==15.0.1
 # ------------------------------------------------------------------ #
 # Internal packages
 projectdavid==1.39.0
-projectdavid_common==0.19.1
+# projectdavid_common==0.20.0
 
