@@ -7,9 +7,9 @@ from entities_api.orchestration.engine.inference_arbiter import \
     InferenceArbiter
 from src.api.entities_api.orchestration.providers.hyperbolic.deepseek import \
     HyperbolicDs1
-from src.api.entities_api.orchestration.providers.hyperbolic.llama_3_3 import \
+from src.api.entities_api.orchestration.providers.hyperbolic.llama import \
     HyperbolicLlama33
-from src.api.entities_api.orchestration.providers.hyperbolic.quen_qwq_32b import \
+from src.api.entities_api.orchestration.providers.hyperbolic.quen import \
     HyperbolicQuenQwq32B
 
 logging_utility = LoggingUtility()

@@ -1,4 +1,4 @@
-# src/api/entities_api/orchestration/providers/hyperbolic/llama_3_3.py
+# src/api/entities_api/orchestration/providers/hyperbolic/llama.py
 from __future__ import annotations
 
 '\nHyperbolic-Llama-3-33B provider\n———————————————\n• Re-uses the C3-safe mix-in bundle.\n• Keeps the **same streaming semantics** you had:\n    – live SSE JSON (“type”: "content", "hot_code", …)\n    – inline buffering of code-interpreter blocks\n    – Redis fan-out identical to Ds1\n• No <think>/<fc> tagging in Llama-3 responses, but we still honour it\n  in case your prompt template inserts them.\n'

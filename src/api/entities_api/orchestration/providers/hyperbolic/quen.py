@@ -1,4 +1,4 @@
-# src/api/entities_api/orchestration/providers/hyperbolic/quen_qwq_32b.py
+# src/api/entities_api/orchestration/providers/hyperbolic/quen.py
 from __future__ import annotations
 
 import json
