@@ -1,22 +1,24 @@
 # src/api/entities_api/orchestration/providers/hyperbolic/llama.py
 from __future__ import annotations
 
-'\nHyperbolic-Llama-3-33B provider\n———————————————\n• Re-uses the C3-safe mix-in bundle.\n• Keeps the **same streaming semantics** you had:\n    – live SSE JSON (“type”: "content", "hot_code", …)\n    – inline buffering of code-interpreter blocks\n    – Redis fan-out identical to Ds1\n• No <think>/<fc> tagging in Llama-3 responses, but we still honour it\n  in case your prompt template inserts them.\n'
 import json
 import os
 from typing import Any, Generator, Optional
 
+import requests
 from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
-from entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
 from src.api.entities_api.dependencies import get_redis
+from src.api.entities_api.orchestration.engine.orchestrator_core import \
+    OrchestratorCore
 from src.api.entities_api.orchestration.mixins import (
     AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
     ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
     PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
+from src.api.entities_api.orchestration.streaming.hyperbolic import \
+    HyperbolicDeltaNormalizer
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -38,7 +40,8 @@ class _ProviderMixins(
 
 class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
     """
-    Meta-Llama-3-33B served by Hyperbolic – streaming & tool orchestration.
+    Modular Meta-Llama-3-33B Provider.
+    Refactored to use inline requests streaming to guarantee compatibility.
     """
 
     def __init__(
@@ -52,19 +55,22 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
         assistant_cache: dict | None = None,
         **extra,
     ) -> None:
-        self._assistant_cache: dict = assistant_cache or {}
+        self._assistant_cache: dict = (
+            assistant_cache or extra.get("assistant_cache") or {}
+        )
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
         self.base_url = base_url or os.getenv("BASE_URL")
         self.api_key = api_key
-        self.model_name = extra.get(
-            "model_name", "meta-llama/Meta-Llama-3-33B-Instruct"
-        )
+
+        # Attributes required by Truncator logic
+        self.model_name = extra.get("model_name", "meta-llama/Llama-3.3-70B-Instruct")
         self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
+
         self.setup_services()
-        LOG.debug("Hyperbolic-Llama-3 provider ready (assistant=%s)", assistant_id)
+        LOG.debug("Hyperbolic-Llama provider ready (assistant=%s)", assistant_id)
 
     @property
     def assistant_cache(self) -> dict:
@@ -72,130 +78,236 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
 
     @assistant_cache.setter
     def assistant_cache(self, value: dict) -> None:
-        if hasattr(self, "_assistant_cache"):
+        if hasattr(self, "_assistant_cache") and self._assistant_cache:
             raise AttributeError("assistant_cache already initialised")
         self._assistant_cache = value
 
     def get_assistant_cache(self) -> dict:
         return self._assistant_cache
 
-    @staticmethod
-    def _filter_fc(chunk_json: str) -> Optional[str]:
-        try:
-            if json.loads(chunk_json).get("type") == "function_call":
-                return None
-        except Exception:
-            pass
-        return chunk_json
-
     def stream(
         self,
         thread_id: str,
-        message_id: str,
+        message_id: Optional[str],
         run_id: str,
         assistant_id: str,
         model: Any,
-        *,
-        stream_reasoning: bool = True,
         api_key: Optional[str] = None,
+        **kwargs,
     ) -> Generator[str, None, None]:
         redis = get_redis()
         stream_key = f"stream:{run_id}"
-        self.start_cancellation_listener(run_id)
-        if mapped := self._get_model_map(model):
-            model = mapped
-        ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
-        payload = {
-            "model": model,
-            "messages": ctx,
-            "max_tokens": 10000,
-            "temperature": 0.6,
-            "stream": True,
-        }
+        stop_event = self.start_cancellation_monitor(run_id)
+
         try:
-            client = self._get_openai_client(
-                base_url=os.getenv("HYPERBOLIC_BASE_URL"), api_key=api_key
-            )
-        except Exception as exc:
-            err = {"type": "error", "content": f"client init failed: {exc}"}
-            yield json.dumps(err)
-            self._shunt_to_redis_stream(redis, stream_key, err)
-            return
-        assistant_reply = accumulated = ""
-        code_mode = False
-        code_buf = ""
-        start_chunk = {"type": "status", "status": "started", "run_id": run_id}
-        yield json.dumps(start_chunk)
-        self._shunt_to_redis_stream(redis, stream_key, start_chunk)
-        try:
-            for token in client.chat.completions.create(**payload):
-                if self.check_cancellation_flag():
+            # 1. Standard model cleanup
+            if isinstance(model, str) and model.startswith("hyperbolic/"):
+                model = model.replace("hyperbolic/", "")
+            if mapped := self._get_model_map(model):
+                model = mapped
+
+            # 2. Get the context (contains the 'tools:\n[' string in system message)
+            raw_ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
+
+            # --- TOOL EXTRACTION LOGIC ---
+            cleaned_ctx = []
+            extracted_tools = None
+
+            for msg in raw_ctx:
+                content = msg.get("content") or ""
+                # Detect the tools block injected by the Mixin
+                if msg.get("role") == "system" and "tools:\n[" in content:
+                    try:
+                        parts = content.split("tools:\n", 1)
+                        system_text = parts[0].strip()
+                        tools_json_str = parts[1].strip()
+
+                        # Parse the tools back into a list
+                        extracted_tools = json.loads(tools_json_str)
+
+                        # Replace the message with one that doesn't have the tools block
+                        cleaned_ctx.append(
+                            {
+                                "role": "system",
+                                "content": (
+                                    system_text
+                                    if system_text
+                                    else "You are a helpful assistant."
+                                ),
+                            }
+                        )
+                        continue
+                    except Exception as e:
+                        LOG.error(
+                            "Failed to extract/parse tools from system message: %s", e
+                        )
+
+                # Clean up any other fields (id, created_at) that might break raw requests
+                cleaned_ctx.append(
+                    {"role": msg["role"], "content": msg.get("content") or ""}
+                )
+
+            if not api_key:
+                yield json.dumps({"type": "error", "content": "Missing API key."})
+                return
+
+            # --- PAYLOAD CONSTRUCTION ---
+            url = "https://api.hyperbolic.xyz/v1/chat/completions"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            }
+
+            payload = {
+                "messages": cleaned_ctx,
+                "model": model,
+                "temperature": kwargs.get("temperature", 0.6),
+                "top_p": 0.9,
+                "stream": True,
+            }
+
+            # Inject tools into the native API parameter if we found them
+            if extracted_tools:
+                payload["tools"] = extracted_tools
+                # If tools are present, Llama handles 'role: tool' in the history correctly.
+
+            # --- INLINE REQUESTS STREAMING ---
+            def raw_json_generator():
+                # Use a timeout for the initial connection
+                with requests.post(
+                    url, headers=headers, json=payload, stream=True, timeout=30
+                ) as resp:
+                    if resp.status_code != 200:
+                        error_text = resp.text
+                        LOG.error(f"Hyperbolic API Error: {error_text}")
+                        yield {
+                            "type": "error",
+                            "content": f"API Error {resp.status_code}: {error_text}",
+                        }
+                        return
+
+                    for line in resp.iter_lines():
+                        if stop_event.is_set():
+                            break
+                        if not line:
+                            continue
+                        decoded = line.decode("utf-8")
+                        if decoded.startswith("data: "):
+                            content = decoded[6:]
+                            if content == "[DONE]":
+                                break
+                            try:
+                                yield json.loads(content)
+                            except json.JSONDecodeError:
+                                continue
+
+            yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
+
+            assistant_reply, accumulated, current_block = "", "", None
+            code_mode = False
+
+            # Feed the generator into the Universal Normalizer
+            for chunk in HyperbolicDeltaNormalizer.iter_deltas(
+                raw_json_generator(), run_id
+            ):
+                # Handle error dicts yielded by the generator
+                if isinstance(chunk, dict) and chunk.get("type") == "error":
+                    yield json.dumps(chunk)
+                    break
+
+                if stop_event.is_set():
                     err = {"type": "error", "content": "Run cancelled"}
-                    if p := self._filter_fc(json.dumps(err)):
-                        yield p
+                    yield json.dumps(err)
                     self._shunt_to_redis_stream(redis, stream_key, err)
                     break
-                if not token.choices or not token.choices[0].delta:
-                    continue
-                seg = getattr(token.choices[0].delta, "content", "")
-                if not seg:
-                    continue
-                assistant_reply += seg
-                accumulated += seg
-                parse_ci = getattr(self, "parse_code_interpreter_partial", None)
-                ci_match = (
-                    parse_ci(accumulated) if parse_ci and (not code_mode) else None
-                )
-                if ci_match:
-                    code_mode = True
-                    code_buf = ci_match.get("code", "")
-                    start = {"type": "hot_code", "content": "```python\n"}
-                    if p := self._filter_fc(json.dumps(start)):
-                        yield p
-                    self._shunt_to_redis_stream(redis, stream_key, start)
-                    if code_buf and hasattr(self, "_process_code_interpreter_chunks"):
-                        res, code_buf = self._process_code_interpreter_chunks(
-                            "", code_buf
-                        )
-                        for r in res:
-                            if p := self._filter_fc(r):
-                                yield p
-                            self._shunt_to_redis_stream(
-                                redis, stream_key, json.loads(r)
+
+                ctype, ccontent = chunk["type"], chunk["content"]
+
+                # --- METHODOLOGY: TAG INJECTION ---
+                if ctype == "content":
+                    if current_block == "fc":
+                        accumulated += "</fc>"
+                    elif current_block == "think":
+                        accumulated += "</think>"
+                    current_block = None
+                    assistant_reply += ccontent
+                elif ctype == "call_arguments":
+                    if current_block != "fc":
+                        if current_block == "think":
+                            accumulated += "</think>"
+                        accumulated += "<fc>"
+                        current_block = "fc"
+                elif ctype == "reasoning":
+                    if current_block != "think":
+                        if current_block == "fc":
+                            accumulated += "</fc>"
+                        accumulated += "<think>"
+                        current_block = "think"
+
+                accumulated += ccontent
+
+                # --- CODE INTERPRETER INTERLEAVING ---
+                if ctype == "content":
+                    parse_ci = getattr(self, "parse_code_interpreter_partial", None)
+                    ci_match = (
+                        parse_ci(accumulated) if parse_ci and not code_mode else None
+                    )
+                    if ci_match:
+                        code_mode = True
+                        code_buf = ci_match.get("code", "")
+                        start = {"type": "hot_code", "content": "```python\n"}
+                        yield json.dumps(start)
+                        self._shunt_to_redis_stream(redis, stream_key, start)
+                        if hasattr(self, "_process_code_interpreter_chunks"):
+                            res, code_buf = self._process_code_interpreter_chunks(
+                                "", code_buf
                             )
-                    continue
-                if code_mode:
-                    if hasattr(self, "_process_code_interpreter_chunks"):
-                        res, code_buf = self._process_code_interpreter_chunks(
-                            seg, code_buf
-                        )
-                        for r in res:
-                            if p := self._filter_fc(r):
-                                yield p
-                            self._shunt_to_redis_stream(
-                                redis, stream_key, json.loads(r)
+                            for r in res:
+                                yield r
+                                self._shunt_to_redis_stream(
+                                    redis, stream_key, json.loads(r)
+                                )
+                        continue
+
+                    if code_mode:
+                        if hasattr(self, "_process_code_interpreter_chunks"):
+                            res, code_buf = self._process_code_interpreter_chunks(
+                                ccontent, code_buf
                             )
-                    else:
-                        hot = {"type": "hot_code", "content": seg}
-                        if p := self._filter_fc(json.dumps(hot)):
-                            yield p
-                        self._shunt_to_redis_stream(redis, stream_key, hot)
-                    continue
-                msg = {"type": "content", "content": seg}
-                if p := self._filter_fc(json.dumps(msg)):
-                    yield p
-                self._shunt_to_redis_stream(redis, stream_key, msg)
+                            for r in res:
+                                yield r
+                                self._shunt_to_redis_stream(
+                                    redis, stream_key, json.loads(r)
+                                )
+                        else:
+                            hot = {"type": "hot_code", "content": ccontent}
+                            yield json.dumps(hot)
+                            self._shunt_to_redis_stream(redis, stream_key, hot)
+                        continue
+
+                yield json.dumps(chunk)
+                self._shunt_to_redis_stream(redis, stream_key, chunk)
+
         except Exception as exc:
-            err = {"type": "error", "content": f"Llama-3 SDK error: {exc}"}
-            if p := self._filter_fc(json.dumps(err)):
-                yield p
+            err = {"type": "error", "content": f"Llama stream error: {exc}"}
+            yield json.dumps(err)
             self._shunt_to_redis_stream(redis, stream_key, err)
-            return
+        finally:
+            # Ensure tags are closed if stream ends abruptly
+            if current_block == "fc":
+                accumulated += "</fc>"
+            elif current_block == "think":
+                accumulated += "</think>"
+            stop_event.set()
+
+        # FINAL CLOSE-OUT
         end_chunk = {"type": "status", "status": "complete", "run_id": run_id}
         yield json.dumps(end_chunk)
         self._shunt_to_redis_stream(redis, stream_key, end_chunk)
+
         if assistant_reply:
             self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
+
         if accumulated and self.parse_and_set_function_calls(
             accumulated, assistant_reply
         ):
@@ -210,24 +322,30 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
     def process_conversation(
         self,
         thread_id: str,
-        message_id: str,
+        message_id: Optional[str],
         run_id: str,
         assistant_id: str,
         model: Any,
-        *,
-        stream_reasoning: bool = False,
         api_key: Optional[str] = None,
-    ) -> Generator[str, None, None]:
+        stream_reasoning: bool = True,
+        **kwargs,
+    ):
         yield from self.stream(
             thread_id,
             message_id,
             run_id,
             assistant_id,
             model,
-            stream_reasoning=stream_reasoning,
             api_key=api_key,
+            **kwargs,
         )
+
         if self.get_function_call_state():
             yield from self.process_function_calls(
                 thread_id, run_id, assistant_id, model=model, api_key=api_key
+            )
+            self.set_tool_response_state(False)
+            self.set_function_call_state(None)
+            yield from self.stream(
+                thread_id, None, run_id, assistant_id, model, api_key=api_key, **kwargs
             )

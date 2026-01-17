@@ -21,7 +21,7 @@ All logic that builds the message list passed to the LLM:
 import json
 import os
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 from projectdavid import Entity
 
@@ -174,3 +174,55 @@ class ConversationContextMixin:
             new_system_msg = {"role": "system", "content": new_system_message}
             filtered_messages.insert(0, new_system_msg)
         return filtered_messages
+
+    def prepare_native_tool_context(
+        self, context_window: List[Dict]
+    ) -> Tuple[List[Dict], Optional[List[Dict]]]:
+        """
+        NEW: Performs 'Context Surgery' to extract tool definitions
+        from the system message and prepare the context for native tool-calling models.
+
+        Returns:
+            (cleaned_ctx, extracted_tools)
+        """
+        cleaned_ctx = []
+        extracted_tools = None
+
+        for msg in context_window:
+            role = msg.get("role")
+            content = msg.get("content") or ""
+            new_msg = dict(msg)  # Clone to avoid mutating original list items
+
+            # 1. Extract tools from system prompt if injected as text by _build_system_message
+            if role == "system" and "tools:\n[" in content:
+                try:
+                    parts = content.split("tools:\n", 1)
+                    system_text = parts[0].strip()
+                    # Find where the JSON array ends
+                    tools_json_str = parts[1].strip()
+
+                    # We assume the Mixin's injection format: tools:\n[...JSON...]\nInstructions
+                    # We can use a simple split or more robust JSON detection
+                    if "\n" in tools_json_str:
+                        json_part, instructions_part = tools_json_str.split("\n", 1)
+                        extracted_tools = json.loads(json_part)
+                        new_msg["content"] = (
+                            f"{system_text}\n{instructions_part}".strip()
+                        )
+                    else:
+                        extracted_tools = json.loads(tools_json_str)
+                        new_msg["content"] = (
+                            system_text
+                            if system_text
+                            else "You are a helpful assistant."
+                        )
+                except Exception as e:
+                    LOG.error(f"[CTX-MIXIN] Failed tool extraction: {e}")
+
+            # 2. Stringify tool content (APIs like Hyperbolic require content to be a string)
+            if role == "tool" and not isinstance(content, str):
+                new_msg["content"] = json.dumps(content)
+
+            cleaned_ctx.append(new_msg)
+
+        return cleaned_ctx, extracted_tools

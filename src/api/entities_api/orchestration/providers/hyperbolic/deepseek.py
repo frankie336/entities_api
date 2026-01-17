@@ -38,6 +38,11 @@ class _ProviderMixins(
 
 
 class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
+    """
+    Specialized DeepSeek-V3/R1 Provider.
+    Uses a custom state-machine to handle XML-tagged thinking and tool-calls.
+    """
+
     def __init__(
         self, *, assistant_id=None, thread_id=None, redis=None, **extra
     ) -> None:
@@ -48,7 +53,13 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
         self.base_url = os.getenv("BASE_URL")
         self.api_key = extra.get("api_key")
         self.model_name = extra.get("model_name", "deepseek-ai/DeepSeek-V3")
+
+        # --- FIXED: Attributes required by ConversationContextMixin / Truncator ---
+        self.max_context_window = extra.get("max_context_window", 128000)
+        self.threshold_percentage = extra.get("threshold_percentage", 0.8)
+
         self.setup_services()
+        LOG.debug("Hyperbolic-Ds1 provider ready (assistant=%s)", assistant_id)
 
     @property
     def assistant_cache(self) -> dict:
@@ -71,7 +82,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
         *,
         stream_reasoning: bool = True,
         api_key: Optional[str] = None,
-        **kwargs,  # <-- ADDED THIS to catch extra router params
+        **kwargs,
     ) -> Generator[str, None, None]:
         redis = get_redis()
         stream_key = f"stream:{run_id}"
@@ -80,7 +91,9 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
         try:
             if mapped := self._get_model_map(model):
                 model = mapped
-            ctx = self._set_up_context_window(assistant_id, thread_id, trunk=False)
+
+            # Since trunk=True is used, the Truncator now finds self.max_context_window
+            ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
 
             if model == "deepseek-ai/DeepSeek-R1":
                 amended = self._build_amended_system_message(assistant_id=assistant_id)
@@ -92,7 +105,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                 "model": model,
                 "messages": ctx,
                 "max_tokens": 10000,
-                "temperature": kwargs.get("temperature", 0.6),  # Extract from kwargs
+                "temperature": kwargs.get("temperature", 0.6),
                 "stream": True,
             }
 
@@ -206,8 +219,6 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
         stream_reasoning=True,
         **kwargs,
     ):
-        # By naming api_key and stream_reasoning here, they are pulled OUT of **kwargs
-
         yield from self.stream(
             thread_id,
             message_id,

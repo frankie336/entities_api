@@ -1,4 +1,4 @@
-# src/api/entities_api/orchestration/streaming/delta_normalizer.py
+# src/api/entities_api/orchestration/streaming/hyperbolic.py
 
 
 class HyperbolicDeltaNormalizer:
@@ -11,20 +11,49 @@ class HyperbolicDeltaNormalizer:
         state = "content"
 
         for token in raw_stream:
-            # --- NEW: Handle both Objects (OpenAI) and Raw Strings (Custom SDKs) ---
             seg = ""
-            if isinstance(token, str):
-                seg = token
+
+            # --- Dictionary Handling (Home-brew Client) ---
+            if isinstance(token, dict):
+                delta = token.get("choices", [{}])[0].get("delta", {})
+
+                # A. Handle Native Reasoning (DeepSeek R1 / Llama R1 Distills)
+                reasoning = delta.get("reasoning_content")
+                if reasoning:
+                    yield {"type": "reasoning", "content": reasoning, "run_id": run_id}
+
+                # B. Handle Native Tool Calls (Llama 3.3 style)
+                if delta.get("tool_calls"):
+                    for tc in delta["tool_calls"]:
+                        args = tc.get("function", {}).get("arguments", "")
+                        if args:
+                            yield {
+                                "type": "call_arguments",
+                                "content": args,
+                                "run_id": run_id,
+                            }
+
+                seg = delta.get("content", "") or ""
+
+            # --- Object Handling (Official SDK) ---
             elif hasattr(token, "choices") and token.choices:
                 delta = token.choices[0].delta
                 seg = getattr(delta, "content", "") or ""
+                t_calls = getattr(delta, "tool_calls", None)
+                if t_calls:
+                    for tc in t_calls:
+                        if tc.function and tc.function.arguments:
+                            yield {
+                                "type": "call_arguments",
+                                "content": tc.function.arguments,
+                                "run_id": run_id,
+                            }
 
             if not seg:
                 continue
 
             for char in seg:
                 buffer += char
-
                 if state == "content":
                     if cls.FC_START.startswith(buffer) or cls.TH_START.startswith(
                         buffer
@@ -38,7 +67,6 @@ class HyperbolicDeltaNormalizer:
                         continue
                     yield {"type": "content", "content": buffer, "run_id": run_id}
                     buffer = ""
-
                 elif state == "fc":
                     if cls.FC_END in buffer:
                         pre, post = buffer.split(cls.FC_END, 1)
@@ -61,7 +89,6 @@ class HyperbolicDeltaNormalizer:
                             "run_id": run_id,
                         }
                         buffer = ""
-
                 elif state == "think":
                     if cls.TH_END in buffer:
                         pre, post = buffer.split(cls.TH_END, 1)
