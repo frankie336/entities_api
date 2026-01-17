@@ -1,6 +1,5 @@
 # src/api/entities_api/orchestration/streaming/hyperbolic.py
 
-
 class HyperbolicDeltaNormalizer:
     FC_START, FC_END = "<fc>", "</fc>"
     TH_START, TH_END = "<think>", "</think>"
@@ -15,7 +14,12 @@ class HyperbolicDeltaNormalizer:
 
             # --- Dictionary Handling (Home-brew Client) ---
             if isinstance(token, dict):
-                delta = token.get("choices", [{}])[0].get("delta", {})
+                # FIX: Check for key existence AND non-empty list
+                choices = token.get("choices")
+                if not choices or not isinstance(choices, list):
+                    continue
+
+                delta = choices[0].get("delta", {})
 
                 # A. Handle Native Reasoning (DeepSeek R1 / Llama R1 Distills)
                 reasoning = delta.get("reasoning_content")
@@ -37,6 +41,7 @@ class HyperbolicDeltaNormalizer:
 
             # --- Object Handling (Official SDK) ---
             elif hasattr(token, "choices") and token.choices:
+                # 'and token.choices' already guards against empty lists here
                 delta = token.choices[0].delta
                 seg = getattr(delta, "content", "") or ""
                 t_calls = getattr(delta, "tool_calls", None)
@@ -49,6 +54,7 @@ class HyperbolicDeltaNormalizer:
                                 "run_id": run_id,
                             }
 
+            # If no content was found in this chunk, skip to next token
             if not seg:
                 continue
 
