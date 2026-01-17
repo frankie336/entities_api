@@ -37,7 +37,7 @@ class _ProviderMixins(
 ):
     """Flat bundle → single inheritance in the concrete class."""
 
-
+# FIXME: Issue preventing second stage of function calling streaming tool output
 class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
     """
     Modular Meta-Llama-3-33B Provider.
