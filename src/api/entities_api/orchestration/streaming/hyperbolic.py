@@ -1,5 +1,6 @@
 # src/api/entities_api/orchestration/streaming/hyperbolic.py
 
+
 class HyperbolicDeltaNormalizer:
     FC_START, FC_END = "<fc>", "</fc>"
     TH_START, TH_END = "<think>", "</think>"

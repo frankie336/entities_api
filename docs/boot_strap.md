@@ -1,16 +1,16 @@
-# 🧪 Development Bootstrap (Direct Scripts)
+#  Development Bootstrap (Direct Scripts)
 
 When developing locally, you can run setup scripts directly — no Docker orchestration required.  
 These scripts offer complete control over admin provisioning, user creation, API key handling, and assistant setup.
 
 ---
 
-## 🛠️ 1. Bootstrap Admin User
+## ️ 1. Bootstrap Admin User
 
 **Script:** `scripts/bootstrap_admin.py`  
 Creates the initial admin user and generates their API key.
 
-### ✅ Basic Usage
+###  Basic Usage
 
 ```bash
 python scripts/bootstrap_admin.py
@@ -27,7 +27,7 @@ python scripts/bootstrap_admin.py
 | `--creds-file`   | Where to write the plaintext API key (default: `./admin_credentials.txt`)                          |
 | `--dotenv-path`  | Path to a `.env` file to update with generated values (default: `./.env`)                          |
 
-### 🌟 Example (Custom Values)
+###  Example (Custom Values)
 
 ```bash
 python scripts/bootstrap_admin.py \
@@ -37,7 +37,7 @@ python scripts/bootstrap_admin.py \
   --db-url "mysql+pymysql://api_user:pw@localhost:3306/cosmic_catalyst"
 ```
 
-### 🖨️ Sample Output
+###  Sample Output
 
 ```bash
 ==================================================
