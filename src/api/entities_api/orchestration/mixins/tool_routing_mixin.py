@@ -104,7 +104,7 @@ class ToolRoutingMixin:
             end_idx = text.rfind("}")
 
             if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-                candidate = text[start_idx: end_idx + 1]
+                candidate = text[start_idx : end_idx + 1]
                 try:
                     # Use ensure_valid_json (mixed in) to handle loose JSON
                     parsed = self.ensure_valid_json(candidate)

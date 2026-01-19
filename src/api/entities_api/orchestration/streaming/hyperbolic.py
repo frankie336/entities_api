@@ -102,10 +102,8 @@ class HyperbolicDeltaNormalizer:
             # --- 4. Handle Standard Content ---
             # Only process content if we didn't just process reasoning (unless they come together)
             seg = (
-                      delta.get("content", "")
-                      if is_dict
-                      else getattr(delta, "content", "")
-                  ) or ""
+                delta.get("content", "") if is_dict else getattr(delta, "content", "")
+            ) or ""
 
             # --- 5. Handle Tool Completion Trigger ---
             if finish_reason == "tool_calls":
@@ -166,7 +164,11 @@ class HyperbolicDeltaNormalizer:
                 # Copying the rest of your state machine logic unchanged below for completeness
                 elif state == "channel_reasoning":
                     if cls.CH_FINAL in buffer or cls.CH_COMMENTARY in buffer:
-                        tag = cls.CH_FINAL if cls.CH_FINAL in buffer else cls.CH_COMMENTARY
+                        tag = (
+                            cls.CH_FINAL
+                            if cls.CH_FINAL in buffer
+                            else cls.CH_COMMENTARY
+                        )
                         pre, post = buffer.split(tag, 1)
                         clean_pre = pre.replace(cls.MSG_TAG, "")
                         if clean_pre:
@@ -176,20 +178,33 @@ class HyperbolicDeltaNormalizer:
                                 "run_id": run_id,
                             }
                         buffer = post
-                        state = "channel_tool_meta" if tag == cls.CH_COMMENTARY else "content"
+                        state = (
+                            "channel_tool_meta"
+                            if tag == cls.CH_COMMENTARY
+                            else "content"
+                        )
                         if state == "content":
                             buffer = buffer.replace(cls.MSG_TAG, "")
-                    elif any(cls.CH_FINAL.startswith(buffer[i:]) or cls.CH_COMMENTARY.startswith(buffer[i:]) for i in
-                             range(len(buffer))):
+                    elif any(
+                        cls.CH_FINAL.startswith(buffer[i:])
+                        or cls.CH_COMMENTARY.startswith(buffer[i:])
+                        for i in range(len(buffer))
+                    ):
                         continue
-                    elif any(cls.MSG_TAG.startswith(buffer[i:]) for i in range(len(buffer))):
+                    elif any(
+                        cls.MSG_TAG.startswith(buffer[i:]) for i in range(len(buffer))
+                    ):
                         if buffer == cls.MSG_TAG:
                             buffer = ""
                         continue
                     else:
                         clean_buf = buffer.replace(cls.MSG_TAG, "")
                         if clean_buf:
-                            yield {"type": "reasoning", "content": clean_buf, "run_id": run_id}
+                            yield {
+                                "type": "reasoning",
+                                "content": clean_buf,
+                                "run_id": run_id,
+                            }
                         buffer = ""
 
                 elif state == "channel_tool_meta":
@@ -207,36 +222,68 @@ class HyperbolicDeltaNormalizer:
                     if found_tag:
                         pre, post = buffer.split(found_tag, 1)
                         if pre:
-                            yield {"type": "call_arguments", "content": pre, "run_id": run_id}
+                            yield {
+                                "type": "call_arguments",
+                                "content": pre,
+                                "run_id": run_id,
+                            }
                         buffer = post
-                        state = "channel_reasoning" if found_tag == cls.CH_ANALYSIS else "content"
-                    elif any(tag.startswith(buffer[i:]) for tag in exit_tags for i in range(len(buffer))):
+                        state = (
+                            "channel_reasoning"
+                            if found_tag == cls.CH_ANALYSIS
+                            else "content"
+                        )
+                    elif any(
+                        tag.startswith(buffer[i:])
+                        for tag in exit_tags
+                        for i in range(len(buffer))
+                    ):
                         continue
                     else:
-                        yield {"type": "call_arguments", "content": buffer, "run_id": run_id}
+                        yield {
+                            "type": "call_arguments",
+                            "content": buffer,
+                            "run_id": run_id,
+                        }
                         buffer = ""
 
                 elif state == "fc":
                     if cls.FC_END in buffer:
                         pre, post = buffer.split(cls.FC_END, 1)
                         if pre:
-                            yield {"type": "call_arguments", "content": pre, "run_id": run_id}
+                            yield {
+                                "type": "call_arguments",
+                                "content": pre,
+                                "run_id": run_id,
+                            }
                         state = "content"
                         buffer = post
-                    elif any(cls.FC_END.startswith(buffer[i:]) for i in range(len(buffer))):
+                    elif any(
+                        cls.FC_END.startswith(buffer[i:]) for i in range(len(buffer))
+                    ):
                         continue
                     else:
-                        yield {"type": "call_arguments", "content": buffer, "run_id": run_id}
+                        yield {
+                            "type": "call_arguments",
+                            "content": buffer,
+                            "run_id": run_id,
+                        }
                         buffer = ""
 
                 elif state == "think":
                     if cls.TH_END in buffer:
                         pre, post = buffer.split(cls.TH_END, 1)
                         if pre:
-                            yield {"type": "reasoning", "content": pre, "run_id": run_id}
+                            yield {
+                                "type": "reasoning",
+                                "content": pre,
+                                "run_id": run_id,
+                            }
                         state = "content"
                         buffer = post
-                    elif any(cls.TH_END.startswith(buffer[i:]) for i in range(len(buffer))):
+                    elif any(
+                        cls.TH_END.startswith(buffer[i:]) for i in range(len(buffer))
+                    ):
                         continue
                     else:
                         yield {"type": "reasoning", "content": buffer, "run_id": run_id}

@@ -48,18 +48,18 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
     """
 
     def __init__(
-            self,
-            *,
-            assistant_id: str | None = None,
-            thread_id: str | None = None,
-            redis=None,
-            base_url: str | None = None,
-            api_key: str | None = None,
-            assistant_cache: dict | None = None,
-            **extra,
+        self,
+        *,
+        assistant_id: str | None = None,
+        thread_id: str | None = None,
+        redis=None,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        assistant_cache: dict | None = None,
+        **extra,
     ) -> None:
         self._assistant_cache: dict = (
-                assistant_cache or extra.get("assistant_cache") or {}
+            assistant_cache or extra.get("assistant_cache") or {}
         )
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
@@ -87,16 +87,16 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
         return self._assistant_cache
 
     def stream(
-            self,
-            thread_id: str,
-            message_id: Optional[str],
-            run_id: str,
-            assistant_id: str,
-            model: Any,
-            *,
-            stream_reasoning: bool = True,
-            api_key: Optional[str] = None,
-            **kwargs,
+        self,
+        thread_id: str,
+        message_id: Optional[str],
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        *,
+        stream_reasoning: bool = True,
+        api_key: Optional[str] = None,
+        **kwargs,
     ) -> Generator[str, None, None]:
         redis = get_redis()
         stream_key = f"stream:{run_id}"
@@ -267,14 +267,14 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             )
 
     def process_conversation(
-            self,
-            thread_id: str,
-            message_id: Optional[str],
-            run_id: str,
-            assistant_id: str,
-            model: Any,
-            api_key: Optional[str] = None,
-            **kwargs,
+        self,
+        thread_id: str,
+        message_id: Optional[str],
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        api_key: Optional[str] = None,
+        **kwargs,
     ):
         # Pass 1: Initial Generation
         yield from self.stream(
