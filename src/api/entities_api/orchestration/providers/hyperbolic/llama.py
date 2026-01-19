@@ -1,4 +1,3 @@
-# src/api/entities_api/orchestration/providers/hyperbolic/llama.py
 from __future__ import annotations
 
 import json
@@ -45,18 +44,18 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
     """
 
     def __init__(
-        self,
-        *,
-        assistant_id: str | None = None,
-        thread_id: str | None = None,
-        redis=None,
-        base_url: str | None = None,
-        api_key: str | None = None,
-        assistant_cache: dict | None = None,
-        **extra,
+            self,
+            *,
+            assistant_id: str | None = None,
+            thread_id: str | None = None,
+            redis=None,
+            base_url: str | None = None,
+            api_key: str | None = None,
+            assistant_cache: dict | None = None,
+            **extra,
     ) -> None:
         self._assistant_cache: dict = (
-            assistant_cache or extra.get("assistant_cache") or {}
+                assistant_cache or extra.get("assistant_cache") or {}
         )
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
@@ -84,14 +83,14 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
         return self._assistant_cache
 
     def stream(
-        self,
-        thread_id: str,
-        message_id: Optional[str],
-        run_id: str,
-        assistant_id: str,
-        model: Any,
-        api_key: Optional[str] = None,
-        **kwargs,
+            self,
+            thread_id: str,
+            message_id: Optional[str],
+            run_id: str,
+            assistant_id: str,
+            model: Any,
+            api_key: Optional[str] = None,
+            **kwargs,
     ) -> Generator[str, None, None]:
         redis = get_redis()
         stream_key = f"stream:{run_id}"
@@ -105,7 +104,7 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
                 model = mapped
 
             # 2. Context & Tool Extraction (Using Mixin logic)
-            raw_ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
+            raw_ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True, tools_native=True)
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
             if not api_key:
@@ -131,7 +130,7 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
 
             def raw_json_generator():
                 with requests.post(
-                    url, headers=headers, json=payload, stream=True, timeout=30
+                        url, headers=headers, json=payload, stream=True, timeout=30
                 ) as resp:
                     if resp.status_code != 200:
                         err_text = resp.text
@@ -156,46 +155,65 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
 
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
-            assistant_reply, accumulated, current_block = "", "", None
+            assistant_reply, accumulated = "", ""
+            reasoning_reply = ""
             code_mode = False
+
+            # Helper for constructing JSON string manually in 'accumulated'
+            is_native_tool_call = False
+            current_native_tool_call = {}
 
             # 4. Standardized Chunk Processing
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(
-                raw_json_generator(), run_id
+                    raw_json_generator(), run_id
             ):
                 if stop_event.is_set():
                     break
 
                 ctype, ccontent = chunk["type"], chunk["content"]
 
-                # --- METHODOLOGY: RE-INJECTION & ACCUMULATION ---
+                # --- METHODOLOGY: ACCUMULATION (No XML Tags) ---
                 if ctype == "content":
-                    if current_block == "fc":
-                        accumulated += "</fc>"
-                    elif current_block == "think":
-                        accumulated += "</think>"
-                    current_block = None
                     assistant_reply += ccontent
-                elif ctype == "call_arguments":
-                    if current_block != "fc":
-                        if current_block == "think":
-                            accumulated += "</think>"
-                        accumulated += "<fc>"
-                        current_block = "fc"
-                elif ctype == "reasoning":
-                    if current_block != "think":
-                        if current_block == "fc":
-                            accumulated += "</fc>"
-                        accumulated += "<think>"
-                        current_block = "think"
 
-                accumulated += ccontent
+                elif ctype == "tool_name":
+                    # Detected start of Llama tool call
+                    # Begin constructing JSON object string in history
+                    is_native_tool_call = True
+                    current_native_tool_call = {"name": ccontent, "arguments": ""}
+                    # Note: We don't append to accumulated yet, waiting for args or completion
+                    accumulated += f'{{"name": "{ccontent}", "arguments": '
+
+                elif ctype == "call_arguments":
+                    # Append raw JSON arguments to history
+                    if is_native_tool_call:
+                        current_native_tool_call["arguments"] += ccontent
+                    accumulated += ccontent
+
+                elif ctype == "tool_call":
+                    # Full tool call object received (final check)
+                    # Close the JSON object in accumulated if needed
+                    # Typically standard flow would be: name -> args -> args -> finish
+                    # This event is a safety catch from normalizer's finish_reason logic
+                    if isinstance(ccontent, dict):
+                        # Ensure we don't double write if we were streaming args
+                        # For now, relying on the stream flow is safer.
+                        # We just ensure the object is closed.
+                        if is_native_tool_call:
+                            # If we were streaming, we likely just need to ensure it's closed
+                            pass
+                        else:
+                            # If we got it all at once (rare in stream)
+                            accumulated += json.dumps(ccontent)
+
+                elif ctype == "reasoning":
+                    reasoning_reply += ccontent
 
                 # --- CODE INTERPRETER HANDLERS ---
                 if ctype == "content":
                     parse_ci = getattr(self, "parse_code_interpreter_partial", None)
                     ci_match = (
-                        parse_ci(accumulated) if parse_ci and not code_mode else None
+                        parse_ci(assistant_reply) if parse_ci and not code_mode else None
                     )
 
                     if ci_match:
@@ -236,10 +254,11 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
             yield json.dumps(err)
             self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
-            if current_block == "fc":
-                accumulated += "</fc>"
-            elif current_block == "think":
-                accumulated += "</think>"
+            # Ensure JSON is valid in history if tool call was interrupted or finished
+            if is_native_tool_call and accumulated:
+                stripped = accumulated.strip()
+                if not stripped.endswith("}"):
+                    accumulated += "}"
             stop_event.set()
 
         # 5. FINAL CLOSE-OUT & SMART HISTORY PRESERVATION
@@ -248,9 +267,11 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
         # Check for function calls to determine what to save
         has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
 
-        # FIX: For Stage 2 logic, if a tool was triggered, we MUST save 'accumulated'
-        # so the model sees the <fc> tag in its history during the follow-up Turn.
+        # Save 'accumulated' (raw JSON string) if tool was triggered
         message_to_save = accumulated if has_fc else assistant_reply
+
+        if not message_to_save:
+            message_to_save = assistant_reply
 
         if message_to_save:
             self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
@@ -265,14 +286,14 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
             )
 
     def process_conversation(
-        self,
-        thread_id: str,
-        message_id: Optional[str],
-        run_id: str,
-        assistant_id: str,
-        model: Any,
-        api_key: Optional[str] = None,
-        **kwargs,
+            self,
+            thread_id: str,
+            message_id: Optional[str],
+            run_id: str,
+            assistant_id: str,
+            model: Any,
+            api_key: Optional[str] = None,
+            **kwargs,
     ):
         # Step 1: Initial Response / Tool Trigger
         yield from self.stream(

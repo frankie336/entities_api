@@ -1,4 +1,5 @@
 import json
+from collections import defaultdict
 
 
 class HyperbolicDeltaNormalizer:
@@ -16,30 +17,60 @@ class HyperbolicDeltaNormalizer:
     @classmethod
     def iter_deltas(cls, raw_stream, run_id):
         buffer = ""
-        # States: "content", "fc", "think", "channel_reasoning", "channel_tool_meta", "channel_tool_payload"
+        # States for GPT-OSS parsing
         state = "content"
+
+        # State for Llama 3.x Tool Accumulation
+        pending_tool_calls = defaultdict(
+            lambda: {"index": 0, "function": {"name": None, "arguments": ""}}
+        )
 
         for token in raw_stream:
             seg = ""
+            choices = []
 
-            # --- Dictionary Handling (Home-brew Client) ---
+            # --- Dictionary Handling ---
             if isinstance(token, dict):
                 choices = token.get("choices")
                 if not choices or not isinstance(choices, list):
                     continue
                 delta = choices[0].get("delta", {})
 
-                # Native fields fallback
+                # A. Native Reasoning
                 if delta.get("reasoning_content"):
                     yield {
                         "type": "reasoning",
                         "content": delta["reasoning_content"],
                         "run_id": run_id,
                     }
+
+                # B. Native Tool Calls (Llama 3.x / OpenAI Standard)
                 if delta.get("tool_calls"):
                     for tc in delta["tool_calls"]:
-                        args = tc.get("function", {}).get("arguments", "")
+                        # ID might be missing in subsequent chunks, rely on index if needed
+                        t_index = tc.get("index", 0)
+                        t_id = tc.get("id") or str(t_index)
+
+                        # Initialize/Get pending object
+                        # Note: We key by index mostly for stream continuity,
+                        # but some providers might interleave.
+                        tool_data = pending_tool_calls[t_index]
+
+                        fn = tc.get("function", {})
+
+                        # 1. Tool Name (Start of call)
+                        if fn.get("name"):
+                            tool_data["function"]["name"] = fn["name"]
+                            yield {
+                                "type": "tool_name",
+                                "content": fn["name"],
+                                "run_id": run_id,
+                            }
+
+                        # 2. Arguments (Accumulate)
+                        args = fn.get("arguments", "")
                         if args:
+                            tool_data["function"]["arguments"] += args
                             yield {
                                 "type": "call_arguments",
                                 "content": args,
@@ -50,55 +81,74 @@ class HyperbolicDeltaNormalizer:
 
             # --- Object Handling (Official SDK) ---
             elif hasattr(token, "choices") and token.choices:
-                delta = token.choices[0].delta
+                choices = token.choices
+                delta = choices[0].delta
                 seg = getattr(delta, "content", "") or ""
+
+                # Handle Tool Calls objects
                 t_calls = getattr(delta, "tool_calls", None)
                 if t_calls:
                     for tc in t_calls:
-                        if tc.function and tc.function.arguments:
-                            yield {
-                                "type": "call_arguments",
-                                "content": tc.function.arguments,
-                                "run_id": run_id,
-                            }
+                        t_index = tc.index
+                        tool_data = pending_tool_calls[t_index]
+
+                        if tc.function:
+                            if tc.function.name:
+                                tool_data["function"]["name"] = tc.function.name
+                                yield {
+                                    "type": "tool_name",
+                                    "content": tc.function.name,
+                                    "run_id": run_id,
+                                }
+                            if tc.function.arguments:
+                                tool_data["function"]["arguments"] += tc.function.arguments
+                                yield {
+                                    "type": "call_arguments",
+                                    "content": tc.function.arguments,
+                                    "run_id": run_id,
+                                }
+
+            # --- Check for Tool Completion (Finish Reason) ---
+            if choices and choices[0].get("finish_reason") == "tool_calls":
+                # Emit completed tool calls
+                for idx, data in list(pending_tool_calls.items()):
+                    name = data["function"]["name"]
+                    args = data["function"]["arguments"]
+                    if name:
+                        yield {
+                            "type": "tool_call",
+                            "content": {"name": name, "arguments": args},
+                            "run_id": run_id
+                        }
+                pending_tool_calls.clear()
 
             if not seg:
                 continue
 
-            # Character-by-character parsing
+            # --- Character-by-character parsing (GPT-OSS) ---
             for char in seg:
                 buffer += char
 
-                # =================================================================
-                # STATE: CONTENT (Normal Text)
-                # =================================================================
+                # STATE: CONTENT
                 if state == "content":
-                    # 1. Detect Analysis (Reasoning)
                     if cls.CH_ANALYSIS.startswith(buffer):
                         if buffer == cls.CH_ANALYSIS:
                             state = "channel_reasoning"
                             buffer = ""
                         continue
-
-                    # 2. Detect Commentary (Tool Calls)
-                    # Logs show: <|channel|>commentary to=... <|message|>{json}
                     elif cls.CH_COMMENTARY.startswith(buffer):
                         if buffer == cls.CH_COMMENTARY:
-                            state = "channel_tool_meta"  # Wait for <|message|>
+                            state = "channel_tool_meta"
                             buffer = ""
                         continue
-
-                    # 3. Detect & Swallow Artifacts
                     elif cls.CH_FINAL.startswith(buffer):
                         if buffer == cls.CH_FINAL:
-                            buffer = ""  # Swallow final tag
+                            buffer = ""
                         continue
                     elif cls.MSG_TAG.startswith(buffer):
                         if buffer == cls.MSG_TAG:
-                            buffer = ""  # Swallow isolated message tags
+                            buffer = ""
                         continue
-
-                    # 4. Standard XML Fallbacks
                     elif cls.FC_START.startswith(buffer):
                         if buffer == cls.FC_START:
                             state = "fc"
@@ -110,24 +160,18 @@ class HyperbolicDeltaNormalizer:
                             buffer = ""
                         continue
 
-                    # 5. Yield Buffer as Content
                     yield {"type": "content", "content": buffer, "run_id": run_id}
                     buffer = ""
 
-                # =================================================================
-                # STATE: CHANNEL REASONING (<|channel|>analysis ... <|channel|>final)
-                # =================================================================
+                # STATE: CHANNEL REASONING
                 elif state == "channel_reasoning":
-                    # Exit on CH_FINAL or CH_COMMENTARY (sometimes it switches directly)
                     if cls.CH_FINAL in buffer or cls.CH_COMMENTARY in buffer:
-                        # Find which tag ended it
                         tag = (
                             cls.CH_FINAL
                             if cls.CH_FINAL in buffer
                             else cls.CH_COMMENTARY
                         )
                         pre, post = buffer.split(tag, 1)
-
                         clean_pre = pre.replace(cls.MSG_TAG, "")
                         if clean_pre:
                             yield {
@@ -135,22 +179,13 @@ class HyperbolicDeltaNormalizer:
                                 "content": clean_pre,
                                 "run_id": run_id,
                             }
-
                         buffer = post
-                        if tag == cls.CH_COMMENTARY:
-                            state = "channel_tool_meta"
-                        else:
-                            state = "content"
-                            # Clean potential message tag at start of content
+                        state = "channel_tool_meta" if tag == cls.CH_COMMENTARY else "content"
+                        if state == "content":
                             buffer = buffer.replace(cls.MSG_TAG, "")
-
-                    # Check for partial tags (don't yield partials)
                     elif any(
-                        cls.CH_FINAL.startswith(buffer[i:]) for i in range(len(buffer))
-                    ):
-                        continue
-                    elif any(
-                        cls.CH_COMMENTARY.startswith(buffer[i:])
+                        cls.CH_FINAL.startswith(buffer[i:])
+                        or cls.CH_COMMENTARY.startswith(buffer[i:])
                         for i in range(len(buffer))
                     ):
                         continue
@@ -158,10 +193,9 @@ class HyperbolicDeltaNormalizer:
                         cls.MSG_TAG.startswith(buffer[i:]) for i in range(len(buffer))
                     ):
                         if buffer == cls.MSG_TAG:
-                            buffer = ""  # Swallow inner message tags
+                            buffer = ""
                         continue
                     else:
-                        # Yield accumulated reasoning
                         clean_buf = buffer.replace(cls.MSG_TAG, "")
                         if clean_buf:
                             yield {
@@ -171,35 +205,24 @@ class HyperbolicDeltaNormalizer:
                             }
                         buffer = ""
 
-                # =================================================================
-                # STATE: TOOL META (<|channel|>commentary ...waiting for... <|message|>)
-                # =================================================================
+                # STATE: TOOL META
                 elif state == "channel_tool_meta":
-                    # We discard everything here (e.g. " to=tool.get_flight_times <|constrain|>json")
-                    # until we hit <|message|>, which starts the JSON payload.
                     if cls.MSG_TAG in buffer:
                         _, post = buffer.split(cls.MSG_TAG, 1)
                         state = "channel_tool_payload"
                         buffer = post
-
-                    # Watch for accidental exit
                     elif cls.CH_FINAL in buffer:
                         state = "content"
-                        buffer = ""  # Discard meta
+                        buffer = ""
 
-                # =================================================================
-                # STATE: TOOL PAYLOAD ({JSON} ... <|call|>)
-                # =================================================================
+                # STATE: TOOL PAYLOAD
                 elif state == "channel_tool_payload":
-                    # Exit on <|call|> (Hermes specific end of tool call) or new channel
                     exit_tags = [cls.CALL_TAG, cls.CH_FINAL, cls.CH_ANALYSIS]
-
                     found_tag = None
                     for tag in exit_tags:
                         if tag in buffer:
                             found_tag = tag
                             break
-
                     if found_tag:
                         pre, post = buffer.split(found_tag, 1)
                         if pre:
@@ -208,14 +231,8 @@ class HyperbolicDeltaNormalizer:
                                 "content": pre,
                                 "run_id": run_id,
                             }
-
                         buffer = post
-                        if found_tag == cls.CH_ANALYSIS:
-                            state = "channel_reasoning"
-                        else:
-                            state = "content"
-
-                    # Buffer logic
+                        state = "channel_reasoning" if found_tag == cls.CH_ANALYSIS else "content"
                     elif any(
                         tag.startswith(buffer[i:])
                         for tag in exit_tags
@@ -230,9 +247,7 @@ class HyperbolicDeltaNormalizer:
                         }
                         buffer = ""
 
-                # =================================================================
-                # STATE: LEGACY XML (<fc>, <think>)
-                # =================================================================
+                # STATE: LEGACY XML
                 elif state == "fc":
                     if cls.FC_END in buffer:
                         pre, post = buffer.split(cls.FC_END, 1)
