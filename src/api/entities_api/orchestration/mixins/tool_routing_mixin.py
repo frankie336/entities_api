@@ -11,6 +11,7 @@ Responsibilities
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Dict, Optional
 
@@ -22,7 +23,7 @@ LOG = LoggingUtility()
 
 
 class ToolRoutingMixin:
-    FC_REGEX = re.compile("<fc>\\s*(?P<payload>\\{.*?\\})\\s*</fc>", re.DOTALL | re.I)
+    FC_REGEX = re.compile(r"<fc>\s*(?P<payload>\{.*?\})\s*</fc>", re.DOTALL | re.I)
     _tool_response: bool = False
     _function_call: Optional[Dict] = None
 
@@ -39,9 +40,6 @@ class ToolRoutingMixin:
         """
         LOG.debug("TOOL-ROUTER ▸ set_function_call_state(%s)", value)
         self._function_call = value
-
-    def get_function_call_state(self) -> Optional[Dict]:
-        return self._function_call
 
     def parse_and_set_function_calls(
         self, accumulated_content: str, assistant_reply: str
@@ -65,26 +63,56 @@ class ToolRoutingMixin:
                 return True
             return False
 
+        def _normalize_arguments(payload: Dict) -> Dict:
+            """
+            Ensure 'arguments' is a Dictionary.
+            Some models/providers return arguments as a stringified JSON string.
+            """
+            args = payload.get("arguments")
+            if isinstance(args, str):
+                try:
+                    # Attempt to clean code blocks if present in the string
+                    clean_args = args.strip()
+                    if clean_args.startswith("```"):
+                        clean_args = clean_args.strip("`").replace("json", "").strip()
+
+                    # Parse string into dict
+                    payload["arguments"] = json.loads(clean_args)
+                except (json.JSONDecodeError, TypeError):
+                    # If parsing fails, leave as is (might be a simple string arg)
+                    pass
+            return payload
+
         def _extract_json_block(text: str) -> Optional[Dict]:
-            # 1. Try Regex Tag Extraction
+            if not text:
+                return None
+
+            # 1. Try Regex Tag Extraction (<fc>...</fc>)
             m = self.FC_REGEX.search(text)
             if m:
                 raw_json = m.group("payload")
                 LOG.debug("FC-SCAN ▸ found <fc> tag content")
                 parsed = self.ensure_valid_json(raw_json)
                 if parsed and _validate_payload(parsed):
-                    LOG.debug("FC-SCAN ✓ valid <fc> func-call: %s", parsed)
-                    return parsed
+                    LOG.debug("FC-SCAN ✓ valid <fc> func-call")
+                    return _normalize_arguments(parsed)
                 LOG.debug("FC-SCAN ✗ <fc> content invalid JSON or schema")
 
-            # 2. Try Raw JSON parsing (for Native Tool Call accumulation)
-            # Only try this if the text starts/ends like a JSON object to avoid perf hit
-            stripped = text.strip()
-            if stripped.startswith("{") and stripped.endswith("}"):
-                parsed = self.ensure_valid_json(stripped)
-                if parsed and _validate_payload(parsed):
-                    LOG.debug("FC-SCAN ✓ valid raw JSON func-call: %s", parsed)
-                    return parsed
+            # 2. Try Raw JSON Extraction (Robust Finder)
+            # Find the outer-most JSON object even if surrounded by text/newlines
+            start_idx = text.find("{")
+            end_idx = text.rfind("}")
+
+            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                candidate = text[start_idx: end_idx + 1]
+                try:
+                    # Use ensure_valid_json (mixed in) to handle loose JSON
+                    parsed = self.ensure_valid_json(candidate)
+                    if parsed and _validate_payload(parsed):
+                        LOG.debug("FC-SCAN ✓ valid JSON func-call found in text")
+                        return _normalize_arguments(parsed)
+                except Exception:
+                    pass
 
             return None
 
@@ -95,20 +123,22 @@ class ToolRoutingMixin:
             self.set_function_call_state(parsed_fc)
             return parsed_fc
 
-        # B. Check Assistant Reply (Primary source for Text-based calls)
+        # B. Check Assistant Reply (Fallback source)
         parsed_fc = _extract_json_block(assistant_reply)
         if parsed_fc and (not self.get_tool_response_state()):
             self.set_tool_response_state(True)
             self.set_function_call_state(parsed_fc)
             return parsed_fc
 
-        # C. Fallback: Loose extraction from text body
+        # C. Fallback: Loose extraction from legacy mixin methods
+        # Note: This usually parses Markdown code blocks
         loose = self.extract_function_calls_within_body_of_text(assistant_reply)
         if loose:
-            LOG.debug("FC-SCAN ✓ legacy pattern: %s", loose[0])
+            LOG.debug("FC-SCAN ✓ legacy pattern found")
+            normalized = _normalize_arguments(loose[0])
             self.set_tool_response_state(True)
-            self.set_function_call_state(loose[0])
-            return loose[0]
+            self.set_function_call_state(normalized)
+            return normalized
 
         LOG.debug("FC-SCAN ✗ nothing found")
         return None
@@ -124,19 +154,21 @@ class ToolRoutingMixin:
     ):
         """
         Delegates to the correct concrete handler.
-
-        • platform specials (code_interpreter / computer / file_search)
-          are invoked directly **without** the extra api_key argument
-        • classical platform tools -> `_process_platform_tool_calls`
-        • consumer tools           -> `_process_tool_calls` (gets api_key)
         """
         fc = self.get_function_call_state()
         if not fc:
             LOG.debug("TOOL-ROUTER ▸ no queued call – noop")
             return
+
         name = fc.get("name")
         args = fc.get("arguments", {})
-        LOG.info("TOOL-ROUTER ▶ dispatching tool=%s args=%s", name, args)
+
+        # Guard: ensure args is a dict (or at least not None)
+        if args is None:
+            args = {}
+
+        LOG.info("TOOL-ROUTER ▶ dispatching tool=%s", name)
+
         if name == "code_interpreter":
             LOG.debug("TOOL-ROUTER ▸ route → handle_code_interpreter_action")
             yield from self.handle_code_interpreter_action(

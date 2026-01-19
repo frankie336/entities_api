@@ -31,112 +31,100 @@ class HyperbolicDeltaNormalizer:
             # Helper to normalize access between Dict (AsyncClient) and Object (OpenAI SDK)
             is_dict = isinstance(token, dict)
 
-            # --- Dictionary Handling ---
+            # --- 1. Normalize Access to Delta ---
             if is_dict:
-                choices = token.get("choices")
+                choices = token.get("choices", [])
                 if not choices or not isinstance(choices, list):
                     continue
                 delta = choices[0].get("delta", {})
-
-                # A. Native Reasoning
-                if delta.get("reasoning_content"):
-                    yield {
-                        "type": "reasoning",
-                        "content": delta["reasoning_content"],
-                        "run_id": run_id,
-                    }
-
-                # B. Native Tool Calls
-                if delta.get("tool_calls"):
-                    for tc in delta["tool_calls"]:
-                        t_index = tc.get("index", 0)
-                        tool_data = pending_tool_calls[t_index]
-                        fn = tc.get("function", {})
-
-                        if fn.get("name"):
-                            tool_data["function"]["name"] = fn["name"]
-                            yield {
-                                "type": "tool_name",
-                                "content": fn["name"],
-                                "run_id": run_id,
-                            }
-
-                        args = fn.get("arguments", "")
-                        if args:
-                            tool_data["function"]["arguments"] += args
-                            yield {
-                                "type": "call_arguments",
-                                "content": args,
-                                "run_id": run_id,
-                            }
-
-                seg = delta.get("content", "") or ""
-
-            # --- Object Handling (OpenAI SDK) ---
+                finish_reason = choices[0].get("finish_reason")
             elif hasattr(token, "choices") and token.choices:
                 choices = token.choices
                 delta = choices[0].delta
-                seg = getattr(delta, "content", "") or ""
+                finish_reason = getattr(choices[0], "finish_reason", None)
+            else:
+                continue
 
-                # Native Reasoning
-                if hasattr(delta, "reasoning_content") and delta.reasoning_content:
-                    yield {
-                        "type": "reasoning",
-                        "content": delta.reasoning_content,
-                        "run_id": run_id,
-                    }
+            # --- 2. Handle Native Reasoning (DeepSeek/Hyperbolic Specific) ---
+            # We explicitly check for reasoning_content to filter it out of normal content
+            r_content = (
+                delta.get("reasoning_content")
+                if is_dict
+                else getattr(delta, "reasoning_content", None)
+            )
 
-                # Native Tool Calls
-                t_calls = getattr(delta, "tool_calls", None)
-                if t_calls:
-                    for tc in t_calls:
+            if r_content:
+                yield {
+                    "type": "reasoning",
+                    "content": r_content,
+                    "run_id": run_id,
+                }
+
+            # --- 3. Handle Native Tool Calls ---
+            t_calls = (
+                delta.get("tool_calls")
+                if is_dict
+                else getattr(delta, "tool_calls", None)
+            )
+
+            if t_calls:
+                for tc in t_calls:
+                    # Normalize Dict vs Object access for Tool Call
+                    if is_dict:
+                        t_index = tc.get("index", 0)
+                        fn = tc.get("function", {})
+                        fn_name = fn.get("name")
+                        fn_args = fn.get("arguments", "")
+                    else:
                         t_index = tc.index
-                        tool_data = pending_tool_calls[t_index]
+                        fn = tc.function
+                        fn_name = getattr(fn, "name", None)
+                        fn_args = getattr(fn, "arguments", "")
 
-                        if tc.function:
-                            if tc.function.name:
-                                tool_data["function"]["name"] = tc.function.name
-                                yield {
-                                    "type": "tool_name",
-                                    "content": tc.function.name,
-                                    "run_id": run_id,
-                                }
-                            if tc.function.arguments:
-                                tool_data["function"][
-                                    "arguments"
-                                ] += tc.function.arguments
-                                yield {
-                                    "type": "call_arguments",
-                                    "content": tc.function.arguments,
-                                    "run_id": run_id,
-                                }
+                    tool_data = pending_tool_calls[t_index]
 
-            # --- Check for Tool Completion (Safe Access) ---
-            if choices:
-                # Safely get finish_reason from Dict or Object
-                choice = choices[0]
-                finish_reason = (
-                    choice.get("finish_reason")
-                    if is_dict
-                    else getattr(choice, "finish_reason", None)
-                )
+                    if fn_name:
+                        tool_data["function"]["name"] = fn_name
+                        yield {
+                            "type": "tool_name",
+                            "content": fn_name,
+                            "run_id": run_id,
+                        }
 
-                if finish_reason == "tool_calls":
-                    for idx, data in list(pending_tool_calls.items()):
-                        name = data["function"]["name"]
-                        args = data["function"]["arguments"]
-                        if name:
-                            yield {
-                                "type": "tool_call",
-                                "content": {"name": name, "arguments": args},
-                                "run_id": run_id,
-                            }
-                    pending_tool_calls.clear()
+                    if fn_args:
+                        tool_data["function"]["arguments"] += fn_args
+                        yield {
+                            "type": "call_arguments",
+                            "content": fn_args,
+                            "run_id": run_id,
+                        }
+
+            # --- 4. Handle Standard Content ---
+            # Only process content if we didn't just process reasoning (unless they come together)
+            seg = (
+                      delta.get("content", "")
+                      if is_dict
+                      else getattr(delta, "content", "")
+                  ) or ""
+
+            # --- 5. Handle Tool Completion Trigger ---
+            if finish_reason == "tool_calls":
+                for idx, data in list(pending_tool_calls.items()):
+                    name = data["function"]["name"]
+                    args = data["function"]["arguments"]
+                    if name:
+                        yield {
+                            "type": "tool_call",
+                            "content": {"name": name, "arguments": args},
+                            "run_id": run_id,
+                        }
+                pending_tool_calls.clear()
 
             if not seg:
                 continue
 
-            # --- Character-by-character parsing (GPT-OSS Channels) ---
+            # --- 6. Character-by-character parsing (Legacy / Channels) ---
+            # Only proceed if we have content segment
             for char in seg:
                 buffer += char
 
@@ -170,16 +158,15 @@ class HyperbolicDeltaNormalizer:
                             buffer = ""
                         continue
 
+                    # Yield normalized content
                     yield {"type": "content", "content": buffer, "run_id": run_id}
                     buffer = ""
 
+                # ... (Existing state machine logic for channel_reasoning/tool_meta/fc/think) ...
+                # Copying the rest of your state machine logic unchanged below for completeness
                 elif state == "channel_reasoning":
                     if cls.CH_FINAL in buffer or cls.CH_COMMENTARY in buffer:
-                        tag = (
-                            cls.CH_FINAL
-                            if cls.CH_FINAL in buffer
-                            else cls.CH_COMMENTARY
-                        )
+                        tag = cls.CH_FINAL if cls.CH_FINAL in buffer else cls.CH_COMMENTARY
                         pre, post = buffer.split(tag, 1)
                         clean_pre = pre.replace(cls.MSG_TAG, "")
                         if clean_pre:
@@ -189,33 +176,20 @@ class HyperbolicDeltaNormalizer:
                                 "run_id": run_id,
                             }
                         buffer = post
-                        state = (
-                            "channel_tool_meta"
-                            if tag == cls.CH_COMMENTARY
-                            else "content"
-                        )
+                        state = "channel_tool_meta" if tag == cls.CH_COMMENTARY else "content"
                         if state == "content":
                             buffer = buffer.replace(cls.MSG_TAG, "")
-                    elif any(
-                        cls.CH_FINAL.startswith(buffer[i:])
-                        or cls.CH_COMMENTARY.startswith(buffer[i:])
-                        for i in range(len(buffer))
-                    ):
+                    elif any(cls.CH_FINAL.startswith(buffer[i:]) or cls.CH_COMMENTARY.startswith(buffer[i:]) for i in
+                             range(len(buffer))):
                         continue
-                    elif any(
-                        cls.MSG_TAG.startswith(buffer[i:]) for i in range(len(buffer))
-                    ):
+                    elif any(cls.MSG_TAG.startswith(buffer[i:]) for i in range(len(buffer))):
                         if buffer == cls.MSG_TAG:
                             buffer = ""
                         continue
                     else:
                         clean_buf = buffer.replace(cls.MSG_TAG, "")
                         if clean_buf:
-                            yield {
-                                "type": "reasoning",
-                                "content": clean_buf,
-                                "run_id": run_id,
-                            }
+                            yield {"type": "reasoning", "content": clean_buf, "run_id": run_id}
                         buffer = ""
 
                 elif state == "channel_tool_meta":
@@ -233,68 +207,36 @@ class HyperbolicDeltaNormalizer:
                     if found_tag:
                         pre, post = buffer.split(found_tag, 1)
                         if pre:
-                            yield {
-                                "type": "call_arguments",
-                                "content": pre,
-                                "run_id": run_id,
-                            }
+                            yield {"type": "call_arguments", "content": pre, "run_id": run_id}
                         buffer = post
-                        state = (
-                            "channel_reasoning"
-                            if found_tag == cls.CH_ANALYSIS
-                            else "content"
-                        )
-                    elif any(
-                        tag.startswith(buffer[i:])
-                        for tag in exit_tags
-                        for i in range(len(buffer))
-                    ):
+                        state = "channel_reasoning" if found_tag == cls.CH_ANALYSIS else "content"
+                    elif any(tag.startswith(buffer[i:]) for tag in exit_tags for i in range(len(buffer))):
                         continue
                     else:
-                        yield {
-                            "type": "call_arguments",
-                            "content": buffer,
-                            "run_id": run_id,
-                        }
+                        yield {"type": "call_arguments", "content": buffer, "run_id": run_id}
                         buffer = ""
 
                 elif state == "fc":
                     if cls.FC_END in buffer:
                         pre, post = buffer.split(cls.FC_END, 1)
                         if pre:
-                            yield {
-                                "type": "call_arguments",
-                                "content": pre,
-                                "run_id": run_id,
-                            }
+                            yield {"type": "call_arguments", "content": pre, "run_id": run_id}
                         state = "content"
                         buffer = post
-                    elif any(
-                        cls.FC_END.startswith(buffer[i:]) for i in range(len(buffer))
-                    ):
+                    elif any(cls.FC_END.startswith(buffer[i:]) for i in range(len(buffer))):
                         continue
                     else:
-                        yield {
-                            "type": "call_arguments",
-                            "content": buffer,
-                            "run_id": run_id,
-                        }
+                        yield {"type": "call_arguments", "content": buffer, "run_id": run_id}
                         buffer = ""
 
                 elif state == "think":
                     if cls.TH_END in buffer:
                         pre, post = buffer.split(cls.TH_END, 1)
                         if pre:
-                            yield {
-                                "type": "reasoning",
-                                "content": pre,
-                                "run_id": run_id,
-                            }
+                            yield {"type": "reasoning", "content": pre, "run_id": run_id}
                         state = "content"
                         buffer = post
-                    elif any(
-                        cls.TH_END.startswith(buffer[i:]) for i in range(len(buffer))
-                    ):
+                    elif any(cls.TH_END.startswith(buffer[i:]) for i in range(len(buffer))):
                         continue
                     else:
                         yield {"type": "reasoning", "content": buffer, "run_id": run_id}

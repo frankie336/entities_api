@@ -48,18 +48,18 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
     """
 
     def __init__(
-        self,
-        *,
-        assistant_id: str | None = None,
-        thread_id: str | None = None,
-        redis=None,
-        base_url: str | None = None,
-        api_key: str | None = None,
-        assistant_cache: dict | None = None,
-        **extra,
+            self,
+            *,
+            assistant_id: str | None = None,
+            thread_id: str | None = None,
+            redis=None,
+            base_url: str | None = None,
+            api_key: str | None = None,
+            assistant_cache: dict | None = None,
+            **extra,
     ) -> None:
         self._assistant_cache: dict = (
-            assistant_cache or extra.get("assistant_cache") or {}
+                assistant_cache or extra.get("assistant_cache") or {}
         )
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
@@ -87,16 +87,16 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
         return self._assistant_cache
 
     def stream(
-        self,
-        thread_id: str,
-        message_id: Optional[str],
-        run_id: str,
-        assistant_id: str,
-        model: Any,
-        *,
-        stream_reasoning: bool = True,
-        api_key: Optional[str] = None,
-        **kwargs,
+            self,
+            thread_id: str,
+            message_id: Optional[str],
+            run_id: str,
+            assistant_id: str,
+            model: Any,
+            *,
+            stream_reasoning: bool = True,
+            api_key: Optional[str] = None,
+            **kwargs,
     ) -> Generator[str, None, None]:
         redis = get_redis()
         stream_key = f"stream:{run_id}"
@@ -136,12 +136,14 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
 
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
-            assistant_reply, accumulated, reasoning_reply = "", "", ""
+            # Buffers
+            assistant_reply = ""  # Standard content
+            accumulated = ""  # Tool call JSON accumulation
+            reasoning_reply = ""  # Reasoning content
             code_mode = False
 
-            # Helper for constructing JSON string manually in 'accumulated'
+            # State to track if we are inside a Native Tool Call via Llama format
             is_native_tool_call = False
-            current_native_tool_call = {}
 
             token_iterator = async_to_sync_stream(async_stream)
 
@@ -152,30 +154,36 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
 
                 ctype, ccontent = chunk["type"], chunk["content"]
 
-                # --- METHODOLOGY: ACCUMULATION (No Tag Wrapping) ---
+                # --- A. Reasoning Handling ---
+                if ctype == "reasoning":
+                    # Capture reasoning separately.
+                    # We yield it so the UI can display it (if supported),
+                    # but we DO NOT append it to 'assistant_reply' (history).
+                    reasoning_reply += ccontent
+                    yield json.dumps(chunk)
+                    self._shunt_to_redis_stream(redis, stream_key, chunk)
+                    continue
 
-                if ctype == "content":
-                    assistant_reply += ccontent
-
+                # --- B. Native Tool Call Accumulation ---
                 elif ctype == "tool_name":
-                    # Native Tool Call Start detected (from Llama/GPT-OSS native)
                     is_native_tool_call = True
-                    current_native_tool_call = {"name": ccontent, "arguments": ""}
-                    # Start constructing standard JSON in history
-                    accumulated += f'{{"name": "{ccontent}", "arguments": '
+                    # Initialize JSON construction for the tool call
+                    accumulated = f'{{"name": "{ccontent}", "arguments": '
 
                 elif ctype == "call_arguments":
-                    # Append raw JSON arguments to history
-                    if is_native_tool_call:
-                        current_native_tool_call["arguments"] += ccontent
-                    # If channel-based (no tool_name event), this just appends the raw JSON
+                    # Append args to the tool accumulation buffer
                     accumulated += ccontent
 
-                elif ctype == "reasoning":
-                    # Reasoning is passed to stream, but NOT added to accumulated/history.
-                    reasoning_reply += ccontent
+                elif ctype == "tool_call":
+                    # If normalizer sends a complete tool call object (heuristic safety)
+                    accumulated = json.dumps(ccontent)
+                    is_native_tool_call = True
 
-                # --- CODE INTERPRETER INTERLEAVING ---
+                # --- C. Standard Content ---
+                elif ctype == "content":
+                    assistant_reply += ccontent
+
+                # --- D. Code Interpreter Interleaving ---
                 if ctype == "content":
                     parse_ci = getattr(self, "parse_code_interpreter_partial", None)
                     ci_match = (
@@ -215,7 +223,7 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                             yield json.dumps({"type": "hot_code", "content": ccontent})
                         continue
 
-                # Yield the standardized chunk to frontend
+                # Yield the chunk to frontend
                 yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
 
@@ -234,13 +242,15 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
         # 5. FINAL CLOSE-OUT & SMART HISTORY PRESERVATION
         yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
-        # Check for function calls first to determine what to save
+        # Check for function calls first to determine what to save.
+        # We prioritize 'accumulated' (Native Tool Call JSON) if it exists.
         has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
 
-        # Save 'accumulated' (raw JSON) if tool called, otherwise reply.
+        # Save 'accumulated' if recognized as a function call, otherwise save the text reply.
         message_to_save = accumulated if has_fc else assistant_reply
 
         if not message_to_save:
+            # Fallback if both are empty (unlikely)
             message_to_save = assistant_reply
 
         if message_to_save:
@@ -257,14 +267,14 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             )
 
     def process_conversation(
-        self,
-        thread_id: str,
-        message_id: Optional[str],
-        run_id: str,
-        assistant_id: str,
-        model: Any,
-        api_key: Optional[str] = None,
-        **kwargs,
+            self,
+            thread_id: str,
+            message_id: Optional[str],
+            run_id: str,
+            assistant_id: str,
+            model: Any,
+            api_key: Optional[str] = None,
+            **kwargs,
     ):
         # Pass 1: Initial Generation
         yield from self.stream(
