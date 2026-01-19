@@ -1,9 +1,10 @@
+# src/api/entities_api/orchestration/mixins/tool_routing_mixin.py
 """
 High-level routing of <fc> tool-calls with detailed activation logs.
 
 Responsibilities
 ----------------
-• detect & validate <fc>{…}</fc> JSON blocks
+• detect & validate <fc>{…}</fc> JSON blocks OR raw JSON payloads
 • flip internal flags so only ONE handler runs
 • dispatch to either platform-native or consumer handlers
 """
@@ -46,8 +47,9 @@ class ToolRoutingMixin:
         self, accumulated_content: str, assistant_reply: str
     ) -> Optional[Dict]:
         """
-        Robustly locate a <fc>{...}</fc> JSON block *anywhere* in either
-        accumulated_content or assistant_reply, even if split across chunks.
+        Robustly locate a function call payload.
+        Strategy 1: Look for <fc>{JSON}</fc> tags (DeepSeek / Channel style).
+        Strategy 2: Look for Raw JSON (Native Llama/GPT-OSS style).
         """
         from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
             JsonUtilsMixin
@@ -55,41 +57,59 @@ class ToolRoutingMixin:
         if not isinstance(self, JsonUtilsMixin):
             raise TypeError("ToolRoutingMixin must be mixed with JsonUtilsMixin")
 
-        def _extract_json_block(text: str) -> Optional[Dict]:
-            m = self.FC_REGEX.search(text)
-            if not m:
-                LOG.debug("FC-SCAN ▸ no tag in %r …", text[-120:])
-                return None
-            raw_json = m.group("payload")
-            LOG.debug("FC-SCAN ▸ candidate JSON: %s", raw_json)
-            parsed = self.ensure_valid_json(raw_json)
-            if not parsed:
-                LOG.debug("FC-SCAN ✗ invalid JSON → rejected")
-                return None
+        def _validate_payload(json_dict: Dict) -> bool:
+            """Check if dict conforms to function call schema."""
             if self.is_valid_function_call_response(
-                parsed
-            ) or self.is_complex_vector_search(parsed):
-                LOG.debug("FC-SCAN ✓ valid func-call: %s", parsed)
-                return parsed
-            LOG.debug("FC-SCAN ✗ schema mismatch → rejected")
+                json_dict
+            ) or self.is_complex_vector_search(json_dict):
+                return True
+            return False
+
+        def _extract_json_block(text: str) -> Optional[Dict]:
+            # 1. Try Regex Tag Extraction
+            m = self.FC_REGEX.search(text)
+            if m:
+                raw_json = m.group("payload")
+                LOG.debug("FC-SCAN ▸ found <fc> tag content")
+                parsed = self.ensure_valid_json(raw_json)
+                if parsed and _validate_payload(parsed):
+                    LOG.debug("FC-SCAN ✓ valid <fc> func-call: %s", parsed)
+                    return parsed
+                LOG.debug("FC-SCAN ✗ <fc> content invalid JSON or schema")
+
+            # 2. Try Raw JSON parsing (for Native Tool Call accumulation)
+            # Only try this if the text starts/ends like a JSON object to avoid perf hit
+            stripped = text.strip()
+            if stripped.startswith("{") and stripped.endswith("}"):
+                parsed = self.ensure_valid_json(stripped)
+                if parsed and _validate_payload(parsed):
+                    LOG.debug("FC-SCAN ✓ valid raw JSON func-call: %s", parsed)
+                    return parsed
+
             return None
 
+        # A. Check Accumulated Content (Primary source for Native/Streamed calls)
         parsed_fc = _extract_json_block(accumulated_content)
         if parsed_fc:
             self.set_tool_response_state(True)
             self.set_function_call_state(parsed_fc)
             return parsed_fc
+
+        # B. Check Assistant Reply (Primary source for Text-based calls)
         parsed_fc = _extract_json_block(assistant_reply)
         if parsed_fc and (not self.get_tool_response_state()):
             self.set_tool_response_state(True)
             self.set_function_call_state(parsed_fc)
             return parsed_fc
+
+        # C. Fallback: Loose extraction from text body
         loose = self.extract_function_calls_within_body_of_text(assistant_reply)
         if loose:
             LOG.debug("FC-SCAN ✓ legacy pattern: %s", loose[0])
             self.set_tool_response_state(True)
             self.set_function_call_state(loose[0])
             return loose[0]
+
         LOG.debug("FC-SCAN ✗ nothing found")
         return None
 

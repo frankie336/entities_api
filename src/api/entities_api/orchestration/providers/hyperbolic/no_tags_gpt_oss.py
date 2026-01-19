@@ -4,7 +4,6 @@ import json
 import os
 from typing import Any, Generator, Optional
 
-import requests
 from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
@@ -18,6 +17,9 @@ from src.api.entities_api.orchestration.mixins import (
     PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
 from src.api.entities_api.orchestration.streaming.hyperbolic import \
     HyperbolicDeltaNormalizer
+from src.api.entities_api.orchestration.streaming.hyperbolic_async_client import \
+    AsyncHyperbolicClient
+from src.api.entities_api.utils.async_to_sync import async_to_sync_stream
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -34,13 +36,14 @@ class _ProviderMixins(
     ShellExecutionMixin,
     FileSearchMixin,
 ):
-    """Flat bundle → single inheritance in the concrete class."""
+    """Flat bundle for Hyperbolic GPT-OSS Provider."""
 
 
-class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
+class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
     """
-    Modular Meta-Llama-3-33B Provider.
-    Refactored to support Smart History Preservation and ensure Stage 2 compatibility.
+    Specialized Provider for openai/gpt-oss-120b.
+    Standardizes 'Analysis' channels into 'reasoning' data types.
+    Supports both Native Tool Calls and Channel-based tool outputs.
     """
 
     def __init__(
@@ -63,13 +66,13 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
         self.base_url = base_url or os.getenv("BASE_URL")
         self.api_key = api_key
 
-        # Attributes required by Truncator logic
-        self.model_name = extra.get("model_name", "meta-llama/Llama-3.3-70B-Instruct")
-        self.max_context_window = extra.get("max_context_window", 128000)
+        # Model Specs
+        self.model_name = extra.get("model_name", "openai/gpt-oss-120b")
+        self.max_context_window = extra.get("max_context_window", 131072)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
 
         self.setup_services()
-        LOG.debug("Hyperbolic-Llama provider ready (assistant=%s)", assistant_id)
+        LOG.debug("Hyperbolic-GptOss provider ready (assistant=%s)", assistant_id)
 
     @property
     def assistant_cache(self) -> dict:
@@ -89,6 +92,8 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
         run_id: str,
         assistant_id: str,
         model: Any,
+        *,
+        stream_reasoning: bool = True,
         api_key: Optional[str] = None,
         **kwargs,
     ) -> Generator[str, None, None]:
@@ -97,121 +102,79 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
         stop_event = self.start_cancellation_monitor(run_id)
 
         try:
-            # 1. Clean Model ID
+            # 1. Clean Model ID for API
             if isinstance(model, str) and model.startswith("hyperbolic/"):
                 model = model.replace("hyperbolic/", "")
             if mapped := self._get_model_map(model):
                 model = mapped
 
-            # 2. Context & Tool Extraction (Using Mixin logic)
+            # 2. Context Window & Tool Preparation
             raw_ctx = self._set_up_context_window(
                 assistant_id, thread_id, trunk=True, tools_native=True
             )
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
             if not api_key:
-                yield json.dumps({"type": "error", "content": "Missing API key."})
+                yield json.dumps(
+                    {"type": "error", "content": "Missing Hyperbolic API key."}
+                )
                 return
 
-            # --- INLINE REQUESTS STREAMING ---
-            url = "https://api.hyperbolic.xyz/v1/chat/completions"
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-            }
-            payload = {
-                "messages": cleaned_ctx,
-                "model": model,
-                "temperature": kwargs.get("temperature", 0.6),
-                "top_p": 0.9,
-                "stream": True,
-            }
+            client = AsyncHyperbolicClient(
+                api_key=api_key, base_url=os.getenv("HYPERBOLIC_BASE_URL")
+            )
 
-            if extracted_tools:
-                payload["tools"] = extracted_tools
-
-            def raw_json_generator():
-                with requests.post(
-                    url, headers=headers, json=payload, stream=True, timeout=30
-                ) as resp:
-                    if resp.status_code != 200:
-                        err_text = resp.text
-                        LOG.error(f"Hyperbolic API Error: {err_text}")
-                        yield {"type": "error", "content": f"API Error: {err_text}"}
-                        return
-
-                    for line in resp.iter_lines():
-                        if stop_event.is_set():
-                            break
-                        if not line:
-                            continue
-                        decoded = line.decode("utf-8")
-                        if decoded.startswith("data: "):
-                            content = decoded[6:]
-                            if content == "[DONE]":
-                                break
-                            try:
-                                yield json.loads(content)
-                            except json.JSONDecodeError:
-                                continue
+            # 3. Requesting Stream
+            async_stream = client.stream_chat_completion(
+                messages=cleaned_ctx,
+                tools=extracted_tools,
+                model=model,
+                temperature=kwargs.get("temperature", 0.4),
+                top_p=0.9,
+            )
 
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
-            assistant_reply, accumulated = "", ""
-            reasoning_reply = ""
+            assistant_reply, accumulated, reasoning_reply = "", "", ""
             code_mode = False
 
             # Helper for constructing JSON string manually in 'accumulated'
             is_native_tool_call = False
             current_native_tool_call = {}
 
-            # 4. Standardized Chunk Processing
-            for chunk in HyperbolicDeltaNormalizer.iter_deltas(
-                raw_json_generator(), run_id
-            ):
+            token_iterator = async_to_sync_stream(async_stream)
+
+            # 4. Standardized Processing via Universal Normalizer
+            for chunk in HyperbolicDeltaNormalizer.iter_deltas(token_iterator, run_id):
                 if stop_event.is_set():
                     break
 
                 ctype, ccontent = chunk["type"], chunk["content"]
 
-                # --- METHODOLOGY: ACCUMULATION (No XML Tags) ---
+                # --- METHODOLOGY: ACCUMULATION (No Tag Wrapping) ---
+
                 if ctype == "content":
                     assistant_reply += ccontent
 
                 elif ctype == "tool_name":
-                    # Detected start of Llama tool call
-                    # Begin constructing JSON object string in history
+                    # Native Tool Call Start detected (from Llama/GPT-OSS native)
                     is_native_tool_call = True
                     current_native_tool_call = {"name": ccontent, "arguments": ""}
-                    # Note: We don't append to accumulated yet, waiting for args or completion
+                    # Start constructing standard JSON in history
                     accumulated += f'{{"name": "{ccontent}", "arguments": '
 
                 elif ctype == "call_arguments":
                     # Append raw JSON arguments to history
                     if is_native_tool_call:
                         current_native_tool_call["arguments"] += ccontent
+                    # If channel-based (no tool_name event), this just appends the raw JSON
                     accumulated += ccontent
 
-                elif ctype == "tool_call":
-                    # Full tool call object received (final check)
-                    # Close the JSON object in accumulated if needed
-                    # Typically standard flow would be: name -> args -> args -> finish
-                    # This event is a safety catch from normalizer's finish_reason logic
-                    if isinstance(ccontent, dict):
-                        # Ensure we don't double write if we were streaming args
-                        # For now, relying on the stream flow is safer.
-                        # We just ensure the object is closed.
-                        if is_native_tool_call:
-                            # If we were streaming, we likely just need to ensure it's closed
-                            pass
-                        else:
-                            # If we got it all at once (rare in stream)
-                            accumulated += json.dumps(ccontent)
-
                 elif ctype == "reasoning":
+                    # Reasoning is passed to stream, but NOT added to accumulated/history.
                     reasoning_reply += ccontent
 
-                # --- CODE INTERPRETER HANDLERS ---
+                # --- CODE INTERPRETER INTERLEAVING ---
                 if ctype == "content":
                     parse_ci = getattr(self, "parse_code_interpreter_partial", None)
                     ci_match = (
@@ -225,6 +188,7 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
                         start = {"type": "hot_code", "content": "```python\n"}
                         yield json.dumps(start)
                         self._shunt_to_redis_stream(redis, stream_key, start)
+
                         if hasattr(self, "_process_code_interpreter_chunks"):
                             res, _ = self._process_code_interpreter_chunks(
                                 "", ci_match.get("code", "")
@@ -238,27 +202,28 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
 
                     if code_mode:
                         if hasattr(self, "_process_code_interpreter_chunks"):
-                            res, _ = self._process_code_interpreter_chunks(ccontent, "")
+                            res, code_buf = self._process_code_interpreter_chunks(
+                                ccontent, ""
+                            )
                             for r in res:
                                 yield r
                                 self._shunt_to_redis_stream(
                                     redis, stream_key, json.loads(r)
                                 )
                         else:
-                            hot = {"type": "hot_code", "content": ccontent}
-                            yield json.dumps(hot)
-                            self._shunt_to_redis_stream(redis, stream_key, hot)
+                            yield json.dumps({"type": "hot_code", "content": ccontent})
                         continue
 
+                # Yield the standardized chunk to frontend
                 yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
 
         except Exception as exc:
-            err = {"type": "error", "content": f"Llama stream error: {exc}"}
+            err = {"type": "error", "content": f"GPT-OSS stream error: {exc}"}
             yield json.dumps(err)
             self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
-            # Ensure JSON is valid in history if tool call was interrupted or finished
+            # Ensure JSON is valid in history if tool call was native
             if is_native_tool_call and accumulated:
                 stripped = accumulated.strip()
                 if not stripped.endswith("}"):
@@ -268,10 +233,10 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
         # 5. FINAL CLOSE-OUT & SMART HISTORY PRESERVATION
         yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
-        # Check for function calls to determine what to save
+        # Check for function calls first to determine what to save
         has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
 
-        # Save 'accumulated' (raw JSON string) if tool was triggered
+        # Save 'accumulated' (raw JSON) if tool called, otherwise reply.
         message_to_save = accumulated if has_fc else assistant_reply
 
         if not message_to_save:
@@ -280,6 +245,7 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
         if message_to_save:
             self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
 
+        # Logic for Stage 2 Function Call Triggering
         if has_fc:
             self.project_david_client.runs.update_run_status(
                 run_id, StatusEnum.pending_action.value
@@ -299,7 +265,7 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
         api_key: Optional[str] = None,
         **kwargs,
     ):
-        # Step 1: Initial Response / Tool Trigger
+        # Pass 1: Initial Generation
         yield from self.stream(
             thread_id,
             message_id,
@@ -310,7 +276,7 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
             **kwargs,
         )
 
-        # Step 2: Follow-up if a function call was detected
+        # Pass 2: Tool Execution (ReAct Loop)
         if self.get_function_call_state():
             yield from self.process_function_calls(
                 thread_id, run_id, assistant_id, model=model, api_key=api_key
@@ -318,7 +284,7 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
             self.set_tool_response_state(False)
             self.set_function_call_state(None)
 
-            # Re-stream with the tool result in the history context
+            # Follow-up with tool results
             yield from self.stream(
                 thread_id, None, run_id, assistant_id, model, api_key=api_key, **kwargs
             )

@@ -76,7 +76,10 @@ class ConversationContextMixin:
         """
         Use to build  system message for models with native tool channels, eg gpt-oss
         """
+
+        # The assistant cache contains the system message and tools per assistant
         cache = self.get_assistant_cache()
+
         cfg = cache.retrieve_sync(assistant_id)
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         excluded_instructions = assemble_instructions(
