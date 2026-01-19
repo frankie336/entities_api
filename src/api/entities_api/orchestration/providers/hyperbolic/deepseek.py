@@ -10,14 +10,21 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
 from src.api.entities_api.orchestration.mixins import (
-    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
-    ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
-    PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
-from src.api.entities_api.orchestration.streaming.hyperbolic import \
-    HyperbolicDeltaNormalizer
+    AssistantCacheMixin,
+    CodeExecutionMixin,
+    ConsumerToolHandlersMixin,
+    ConversationContextMixin,
+    FileSearchMixin,
+    JsonUtilsMixin,
+    PlatformToolHandlersMixin,
+    ShellExecutionMixin,
+    ToolRoutingMixin,
+)
+from src.api.entities_api.orchestration.streaming.hyperbolic import (
+    HyperbolicDeltaNormalizer,
+)
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -40,7 +47,7 @@ class _ProviderMixins(
 class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
     """
     Specialized DeepSeek-V3/R1 Provider.
-    Handles XML-tagged tool-calls (<fc>) and reasoning (<think>).
+    Uses a custom state-machine to handle XML-tagged thinking and tool-calls.
     """
 
     def __init__(
@@ -95,8 +102,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
             # 1. Context Window Setup
             ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
 
-            # DeepSeek R1/V3 Prompt Engineering for Tools
-            if "DeepSeek" in model:
+            if model == "deepseek-ai/DeepSeek-R1":
                 amended = self._build_amended_system_message(assistant_id=assistant_id)
                 ctx = self.replace_system_message(
                     ctx, json.dumps(amended, ensure_ascii=False)
@@ -120,10 +126,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
             raw_stream = client.chat.completions.create(**payload)
 
             assistant_reply, accumulated, reasoning_reply = "", "", ""
-            code_mode = False
-
-            # Track states to re-inject tags into history
-            current_block = None  # 'fc', 'think', or None
+            code_mode, current_block = False, None
 
             # 2. Process deltas via Normalizer
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(raw_stream, run_id):
@@ -133,10 +136,6 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                 ctype, ccontent = chunk["type"], chunk["content"]
 
                 # --- METHODOLOGY: RE-INJECTION & ACCUMULATION ---
-                # DeepSeek relies on tags in the context window.
-                # The Normalizer strips tags to give us raw content types.
-                # We re-inject them into 'accumulated' so history is correct.
-
                 if ctype == "content":
                     if current_block == "fc":
                         accumulated += "</fc>"
@@ -144,16 +143,12 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                         accumulated += "</think>"
                     current_block = None
                     assistant_reply += ccontent
-
                 elif ctype == "call_arguments":
                     if current_block != "fc":
                         if current_block == "think":
                             accumulated += "</think>"
                         accumulated += "<fc>"
                         current_block = "fc"
-                    # Accumulate JSON args
-                    accumulated += ccontent
-
                 elif ctype == "reasoning":
                     if current_block != "think":
                         if current_block == "fc":
@@ -161,9 +156,8 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                         accumulated += "<think>"
                         current_block = "think"
                     reasoning_reply += ccontent
-                    accumulated += (
-                        ccontent  # Reasoning goes into history for DeepSeek R1
-                    )
+
+                accumulated += ccontent
 
                 # --- CODE INTERPRETER INTERLEAVING ---
                 if ctype == "content":
@@ -196,7 +190,6 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
 
             # 3. Final Close-out
-            # Close any dangling tags in the accumulator
             if current_block == "fc":
                 accumulated += "</fc>"
             elif current_block == "think":
@@ -204,24 +197,20 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
 
             yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
-            # --- SMART HISTORY PRESERVATION ---
-            # Check for function calls (Regex will look for <fc>...</fc>)
+            # --- SMART HISTORY PRESERVATION FIX ---
+            # Check for function calls to determine which string to save to history
             has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
 
-            # For DeepSeek, we usually want to save 'accumulated' because it contains
-            # the chain of thought (<think>) and the structured tool call (<fc>).
+            # If a tool was triggered, we MUST save the string containing the <fc> tags
+            # so the model sees the request in its history during the next turn.
             message_to_save = accumulated if has_fc else assistant_reply
-
-            # Fallback
-            if not message_to_save:
-                message_to_save = assistant_reply
 
             if message_to_save:
                 self.finalize_conversation(
                     message_to_save, thread_id, assistant_id, run_id
                 )
 
-            # Update Run Status
+            # Update Run Status based on whether a follow-up is needed
             if has_fc:
                 self.project_david_client.runs.update_run_status(
                     run_id, StatusEnum.pending_action.value
