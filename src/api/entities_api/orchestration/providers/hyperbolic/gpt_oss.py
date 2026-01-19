@@ -37,13 +37,13 @@ class _ProviderMixins(
     ShellExecutionMixin,
     FileSearchMixin,
 ):
-    """C3-safe flat bundle."""
+    """Flat bundle for Hyperbolic GPT-OSS Provider."""
 
 
 class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
     """
-    Modular Async Hyperbolic Qwen-QwQ-32B provider.
-    Refactored to use prepare_native_tool_context for native tool handling.
+    Specialized Provider for openai/gpt-oss-120b.
+    Standardizes 'Analysis' channels into 'reasoning' data types.
     """
 
     def __init__(
@@ -66,13 +66,13 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
         self.base_url = base_url or os.getenv("BASE_URL")
         self.api_key = api_key
 
-        # Attributes required by ConversationContextMixin / Truncator logic
+        # Model Specs
         self.model_name = extra.get("model_name", "openai/gpt-oss-120b")
         self.max_context_window = extra.get("max_context_window", 131072)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
 
         self.setup_services()
-        LOG.debug("Hyperbolic-Qwq-32B provider ready (assistant=%s)", assistant_id)
+        LOG.debug("Hyperbolic-GptOss provider ready (assistant=%s)", assistant_id)
 
     @property
     def assistant_cache(self) -> dict:
@@ -80,8 +80,6 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
 
     @assistant_cache.setter
     def assistant_cache(self, value: dict) -> None:
-        if hasattr(self, "_assistant_cache") and self._assistant_cache:
-            raise AttributeError("assistant_cache already initialised")
         self._assistant_cache = value
 
     def get_assistant_cache(self) -> dict:
@@ -104,90 +102,83 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
         stop_event = self.start_cancellation_monitor(run_id)
 
         try:
+            # 1. Clean Model ID for API
             if isinstance(model, str) and model.startswith("hyperbolic/"):
                 model = model.replace("hyperbolic/", "")
             if mapped := self._get_model_map(model):
                 model = mapped
 
-            # 1. Get raw context from mixins
-            raw_ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
-
-            # 2. USE MIXIN FOR TOOL EXTRACTION & CONTEXT CLEANING
+            # 2. Context Window & Tool Preparation
+            raw_ctx = self._set_up_context_window(
+                assistant_id, thread_id, trunk=True, tools_native=True
+            )
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
             if not api_key:
-                err = {"type": "error", "content": "Missing API key for Hyperbolic."}
-                yield json.dumps(err)
+                yield json.dumps(
+                    {"type": "error", "content": "Missing Hyperbolic API key."}
+                )
                 return
 
-            base_url = os.getenv("HYPERBOLIC_BASE_URL")
-            client = AsyncHyperbolicClient(api_key=api_key, base_url=base_url)
+            client = AsyncHyperbolicClient(
+                api_key=api_key, base_url=os.getenv("HYPERBOLIC_BASE_URL")
+            )
 
-            # 3. Call home-brew client with cleaned messages and extracted tools
+            # 3. Requesting Stream
             async_stream = client.stream_chat_completion(
                 messages=cleaned_ctx,
                 tools=extracted_tools,
                 model=model,
-                temperature=kwargs.get("temperature", 0.6),
+                temperature=kwargs.get("temperature", 0.4),
                 top_p=0.9,
             )
 
-            start_chunk = {"type": "status", "status": "started", "run_id": run_id}
-            yield json.dumps(start_chunk)
-            self._shunt_to_redis_stream(redis, stream_key, start_chunk)
+            yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
             assistant_reply, accumulated, reasoning_reply = "", "", ""
-            code_mode, code_buf, current_block = False, "", None
+            code_mode = False
 
             token_iterator = async_to_sync_stream(async_stream)
 
+            # 4. Standardized Processing via Universal Normalizer
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(token_iterator, run_id):
                 if stop_event.is_set():
-                    err = {"type": "error", "content": "Run cancelled"}
-                    yield json.dumps(err)
                     break
 
                 ctype, ccontent = chunk["type"], chunk["content"]
 
-                # --- METHODOLOGY: TAG INJECTION ---
+                # --- METHODOLOGY: ACCUMULATION (No Tag Wrapping) ---
+
                 if ctype == "content":
-                    if current_block == "fc":
-                        accumulated += "</fc>"
-                    elif current_block == "think":
-                        accumulated += "</think>"
-                    current_block = None
                     assistant_reply += ccontent
+
                 elif ctype == "call_arguments":
-                    if current_block != "fc":
-                        if current_block == "think":
-                            accumulated += "</think>"
-                        accumulated += "<fc>"
-                        current_block = "fc"
+                    # Accumulate raw function args (JSON) directly into history/accumulator
+                    # without <fc> tags, per user request.
+                    accumulated += ccontent
+
                 elif ctype == "reasoning":
-                    if current_block != "think":
-                        if current_block == "fc":
-                            accumulated += "</fc>"
-                        accumulated += "<think>"
-                        current_block = "think"
+                    # Reasoning is passed to stream, but NOT added to accumulated/history.
                     reasoning_reply += ccontent
 
-                accumulated += ccontent
-
-                # CODE INTERPRETER INTERLEAVING
+                # --- CODE INTERPRETER INTERLEAVING ---
                 if ctype == "content":
                     parse_ci = getattr(self, "parse_code_interpreter_partial", None)
                     ci_match = (
-                        parse_ci(accumulated) if parse_ci and (not code_mode) else None
+                        parse_ci(assistant_reply)
+                        if parse_ci and not code_mode
+                        else None
                     )
 
                     if ci_match:
-                        code_mode, code_buf = True, ci_match.get("code", "")
+                        code_mode = True
                         start = {"type": "hot_code", "content": "```python\n"}
                         yield json.dumps(start)
                         self._shunt_to_redis_stream(redis, stream_key, start)
+
                         if hasattr(self, "_process_code_interpreter_chunks"):
-                            res, code_buf = self._process_code_interpreter_chunks(
-                                "", code_buf
+                            res, _ = self._process_code_interpreter_chunks(
+                                "", ci_match.get("code", "")
                             )
                             for r in res:
                                 yield r
@@ -199,7 +190,7 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                     if code_mode:
                         if hasattr(self, "_process_code_interpreter_chunks"):
                             res, code_buf = self._process_code_interpreter_chunks(
-                                ccontent, code_buf
+                                ccontent, ""
                             )
                             for r in res:
                                 yield r
@@ -210,33 +201,35 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                             yield json.dumps({"type": "hot_code", "content": ccontent})
                         continue
 
+                # Yield the standardized chunk to frontend
                 yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
 
         except Exception as exc:
-            err = {"type": "error", "content": f"Qwen stream error: {exc}"}
+            err = {"type": "error", "content": f"GPT-OSS stream error: {exc}"}
             yield json.dumps(err)
             self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
-            if current_block == "fc":
-                accumulated += "</fc>"
-            elif current_block == "think":
-                accumulated += "</think>"
             stop_event.set()
 
-        # FINAL CLOSE-OUT
-        end_chunk = {"type": "status", "status": "complete", "run_id": run_id}
-        yield json.dumps(end_chunk)
-        self._shunt_to_redis_stream(redis, stream_key, end_chunk)
+        # 5. FINAL CLOSE-OUT & SMART HISTORY PRESERVATION
+        yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
-        if assistant_reply:
-            self.finalize_conversation(
-                reasoning_reply + assistant_reply, thread_id, assistant_id, run_id
-            )
+        # Check for function calls first to determine what to save
+        has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
 
-        if accumulated and self.parse_and_set_function_calls(
-            accumulated, assistant_reply
-        ):
+        # Save 'accumulated' (raw JSON) if tool called, otherwise reply.
+        # Ensure that downstream parser expects raw JSON if has_fc is True.
+        message_to_save = accumulated if has_fc else assistant_reply
+
+        if not message_to_save:
+            message_to_save = assistant_reply
+
+        if message_to_save:
+            self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
+
+        # Logic for Stage 2 Function Call Triggering
+        if has_fc:
             self.project_david_client.runs.update_run_status(
                 run_id, StatusEnum.pending_action.value
             )
@@ -247,15 +240,15 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
 
     def process_conversation(
         self,
-        thread_id,
-        message_id,
-        run_id,
-        assistant_id,
-        model,
-        api_key=None,
-        stream_reasoning=True,
+        thread_id: str,
+        message_id: Optional[str],
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        api_key: Optional[str] = None,
         **kwargs,
     ):
+        # Pass 1: Initial Generation
         yield from self.stream(
             thread_id,
             message_id,
@@ -263,23 +256,18 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             assistant_id,
             model,
             api_key=api_key,
-            stream_reasoning=stream_reasoning,
             **kwargs,
         )
 
+        # Pass 2: Tool Execution (ReAct Loop)
         if self.get_function_call_state():
             yield from self.process_function_calls(
                 thread_id, run_id, assistant_id, model=model, api_key=api_key
             )
             self.set_tool_response_state(False)
             self.set_function_call_state(None)
+
+            # Follow-up with tool results
             yield from self.stream(
-                thread_id,
-                None,
-                run_id,
-                assistant_id,
-                model,
-                api_key=api_key,
-                stream_reasoning=stream_reasoning,
-                **kwargs,
+                thread_id, None, run_id, assistant_id, model, api_key=api_key, **kwargs
             )

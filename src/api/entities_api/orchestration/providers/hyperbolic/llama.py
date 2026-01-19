@@ -38,11 +38,10 @@ class _ProviderMixins(
     """Flat bundle → single inheritance in the concrete class."""
 
 
-# FIXME: Issue preventing second stage of function calling streaming tool output
 class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
     """
     Modular Meta-Llama-3-33B Provider.
-    Refactored to use inline requests streaming to guarantee compatibility.
+    Refactored to support Smart History Preservation and ensure Stage 2 compatibility.
     """
 
     def __init__(
@@ -79,8 +78,6 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
 
     @assistant_cache.setter
     def assistant_cache(self, value: dict) -> None:
-        if hasattr(self, "_assistant_cache") and self._assistant_cache:
-            raise AttributeError("assistant_cache already initialised")
         self._assistant_cache = value
 
     def get_assistant_cache(self) -> dict:
@@ -101,64 +98,26 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
         stop_event = self.start_cancellation_monitor(run_id)
 
         try:
-            # 1. Standard model cleanup
+            # 1. Clean Model ID
             if isinstance(model, str) and model.startswith("hyperbolic/"):
                 model = model.replace("hyperbolic/", "")
             if mapped := self._get_model_map(model):
                 model = mapped
 
-            # 2. Get the context (contains the 'tools:\n[' string in system message)
+            # 2. Context & Tool Extraction (Using Mixin logic)
             raw_ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
-
-            # --- TOOL EXTRACTION LOGIC ---
-            cleaned_ctx = []
-            extracted_tools = None
-
-            for msg in raw_ctx:
-                content = msg.get("content") or ""
-                # Detect the tools block injected by the Mixin
-                if msg.get("role") == "system" and "tools:\n[" in content:
-                    try:
-                        parts = content.split("tools:\n", 1)
-                        system_text = parts[0].strip()
-                        tools_json_str = parts[1].strip()
-
-                        # Parse the tools back into a list
-                        extracted_tools = json.loads(tools_json_str)
-
-                        # Replace the message with one that doesn't have the tools block
-                        cleaned_ctx.append(
-                            {
-                                "role": "system",
-                                "content": (
-                                    system_text
-                                    if system_text
-                                    else "You are a helpful assistant."
-                                ),
-                            }
-                        )
-                        continue
-                    except Exception as e:
-                        LOG.error(
-                            "Failed to extract/parse tools from system message: %s", e
-                        )
-
-                # Clean up any other fields (id, created_at) that might break raw requests
-                cleaned_ctx.append(
-                    {"role": msg["role"], "content": msg.get("content") or ""}
-                )
+            cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
             if not api_key:
                 yield json.dumps({"type": "error", "content": "Missing API key."})
                 return
 
-            # --- PAYLOAD CONSTRUCTION ---
+            # --- INLINE REQUESTS STREAMING ---
             url = "https://api.hyperbolic.xyz/v1/chat/completions"
             headers = {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {api_key}",
             }
-
             payload = {
                 "messages": cleaned_ctx,
                 "model": model,
@@ -167,24 +126,17 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
                 "stream": True,
             }
 
-            # Inject tools into the native API parameter if we found them
             if extracted_tools:
                 payload["tools"] = extracted_tools
-                # If tools are present, Llama handles 'role: tool' in the history correctly.
 
-            # --- INLINE REQUESTS STREAMING ---
             def raw_json_generator():
-                # Use a timeout for the initial connection
                 with requests.post(
                     url, headers=headers, json=payload, stream=True, timeout=30
                 ) as resp:
                     if resp.status_code != 200:
-                        error_text = resp.text
-                        LOG.error(f"Hyperbolic API Error: {error_text}")
-                        yield {
-                            "type": "error",
-                            "content": f"API Error {resp.status_code}: {error_text}",
-                        }
+                        err_text = resp.text
+                        LOG.error(f"Hyperbolic API Error: {err_text}")
+                        yield {"type": "error", "content": f"API Error: {err_text}"}
                         return
 
                     for line in resp.iter_lines():
@@ -207,24 +159,16 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
             assistant_reply, accumulated, current_block = "", "", None
             code_mode = False
 
-            # Feed the generator into the Universal Normalizer
+            # 4. Standardized Chunk Processing
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(
                 raw_json_generator(), run_id
             ):
-                # Handle error dicts yielded by the generator
-                if isinstance(chunk, dict) and chunk.get("type") == "error":
-                    yield json.dumps(chunk)
-                    break
-
                 if stop_event.is_set():
-                    err = {"type": "error", "content": "Run cancelled"}
-                    yield json.dumps(err)
-                    self._shunt_to_redis_stream(redis, stream_key, err)
                     break
 
                 ctype, ccontent = chunk["type"], chunk["content"]
 
-                # --- METHODOLOGY: TAG INJECTION ---
+                # --- METHODOLOGY: RE-INJECTION & ACCUMULATION ---
                 if ctype == "content":
                     if current_block == "fc":
                         accumulated += "</fc>"
@@ -247,21 +191,21 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
 
                 accumulated += ccontent
 
-                # --- CODE INTERPRETER INTERLEAVING ---
+                # --- CODE INTERPRETER HANDLERS ---
                 if ctype == "content":
                     parse_ci = getattr(self, "parse_code_interpreter_partial", None)
                     ci_match = (
                         parse_ci(accumulated) if parse_ci and not code_mode else None
                     )
+
                     if ci_match:
                         code_mode = True
-                        code_buf = ci_match.get("code", "")
                         start = {"type": "hot_code", "content": "```python\n"}
                         yield json.dumps(start)
                         self._shunt_to_redis_stream(redis, stream_key, start)
                         if hasattr(self, "_process_code_interpreter_chunks"):
-                            res, code_buf = self._process_code_interpreter_chunks(
-                                "", code_buf
+                            res, _ = self._process_code_interpreter_chunks(
+                                "", ci_match.get("code", "")
                             )
                             for r in res:
                                 yield r
@@ -272,9 +216,7 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
 
                     if code_mode:
                         if hasattr(self, "_process_code_interpreter_chunks"):
-                            res, code_buf = self._process_code_interpreter_chunks(
-                                ccontent, code_buf
-                            )
+                            res, _ = self._process_code_interpreter_chunks(ccontent, "")
                             for r in res:
                                 yield r
                                 self._shunt_to_redis_stream(
@@ -294,24 +236,26 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
             yield json.dumps(err)
             self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
-            # Ensure tags are closed if stream ends abruptly
             if current_block == "fc":
                 accumulated += "</fc>"
             elif current_block == "think":
                 accumulated += "</think>"
             stop_event.set()
 
-        # FINAL CLOSE-OUT
-        end_chunk = {"type": "status", "status": "complete", "run_id": run_id}
-        yield json.dumps(end_chunk)
-        self._shunt_to_redis_stream(redis, stream_key, end_chunk)
+        # 5. FINAL CLOSE-OUT & SMART HISTORY PRESERVATION
+        yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
-        if assistant_reply:
-            self.finalize_conversation(assistant_reply, thread_id, assistant_id, run_id)
+        # Check for function calls to determine what to save
+        has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
 
-        if accumulated and self.parse_and_set_function_calls(
-            accumulated, assistant_reply
-        ):
+        # FIX: For Stage 2 logic, if a tool was triggered, we MUST save 'accumulated'
+        # so the model sees the <fc> tag in its history during the follow-up Turn.
+        message_to_save = accumulated if has_fc else assistant_reply
+
+        if message_to_save:
+            self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
+
+        if has_fc:
             self.project_david_client.runs.update_run_status(
                 run_id, StatusEnum.pending_action.value
             )
@@ -328,9 +272,9 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
         assistant_id: str,
         model: Any,
         api_key: Optional[str] = None,
-        stream_reasoning: bool = True,
         **kwargs,
     ):
+        # Step 1: Initial Response / Tool Trigger
         yield from self.stream(
             thread_id,
             message_id,
@@ -341,12 +285,15 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
             **kwargs,
         )
 
+        # Step 2: Follow-up if a function call was detected
         if self.get_function_call_state():
             yield from self.process_function_calls(
                 thread_id, run_id, assistant_id, model=model, api_key=api_key
             )
             self.set_tool_response_state(False)
             self.set_function_call_state(None)
+
+            # Re-stream with the tool result in the history context
             yield from self.stream(
                 thread_id, None, run_id, assistant_id, model, api_key=api_key, **kwargs
             )

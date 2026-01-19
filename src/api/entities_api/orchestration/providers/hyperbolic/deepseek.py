@@ -54,7 +54,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
         self.api_key = extra.get("api_key")
         self.model_name = extra.get("model_name", "deepseek-ai/DeepSeek-V3")
 
-        # --- FIXED: Attributes required by ConversationContextMixin / Truncator ---
+        # Attributes required by ConversationContextMixin / Truncator logic
         self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
 
@@ -92,7 +92,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
             if mapped := self._get_model_map(model):
                 model = mapped
 
-            # Since trunk=True is used, the Truncator now finds self.max_context_window
+            # 1. Context Window Setup
             ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
 
             if model == "deepseek-ai/DeepSeek-R1":
@@ -119,14 +119,16 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
             raw_stream = client.chat.completions.create(**payload)
 
             assistant_reply, accumulated, reasoning_reply = "", "", ""
-            code_mode, code_buf, current_block = False, "", None
+            code_mode, current_block = False, None
 
+            # 2. Process deltas via Normalizer
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
                     break
 
                 ctype, ccontent = chunk["type"], chunk["content"]
 
+                # --- METHODOLOGY: RE-INJECTION & ACCUMULATION ---
                 if ctype == "content":
                     if current_block == "fc":
                         accumulated += "</fc>"
@@ -150,18 +152,19 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
 
                 accumulated += ccontent
 
+                # --- CODE INTERPRETER INTERLEAVING ---
                 if ctype == "content":
                     parse_ci = getattr(self, "parse_code_interpreter_partial", None)
                     ci_match = (
                         parse_ci(accumulated) if parse_ci and not code_mode else None
                     )
                     if ci_match:
-                        code_mode, code_buf = True, ci_match.get("code", "")
+                        code_mode = True
                         start = {"type": "hot_code", "content": "```python\n"}
                         yield json.dumps(start)
                         if hasattr(self, "_process_code_interpreter_chunks"):
-                            res, code_buf = self._process_code_interpreter_chunks(
-                                "", code_buf
+                            res, _ = self._process_code_interpreter_chunks(
+                                "", ci_match.get("code", "")
                             )
                             for r in res:
                                 yield r
@@ -169,9 +172,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
 
                     if code_mode:
                         if hasattr(self, "_process_code_interpreter_chunks"):
-                            res, code_buf = self._process_code_interpreter_chunks(
-                                ccontent, code_buf
-                            )
+                            res, _ = self._process_code_interpreter_chunks(ccontent, "")
                             for r in res:
                                 yield r
                         else:
@@ -181,20 +182,29 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                 yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
 
+            # 3. Final Close-out
             if current_block == "fc":
                 accumulated += "</fc>"
             elif current_block == "think":
                 accumulated += "</think>"
 
             yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
-            if assistant_reply:
+
+            # --- SMART HISTORY PRESERVATION FIX ---
+            # Check for function calls to determine which string to save to history
+            has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
+
+            # If a tool was triggered, we MUST save the string containing the <fc> tags
+            # so the model sees the request in its history during the next turn.
+            message_to_save = accumulated if has_fc else assistant_reply
+
+            if message_to_save:
                 self.finalize_conversation(
-                    assistant_reply, thread_id, assistant_id, run_id
+                    message_to_save, thread_id, assistant_id, run_id
                 )
 
-            if accumulated and self.parse_and_set_function_calls(
-                accumulated, assistant_reply
-            ):
+            # Update Run Status based on whether a follow-up is needed
+            if has_fc:
                 self.project_david_client.runs.update_run_status(
                     run_id, StatusEnum.pending_action.value
                 )
@@ -204,7 +214,9 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                 )
 
         except Exception as exc:
-            yield json.dumps({"type": "error", "content": str(exc)})
+            err = {"type": "error", "content": str(exc)}
+            yield json.dumps(err)
+            self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
             stop_event.set()
 
@@ -236,6 +248,8 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
             )
             self.set_tool_response_state(False)
             self.set_function_call_state(None)
+
+            # Follow-up with the tool results in context
             yield from self.stream(
                 thread_id,
                 None,

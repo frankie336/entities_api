@@ -72,8 +72,31 @@ class ConversationContextMixin:
             "content": f"tools:\n{json.dumps(cfg['tools'])}\n{excluded_instructions}\nToday's date and time: {today}",
         }
 
+    def _build_native_tools_system_message(self, assistant_id: str) -> Dict:
+        """
+        Use to build  system message for models with native tool channels, eg gpt-oss
+        """
+        cache = self.get_assistant_cache()
+        cfg = cache.retrieve_sync(assistant_id)
+        today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        excluded_instructions = assemble_instructions(
+            exclude_keys=[
+                "TOOL_USAGE_PROTOCOL",
+                "FUNCTION_CALL_FORMATTING",
+                "FUNCTION_CALL_WRAPPING",
+            ]
+        )
+        return {
+            "role": "system",
+            "content": f"tools:\n{json.dumps(cfg['tools'])}\n{excluded_instructions}\nToday's date and time: {today}",
+        }
+
     def _set_up_context_window(
-        self, assistant_id: str, thread_id: str, trunk: bool = True
+        self,
+        assistant_id: str,
+        thread_id: str,
+        trunk: bool = True,
+        tools_native: bool = False,
     ):
         """Prepares and optimizes conversation context for model processing.
 
@@ -109,7 +132,10 @@ class ConversationContextMixin:
             Uses LRU-cached service calls for assistant/message retrieval to optimize
             repeated requests with identical parameters.
         """
-        system_msg = self._build_system_message(assistant_id)
+        if tools_native:
+            system_msg = self._build_native_tools_system_message(assistant_id)
+        else:
+            system_msg = self._build_system_message(assistant_id)
 
         redis_key = f"thread:{thread_id}:history"
 

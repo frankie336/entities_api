@@ -43,7 +43,7 @@ class _ProviderMixins(
 class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
     """
     Modular Async Hyperbolic Qwen-QwQ-32B provider.
-    Refactored to use prepare_native_tool_context for native tool handling.
+    Refactored to support Smart History Preservation for multi-turn tool use.
     """
 
     def __init__(
@@ -80,8 +80,6 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
 
     @assistant_cache.setter
     def assistant_cache(self, value: dict) -> None:
-        if hasattr(self, "_assistant_cache") and self._assistant_cache:
-            raise AttributeError("assistant_cache already initialised")
         self._assistant_cache = value
 
     def get_assistant_cache(self) -> dict:
@@ -109,10 +107,10 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
             if mapped := self._get_model_map(model):
                 model = mapped
 
-            # 1. Get raw context from mixins
+            # 1. Context setup (Trunk=True for context window management)
             raw_ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
 
-            # 2. USE MIXIN FOR TOOL EXTRACTION & CONTEXT CLEANING
+            # 2. Extract tools and clean context
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
             if not api_key:
@@ -120,10 +118,11 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
                 yield json.dumps(err)
                 return
 
-            base_url = os.getenv("HYPERBOLIC_BASE_URL")
-            client = AsyncHyperbolicClient(api_key=api_key, base_url=base_url)
+            client = AsyncHyperbolicClient(
+                api_key=api_key, base_url=os.getenv("HYPERBOLIC_BASE_URL")
+            )
 
-            # 3. Call home-brew client with cleaned messages and extracted tools
+            # 3. Request Stream
             async_stream = client.stream_chat_completion(
                 messages=cleaned_ctx,
                 tools=extracted_tools,
@@ -132,24 +131,21 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
                 top_p=0.9,
             )
 
-            start_chunk = {"type": "status", "status": "started", "run_id": run_id}
-            yield json.dumps(start_chunk)
-            self._shunt_to_redis_stream(redis, stream_key, start_chunk)
+            yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
             assistant_reply, accumulated, reasoning_reply = "", "", ""
-            code_mode, code_buf, current_block = False, "", None
+            code_mode, current_block = False, None
 
             token_iterator = async_to_sync_stream(async_stream)
 
+            # 4. Standardized Processing
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(token_iterator, run_id):
                 if stop_event.is_set():
-                    err = {"type": "error", "content": "Run cancelled"}
-                    yield json.dumps(err)
                     break
 
                 ctype, ccontent = chunk["type"], chunk["content"]
 
-                # --- METHODOLOGY: TAG INJECTION ---
+                # --- METHODOLOGY: RE-INJECTION & ACCUMULATION ---
                 if ctype == "content":
                     if current_block == "fc":
                         accumulated += "</fc>"
@@ -173,7 +169,7 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
 
                 accumulated += ccontent
 
-                # CODE INTERPRETER INTERLEAVING
+                # --- CODE INTERPRETER HANDLERS ---
                 if ctype == "content":
                     parse_ci = getattr(self, "parse_code_interpreter_partial", None)
                     ci_match = (
@@ -181,13 +177,13 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
                     )
 
                     if ci_match:
-                        code_mode, code_buf = True, ci_match.get("code", "")
+                        code_mode = True
                         start = {"type": "hot_code", "content": "```python\n"}
                         yield json.dumps(start)
                         self._shunt_to_redis_stream(redis, stream_key, start)
                         if hasattr(self, "_process_code_interpreter_chunks"):
-                            res, code_buf = self._process_code_interpreter_chunks(
-                                "", code_buf
+                            res, _ = self._process_code_interpreter_chunks(
+                                "", ci_match.get("code", "")
                             )
                             for r in res:
                                 yield r
@@ -198,9 +194,7 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
 
                     if code_mode:
                         if hasattr(self, "_process_code_interpreter_chunks"):
-                            res, code_buf = self._process_code_interpreter_chunks(
-                                ccontent, code_buf
-                            )
+                            res, _ = self._process_code_interpreter_chunks(ccontent, "")
                             for r in res:
                                 yield r
                                 self._shunt_to_redis_stream(
@@ -224,19 +218,20 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
                 accumulated += "</think>"
             stop_event.set()
 
-        # FINAL CLOSE-OUT
-        end_chunk = {"type": "status", "status": "complete", "run_id": run_id}
-        yield json.dumps(end_chunk)
-        self._shunt_to_redis_stream(redis, stream_key, end_chunk)
+        # 5. FINAL CLOSE-OUT & SMART HISTORY PRESERVATION
+        yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
-        if assistant_reply:
-            self.finalize_conversation(
-                reasoning_reply + assistant_reply, thread_id, assistant_id, run_id
-            )
+        # Determine if a function call was detected
+        has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
 
-        if accumulated and self.parse_and_set_function_calls(
-            accumulated, assistant_reply
-        ):
+        # FIX: Save 'accumulated' (with <fc> tags) if a tool was triggered.
+        # This keeps the history protocol valid for the next turn.
+        message_to_save = accumulated if has_fc else (reasoning_reply + assistant_reply)
+
+        if message_to_save:
+            self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
+
+        if has_fc:
             self.project_david_client.runs.update_run_status(
                 run_id, StatusEnum.pending_action.value
             )
@@ -256,6 +251,7 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
         stream_reasoning=True,
         **kwargs,
     ):
+        # Turn 1: Initial Generation
         yield from self.stream(
             thread_id,
             message_id,
@@ -267,12 +263,14 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
             **kwargs,
         )
 
+        # Turn 2: Follow-up after tool execution
         if self.get_function_call_state():
             yield from self.process_function_calls(
                 thread_id, run_id, assistant_id, model=model, api_key=api_key
             )
             self.set_tool_response_state(False)
             self.set_function_call_state(None)
+
             yield from self.stream(
                 thread_id,
                 None,
