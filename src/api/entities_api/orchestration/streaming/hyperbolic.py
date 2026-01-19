@@ -17,10 +17,10 @@ class HyperbolicDeltaNormalizer:
     @classmethod
     def iter_deltas(cls, raw_stream, run_id):
         buffer = ""
-        # States for GPT-OSS parsing
+        # States for GPT-OSS Channel parsing
         state = "content"
 
-        # State for Llama 3.x Tool Accumulation
+        # State for Native Tool Accumulation (Llama 3.x / GPT-OSS Native)
         pending_tool_calls = defaultdict(
             lambda: {"index": 0, "function": {"name": None, "arguments": ""}}
         )
@@ -29,14 +29,14 @@ class HyperbolicDeltaNormalizer:
             seg = ""
             choices = []
 
-            # --- Dictionary Handling ---
+            # --- Dictionary Handling (AsyncClient / Requests) ---
             if isinstance(token, dict):
                 choices = token.get("choices")
                 if not choices or not isinstance(choices, list):
                     continue
                 delta = choices[0].get("delta", {})
 
-                # A. Native Reasoning
+                # A. Native Reasoning (if present)
                 if delta.get("reasoning_content"):
                     yield {
                         "type": "reasoning",
@@ -44,16 +44,12 @@ class HyperbolicDeltaNormalizer:
                         "run_id": run_id,
                     }
 
-                # B. Native Tool Calls (Llama 3.x / OpenAI Standard)
+                # B. Native Tool Calls
                 if delta.get("tool_calls"):
                     for tc in delta["tool_calls"]:
-                        # ID might be missing in subsequent chunks, rely on index if needed
+                        # Use ID if present, fallback to index
                         t_index = tc.get("index", 0)
-                        t_id = tc.get("id") or str(t_index)
 
-                        # Initialize/Get pending object
-                        # Note: We key by index mostly for stream continuity,
-                        # but some providers might interleave.
                         tool_data = pending_tool_calls[t_index]
 
                         fn = tc.get("function", {})
@@ -85,7 +81,6 @@ class HyperbolicDeltaNormalizer:
                 delta = choices[0].delta
                 seg = getattr(delta, "content", "") or ""
 
-                # Handle Tool Calls objects
                 t_calls = getattr(delta, "tool_calls", None)
                 if t_calls:
                     for tc in t_calls:
@@ -108,9 +103,8 @@ class HyperbolicDeltaNormalizer:
                                     "run_id": run_id,
                                 }
 
-            # --- Check for Tool Completion (Finish Reason) ---
+            # --- Check for Native Tool Completion ---
             if choices and choices[0].get("finish_reason") == "tool_calls":
-                # Emit completed tool calls
                 for idx, data in list(pending_tool_calls.items()):
                     name = data["function"]["name"]
                     args = data["function"]["arguments"]
@@ -125,7 +119,7 @@ class HyperbolicDeltaNormalizer:
             if not seg:
                 continue
 
-            # --- Character-by-character parsing (GPT-OSS) ---
+            # --- Character-by-character parsing (GPT-OSS Channels) ---
             for char in seg:
                 buffer += char
 
@@ -160,6 +154,7 @@ class HyperbolicDeltaNormalizer:
                             buffer = ""
                         continue
 
+                    # If not a tag, yield as content
                     yield {"type": "content", "content": buffer, "run_id": run_id}
                     buffer = ""
 
@@ -205,7 +200,7 @@ class HyperbolicDeltaNormalizer:
                             }
                         buffer = ""
 
-                # STATE: TOOL META
+                # STATE: TOOL META (Skip)
                 elif state == "channel_tool_meta":
                     if cls.MSG_TAG in buffer:
                         _, post = buffer.split(cls.MSG_TAG, 1)
@@ -215,7 +210,7 @@ class HyperbolicDeltaNormalizer:
                         state = "content"
                         buffer = ""
 
-                # STATE: TOOL PAYLOAD
+                # STATE: TOOL PAYLOAD (Channel-based)
                 elif state == "channel_tool_payload":
                     exit_tags = [cls.CALL_TAG, cls.CH_FINAL, cls.CH_ANALYSIS]
                     found_tag = None
@@ -226,6 +221,7 @@ class HyperbolicDeltaNormalizer:
                     if found_tag:
                         pre, post = buffer.split(found_tag, 1)
                         if pre:
+                            # Yield as standard call_arguments
                             yield {
                                 "type": "call_arguments",
                                 "content": pre,
