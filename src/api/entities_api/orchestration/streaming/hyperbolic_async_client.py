@@ -1,8 +1,9 @@
-import asyncio
 import json
-from typing import Any, AsyncGenerator, Dict, List, Optional
-
 import httpx
+from typing import Any, AsyncGenerator, Dict, List, Optional
+from projectdavid_common.utilities.logging_service import LoggingUtility
+
+LOG = LoggingUtility()
 
 
 class AsyncHyperbolicClient:
@@ -14,8 +15,19 @@ class AsyncHyperbolicClient:
     ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
+
+        # ---------------------------------------------------------
+        # FIX 1: Disable HTTP/2.
+        # 'requests' uses HTTP/1.1. Streaming over HTTP/2 is often
+        # flaky on specific inference providers/proxies.
+        # ---------------------------------------------------------
         self.client = httpx.AsyncClient(
-            timeout=timeout, headers={"Authorization": f"Bearer {api_key}"}, http2=True
+            timeout=timeout,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"  # FIX 2: Explicit Content-Type
+            },
+            http2=False  # <--- CHANGED FROM TRUE
         )
 
     async def stream_chat_completion(
@@ -28,7 +40,6 @@ class AsyncHyperbolicClient:
     ) -> AsyncGenerator[Dict[str, Any], None]:
         url = f"{self.base_url}/chat/completions"
 
-        # 1. Build the base payload
         payload = {
             "messages": messages,
             "model": model,
@@ -37,16 +48,16 @@ class AsyncHyperbolicClient:
             **kwargs,
         }
 
-        # 2. FIX: Properly assign tools only if they exist
+        # FIX 3: Ensure tools are attached correctly
         if tools:
             payload["tools"] = tools
-            # If tools are present and tool_choice isn't specified,
-            # you might want to default to "auto", though most APIs do this.
             if "tool_choice" not in payload:
                 payload["tool_choice"] = "auto"
 
+        # DEBUG: Print the payload size/structure before sending to confirm 2nd turn behavior
+        # LOG.debug(f"[HyperbolicClient] Sending request to {url}. Msgs: {len(messages)}, Tools: {len(tools or [])}")
+
         async with self.client.stream("POST", url, json=payload) as response:
-            # It's better to catch the error here to see why the API rejected the call
             if response.status_code != 200:
                 error_content = await response.aread()
                 raise httpx.HTTPStatusError(
@@ -59,6 +70,7 @@ class AsyncHyperbolicClient:
                 if not line:
                     continue
 
+                # httpx aiter_lines gives strings, but stripping is safe
                 line = line.strip()
 
                 if line == "data: [DONE]":
@@ -67,7 +79,6 @@ class AsyncHyperbolicClient:
                 if line.startswith("data: "):
                     clean_line = line[6:]
                     try:
-                        # Yield the full dictionary so the Normalizer can see tool_calls
                         yield json.loads(clean_line)
                     except json.JSONDecodeError:
                         continue

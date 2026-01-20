@@ -6,8 +6,8 @@ from fastapi import HTTPException
 from projectdavid_common import UtilsInterface, ValidationInterface
 
 from src.api.entities_api.db.database import SessionLocal
-# FIX: Import Tool model for the join
-from src.api.entities_api.models.models import Message, Thread, Tool
+# FIX: Import Action/Tool for the JOIN
+from src.api.entities_api.models.models import Action, Message, Thread, Tool
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 validator = ValidationInterface()
@@ -21,9 +21,6 @@ class MessageService:
         logging_utility.info(f"Initialized MessageService. Source: {__file__}")
 
     def create_message(self, message: validator.MessageCreate) -> validator.MessageRead:
-        """
-        Create a new message in the database.
-        """
         logging_utility.info(
             f"Creating message for thread_id={message.thread_id}, role={message.role}. Source: {__file__}"
         )
@@ -32,11 +29,9 @@ class MessageService:
             if not db_thread:
                 raise HTTPException(status_code=404, detail="Thread not found")
 
-            # --- SAFE ATTRIBUTE ACCESS START ---
-            # Use getattr to prevent crash if Pydantic model definition is stale
+            # Safe access
             t_id = getattr(message, "tool_id", None)
             tc_id = getattr(message, "tool_call_id", None)
-            # -----------------------------------
 
             db_message = Message(
                 id=UtilsInterface.IdentifierService.generate_message_id(),
@@ -54,7 +49,6 @@ class MessageService:
                 status=None,
                 thread_id=message.thread_id,
                 sender_id=message.sender_id,
-                # --- NEW FIELDS MAPPED SAFELY ---
                 tool_id=t_id,
                 tool_call_id=tc_id,
             )
@@ -62,15 +56,11 @@ class MessageService:
                 db.add(db_message)
                 db.commit()
                 db.refresh(db_message)
-                logging_utility.info(
-                    f"Message created successfully: id={db_message.id}. Source: {__file__}"
-                )
             except Exception as e:
                 db.rollback()
-                logging_utility.error(f"Error saving message to DB: {e}")
+                logging_utility.error(f"Error saving message: {e}")
                 raise HTTPException(status_code=500, detail="Failed to create message")
 
-            # Manual construction handles deserialization safely here
             return ValidationInterface.MessageRead(
                 id=db_message.id,
                 assistant_id=db_message.assistant_id,
@@ -92,9 +82,6 @@ class MessageService:
             )
 
     def retrieve_message(self, message_id: str) -> ValidationInterface.MessageRead:
-        """
-        Retrieve a message by its ID.
-        """
         logging_utility.info(
             f"Retrieving message with id={message_id}. Source: {__file__}"
         )
@@ -129,12 +116,8 @@ class MessageService:
         limit: int = 20,
         order: str = "asc",
     ) -> validator.MessagesList:
-        """
-        List messages for a thread, ordered by creation time.
-        """
         logging_utility.info(
-            f"Listing messages for thread_id={thread_id}, limit={limit}, "
-            f"order={order}. Source: {__file__}"
+            f"Listing messages for thread_id={thread_id}, limit={limit}, order={order}."
         )
         with SessionLocal() as db:
             db_thread = db.query(Thread).filter(Thread.id == thread_id).first()
@@ -174,9 +157,6 @@ class MessageService:
         sender_id: str,
         is_last_chunk: bool = False,
     ) -> Optional[ValidationInterface.MessageRead]:
-        """
-        Save a message chunk from the assistant, with support for streaming.
-        """
         if thread_id not in self.message_chunks:
             self.message_chunks[thread_id] = []
         self.message_chunks[thread_id].append(content)
@@ -217,41 +197,38 @@ class MessageService:
             return ValidationInterface.MessageRead.model_validate(db_message)
 
     # ------------------------------------------------------------------
-    # 🔍 UPDATED: CONTEXT WINDOW BUILDER (WITH TOOL NAMES)
+    # 🔍 DEFINITIVE FIX: JOIN Message -> Action -> Tool to get 'name'
     # ------------------------------------------------------------------
     def list_messages_for_thread(self, thread_id: str) -> List[Dict[str, Any]]:
         """
-        List messages for a thread in a formatted structure for Context Window.
-
-        Logic for Tool Messages:
-        1. Query Message table JOIN Tool table ON message.tool_id = tool.id
-        2. If role == 'tool', inject 'name': tool.name from the joined Tool record.
-        3. Use 'tool_call_id' for binding.
+        List messages for a thread formatted for the Context Window.
+        Ensures 'role: tool' messages have the 'name' field by joining
+        via the Action table.
         """
         with SessionLocal() as db:
             db_thread = db.query(Thread).filter(Thread.id == thread_id).first()
             if not db_thread:
                 raise HTTPException(status_code=404, detail="Thread not found")
 
-            # --- JOIN QUERY START ---
-            # We select the Message object AND the Tool.name field
-            # outerjoin allows messages without tools (user/assistant) to still appear
+            # --- THE FIX: JOIN CHAIN ---
+            # 1. Message.tool_id usually holds the Action ID (act_...)
+            # 2. Action.tool_id holds the Tool ID
+            # 3. Tool.name holds the string name (e.g. 'get_flight_times')
             results = (
                 db.query(Message, Tool.name)
-                .outerjoin(Tool, Message.tool_id == Tool.id)
+                .outerjoin(Action, Message.tool_id == Action.id)
+                .outerjoin(Tool, Action.tool_id == Tool.id)
                 .filter(Message.thread_id == thread_id)
                 .order_by(Message.created_at.asc())
                 .all()
             )
-            # --- JOIN QUERY END ---
 
             formatted_messages = []
 
             for db_message, tool_name in results:
-                # --- TOOL MESSAGE FORMATTING ---
+                # --- 1. TOOL MESSAGE ---
                 if db_message.role == "tool":
-                    # Determine proper ID: tool_call_id (Conversation) preferred over tool_id (Action)
-                    # But for binding, we need the conversation ID.
+                    # Use the tool_call_id (Dialogue Binding ID)
                     t_id = db_message.tool_call_id or db_message.tool_id
 
                     msg_dict = {
@@ -260,63 +237,71 @@ class MessageService:
                         "content": db_message.content,
                     }
 
-                    # Inject Name if the JOIN found it
+                    # INJECT NAME (Required for gpt-oss / Llama)
                     if tool_name:
                         msg_dict["name"] = tool_name
+                    # If not found via Action Join, check if it's a direct Tool ID
+                    elif not tool_name and db_message.tool_id:
+                        # Fallback: Maybe tool_id was the Tool ID directly?
+                        direct_tool = (
+                            db.query(Tool).filter(Tool.id == db_message.tool_id).first()
+                        )
+                        if direct_tool:
+                            msg_dict["name"] = direct_tool.name
 
                     formatted_messages.append(msg_dict)
 
-                # --- ASSISTANT MESSAGE WITH TOOL CALLS ---
+                # --- 2. ASSISTANT MESSAGE ---
                 elif db_message.role == "assistant":
                     try:
                         content_json = json.loads(db_message.content)
-                        # Detect OpenAI tool_calls structure stored in content
                         if (
                             isinstance(content_json, list)
                             and content_json
+                            and isinstance(content_json[0], dict)
                             and "type" in content_json[0]
+                            and content_json[0]["type"] == "function"
                         ):
-                            # It's a tool call message!
+                            # Tool Call Message
                             formatted_messages.append(
                                 {
                                     "role": "assistant",
                                     "tool_calls": content_json,
-                                    "content": "",  # Empty string for OpenAI compatibility
+                                    # -------------------------------------------------
+                                    # FIX: Changed None to "" (Empty String)
+                                    # Strict OSS models crash on null content in history
+                                    # -------------------------------------------------
+                                    "content": "",
                                 }
                             )
                         else:
-                            # Standard text message
+                            # Standard text (even if it was a JSON string that wasn't a tool call)
                             formatted_messages.append(
                                 {"role": db_message.role, "content": db_message.content}
                             )
                     except (json.JSONDecodeError, TypeError):
-                        # Content was plain text
+                        # Not JSON, so it's just regular text content
                         formatted_messages.append(
                             {"role": db_message.role, "content": db_message.content}
                         )
-                # --- USER / SYSTEM MESSAGES ---
+
+                # --- 3. OTHER MESSAGES (System, User) ---
                 else:
                     formatted_messages.append(
                         {"role": db_message.role, "content": db_message.content}
                     )
 
             return formatted_messages
-
     def submit_tool_output(
         self, message: validator.MessageCreate
     ) -> ValidationInterface.MessageRead:
-        """
-        Create a new message in the database with role 'tool'.
-        """
         with SessionLocal() as db:
             db_thread = db.query(Thread).filter(Thread.id == message.thread_id).first()
             if not db_thread:
                 raise HTTPException(status_code=404, detail="Thread not found")
 
-            # --- SAFE ATTRIBUTE ACCESS START ---
             t_id = getattr(message, "tool_id", None)
             tc_id = getattr(message, "tool_call_id", None)
-            # -----------------------------------
 
             db_message = Message(
                 id=UtilsInterface.IdentifierService.generate_message_id(),
@@ -327,7 +312,6 @@ class MessageService:
                 object="message",
                 role="tool",
                 thread_id=message.thread_id,
-                # --- MAP NEW FIELDS ---
                 tool_id=t_id,
                 tool_call_id=tc_id,
             )
@@ -339,17 +323,15 @@ class MessageService:
                 db.rollback()
                 raise HTTPException(status_code=500, detail="Failed to create message")
 
-            # --- FIX: Deserialize meta_data before model_validate ---
             if isinstance(db_message.meta_data, str):
                 try:
                     db_message.meta_data = json.loads(db_message.meta_data)
                 except (json.JSONDecodeError, TypeError):
                     db_message.meta_data = {}
-            # --------------------------------------------------------
+
             return ValidationInterface.MessageRead.model_validate(db_message)
 
     def delete_message(self, message_id: str) -> validator.MessageDeleted:
-        """Delete message row and return deletion envelope."""
         with SessionLocal() as db:
             db_msg = db.query(Message).filter(Message.id == message_id).first()
             if not db_msg:
