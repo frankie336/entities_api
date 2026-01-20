@@ -162,6 +162,7 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
         assistant_id: str,
         model: Any,
         *,
+        force_refresh: bool = False,
         stream_reasoning: bool = True,
         api_key: Optional[str] = None,
         **kwargs,
@@ -180,8 +181,13 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                 model = mapped
 
             raw_ctx = self._set_up_context_window(
-                assistant_id, thread_id, trunk=True, tools_native=True
+                assistant_id,
+                thread_id,
+                trunk=True,
+                tools_native=True,
+                force_refresh=force_refresh,
             )
+
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
             if not api_key:
@@ -336,6 +342,7 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
         api_key: Optional[str] = None,
         **kwargs,
     ):
+
         yield from self.stream(
             thread_id,
             message_id,
@@ -354,10 +361,10 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             # Retrieve the ID generated inside stream()
             tool_call_id = getattr(self, "_current_tool_call_id", None)
 
-            # -------------------------------------
+            # --------------------------------------------------------------
             #  Tool calls dealt with here
             #  - Yields any interleaving chunks from function call handler
-            # --------------------------------------
+            # -----------------------------------------------------------
 
             yield from self.process_function_calls(
                 thread_id,
@@ -376,6 +383,18 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             # Reset ID
             self._current_tool_call_id = None
 
+            self._force_refresh = True
+
+            # -----------------------------------
+            # Turn 2 after a tool is triggered
+            # ------------------------------------
             yield from self.stream(
-                thread_id, None, run_id, assistant_id, model, api_key=api_key, **kwargs
+                thread_id,
+                None,
+                run_id,
+                assistant_id,
+                model,
+                force_refresh=True,
+                api_key=api_key,
+                **kwargs,
             )

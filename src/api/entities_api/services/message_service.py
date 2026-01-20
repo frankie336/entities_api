@@ -6,7 +6,8 @@ from fastapi import HTTPException
 from projectdavid_common import UtilsInterface, ValidationInterface
 
 from src.api.entities_api.db.database import SessionLocal
-from src.api.entities_api.models.models import Message, Thread
+# FIX: Import Tool model for the join
+from src.api.entities_api.models.models import Message, Thread, Tool
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 validator = ValidationInterface()
@@ -150,13 +151,11 @@ class MessageService:
 
             messages: List[validator.MessageRead] = []
             for db_msg in db_messages:
-                # --- FIX: Deserialize meta_data on the object before validation ---
                 if isinstance(db_msg.meta_data, str):
                     try:
                         db_msg.meta_data = json.loads(db_msg.meta_data)
                     except (TypeError, ValueError):
                         db_msg.meta_data = {}
-                # ------------------------------------------------------------------
                 messages.append(validator.MessageRead.model_validate(db_msg))
 
             return validator.MessagesList(
@@ -200,8 +199,6 @@ class MessageService:
                 role=role,
                 thread_id=thread_id,
                 sender_id=sender_id,
-                # Assistant messages generated this way usually don't have tool_call_id
-                # unless patched later (which the Orchestrator now does).
             )
             try:
                 db.add(db_message)
@@ -211,52 +208,69 @@ class MessageService:
                 db.rollback()
                 raise HTTPException(status_code=500, detail="Failed to save message")
 
-            # --- FIX: Deserialize meta_data before model_validate ---
             if isinstance(db_message.meta_data, str):
                 try:
                     db_message.meta_data = json.loads(db_message.meta_data)
                 except (json.JSONDecodeError, TypeError):
                     db_message.meta_data = {}
-            # --------------------------------------------------------
 
             return ValidationInterface.MessageRead.model_validate(db_message)
 
+    # ------------------------------------------------------------------
+    # 🔍 UPDATED: CONTEXT WINDOW BUILDER (WITH TOOL NAMES)
+    # ------------------------------------------------------------------
     def list_messages_for_thread(self, thread_id: str) -> List[Dict[str, Any]]:
         """
         List messages for a thread in a formatted structure for Context Window.
-        Critical for Tool use: Formats tool messages with correct ID.
+
+        Logic for Tool Messages:
+        1. Query Message table JOIN Tool table ON message.tool_id = tool.id
+        2. If role == 'tool', inject 'name': tool.name from the joined Tool record.
+        3. Use 'tool_call_id' for binding.
         """
         with SessionLocal() as db:
             db_thread = db.query(Thread).filter(Thread.id == thread_id).first()
             if not db_thread:
                 raise HTTPException(status_code=404, detail="Thread not found")
-            db_messages = (
-                db.query(Message)
+
+            # --- JOIN QUERY START ---
+            # We select the Message object AND the Tool.name field
+            # outerjoin allows messages without tools (user/assistant) to still appear
+            results = (
+                db.query(Message, Tool.name)
+                .outerjoin(Tool, Message.tool_id == Tool.id)
                 .filter(Message.thread_id == thread_id)
                 .order_by(Message.created_at.asc())
                 .all()
             )
+            # --- JOIN QUERY END ---
 
-            # Start with System Prompt (or empty list if handled elsewhere)
             formatted_messages = []
 
-            for db_message in db_messages:
+            for db_message, tool_name in results:
                 # --- TOOL MESSAGE FORMATTING ---
                 if db_message.role == "tool":
-                    # Use the explicit tool_call_id column if available
+                    # Determine proper ID: tool_call_id (Conversation) preferred over tool_id (Action)
+                    # But for binding, we need the conversation ID.
                     t_id = db_message.tool_call_id or db_message.tool_id
-                    formatted_messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": t_id,
-                            "content": db_message.content,
-                        }
-                    )
+
+                    msg_dict = {
+                        "role": "tool",
+                        "tool_call_id": t_id,
+                        "content": db_message.content,
+                    }
+
+                    # Inject Name if the JOIN found it
+                    if tool_name:
+                        msg_dict["name"] = tool_name
+
+                    formatted_messages.append(msg_dict)
+
                 # --- ASSISTANT MESSAGE WITH TOOL CALLS ---
                 elif db_message.role == "assistant":
-                    # Check if content is actually a tool_calls array (from Orchestrator)
                     try:
                         content_json = json.loads(db_message.content)
+                        # Detect OpenAI tool_calls structure stored in content
                         if (
                             isinstance(content_json, list)
                             and content_json
@@ -267,7 +281,7 @@ class MessageService:
                                 {
                                     "role": "assistant",
                                     "tool_calls": content_json,
-                                    "content": None,  # or "" depending on strictness
+                                    "content": "",  # Empty string for OpenAI compatibility
                                 }
                             )
                         else:
@@ -276,7 +290,7 @@ class MessageService:
                                 {"role": db_message.role, "content": db_message.content}
                             )
                     except (json.JSONDecodeError, TypeError):
-                        # Standard text message (not JSON)
+                        # Content was plain text
                         formatted_messages.append(
                             {"role": db_message.role, "content": db_message.content}
                         )
