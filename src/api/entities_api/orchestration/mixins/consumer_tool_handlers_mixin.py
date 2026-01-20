@@ -28,6 +28,7 @@ class ConsumerToolHandlersMixin:
         *,
         thread_id: str,
         assistant_id: str,
+        tool_call_id: Optional[str] = None,
         content: str,
         action: Any,
         is_error: bool = False,
@@ -41,6 +42,7 @@ class ConsumerToolHandlersMixin:
                 content=content,
                 role="tool",
                 assistant_id=assistant_id,
+                tool_call_id=tool_call_id,
                 tool_id=getattr(action, "id", "dummy"),
             )
 
@@ -58,7 +60,13 @@ class ConsumerToolHandlersMixin:
             )
 
     def _submit_fallback_error(
-        self, thread_id: str, assistant_id: str, error_msg: str, action: Any
+        self,
+        thread_id: str,
+        assistant_id: str,
+        *,
+        tool_call_id: Optional[str] = None,
+        error_msg: str,
+        action: Any,
     ) -> None:
         """Fallback for critical submit_tool_output failures."""
         try:
@@ -67,6 +75,7 @@ class ConsumerToolHandlersMixin:
                 content=error_msg,
                 role="tool",
                 assistant_id=assistant_id,
+                tool_call_id=tool_call_id,
                 tool_id=getattr(action, "id", "dummy"),
             )
         finally:
@@ -92,7 +101,13 @@ class ConsumerToolHandlersMixin:
         return json.dumps(error_data, indent=2)
 
     def _handle_tool_error(
-        self, exc: Exception, *, thread_id: str, assistant_id: str, action: Any
+        self,
+        exc: Exception,
+        *,
+        thread_id: str,
+        assistant_id: str,
+        tool_call_id: Optional[str] = None,
+        action: Any,
     ) -> None:
         """Logs, surfaces, and propagates errors."""
         error_payload = self._format_error_payload(exc, SURFACE_TRACEBACK)
@@ -100,6 +115,7 @@ class ConsumerToolHandlersMixin:
         self.submit_tool_output(
             thread_id=thread_id,
             assistant_id=assistant_id,
+            tool_call_id=tool_call_id,
             content=error_payload,
             action=action,
             is_error=True,
@@ -113,13 +129,17 @@ class ConsumerToolHandlersMixin:
         content: Dict[str, Any],
         run_id: str,
         *,
+        tool_call_id: Optional[str] = None,
         api_key: Optional[str] = None,
         poll_interval: float = 1.0,
         max_wait: float = 60.0,
     ) -> None:
         """Handles consumer-side tool calls with dual-path error handling."""
         action = self.project_david_client.actions.create_action(
-            tool_name=content["name"], run_id=run_id, function_args=content["arguments"]
+            tool_name=content["name"],
+            run_id=run_id,
+            tool_call_id=tool_call_id,
+            function_args=content["arguments"],
         )
         try:
             # Signal that we are waiting for user action

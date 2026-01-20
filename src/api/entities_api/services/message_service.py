@@ -31,6 +31,12 @@ class MessageService:
             if not db_thread:
                 raise HTTPException(status_code=404, detail="Thread not found")
 
+            # --- SAFE ATTRIBUTE ACCESS START ---
+            # Use getattr to prevent crash if Pydantic model definition is stale
+            t_id = getattr(message, "tool_id", None)
+            tc_id = getattr(message, "tool_call_id", None)
+            # -----------------------------------
+
             db_message = Message(
                 id=UtilsInterface.IdentifierService.generate_message_id(),
                 assistant_id=message.assistant_id,
@@ -47,6 +53,9 @@ class MessageService:
                 status=None,
                 thread_id=message.thread_id,
                 sender_id=message.sender_id,
+                # --- NEW FIELDS MAPPED SAFELY ---
+                tool_id=t_id,
+                tool_call_id=tc_id,
             )
             try:
                 db.add(db_message)
@@ -57,6 +66,7 @@ class MessageService:
                 )
             except Exception as e:
                 db.rollback()
+                logging_utility.error(f"Error saving message to DB: {e}")
                 raise HTTPException(status_code=500, detail="Failed to create message")
 
             # Manual construction handles deserialization safely here
@@ -76,6 +86,8 @@ class MessageService:
                 status=db_message.status,
                 thread_id=db_message.thread_id,
                 sender_id=db_message.sender_id,
+                tool_id=db_message.tool_id,
+                tool_call_id=db_message.tool_call_id,
             )
 
     def retrieve_message(self, message_id: str) -> ValidationInterface.MessageRead:
@@ -106,6 +118,8 @@ class MessageService:
                 status=db_message.status,
                 thread_id=db_message.thread_id,
                 sender_id=db_message.sender_id,
+                tool_id=db_message.tool_id,
+                tool_call_id=db_message.tool_call_id,
             )
 
     def list_messages(
@@ -186,6 +200,8 @@ class MessageService:
                 role=role,
                 thread_id=thread_id,
                 sender_id=sender_id,
+                # Assistant messages generated this way usually don't have tool_call_id
+                # unless patched later (which the Orchestrator now does).
             )
             try:
                 db.add(db_message)
@@ -207,7 +223,8 @@ class MessageService:
 
     def list_messages_for_thread(self, thread_id: str) -> List[Dict[str, Any]]:
         """
-        List messages for a thread in a formatted structure.
+        List messages for a thread in a formatted structure for Context Window.
+        Critical for Tool use: Formats tool messages with correct ID.
         """
         with SessionLocal() as db:
             db_thread = db.query(Thread).filter(Thread.id == thread_id).first()
@@ -219,22 +236,56 @@ class MessageService:
                 .order_by(Message.created_at.asc())
                 .all()
             )
-            formatted_messages = [
-                {"role": "system", "content": "Be as kind, intelligent, and helpful"}
-            ]
+
+            # Start with System Prompt (or empty list if handled elsewhere)
+            formatted_messages = []
+
             for db_message in db_messages:
-                if db_message.role == "tool" and db_message.tool_id:
+                # --- TOOL MESSAGE FORMATTING ---
+                if db_message.role == "tool":
+                    # Use the explicit tool_call_id column if available
+                    t_id = db_message.tool_call_id or db_message.tool_id
                     formatted_messages.append(
                         {
                             "role": "tool",
-                            "tool_call_id": db_message.tool_id,
+                            "tool_call_id": t_id,
                             "content": db_message.content,
                         }
                     )
+                # --- ASSISTANT MESSAGE WITH TOOL CALLS ---
+                elif db_message.role == "assistant":
+                    # Check if content is actually a tool_calls array (from Orchestrator)
+                    try:
+                        content_json = json.loads(db_message.content)
+                        if (
+                            isinstance(content_json, list)
+                            and content_json
+                            and "type" in content_json[0]
+                        ):
+                            # It's a tool call message!
+                            formatted_messages.append(
+                                {
+                                    "role": "assistant",
+                                    "tool_calls": content_json,
+                                    "content": None,  # or "" depending on strictness
+                                }
+                            )
+                        else:
+                            # Standard text message
+                            formatted_messages.append(
+                                {"role": db_message.role, "content": db_message.content}
+                            )
+                    except (json.JSONDecodeError, TypeError):
+                        # Standard text message (not JSON)
+                        formatted_messages.append(
+                            {"role": db_message.role, "content": db_message.content}
+                        )
+                # --- USER / SYSTEM MESSAGES ---
                 else:
                     formatted_messages.append(
                         {"role": db_message.role, "content": db_message.content}
                     )
+
             return formatted_messages
 
     def submit_tool_output(
@@ -248,6 +299,11 @@ class MessageService:
             if not db_thread:
                 raise HTTPException(status_code=404, detail="Thread not found")
 
+            # --- SAFE ATTRIBUTE ACCESS START ---
+            t_id = getattr(message, "tool_id", None)
+            tc_id = getattr(message, "tool_call_id", None)
+            # -----------------------------------
+
             db_message = Message(
                 id=UtilsInterface.IdentifierService.generate_message_id(),
                 assistant_id=message.assistant_id,
@@ -256,8 +312,10 @@ class MessageService:
                 meta_data=json.dumps(message.meta_data or {}),
                 object="message",
                 role="tool",
-                tool_id=message.tool_id,
                 thread_id=message.thread_id,
+                # --- MAP NEW FIELDS ---
+                tool_id=t_id,
+                tool_call_id=tc_id,
             )
             try:
                 db.add(db_message)

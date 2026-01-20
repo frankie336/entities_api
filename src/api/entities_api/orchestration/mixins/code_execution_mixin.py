@@ -4,7 +4,7 @@ import base64
 import json
 import mimetypes
 import pprint
-from typing import Generator, List
+from typing import Generator, List, Optional
 
 from src.api.entities_api.services.logging_service import LoggingUtility
 
@@ -18,7 +18,12 @@ class CodeExecutionMixin:
     """
 
     def handle_code_interpreter_action(
-        self, thread_id: str, run_id: str, assistant_id: str, arguments_dict: dict
+        self,
+        thread_id: str,
+        run_id: str,
+        assistant_id: str,
+        arguments_dict: dict,
+        tool_call_id: Optional[str] = None,
     ) -> Generator[str, None, None]:
         """
         Streams sandbox output **live** while accumulating a plain-text
@@ -30,9 +35,14 @@ class CodeExecutionMixin:
                 "chunk": {"type": "status", "status": "started", "run_id": run_id},
             }
         )
+
         action = self.project_david_client.actions.create_action(
-            tool_name="code_interpreter", run_id=run_id, function_args=arguments_dict
+            tool_name="code_interpreter",
+            run_id=run_id,
+            tool_call_id=tool_call_id,
+            function_args=arguments_dict,
         )
+
         code: str = arguments_dict.get("code", "")
         uploaded_files: List[dict] = []
         hot_code_buffer: List[str] = []
@@ -168,6 +178,7 @@ class CodeExecutionMixin:
             self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
+                tool_call_id=tool_call_id,
                 content=final_content_for_assistant,
                 action=action,
             )

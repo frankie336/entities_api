@@ -1,3 +1,4 @@
+# src/api/entities_api/services/actions_service.py
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -6,10 +7,7 @@ from projectdavid import Entity
 from projectdavid_common import UtilsInterface, ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 
-# --- FIX: Step 1 ---
-# Import the SessionLocal factory.
 from src.api.entities_api.db.database import SessionLocal
 from src.api.entities_api.models.models import Action, Run, Tool
 from src.api.entities_api.utils.conversion_utils import datetime_to_iso
@@ -20,15 +18,10 @@ logging_utility = LoggingUtility()
 
 
 class ActionService:
-
-    # --- FIX: Step 2 ---
-    # The constructor no longer accepts or stores a database session.
     def __init__(self):
         logging_utility.info("ActionService initialized.")
 
     def update_action_stream_state(self, action_id: str, state: dict):
-        # --- FIX: Step 3 ---
-        # Each method now creates and manages its own session.
         with SessionLocal() as db:
             action = db.query(Action).get(action_id)
             if not action:
@@ -75,9 +68,6 @@ class ActionService:
         )
         with SessionLocal() as db:
             try:
-                logging_utility.debug(
-                    "Received ActionCreate payload: %s", action_data.dict()
-                )
                 tool = db.query(Tool).filter(Tool.name == action_data.tool_name).first()
                 if not tool:
                     logging_utility.warning(
@@ -87,13 +77,9 @@ class ActionService:
                         status_code=404,
                         detail=f"Tool with name {action_data.tool_name} not found",
                     )
-                logging_utility.debug(
-                    "Fetched tool: %s", {"id": tool.id, "name": tool.name}
-                )
+
                 new_action_id = UtilsInterface.IdentifierService.generate_action_id()
-                logging_utility.debug("Generated new action ID: %s", new_action_id)
-                status = action_data.status
-                logging_utility.debug("Using status: %s", status)
+
                 new_action = Action(
                     id=new_action_id,
                     tool_id=tool.id,
@@ -101,24 +87,32 @@ class ActionService:
                     triggered_at=datetime.now(),
                     expires_at=action_data.expires_at,
                     function_args=action_data.function_args,
-                    status=status,
+                    status=action_data.status,
+                    # --- NEW FIELDS ---
+                    tool_call_id=action_data.tool_call_id,
+                    turn_index=action_data.turn_index,
                 )
-                logging_utility.debug(
-                    "New Action object details: %s", new_action.__dict__
-                )
+
                 db.add(new_action)
                 db.commit()
                 db.refresh(new_action)
-                logging_utility.info("New action committed with ID: %s", new_action.id)
+                logging_utility.info(
+                    "New action committed with ID: %s (call_id: %s)",
+                    new_action.id,
+                    new_action.tool_call_id,
+                )
+
                 return validator.ActionRead(
-                    id=new_action.id, status=new_action.status, result=new_action.result
+                    id=new_action.id,
+                    tool_call_id=new_action.tool_call_id,
+                    status=new_action.status,
+                    result=new_action.result,
                 )
             except IntegrityError as e:
                 db.rollback()
                 logging_utility.error(
                     "IntegrityError during action creation: %s", str(e)
                 )
-                logging_utility.exception("IntegrityError traceback:")
                 raise HTTPException(
                     status_code=400, detail="Invalid action data or duplicate entry"
                 )
@@ -127,7 +121,6 @@ class ActionService:
                 logging_utility.error(
                     "Unexpected error during action creation: %s", str(e)
                 )
-                logging_utility.exception("Full exception traceback:")
                 raise HTTPException(
                     status_code=500,
                     detail="An error occurred while creating the action",
@@ -140,19 +133,19 @@ class ActionService:
             try:
                 action = db.query(Action).filter(Action.id == action_id).first()
                 if not action:
-                    logging_utility.error(
-                        "Action not found in DB. Queried ID: %s", action_id
-                    )
                     raise HTTPException(
                         status_code=404, detail=f"Action {action_id} not found"
                     )
-                # Assuming client.tool_service is also refactored or safe to call
                 tool = client.tool_service.get_tool_by_id(tool_id=action.tool_id)
                 return validator.ActionRead(
                     id=action.id,
                     run_id=action.run_id,
                     tool_id=action.tool_id,
                     tool_name=tool.name,
+                    # --- NEW FIELDS ---
+                    tool_call_id=action.tool_call_id,
+                    turn_index=action.turn_index,
+                    # ------------------
                     triggered_at=datetime_to_iso(action.triggered_at),
                     expires_at=datetime_to_iso(action.expires_at),
                     is_processed=action.is_processed,
@@ -168,7 +161,6 @@ class ActionService:
     def update_action_status(
         self, action_id: str, action_update: validator.ActionUpdate
     ) -> validator.ActionRead:
-        """Update the status of an action and store the result."""
         with SessionLocal() as db:
             try:
                 action = db.query(Action).filter(Action.id == action_id).first()
@@ -178,15 +170,18 @@ class ActionService:
                     )
                 if action_update.status not in validator.ActionStatus.__members__:
                     raise HTTPException(status_code=400, detail="Invalid status value")
+
                 action.status = action_update.status
                 action.result = action_update.result
                 if action_update.status == validator.ActionStatus.completed:
                     action.is_processed = True
                     action.processed_at = datetime.now()
+
                 db.commit()
                 db.refresh(action)
                 return validator.ActionRead(
                     id=action.id,
+                    tool_call_id=action.tool_call_id,
                     status=action.status,
                     result=action.result,
                     processed_at=datetime_to_iso(action.processed_at),
@@ -201,7 +196,6 @@ class ActionService:
     def get_actions_by_status(
         self, run_id: str, status: Optional[str] = "pending"
     ) -> List[validator.ActionRead]:
-        """Retrieve actions by run_id and status with proper datetime conversion."""
         logging_utility.info(
             f"Retrieving actions for run_id: {run_id} with status: {status}"
         )
@@ -216,6 +210,7 @@ class ActionService:
                     validator.ActionRead(
                         id=action.id,
                         run_id=action.run_id,
+                        tool_call_id=action.tool_call_id,  # Map New Field
                         triggered_at=datetime_to_iso(action.triggered_at),
                         expires_at=datetime_to_iso(action.expires_at),
                         is_processed=action.is_processed,
@@ -231,14 +226,11 @@ class ActionService:
                 raise HTTPException(status_code=500, detail="Error retrieving actions")
 
     def get_pending_actions(self, run_id=None) -> List[Dict[str, Any]]:
-        """
-        Retrieve all pending actions with their function arguments, tool names, and run details.
-        Optionally filter by run_id.
-        """
         with SessionLocal() as db:
             query = (
                 db.query(
                     Action.id.label("action_id"),
+                    Action.tool_call_id.label("tool_call_id"),  # Include in raw fetch
                     Action.status.label("action_status"),
                     Action.function_args.label("function_arguments"),
                     Tool.name.label("tool_name"),
@@ -255,7 +247,6 @@ class ActionService:
             return [row._asdict() for row in pending_actions]
 
     def delete_action(self, action_id: str) -> None:
-        """Delete an action by its ID."""
         logging_utility.info("Deleting action with ID: %s", action_id)
         with SessionLocal() as db:
             try:

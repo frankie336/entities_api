@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from projectdavid_common import ValidationInterface
 
@@ -28,7 +28,13 @@ logger = logging.getLogger(__name__)
 class PlatformToolHandlersMixin:
 
     def _submit_platform_tool_output(
-        self, *, thread_id: str, assistant_id: str, content: str, action
+        self,
+        *,
+        thread_id: str,
+        assistant_id: str,
+        content: str,
+        action,
+        tool_call_id: Optional[str] = None,
     ):
         """
         Thin wrapper around ConsumerToolHandlersMixin.submit_tool_output
@@ -44,12 +50,19 @@ class PlatformToolHandlersMixin:
         self.submit_tool_output(
             thread_id=thread_id,
             assistant_id=assistant_id,
+            tool_call_id=tool_call_id,
             content=content,
             action=action,
         )
 
     def _handle_web_search(
-        self, *, thread_id: str, assistant_id: str, output: List[Any], action
+        self,
+        *,
+        thread_id: str,
+        assistant_id: str,
+        tool_call_id: Optional[str] = None,
+        output: List[Any],
+        action,
     ):
         """
         We expect the platform-side service to return a list of dicts.
@@ -57,9 +70,11 @@ class PlatformToolHandlersMixin:
         """
         try:
             rendered = f"{output[0]}{WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS}"
+
             self._submit_platform_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
+                tool_call_id=tool_call_id,
                 content=rendered,
                 action=action,
             )
@@ -68,12 +83,19 @@ class PlatformToolHandlersMixin:
             self._submit_platform_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
+                tool_call_id=tool_call_id,
                 content=f"ERROR: {exc}",
                 action=action,
             )
 
     def _handle_code_interpreter(
-        self, *, thread_id: str, assistant_id: str, output: str, action
+        self,
+        *,
+        thread_id: str,
+        assistant_id: str,
+        tool_call_id: Optional[str] = None,
+        output: str,
+        action,
     ):
         """
         Upstream returns JSON with `"result": {"output": "…"}` – unwrap & post.
@@ -86,32 +108,53 @@ class PlatformToolHandlersMixin:
         self._submit_platform_tool_output(
             thread_id=thread_id,
             assistant_id=assistant_id,
+            tool_call_id=tool_call_id,
             content=output_text,
             action=action,
         )
 
     def _handle_vector_search(
-        self, *, thread_id: str, assistant_id: str, output: Any, action
+        self,
+        *,
+        thread_id: str,
+        assistant_id: str,
+        tool_call_id: Optional[str] = None,
+        output: Any,
+        action,
     ):
         self._submit_platform_tool_output(
             thread_id=thread_id,
             assistant_id=assistant_id,
+            tool_call_id=tool_call_id,
             content=str(output),
             action=action,
         )
 
     def _handle_computer(
-        self, *, thread_id: str, assistant_id: str, output: str, action
+        self,
+        *,
+        thread_id: str,
+        assistant_id: str,
+        tool_call_id: Optional[str] = None,
+        output: str,
+        action,
     ):
         self._submit_platform_tool_output(
             thread_id=thread_id,
             assistant_id=assistant_id,
+            tool_call_id=tool_call_id,
             content=output or ERROR_NO_CONTENT,
             action=action,
         )
 
     def _process_platform_tool_calls(
-        self, thread_id: str, assistant_id: str, content: Dict[str, Any], run_id: str
+        self,
+        thread_id: str,
+        assistant_id: str,
+        *,
+        tool_call_id: Optional[str] = None,
+        content: Dict[str, Any],
+        run_id: str,
     ):
         """
         • creates an *Action* row
@@ -124,7 +167,10 @@ class PlatformToolHandlersMixin:
         tool_name = content["name"]
         arguments = content["arguments"]
         action = self.project_david_client.actions.create_action(
-            tool_name="code_interpreter", run_id=run_id, function_args=arguments
+            tool_name="code_interpreter",
+            run_id=run_id,
+            tool_call_id=tool_call_id,
+            function_args=arguments,
         )
         LOG.debug("Action %s created for %s", action.id, tool_name)
         self.run_service.update_run_status(
@@ -150,6 +196,7 @@ class PlatformToolHandlersMixin:
             self._submit_platform_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
+                tool_call_id=tool_call_id,
                 content=str(result),
                 action=action,
             )

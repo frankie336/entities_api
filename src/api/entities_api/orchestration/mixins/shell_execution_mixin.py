@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Generator, List
+from typing import Any, Dict, Generator, List, Optional
 
 from src.api.entities_api.ptool_handlers.computer.shell_command_interface import \
     run_shell_commands
@@ -19,6 +19,7 @@ class ShellExecutionMixin:
         run_id: str,
         assistant_id: str,
         arguments_dict: Dict[str, Any],
+        tool_call_id: Optional[str] = None,
     ) -> Generator[str, None, None]:
         LOG.info("ShellExecutionMixin: started for run_id=%s", run_id)
         yield json.dumps(
@@ -29,7 +30,10 @@ class ShellExecutionMixin:
         )
         action_tool_name = "computer"
         action = self.project_david_client.actions.create_action(
-            tool_name=action_tool_name, run_id=run_id, function_args=arguments_dict
+            tool_name=action_tool_name,
+            run_id=run_id,
+            tool_call_id=tool_call_id,
+            function_args=arguments_dict,
         )
         commands: List[str] = arguments_dict.get("commands", [])
         if not commands:
@@ -66,6 +70,7 @@ class ShellExecutionMixin:
             self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
+                tool_call_id=tool_call_id,
                 content=err_msg,
                 action=action,
             )
@@ -81,6 +86,7 @@ class ShellExecutionMixin:
             self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
+                tool_call_id=tool_call_id,
                 content=no_out_msg,
                 action=action,
             )
@@ -88,6 +94,7 @@ class ShellExecutionMixin:
             self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
+                tool_call_id=tool_call_id,
                 content=accumulated_content.strip(),
                 action=action,
             )

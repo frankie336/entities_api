@@ -1,8 +1,8 @@
-# src/api/entities_api/orchestration/providers/hyperbolic/gpt_oss.py
 from __future__ import annotations
 
 import json
 import os
+import uuid
 from typing import Any, Generator, Optional
 
 from dotenv import load_dotenv
@@ -10,24 +10,31 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
-from src.api.entities_api.orchestration.mixins import (
-    AssistantCacheMixin,
-    CodeExecutionMixin,
-    ConsumerToolHandlersMixin,
-    ConversationContextMixin,
-    FileSearchMixin,
-    JsonUtilsMixin,
-    PlatformToolHandlersMixin,
-    ShellExecutionMixin,
-    ToolRoutingMixin,
-)
-from src.api.entities_api.orchestration.streaming.hyperbolic import (
-    HyperbolicDeltaNormalizer,
-)
-from src.api.entities_api.orchestration.streaming.hyperbolic_async_client import (
-    AsyncHyperbolicClient,
-)
+from src.api.entities_api.orchestration.engine.orchestrator_core import \
+    OrchestratorCore
+# --- DIRECT IMPORTS ---
+from src.api.entities_api.orchestration.mixins.assistant_cache_mixin import \
+    AssistantCacheMixin
+from src.api.entities_api.orchestration.mixins.code_execution_mixin import \
+    CodeExecutionMixin
+from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import \
+    ConsumerToolHandlersMixin
+from src.api.entities_api.orchestration.mixins.conversation_context_mixin import \
+    ConversationContextMixin
+from src.api.entities_api.orchestration.mixins.file_search_mixin import \
+    FileSearchMixin
+from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
+    JsonUtilsMixin
+from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import \
+    PlatformToolHandlersMixin
+from src.api.entities_api.orchestration.mixins.shell_execution_mixin import \
+    ShellExecutionMixin
+from src.api.entities_api.orchestration.mixins.tool_routing_mixin import \
+    ToolRoutingMixin
+from src.api.entities_api.orchestration.streaming.hyperbolic import \
+    HyperbolicDeltaNormalizer
+from src.api.entities_api.orchestration.streaming.hyperbolic_async_client import \
+    AsyncHyperbolicClient
 from src.api.entities_api.utils.async_to_sync import async_to_sync_stream
 
 load_dotenv()
@@ -51,25 +58,21 @@ class _ProviderMixins(
 class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
     """
     Specialized Provider for openai/gpt-oss-120b.
-    Standardizes 'Analysis' channels into 'reasoning' data types.
-    Supports both Native Tool Calls and Channel-based tool outputs.
-
-    [TEST MODE]: Explicitly wraps tool calls in <fc> tags to verify state detection.
     """
 
     def __init__(
-            self,
-            *,
-            assistant_id: str | None = None,
-            thread_id: str | None = None,
-            redis=None,
-            base_url: str | None = None,
-            api_key: str | None = None,
-            assistant_cache: dict | None = None,
-            **extra,
+        self,
+        *,
+        assistant_id: str | None = None,
+        thread_id: str | None = None,
+        redis=None,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        assistant_cache: dict | None = None,
+        **extra,
     ) -> None:
         self._assistant_cache: dict = (
-                assistant_cache or extra.get("assistant_cache") or {}
+            assistant_cache or extra.get("assistant_cache") or {}
         )
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
@@ -82,8 +85,63 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
         self.max_context_window = extra.get("max_context_window", 131072)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
 
+        # State for Dialogue Binding
+        self._current_tool_call_id: str | None = None
+
         self.setup_services()
+
+        # Runtime Safety
+        if not hasattr(self, "get_function_call_state"):
+            LOG.error("CRITICAL: ToolRoutingMixin failed to load. Monkey-patching.")
+            self.get_function_call_state = lambda: None
+            self.set_function_call_state = lambda x: None
+            self.set_tool_response_state = lambda x: None
+
         LOG.debug("Hyperbolic-GptOss provider ready (assistant=%s)", assistant_id)
+
+    # ------------------------------------------------------------------
+    # 🔒 NORMALIZATION FIX
+    # ------------------------------------------------------------------
+    def _normalize_native_tool_payload(self, accumulated: str | None) -> str | None:
+        if not accumulated:
+            return None
+        try:
+            payload = json.loads(accumulated)
+        except Exception:
+            return None
+        if not isinstance(payload, dict):
+            return None
+
+        name = payload.get("name")
+        args = payload.get("arguments")
+        if not name or args is None:
+            return None
+
+        if isinstance(args, str):
+            try:
+                parsed = json.loads(args)
+                if (
+                    isinstance(parsed, dict)
+                    and "name" in parsed
+                    and "arguments" in parsed
+                ):
+                    args = parsed["arguments"]
+                else:
+                    args = parsed
+            except Exception:
+                pass
+
+        if not isinstance(args, dict):
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except:
+                    pass
+            if not isinstance(args, dict):
+                return None
+
+        canonical = {"name": name, "arguments": args}
+        return json.dumps(canonical)
 
     @property
     def assistant_cache(self) -> dict:
@@ -97,29 +155,30 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
         return self._assistant_cache
 
     def stream(
-            self,
-            thread_id: str,
-            message_id: Optional[str],
-            run_id: str,
-            assistant_id: str,
-            model: Any,
-            *,
-            stream_reasoning: bool = True,
-            api_key: Optional[str] = None,
-            **kwargs,
+        self,
+        thread_id: str,
+        message_id: Optional[str],
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        *,
+        stream_reasoning: bool = True,
+        api_key: Optional[str] = None,
+        **kwargs,
     ) -> Generator[str, None, None]:
         redis = get_redis()
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
+        # Reset state at start of stream
+        self._current_tool_call_id = None
+
         try:
-            # 1. Clean Model ID for API
             if isinstance(model, str) and model.startswith("hyperbolic/"):
                 model = model.replace("hyperbolic/", "")
             if mapped := self._get_model_map(model):
                 model = mapped
 
-            # 2. Context Window & Tool Preparation
             raw_ctx = self._set_up_context_window(
                 assistant_id, thread_id, trunk=True, tools_native=True
             )
@@ -135,7 +194,6 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                 api_key=api_key, base_url=os.getenv("HYPERBOLIC_BASE_URL")
             )
 
-            # 3. Requesting Stream
             async_stream = client.stream_chat_completion(
                 messages=cleaned_ctx,
                 tools=extracted_tools,
@@ -146,68 +204,39 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
 
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
-            assistant_reply, accumulated, reasoning_reply = "", "", ""
+            assistant_reply = ""
+            reasoning_reply = ""
+            current_tool_name: str | None = None
+            current_tool_args_buffer: str = ""
+            accumulated = ""
             code_mode = False
-
-            # Helper for constructing JSON string manually in 'accumulated'
-            is_native_tool_call = False
-            current_block = None  # 'fc', 'think', or None
 
             token_iterator = async_to_sync_stream(async_stream)
 
-            # 4. Standardized Processing via Universal Normalizer
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(token_iterator, run_id):
                 if stop_event.is_set():
                     break
 
                 ctype, ccontent = chunk["type"], chunk["content"]
 
-                # --- METHODOLOGY: RE-INJECTION WITH <fc> TAGS ---
-
-                if ctype == "content":
-                    if current_block == "fc":
-                        # If we were building a native tool call, ensure JSON closed before tag
-                        if is_native_tool_call and not accumulated.endswith("}"):
-                            accumulated += "}"
-                        accumulated += "</fc>"
-
-                    current_block = None
-                    is_native_tool_call = False
+                if ctype == "reasoning":
+                    reasoning_reply += ccontent
+                    yield json.dumps(chunk)
+                    self._shunt_to_redis_stream(redis, stream_key, chunk)
+                    continue
+                elif ctype == "tool_name":
+                    current_tool_name = ccontent
+                elif ctype == "call_arguments":
+                    current_tool_args_buffer += ccontent
+                elif ctype == "tool_call":
+                    current_tool_name = ccontent.get("name")
+                    args = ccontent.get("arguments", "")
+                    current_tool_args_buffer = (
+                        json.dumps(args) if isinstance(args, dict) else str(args)
+                    )
+                elif ctype == "content":
                     assistant_reply += ccontent
 
-                elif ctype == "tool_name":
-                    # Native Tool Call Start detected
-                    # Force close any existing blocks
-                    if current_block != "fc":
-                        accumulated += "<fc>"
-                        current_block = "fc"
-
-                    is_native_tool_call = True
-                    # Start constructing standard JSON in history: {"name": "...", "arguments":
-                    accumulated += f'{{"name": "{ccontent}", "arguments": '
-
-                elif ctype == "call_arguments":
-                    # If we aren't in an FC block, start one (handles Channel-based calls)
-                    if current_block != "fc":
-                        accumulated += "<fc>"
-                        current_block = "fc"
-
-                    # Append raw JSON arguments
-                    accumulated += ccontent
-
-                elif ctype == "reasoning":
-                    # Close FC block if open
-                    if current_block == "fc":
-                        if is_native_tool_call and not accumulated.endswith("}"):
-                            accumulated += "}"
-                        accumulated += "</fc>"
-                        current_block = None
-                        is_native_tool_call = False
-
-                    # Reasoning is passed to stream, but NOT added to accumulated/history in this version
-                    reasoning_reply += ccontent
-
-                # --- CODE INTERPRETER INTERLEAVING ---
                 if ctype == "content":
                     parse_ci = getattr(self, "parse_code_interpreter_partial", None)
                     ci_match = (
@@ -215,39 +244,16 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                         if parse_ci and not code_mode
                         else None
                     )
-
                     if ci_match:
                         code_mode = True
                         start = {"type": "hot_code", "content": "```python\n"}
                         yield json.dumps(start)
                         self._shunt_to_redis_stream(redis, stream_key, start)
-
-                        if hasattr(self, "_process_code_interpreter_chunks"):
-                            res, _ = self._process_code_interpreter_chunks(
-                                "", ci_match.get("code", "")
-                            )
-                            for r in res:
-                                yield r
-                                self._shunt_to_redis_stream(
-                                    redis, stream_key, json.loads(r)
-                                )
                         continue
-
                     if code_mode:
-                        if hasattr(self, "_process_code_interpreter_chunks"):
-                            res, code_buf = self._process_code_interpreter_chunks(
-                                ccontent, ""
-                            )
-                            for r in res:
-                                yield r
-                                self._shunt_to_redis_stream(
-                                    redis, stream_key, json.loads(r)
-                                )
-                        else:
-                            yield json.dumps({"type": "hot_code", "content": ccontent})
+                        yield json.dumps({"type": "hot_code", "content": ccontent})
                         continue
 
-                # Yield the standardized chunk to frontend
                 yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
 
@@ -256,35 +262,61 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             yield json.dumps(err)
             self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
-            # Ensure proper closure of JSON and XML tags
-            if current_block == "fc":
-                # Close JSON object if it looks like a native call (name:..., args:...)
-                if is_native_tool_call:
-                    stripped = accumulated.strip()
-                    if not stripped.endswith("}"):
-                        accumulated += "}"
-
-                # Close XML tag
-                accumulated += "</fc>"
-
+            if current_tool_name:
+                accumulated = json.dumps(
+                    {"name": current_tool_name, "arguments": current_tool_args_buffer}
+                )
             stop_event.set()
 
-        # 5. FINAL CLOSE-OUT & SMART HISTORY PRESERVATION
         yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
-        # Check for function calls first to determine what to save
-        has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
+        # ------------------------------------------------------------------
+        # 🔒 NORMALIZED PERSISTENCE PATH
+        # ------------------------------------------------------------------
+        normalized_fc_str = self._normalize_native_tool_payload(accumulated)
 
-        # Save 'accumulated' (with <fc> tags) if tool called, otherwise reply.
-        message_to_save = accumulated if has_fc else assistant_reply
+        has_fc = self.parse_and_set_function_calls(
+            normalized_fc_str if normalized_fc_str else accumulated, assistant_reply
+        )
 
-        if not message_to_save:
-            message_to_save = assistant_reply
+        message_to_save = assistant_reply
+
+        if has_fc:
+            try:
+                payload_dict = json.loads(normalized_fc_str)
+                # 1. Generate the ID here
+                call_id = f"call_{uuid.uuid4().hex[:8]}"
+
+                # 2. Store it on the instance so process_conversation can find it
+                self._current_tool_call_id = call_id
+
+                args_content = payload_dict.get("arguments", {})
+                args_str = (
+                    json.dumps(args_content)
+                    if isinstance(args_content, dict)
+                    else str(args_content)
+                )
+
+                tool_calls_structure = [
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {
+                            "name": payload_dict.get("name"),
+                            "arguments": args_str,
+                        },
+                    }
+                ]
+                message_to_save = json.dumps(tool_calls_structure)
+
+            except Exception as e:
+                LOG.error(f"Error structuring tool calls for persistence: {e}")
+                message_to_save = normalized_fc_str
 
         if message_to_save:
             self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
 
-        # Logic for Stage 2 Function Call Triggering
+        # FIXME: we probably don't need this
         if has_fc:
             self.project_david_client.runs.update_run_status(
                 run_id, StatusEnum.pending_action.value
@@ -295,16 +327,15 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             )
 
     def process_conversation(
-            self,
-            thread_id: str,
-            message_id: Optional[str],
-            run_id: str,
-            assistant_id: str,
-            model: Any,
-            api_key: Optional[str] = None,
-            **kwargs,
+        self,
+        thread_id: str,
+        message_id: Optional[str],
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        api_key: Optional[str] = None,
+        **kwargs,
     ):
-        # Pass 1: Initial Generation
         yield from self.stream(
             thread_id,
             message_id,
@@ -315,15 +346,36 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             **kwargs,
         )
 
-        # Pass 2: Tool Execution (ReAct Loop)
-        if self.get_function_call_state():
-            yield from self.process_function_calls(
-                thread_id, run_id, assistant_id, model=model, api_key=api_key
-            )
-            self.set_tool_response_state(False)
-            self.set_function_call_state(None)
+        has_tools = False
+        if hasattr(self, "get_function_call_state"):
+            has_tools = self.get_function_call_state()
 
-            # Follow-up with tool results
+        if has_tools:
+            # Retrieve the ID generated inside stream()
+            tool_call_id = getattr(self, "_current_tool_call_id", None)
+
+            # -------------------------------------
+            #  Tool calls dealt with here
+            #  - Yields any interleaving chunks from function call handler
+            # --------------------------------------
+
+            yield from self.process_function_calls(
+                thread_id,
+                run_id,
+                assistant_id,
+                tool_call_id=tool_call_id,  # Pass it down
+                model=model,
+                api_key=api_key,
+            )
+
+            if hasattr(self, "set_tool_response_state"):
+                self.set_tool_response_state(False)
+            if hasattr(self, "set_function_call_state"):
+                self.set_function_call_state(None)
+
+            # Reset ID
+            self._current_tool_call_id = None
+
             yield from self.stream(
                 thread_id, None, run_id, assistant_id, model, api_key=api_key, **kwargs
             )

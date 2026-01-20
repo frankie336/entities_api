@@ -4,7 +4,7 @@ import json
 import os
 import time
 import traceback
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import httpx
 from projectdavid import Entity
@@ -36,10 +36,15 @@ class FileSearchMixin:
         run_id: str,
         assistant_id: str,
         arguments_dict: Dict[str, Any],
+        tool_call_id: Optional[str] = None,
     ) -> None:
         ts_start = time.perf_counter()
-        action = client.actions.create_action(
-            tool_name="file_search", run_id=run_id, function_args=arguments_dict
+
+        action = self.project_david_client.actions.create_action(
+            tool_name="file_search",
+            run_id=run_id,
+            tool_call_id=tool_call_id,
+            function_args=arguments_dict,
         )
         LOG.debug(
             "[%s] Created action id=%s args=%s",
@@ -48,7 +53,7 @@ class FileSearchMixin:
             json.dumps(arguments_dict, indent=2),
         )
         try:
-            run = client.runs.retrieve_run(run_id=run_id)
+            run = self.project_david_client.runs.retrieve_run(run_id=run_id)
             user_id = run.user_id
             vector_store_id = client.vectors.get_or_create_file_search_store(
                 user_id=user_id
@@ -60,7 +65,7 @@ class FileSearchMixin:
                 vector_store_id,
                 query_text,
             )
-            search_results = client.vectors.unattended_file_search(
+            search_results = self.project_david_client.vectors.unattended_file_search(
                 vector_store_id=vector_store_id,
                 query_text=query_text,
                 vector_store_host="qdrant",
@@ -73,6 +78,7 @@ class FileSearchMixin:
             self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
+                tool_call_id=tool_call_id,
                 content=json.dumps(search_results, indent=2),
                 action=action,
             )
@@ -112,6 +118,7 @@ class FileSearchMixin:
                 self.submit_tool_output(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
+                    tool_call_id=tool_call_id,
                     content=json.dumps(err_block, indent=2),
                     action=action,
                 )

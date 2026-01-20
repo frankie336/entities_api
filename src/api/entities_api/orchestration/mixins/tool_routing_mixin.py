@@ -1,12 +1,5 @@
-# src/api/entities_api/orchestration/mixins/tool_routing_mixin.py
 """
 High-level routing of <fc> tool-calls with detailed activation logs.
-
-Responsibilities
-----------------
-• detect & validate <fc>{…}</fc> JSON blocks OR raw JSON payloads
-• flip internal flags so only ONE handler runs
-• dispatch to either platform-native or consumer handlers
 """
 
 from __future__ import annotations
@@ -35,19 +28,17 @@ class ToolRoutingMixin:
         return self._tool_response
 
     def set_function_call_state(self, value: Optional[Dict] = None) -> None:
-        """
-        Store the queued function-call payload, or pass None to clear it.
-        """
         LOG.debug("TOOL-ROUTER ▸ set_function_call_state(%s)", value)
         self._function_call = value
+
+    def get_function_call_state(self) -> Optional[Dict]:
+        return self._function_call
 
     def parse_and_set_function_calls(
         self, accumulated_content: str, assistant_reply: str
     ) -> Optional[Dict]:
         """
         Robustly locate a function call payload.
-        Strategy 1: Look for <fc>{JSON}</fc> tags (DeepSeek / Channel style).
-        Strategy 2: Look for Raw JSON (Native Llama/GPT-OSS style).
         """
         from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
             JsonUtilsMixin
@@ -56,7 +47,6 @@ class ToolRoutingMixin:
             raise TypeError("ToolRoutingMixin must be mixed with JsonUtilsMixin")
 
         def _validate_payload(json_dict: Dict) -> bool:
-            """Check if dict conforms to function call schema."""
             if self.is_valid_function_call_response(
                 json_dict
             ) or self.is_complex_vector_search(json_dict):
@@ -66,20 +56,20 @@ class ToolRoutingMixin:
         def _normalize_arguments(payload: Dict) -> Dict:
             """
             Ensure 'arguments' is a Dictionary.
-            Some models/providers return arguments as a stringified JSON string.
             """
             args = payload.get("arguments")
             if isinstance(args, str):
                 try:
-                    # Attempt to clean code blocks if present in the string
+                    # Clean potential markdown or whitespace
                     clean_args = args.strip()
                     if clean_args.startswith("```"):
                         clean_args = clean_args.strip("`").replace("json", "").strip()
 
-                    # Parse string into dict
                     payload["arguments"] = json.loads(clean_args)
                 except (json.JSONDecodeError, TypeError):
-                    # If parsing fails, leave as is (might be a simple string arg)
+                    LOG.warning(
+                        "TOOL-ROUTER ▸ failed to parse string arguments: %s", args
+                    )
                     pass
             return payload
 
@@ -87,26 +77,22 @@ class ToolRoutingMixin:
             if not text:
                 return None
 
-            # 1. Try Regex Tag Extraction (<fc>...</fc>)
+            # 1. Try Regex Tag Extraction
             m = self.FC_REGEX.search(text)
             if m:
                 raw_json = m.group("payload")
-                LOG.debug("FC-SCAN ▸ found <fc> tag content")
                 parsed = self.ensure_valid_json(raw_json)
                 if parsed and _validate_payload(parsed):
                     LOG.debug("FC-SCAN ✓ valid <fc> func-call")
                     return _normalize_arguments(parsed)
-                LOG.debug("FC-SCAN ✗ <fc> content invalid JSON or schema")
 
             # 2. Try Raw JSON Extraction (Robust Finder)
-            # Find the outer-most JSON object even if surrounded by text/newlines
             start_idx = text.find("{")
             end_idx = text.rfind("}")
 
             if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
                 candidate = text[start_idx : end_idx + 1]
                 try:
-                    # Use ensure_valid_json (mixed in) to handle loose JSON
                     parsed = self.ensure_valid_json(candidate)
                     if parsed and _validate_payload(parsed):
                         LOG.debug("FC-SCAN ✓ valid JSON func-call found in text")
@@ -116,22 +102,21 @@ class ToolRoutingMixin:
 
             return None
 
-        # A. Check Accumulated Content (Primary source for Native/Streamed calls)
+        # A. Check Accumulated Content (Primary)
         parsed_fc = _extract_json_block(accumulated_content)
         if parsed_fc:
             self.set_tool_response_state(True)
             self.set_function_call_state(parsed_fc)
             return parsed_fc
 
-        # B. Check Assistant Reply (Fallback source)
+        # B. Check Assistant Reply (Fallback)
         parsed_fc = _extract_json_block(assistant_reply)
         if parsed_fc and (not self.get_tool_response_state()):
             self.set_tool_response_state(True)
             self.set_function_call_state(parsed_fc)
             return parsed_fc
 
-        # C. Fallback: Loose extraction from legacy mixin methods
-        # Note: This usually parses Markdown code blocks
+        # C. Fallback: Loose extraction
         loose = self.extract_function_calls_within_body_of_text(assistant_reply)
         if loose:
             LOG.debug("FC-SCAN ✓ legacy pattern found")
@@ -148,13 +133,11 @@ class ToolRoutingMixin:
         thread_id: str,
         run_id: str,
         assistant_id: str,
+        tool_call_id: Optional[str] = None,
         *,
         model: str | None = None,
         api_key: str | None = None,
     ):
-        """
-        Delegates to the correct concrete handler.
-        """
         fc = self.get_function_call_state()
         if not fc:
             LOG.debug("TOOL-ROUTER ▸ no queued call – noop")
@@ -163,52 +146,54 @@ class ToolRoutingMixin:
         name = fc.get("name")
         args = fc.get("arguments", {})
 
-        # Guard: ensure args is a dict (or at least not None)
         if args is None:
             args = {}
 
         LOG.info("TOOL-ROUTER ▶ dispatching tool=%s", name)
 
+        # --------------------------------------------------
+        # Handles code code_interpreter calls, and returns
+        # --------------------------------------------------
         if name == "code_interpreter":
-            LOG.debug("TOOL-ROUTER ▸ route → handle_code_interpreter_action")
             yield from self.handle_code_interpreter_action(
                 thread_id=thread_id,
                 run_id=run_id,
                 assistant_id=assistant_id,
+                tool_call_id=tool_call_id,
                 arguments_dict=args,
             )
             return
         if name == "computer":
-            LOG.debug("TOOL-ROUTER ▸ route → handle_shell_action")
             yield from self.handle_shell_action(
                 thread_id=thread_id,
                 run_id=run_id,
                 assistant_id=assistant_id,
+                tool_call_id=tool_call_id,
                 arguments_dict=args,
             )
             return
         if name == "file_search":
-            LOG.debug("TOOL-ROUTER ▸ route → _handle_file_search")
             self.handle_file_search(
                 thread_id=thread_id,
                 run_id=run_id,
                 assistant_id=assistant_id,
+                tool_call_id=tool_call_id,
                 arguments_dict=args,
             )
             return
         if name in PLATFORM_TOOLS:
             if name in SPECIAL_CASE_TOOL_HANDLING:
-                LOG.debug("TOOL-ROUTER ▸ platform special-case → _process_tool_calls")
                 self._process_tool_calls(
                     thread_id, assistant_id, fc, run_id, api_key=api_key
                 )
             else:
-                LOG.debug(
-                    "TOOL-ROUTER ▸ platform native → _process_platform_tool_calls"
-                )
                 self._process_platform_tool_calls(thread_id, assistant_id, fc, run_id)
         else:
-            LOG.debug("TOOL-ROUTER ▸ consumer tool → _process_tool_calls")
             self._process_tool_calls(
-                thread_id, assistant_id, fc, run_id, api_key=api_key
+                thread_id,
+                assistant_id,
+                fc,
+                run_id,
+                tool_call_id=tool_call_id,
+                api_key=api_key,
             )
