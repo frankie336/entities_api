@@ -98,43 +98,13 @@ class ConversationContextMixin:
         self,
         assistant_id: str,
         thread_id: str,
-        trunk: bool = True,
-        tools_native: bool = False,
+        trunk: Optional[bool] = True,
+        tools_native: Optional[bool] = False,
+        # Default False = Use Redis Cache (Efficient).
+        # Set True = Ignore Redis, Hit DB (Accurate for Turn 2).
+        force_refresh: Optional[bool] = False,
     ):
-        """Prepares and optimizes conversation context for model processing.
-
-        Constructs the conversation history while ensuring it fits within the model's
-        context window limits through intelligent truncation. Combines multiple elements
-        to create rich context:
-        - Assistant's configured tools
-        - Current instructions
-        - Temporal awareness (today's date)
-        - Complete conversation history
-
-        Args:
-            assistant_id (str): UUID of the assistant profile to retrieve tools/instructions
-            thread_id (str): UUID of conversation thread for message history retrieval
-            trunk (bool): Enable context window optimization via truncation (default: True)
-
-        Returns:
-            list: Processed message list containing either:
-                - Truncated messages (if trunk=True)
-                - Full normalized messages (if trunk=False)
-
-        Processing Pipeline:
-            1. Retrieve assistant configuration and tools
-            2. Fetch complete conversation history
-            3. Inject system message with:
-               - Active tools list
-               - Current instructions
-               - Temporal context (today's date)
-            4. Normalize message roles for API consistency
-            5. Apply sliding window truncation when enabled
-
-        Note:
-            Uses LRU-cached service calls for assistant/message retrieval to optimize
-            repeated requests with identical parameters.
-        """
+        """Prepares context window with optional cache invalidation."""
 
         if tools_native:
             system_msg = self._build_native_tools_system_message(assistant_id)
@@ -142,34 +112,35 @@ class ConversationContextMixin:
             system_msg = self._build_system_message(assistant_id)
 
         redis_key = f"thread:{thread_id}:history"
-
-        # --- FIX: CACHE INVALIDATION STRATEGY ---
-        # If we are handling native tools, we cannot trust the Redis cache
-        # because the 'Tool' message was likely just inserted into the DB
-        # by the Action Service and hasn't been synced to Redis yet.
-        #
-        # Strategy: If tools_native is True, force a DB refresh.
-
-        force_refresh = tools_native  # or some other logic to detect Turn 2
         raw_list = []
 
+        # 1. Check Redis (only if NOT forcing a refresh)
         if not force_refresh:
             raw_list = self.redis.lrange(redis_key, 0, -1)
+            # LOG.debug(f"[CTX] Redis Hit: {bool(raw_list)}")
 
+        # 2. Fetch from DB if cache missed OR force_refresh was requested
         if not raw_list:
-            LOG.debug("[CTX-BUILD] Fetching fresh history from DB...")
+            if force_refresh:
+                LOG.debug(
+                    f"[CTX] Force Refresh Active. Bypassing Redis for {thread_id}"
+                )
+            else:
+                LOG.debug(f"[CTX] Redis Miss. Fetching DB for {thread_id}")
+
             client = Entity(
                 base_url=os.getenv("ASSISTANTS_BASE_URL"),
                 api_key=os.getenv("ADMIN_API_KEY"),
             )
-            # This calls MessageService.list_messages_for_thread
+
+            # Fetch fresh list (includes new Tool Messages saved by ActionService)
             full_hist = client.messages.get_formatted_messages(
                 thread_id,
-                system_message=None,  # Don't pass system msg here, we prepend it later
+                system_message=None,
             )
 
             # Re-populate Redis
-            self.redis.delete(redis_key)  # Clear old
+            self.redis.delete(redis_key)
             for msg in full_hist[-200:]:
                 self.redis.rpush(redis_key, json.dumps(msg))
             self.redis.ltrim(redis_key, -200, -1)
@@ -178,23 +149,17 @@ class ConversationContextMixin:
         # Decode
         msgs = [json.loads(x) for x in raw_list]
 
-        # --- FIX: SYSTEM MESSAGE DEDUPLICATION ---
-        # MessageService.list_messages_for_thread adds a default system message.
-        # We also generate one here. We should prefer the one generated here
-        # (which has tool definitions).
-
-        # Filter out existing system messages from the history to avoid confusion
+        # Deduplicate System Messages
         msgs = [m for m in msgs if m.get("role") != "system"]
 
-        # Prepend our rich system message
+        # Prepend Context System Message
         msgs = [system_msg] + msgs
 
-        # Normalization
+        # Normalization & Truncation
         normalized = self._normalize_roles(msgs)
 
         if trunk:
-            truncated = self.conversation_truncator.truncate(normalized)
-            return truncated
+            return self.conversation_truncator.truncate(normalized)
 
         return normalized
 
