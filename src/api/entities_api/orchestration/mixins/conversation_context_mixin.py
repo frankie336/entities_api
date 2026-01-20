@@ -36,13 +36,78 @@ class ConversationContextMixin:
 
     @staticmethod
     def _normalize_roles(msgs: List[Dict]) -> List[Dict]:
+        """
+        Normalizes roles while preserving tool-call metadata.
+        FIXED: Handles serialization errors AND ensures content is "" (not None).
+        """
+        import json
         out: List[Dict] = []
+
         for m in msgs:
-            role = str(m.get("role", "user")).lower()
-            if role not in ("user", "assistant", "system", "tool", "platform"):
-                role = "user"
-            out.append({"role": role, "content": str(m.get("content", "")).strip()})
+            # 1. Standardize Role
+            raw_role = str(m.get("role", "user")).lower()
+            role = (
+                raw_role
+                if raw_role in ("user", "assistant", "system", "tool", "platform")
+                else "user"
+            )
+
+            # 2. Extract Content
+            raw_content = m.get("content")
+            # Default to None if missing, strip if string
+            content = str(raw_content).strip() if raw_content is not None else None
+
+            # 3. Build Base Message
+            normalized_msg = {"role": role, "content": content}
+
+            # --- LOGIC FIX START ---
+
+            has_tool_calls = False
+
+            # Case A: Tool calls exist as a proper List (Memory / Correct DB)
+            if "tool_calls" in m and m["tool_calls"]:
+                normalized_msg["tool_calls"] = m["tool_calls"]
+                has_tool_calls = True
+
+            # Case B: Tool calls got flattened into 'content' string (Redis/DB Serialization Bug)
+            # We detect this by checking if content looks like a JSON array of functions
+            elif (
+                role == "assistant"
+                and content
+                and isinstance(content, str)
+                and content.strip().startswith("[{")
+                and "function" in content  # heuristic check
+            ):
+                try:
+                    parsed_tools = json.loads(content)
+                    # Validate it's actually a list of tool calls
+                    if (isinstance(parsed_tools, list)
+                        and len(parsed_tools) > 0
+                        and "function" in parsed_tools[0]):
+                        normalized_msg["tool_calls"] = parsed_tools
+                        has_tool_calls = True
+                except (json.JSONDecodeError, TypeError):
+                    # It was just a user saying "[{...}]" literally, ignore.
+                    pass
+
+            # 4. SAFETY LOCK: strict API requirement
+            # If tool calls exist, Content MUST be an empty string "", NOT None.
+            if has_tool_calls:
+                normalized_msg["content"] = ""
+
+                # --- LOGIC FIX END ---
+
+            # 5. Preserve Tool Response Metadata
+            if "tool_call_id" in m:
+                normalized_msg["tool_call_id"] = m["tool_call_id"]
+
+            if "name" in m:
+                normalized_msg["name"] = m["name"]
+
+            out.append(normalized_msg)
+
         return out
+
 
     def _build_system_message(self, assistant_id: str) -> Dict:
         """
@@ -87,6 +152,23 @@ class ConversationContextMixin:
                 "TOOL_USAGE_PROTOCOL",
                 "FUNCTION_CALL_FORMATTING",
                 "FUNCTION_CALL_WRAPPING",
+                "CODE_INTERPRETER",
+                "TERMINATION_CONDITIONS",
+                "ADVANCED_ANALYSIS",
+                "VECTOR_SEARCH_COMMANDMENTS",
+                "VECTOR_SEARCH_EXAMPLES",
+                "WEB_SEARCH_RULES",
+                "QUERY_OPTIMIZATION",
+                "RESULT_CURATION",
+                "VALIDATION_IMPERATIVES",
+                "TERMINATION_CONDITIONS",
+                "ERROR_HANDLING",
+                "OUTPUT_FORMAT_RULES",
+                "LATEX_MARKDOWN_FORMATTING",
+                "INTERNAL_REASONING_PROTOCOL",
+                "MUSIC_NOTATION_GUIDELINES",
+                "FINAL_WARNING",
+                "USER_DEFINED_INSTRUCTIONS"
             ]
         )
         return {
@@ -154,6 +236,7 @@ class ConversationContextMixin:
 
         # Prepend Context System Message
         msgs = [system_msg] + msgs
+        # msgs = msgs
 
         # Normalization & Truncation
         normalized = self._normalize_roles(msgs)
@@ -169,6 +252,7 @@ class ConversationContextMixin:
         thread_id: str,
         trunk: bool = True,
         tools_native: bool = False,
+        force_refresh: Optional[bool] = False,
     ):
         """Prepares and optimizes conversation context for model processing.
 
@@ -211,8 +295,10 @@ class ConversationContextMixin:
 
         redis_key = f"thread:{thread_id}:history"
 
-        # 1. Check Redis
-        raw_list = self.redis.lrange(redis_key, 0, -1)
+        # 1. Check Redis (only if NOT forcing a refresh)
+        if not force_refresh:
+            raw_list = self.redis.lrange(redis_key, 0, -1)
+            # LOG.debug(f"[CTX] Redis Hit: {bool(raw_list)}")
 
         # --- DEBUG LOGGING: REDIS STATE ---
         LOG.debug(f"[CTX-BUILD] Redis Key: {redis_key}")

@@ -201,19 +201,13 @@ class MessageService:
     # ------------------------------------------------------------------
     def list_messages_for_thread(self, thread_id: str) -> List[Dict[str, Any]]:
         """
-        List messages for a thread formatted for the Context Window.
-        Ensures 'role: tool' messages have the 'name' field by joining
-        via the Action table.
+        Refactored to ensure Assistant Tool Calls are structured for OpenAI/Hyperbolic protocols.
         """
         with SessionLocal() as db:
             db_thread = db.query(Thread).filter(Thread.id == thread_id).first()
             if not db_thread:
                 raise HTTPException(status_code=404, detail="Thread not found")
 
-            # --- THE FIX: JOIN CHAIN ---
-            # 1. Message.tool_id usually holds the Action ID (act_...)
-            # 2. Action.tool_id holds the Tool ID
-            # 3. Tool.name holds the string name (e.g. 'get_flight_times')
             results = (
                 db.query(Message, Tool.name)
                 .outerjoin(Action, Message.tool_id == Action.id)
@@ -223,75 +217,77 @@ class MessageService:
                 .all()
             )
 
-            formatted_messages = []
+            formatted_messages: List[Dict[str, Any]] = []
 
             for db_message, tool_name in results:
-                # --- 1. TOOL MESSAGE ---
-                if db_message.role == "tool":
-                    # Use the tool_call_id (Dialogue Binding ID)
-                    t_id = db_message.tool_call_id or db_message.tool_id
+                role = db_message.role
 
-                    msg_dict = {
-                        "role": "tool",
-                        "tool_call_id": t_id,
-                        "content": db_message.content,
-                    }
+                # --- 1. TOOL RESPONSE ---
+                if role == "tool":
+                    # Ensure we provide BOTH tool_call_id and name
+                    formatted_messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": db_message.tool_call_id
+                            or db_message.tool_id,
+                            "name": tool_name,
+                            "content": db_message.content,
+                        }
+                    )
+                    continue
 
-                    # INJECT NAME (Required for gpt-oss / Llama)
-                    if tool_name:
-                        msg_dict["name"] = tool_name
-                    # If not found via Action Join, check if it's a direct Tool ID
-                    elif not tool_name and db_message.tool_id:
-                        # Fallback: Maybe tool_id was the Tool ID directly?
-                        direct_tool = (
-                            db.query(Tool).filter(Tool.id == db_message.tool_id).first()
-                        )
-                        if direct_tool:
-                            msg_dict["name"] = direct_tool.name
-
-                    formatted_messages.append(msg_dict)
-
-                # --- 2. ASSISTANT MESSAGE ---
-                elif db_message.role == "assistant":
+                # --- 2. ASSISTANT (CONTENT vs TOOL CALL) ---
+                if role == "assistant":
                     try:
-                        content_json = json.loads(db_message.content)
-                        if (
-                            isinstance(content_json, list)
-                            and content_json
-                            and isinstance(content_json[0], dict)
-                            and "type" in content_json[0]
-                            and content_json[0]["type"] == "function"
-                        ):
-                            # Tool Call Message
+                        # Attempt to see if this content is a tool call JSON
+                        parsed = json.loads(db_message.content)
+
+                        # A more robust check for tool call structure
+                        is_tool_list = (
+                            isinstance(parsed, list)
+                            and len(parsed) > 0
+                            and all(
+                                isinstance(i, dict) and "function" in i for i in parsed
+                            )
+                        )
+
+                        if is_tool_list:
+                            # CRITICAL: Content MUST be None or "" for tool_calls to be valid
                             formatted_messages.append(
                                 {
                                     "role": "assistant",
-                                    "tool_calls": content_json,
-                                    # -------------------------------------------------
-                                    # FIX: Changed None to "" (Empty String)
-                                    # Strict OSS models crash on null content in history
-                                    # -------------------------------------------------
                                     "content": "",
+                                    "tool_calls": parsed,
                                 }
                             )
                         else:
-                            # Standard text (even if it was a JSON string that wasn't a tool call)
+                            # It's a standard text response
                             formatted_messages.append(
-                                {"role": db_message.role, "content": db_message.content}
+                                {
+                                    "role": "assistant",
+                                    "content": db_message.content,
+                                }
                             )
                     except (json.JSONDecodeError, TypeError):
-                        # Not JSON, so it's just regular text content
+                        # Not JSON, treat as text
                         formatted_messages.append(
-                            {"role": db_message.role, "content": db_message.content}
+                            {
+                                "role": "assistant",
+                                "content": db_message.content,
+                            }
                         )
+                    continue
 
-                # --- 3. OTHER MESSAGES (System, User) ---
-                else:
-                    formatted_messages.append(
-                        {"role": db_message.role, "content": db_message.content}
-                    )
+                # --- 3. USER / SYSTEM ---
+                formatted_messages.append(
+                    {
+                        "role": role,
+                        "content": db_message.content,
+                    }
+                )
 
             return formatted_messages
+
     def submit_tool_output(
         self, message: validator.MessageCreate
     ) -> ValidationInterface.MessageRead:

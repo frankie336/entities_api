@@ -29,7 +29,7 @@ class HyperbolicHandler:
         "deepseek-r1": HyperbolicDs1,
         "meta-llama/": HyperbolicLlama33,
         "Qwen/": HyperbolicQuenQwq32B,
-        "openai/gpt-": HyperbolicGptOss,
+        "openai/gpt-oss-120b": HyperbolicGptOss,
     }
 
     def __init__(self, arbiter: InferenceArbiter):

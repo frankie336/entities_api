@@ -231,7 +231,7 @@ class ConsumerToolHandlersMixin:
         thread_id: str,
         assistant_id: str,
         run_id: str,
-        content: str="",
+        content: str = "",
         *,
         is_error: bool,
     ) -> None:

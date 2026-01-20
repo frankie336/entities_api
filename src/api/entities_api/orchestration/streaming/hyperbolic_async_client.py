@@ -1,6 +1,7 @@
 import json
-import httpx
 from typing import Any, AsyncGenerator, Dict, List, Optional
+
+import httpx
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 LOG = LoggingUtility()
@@ -25,9 +26,9 @@ class AsyncHyperbolicClient:
             timeout=timeout,
             headers={
                 "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"  # FIX 2: Explicit Content-Type
+                "Content-Type": "application/json",  # FIX 2: Explicit Content-Type
             },
-            http2=False  # <--- CHANGED FROM TRUE
+            http2=False,  # <--- CHANGED FROM TRUE
         )
 
     async def stream_chat_completion(
