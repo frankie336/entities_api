@@ -152,7 +152,7 @@ class ConversationContextMixin:
                 "TOOL_USAGE_PROTOCOL",
                 "FUNCTION_CALL_FORMATTING",
                 "FUNCTION_CALL_WRAPPING",
-                "CODE_INTERPRETER",
+                #"CODE_INTERPRETER",
                 "TERMINATION_CONDITIONS",
                 "ADVANCED_ANALYSIS",
                 "VECTOR_SEARCH_COMMANDMENTS",

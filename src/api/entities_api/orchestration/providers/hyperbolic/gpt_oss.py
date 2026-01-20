@@ -167,11 +167,6 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
         api_key: Optional[str] = None,
         **kwargs,
     ) -> Generator[str, None, None]:
-        # Local import to ensure the dependency is present without global changes
-        import uuid  # Ensure uuid is available for tool ID generation
-
-        import requests
-
         redis = get_redis()
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
@@ -194,7 +189,6 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             )
 
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
-            LOG.info(f"FINAL CTX PAYLOAD:\n{json.dumps(cleaned_ctx, indent=2)}")
 
             if not api_key:
                 yield json.dumps(
@@ -202,63 +196,17 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                 )
                 return
 
-            # ------------------------------------------------------------------
-            # REPLACEMENT: Use 'requests' directly (HTTP/1.1 Synchronous)
-            # This matches your working standalone script exactly.
-            # ------------------------------------------------------------------
-            base_url = os.getenv(
-                "HYPERBOLIC_BASE_URL", "https://api.hyperbolic.xyz/v1"
-            ).rstrip("/")
-            url = f"{base_url}/chat/completions"
+            client = AsyncHyperbolicClient(
+                api_key=api_key, base_url=os.getenv("HYPERBOLIC_BASE_URL")
+            )
 
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-            }
-
-            payload = {
-                "model": model,
-                "messages": cleaned_ctx,
-                "stream": True,
-                "temperature": kwargs.get("temperature", 0.4),
-                "top_p": 0.9,
-                # Explicitly default max_tokens if needed, or rely on model defaults
-                "max_tokens": kwargs.get("max_completion_tokens", 1024),
-            }
-
-            if extracted_tools:
-                payload["tools"] = extracted_tools
-                payload["tool_choice"] = None
-
-            # Create a local generator to yield chunks from requests
-            def requests_stream_generator():
-                # requests uses HTTP/1.1 by default, avoiding the HTTP/2 timeout issue.
-                with requests.post(
-                    url, headers=headers, json=payload, stream=True
-                ) as response:
-                    # Capture HTTP errors
-                    if response.status_code != 200:
-                        try:
-                            error_text = response.text
-                        except:
-                            error_text = f"HTTP {response.status_code}"
-                        raise Exception(f"API Request Failed: {error_text}")
-
-                    for line in response.iter_lines():
-                        if not line:
-                            continue
-                        decoded = line.decode("utf-8")
-                        if not decoded.startswith("data: "):
-                            continue
-
-                        data_str = decoded[6:].strip()
-                        if data_str == "[DONE]":
-                            break
-
-                        try:
-                            yield json.loads(data_str)
-                        except json.JSONDecodeError:
-                            continue
+            async_stream = client.stream_chat_completion(
+                messages=cleaned_ctx,
+                tools=extracted_tools,
+                model=model,
+                temperature=kwargs.get("temperature", 0.4),
+                top_p=0.9,
+            )
 
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
@@ -269,10 +217,8 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             accumulated = ""
             code_mode = False
 
-            # Use the synchronous generator defined above
-            token_iterator = requests_stream_generator()
+            token_iterator = async_to_sync_stream(async_stream)
 
-            # The loop remains exactly the same, consuming the generator
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(token_iterator, run_id):
                 if stop_event.is_set():
                     break
@@ -441,6 +387,7 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
 
             # -----------------------------------
             # Turn 2 after a tool is triggered
+            # - Force the redis cache to refresh
             # ------------------------------------
             yield from self.stream(
                 thread_id,
