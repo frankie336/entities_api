@@ -155,24 +155,25 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
     def get_assistant_cache(self) -> dict:
         return self._assistant_cache
 
-    import requests
     import json
-    import uuid
     import os
-    from typing import Generator, Optional, Any, Dict, List
+    import uuid
+    from typing import Any, Dict, Generator, List, Optional
+
+    import requests
 
     def stream(
-            self,
-            thread_id: str,
-            message_id: Optional[str],
-            run_id: str,
-            assistant_id: str,
-            model: Any,
-            *,
-            force_refresh: bool = False,
-            stream_reasoning: bool = True,
-            api_key: Optional[str] = None,
-            **kwargs,
+        self,
+        thread_id: str,
+        message_id: Optional[str],
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        *,
+        force_refresh: bool = False,
+        stream_reasoning: bool = True,
+        api_key: Optional[str] = None,
+        **kwargs,
     ) -> Generator[str, None, None]:
         redis = get_redis()
         stream_key = f"stream:{run_id}"
@@ -187,15 +188,22 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                 model = mapped
 
             raw_ctx = self._set_up_context_window(
-                assistant_id, thread_id, trunk=True, tools_native=True, force_refresh=force_refresh
+                assistant_id,
+                thread_id,
+                trunk=True,
+                tools_native=True,
+                force_refresh=force_refresh,
             )
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
             # 2. Direct Requests Configuration
-            url = os.getenv("HYPERBOLIC_BASE_URL", "https://api.hyperbolic.xyz/v1") + "/chat/completions"
+            url = (
+                os.getenv("HYPERBOLIC_BASE_URL", "https://api.hyperbolic.xyz/v1")
+                + "/chat/completions"
+            )
             headers = {
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
+                "Authorization": f"Bearer {api_key}",
             }
             payload = {
                 "messages": cleaned_ctx,
@@ -204,7 +212,7 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                 "temperature": kwargs.get("temperature", 0.4),
                 "top_p": kwargs.get("top_p", 0.9),
                 "max_tokens": kwargs.get("max_tokens", 2048),
-                "stream": True
+                "stream": True,
             }
 
             # 3. Initiation Signal
@@ -220,23 +228,33 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             self._code_yielded_cursor = 0
 
             # 4. Execute Streaming Request
-            with requests.post(url, headers=headers, json=payload, stream=True) as response:
+            with requests.post(
+                url, headers=headers, json=payload, stream=True
+            ) as response:
                 if response.status_code != 200:
-                    raise Exception(f"Hyperbolic API Error ({response.status_code}): {response.text}")
+                    raise Exception(
+                        f"Hyperbolic API Error ({response.status_code}): {response.text}"
+                    )
 
                 for line in response.iter_lines():
-                    if stop_event.is_set(): break
-                    if not line: continue
+                    if stop_event.is_set():
+                        break
+                    if not line:
+                        continue
 
-                    decoded_line = line.decode('utf-8')
-                    if not decoded_line.startswith("data: "): continue
+                    decoded_line = line.decode("utf-8")
+                    if not decoded_line.startswith("data: "):
+                        continue
 
                     content_str = decoded_line[6:].strip()
-                    if content_str == "[DONE]": break
+                    if content_str == "[DONE]":
+                        break
 
                     chunk_json = json.loads(content_str)
                     # Normalize the delta using your existing logic or direct access
-                    for delta_chunk in HyperbolicDeltaNormalizer.iter_deltas([chunk_json], run_id):
+                    for delta_chunk in HyperbolicDeltaNormalizer.iter_deltas(
+                        [chunk_json], run_id
+                    ):
                         ctype = delta_chunk["type"]
                         ccontent = delta_chunk["content"]
 
@@ -253,27 +271,44 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                             else:
                                 current_tool_name = ccontent.get("name")
                                 args = ccontent.get("arguments", "")
-                                current_tool_args_buffer = json.dumps(args) if isinstance(args, dict) else str(args)
+                                current_tool_args_buffer = (
+                                    json.dumps(args)
+                                    if isinstance(args, dict)
+                                    else str(args)
+                                )
 
                         # ARGUMENT STREAMING (HOT CODE)
                         elif ctype == "call_arguments":
                             current_tool_args_buffer += ccontent
-                            if current_tool_name in ("code_interpreter", "python", "execute_code"):
+                            if current_tool_name in (
+                                "code_interpreter",
+                                "python",
+                                "execute_code",
+                            ):
                                 if not code_mode:
                                     code_mode = True
-                                    start_p = {"type": "hot_code", "content": "```python\n"}
+                                    start_p = {
+                                        "type": "hot_code",
+                                        "content": "```python\n",
+                                    }
                                     yield json.dumps(start_p)
-                                    self._shunt_to_redis_stream(redis, stream_key, start_p)
-
-                                (self._code_start_index, self._code_yielded_cursor, hc_payload) = \
-                                    self.process_hot_code_buffer(
-                                        buffer=current_tool_args_buffer,
-                                        start_index=self._code_start_index,
-                                        cursor=self._code_yielded_cursor,
-                                        redis_client=redis,
-                                        stream_key=stream_key
+                                    self._shunt_to_redis_stream(
+                                        redis, stream_key, start_p
                                     )
-                                if hc_payload: yield hc_payload
+
+                                (
+                                    self._code_start_index,
+                                    self._code_yielded_cursor,
+                                    hc_payload,
+                                ) = self.process_hot_code_buffer(
+                                    buffer=current_tool_args_buffer,
+                                    start_index=self._code_start_index,
+                                    cursor=self._code_yielded_cursor,
+                                    redis_client=redis,
+                                    stream_key=stream_key,
+                                )
+                                if hc_payload:
+                                    yield hc_payload
 
                         # CONTENT CHANNEL
                         elif ctype == "content":
@@ -290,12 +325,15 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             # 5. Finalize Logic (Persistence)
             accumulated = ""
             if current_tool_name:
-                accumulated = json.dumps({"name": current_tool_name, "arguments": current_tool_args_buffer})
+                accumulated = json.dumps(
+                    {"name": current_tool_name, "arguments": current_tool_args_buffer}
+                )
 
             # ... (Keep your existing normalize/finalize/status update logic here) ...
             stop_event.set()
 
         yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
+
     def process_conversation(
         self,
         thread_id: str,

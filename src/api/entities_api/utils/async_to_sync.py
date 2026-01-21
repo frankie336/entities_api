@@ -1,4 +1,6 @@
 import asyncio
+import queue
+import threading
 from typing import AsyncGenerator, Generator, TypeVar
 
 T = TypeVar("T")
@@ -6,100 +8,53 @@ T = TypeVar("T")
 
 def async_to_sync_stream(agen: AsyncGenerator[T, None]) -> Generator[T, None, None]:
     """
-    Convert async generator to sync generator with proper streaming.
-
-    CRITICAL: Uses a persistent event loop and non-blocking iteration
-    to ensure chunks are yielded immediately as they arrive.
+    True Streaming Bridge: Runs the async stream in a continuous background thread.
+    This prevents 'Stop-and-Go' latency during the SSL Handshake and generation.
     """
-    # Check if there's already a running event loop
-    try:
-        loop = asyncio.get_running_loop()
-        # We're in an async context, can't use this approach
-        raise RuntimeError("Cannot use async_to_sync_stream in async context")
-    except RuntimeError:
-        # No running loop, create a new one
+    # Use a thread-safe queue to bridge the async worker and sync consumer
+    # maxsize=100 provides a healthy buffer if the consumer is slower than the network
+    q = queue.Queue(maxsize=100)
+
+    # Sentinel objects to mark stream events
+    NEXT_ITEM = object()
+    DONE = object()
+
+    def _producer():
+        """
+        Runs in a separate thread.
+        Maintains a healthy, continuous event loop for the connection.
+        """
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
-    # Create an async iterator
-    aiter = agen.__aiter__()
-
-    try:
-        while True:
-            # Get the next coroutine without blocking other operations
+        async def consume_stream():
             try:
-                # run_until_complete blocks, but we need it for each individual item
-                # The key is that we yield immediately after getting each item
-                item = loop.run_until_complete(aiter.__anext__())
-                yield item
-            except StopAsyncIteration:
-                break
-    finally:
-        # Clean up the loop
-        try:
-            # Cancel any pending tasks
-            pending = asyncio.all_tasks(loop)
-            for task in pending:
-                task.cancel()
-
-            # Run the loop one more time to handle cancellations
-            if pending:
-                loop.run_until_complete(
-                    asyncio.gather(*pending, return_exceptions=True)
-                )
-        except Exception:
-            pass
-        finally:
-            loop.close()
-
-
-# Alternative implementation using queue (if the above doesn't fix it)
-def async_to_sync_stream_queue(
-    agen: AsyncGenerator[T, None],
-) -> Generator[T, None, None]:
-    """
-    Alternative implementation using a queue for better streaming.
-    Use this if the simple version still has lag.
-    """
-    import queue
-    import threading
-
-    q: queue.Queue = queue.Queue(maxsize=1)  # Small queue for immediate streaming
-    exception_holder = [None]
-
-    def async_runner():
-        """Run the async generator in a separate thread."""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        async def consume():
-            try:
+                # The connection is established and maintained continuously here
                 async for item in agen:
-                    q.put(item)
+                    q.put((NEXT_ITEM, item))
             except Exception as e:
-                exception_holder[0] = e
+                # Pass exceptions (like connection errors) to the main thread
+                q.put((NEXT_ITEM, e))
             finally:
-                q.put(StopIteration)
+                q.put((DONE, None))
 
         try:
-            loop.run_until_complete(consume())
+            loop.run_until_complete(consume_stream())
         finally:
             loop.close()
 
-    # Start the async consumer in background thread
-    thread = threading.Thread(target=async_runner, daemon=True)
-    thread.start()
+    # 1. Start the connection in the background immediately
+    t = threading.Thread(target=_producer, daemon=True)
+    t.start()
 
-    # Yield items as they arrive
+    # 2. Consume items the moment they hit the queue
     while True:
-        item = q.get()  # Blocks until item available
+        status, item = q.get()
 
-        if item is StopIteration:
+        if status is DONE:
             break
 
-        if exception_holder[0]:
-            raise exception_holder[0]
+        if isinstance(item, Exception):
+            raise item
 
         yield item
-
-    thread.join(timeout=1.0)
