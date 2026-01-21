@@ -26,8 +26,7 @@ from typing import Dict, List, Optional, Tuple
 from projectdavid import Entity
 
 from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.system_message.main_assembly import \
-    assemble_instructions
+from src.api.entities_api.system_message.main_assembly import assemble_instructions
 
 LOG = LoggingUtility()
 

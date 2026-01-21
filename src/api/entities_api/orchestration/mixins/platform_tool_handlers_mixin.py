@@ -16,8 +16,9 @@ from typing import Any, Dict, List, Optional
 
 from projectdavid_common import ValidationInterface
 
-from src.api.entities_api.constants.assistant import \
-    WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS
+from src.api.entities_api.constants.assistant import (
+    WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS,
+)
 from src.api.entities_api.constants.platform import ERROR_NO_CONTENT
 from src.api.entities_api.services.logging_service import LoggingUtility
 
@@ -40,8 +41,9 @@ class PlatformToolHandlersMixin:
         Thin wrapper around ConsumerToolHandlersMixin.submit_tool_output
         (kept separate to avoid circular import).
         """
-        from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import \
-            ConsumerToolHandlersMixin
+        from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import (
+            ConsumerToolHandlersMixin,
+        )
 
         if not isinstance(self, ConsumerToolHandlersMixin):
             raise TypeError(
