@@ -5,7 +5,6 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 # NOTE: get_db is no longer needed in the endpoint signatures.
 from src.api.entities_api.dependencies import get_api_key
 from src.api.entities_api.models.models import ApiKey as ApiKeyModel
-
 # --- FIX APPLIED HERE ---
 # The import path is corrected to match the actual filename 'tools.py'.
 from src.api.entities_api.services.tools import ToolService

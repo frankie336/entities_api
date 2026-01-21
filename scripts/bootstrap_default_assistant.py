@@ -15,7 +15,8 @@ import time
 try:
     from projectdavid import Entity
     from projectdavid_common import ValidationInterface
-    from projectdavid_common.constants.assistant_map import PLATFORM_ASSISTANT_ID_MAP
+    from projectdavid_common.constants.assistant_map import \
+        PLATFORM_ASSISTANT_ID_MAP
     from projectdavid_common.constants.tools import TOOLS_ID_MAP
 
     from entities_api.constants.assistant import BASE_TOOLS, DEFAULT_MODEL
