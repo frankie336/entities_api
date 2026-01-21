@@ -148,24 +148,57 @@ class StreamOutput:
         pass
 
     def stream_output(self, code: str) -> Generator[str, None, None]:
-        """Synchronous generator bridge for async execution"""
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        """
+        Synchronous generator bridge for async execution.
+
+        FIX: Creates a strictly isolated event loop for this specific execution
+        to prevent 'Event loop is closed' errors in threaded workers.
+        """
+        # 1. Create a FRESH loop for this specific operation.
+        # We do not use get_event_loop() to avoid inheriting closed/broken loops.
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
         async def _async_wrapper() -> AsyncGenerator[str, None]:
             async with CodeExecutionClient() as client:
                 async for chunk in client.execute_code(code):
                     yield chunk
 
+        # 2. Instantiate the async generator
         async_gen = _async_wrapper()
+
         try:
             while True:
-                yield loop.run_until_complete(async_gen.__anext__())
-        except StopAsyncIteration:
-            pass
+                try:
+                    # 3. Step the async generator one tick forward using our isolated loop
+                    chunk = loop.run_until_complete(async_gen.__anext__())
+                    yield chunk
+                except StopAsyncIteration:
+                    break
+        except Exception as e:
+            # Catch errors to ensure we log/handle before killing the loop
+            logging_utility.error(f"StreamOutput Bridge Error: {e}")
+            raise e
+        finally:
+            # 4. CRITICAL CLEANUP: Safely shut down the loop
+            try:
+                # Cancel any lingering tasks to prevent "Task was destroyed but it is pending" warnings
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    task.cancel()
+
+                # Allow tasks to drain
+                if pending:
+                    loop.run_until_complete(
+                        asyncio.gather(*pending, return_exceptions=True)
+                    )
+
+                loop.close()
+            except Exception:
+                pass
+            finally:
+                # Unset the loop for this thread to leave it clean
+                asyncio.set_event_loop(None)
 
 
 if __name__ == "__main__":

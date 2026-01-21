@@ -41,6 +41,7 @@ class ConversationContextMixin:
         FIXED: Handles serialization errors AND ensures content is "" (not None).
         """
         import json
+
         out: List[Dict] = []
 
         for m in msgs:
@@ -81,9 +82,11 @@ class ConversationContextMixin:
                 try:
                     parsed_tools = json.loads(content)
                     # Validate it's actually a list of tool calls
-                    if (isinstance(parsed_tools, list)
+                    if (
+                        isinstance(parsed_tools, list)
                         and len(parsed_tools) > 0
-                        and "function" in parsed_tools[0]):
+                        and "function" in parsed_tools[0]
+                    ):
                         normalized_msg["tool_calls"] = parsed_tools
                         has_tool_calls = True
                 except (json.JSONDecodeError, TypeError):
@@ -107,7 +110,6 @@ class ConversationContextMixin:
             out.append(normalized_msg)
 
         return out
-
 
     def _build_system_message(self, assistant_id: str) -> Dict:
         """
@@ -152,7 +154,7 @@ class ConversationContextMixin:
                 "TOOL_USAGE_PROTOCOL",
                 "FUNCTION_CALL_FORMATTING",
                 "FUNCTION_CALL_WRAPPING",
-                #"CODE_INTERPRETER",
+                # "CODE_INTERPRETER",
                 "TERMINATION_CONDITIONS",
                 "ADVANCED_ANALYSIS",
                 "VECTOR_SEARCH_COMMANDMENTS",
@@ -168,7 +170,7 @@ class ConversationContextMixin:
                 "INTERNAL_REASONING_PROTOCOL",
                 "MUSIC_NOTATION_GUIDELINES",
                 "FINAL_WARNING",
-                "USER_DEFINED_INSTRUCTIONS"
+                "USER_DEFINED_INSTRUCTIONS",
             ]
         )
         return {
