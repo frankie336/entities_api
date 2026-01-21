@@ -61,18 +61,18 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
     """
 
     def __init__(
-            self,
-            *,
-            assistant_id: str | None = None,
-            thread_id: str | None = None,
-            redis=None,
-            base_url: str | None = None,
-            api_key: str | None = None,
-            assistant_cache: dict | None = None,
-            **extra,
+        self,
+        *,
+        assistant_id: str | None = None,
+        thread_id: str | None = None,
+        redis=None,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        assistant_cache: dict | None = None,
+        **extra,
     ) -> None:
         self._assistant_cache: dict = (
-                assistant_cache or extra.get("assistant_cache") or {}
+            assistant_cache or extra.get("assistant_cache") or {}
         )
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
@@ -121,9 +121,9 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             try:
                 parsed = json.loads(args)
                 if (
-                        isinstance(parsed, dict)
-                        and "name" in parsed
-                        and "arguments" in parsed
+                    isinstance(parsed, dict)
+                    and "name" in parsed
+                    and "arguments" in parsed
                 ):
                     args = parsed["arguments"]
                 else:
@@ -155,17 +155,17 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
         return self._assistant_cache
 
     def stream(
-            self,
-            thread_id: str,
-            message_id: Optional[str],
-            run_id: str,
-            assistant_id: str,
-            model: Any,
-            *,
-            force_refresh: bool = False,
-            stream_reasoning: bool = True,
-            api_key: Optional[str] = None,
-            **kwargs,
+        self,
+        thread_id: str,
+        message_id: Optional[str],
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        *,
+        force_refresh: bool = False,
+        stream_reasoning: bool = True,
+        api_key: Optional[str] = None,
+        **kwargs,
     ) -> Generator[str, None, None]:
         redis = get_redis()
         stream_key = f"stream:{run_id}"
@@ -220,7 +220,9 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             # --- HOT CODE TRACKING STATE ---
             # We use regex to find the start, then a cursor to track what we've sent
             self._code_start_index = -1
-            self._code_yielded_cursor = 0  # How many chars of the CODE VALUE we have sent
+            self._code_yielded_cursor = (
+                0  # How many chars of the CODE VALUE we have sent
+            )
 
             token_iterator = async_to_sync_stream(async_stream)
 
@@ -254,21 +256,35 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                     # 1. Accumulate the raw JSON string
                     current_tool_args_buffer += ccontent
 
-                    if current_tool_name in ("code_interpreter", "python", "execute_code", "interpreter"):
+                    if current_tool_name in (
+                        "code_interpreter",
+                        "python",
+                        "execute_code",
+                        "interpreter",
+                    ):
 
                         # 2. Init UI if needed
                         if not code_mode:
                             code_mode = True
-                            start_payload = {"type": "hot_code", "content": "```python\n"}
+                            start_payload = {
+                                "type": "hot_code",
+                                "content": "```python\n",
+                            }
                             yield json.dumps(start_payload)
-                            self._shunt_to_redis_stream(redis, stream_key, start_payload)
+                            self._shunt_to_redis_stream(
+                                redis, stream_key, start_payload
+                            )
 
                         # 3. Locate the Start of the Code String (Once)
                         if self._code_start_index == -1:
                             import re
+
                             # Look for:  "code" : "  (flexible whitespace)
                             # Matches keys like "code" or 'code'
-                            match = re.search(r'[\"\']code[\"\']\s*:\s*[\"\']', current_tool_args_buffer)
+                            match = re.search(
+                                r"[\"\']code[\"\']\s*:\s*[\"\']",
+                                current_tool_args_buffer,
+                            )
                             if match:
                                 self._code_start_index = match.end()
 
@@ -276,11 +292,13 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                         if self._code_start_index != -1:
                             # The full code value present in the buffer so far
                             # We slice from the detected start index to the end
-                            full_code_value = current_tool_args_buffer[self._code_start_index:]
+                            full_code_value = current_tool_args_buffer[
+                                self._code_start_index :
+                            ]
 
                             # Calculate the new slice we haven't sent yet
                             # _code_yielded_cursor tracks our progress into `full_code_value`
-                            new_segment = full_code_value[self._code_yielded_cursor:]
+                            new_segment = full_code_value[self._code_yielded_cursor :]
 
                             if new_segment:
                                 # Update cursor immediately
@@ -290,17 +308,29 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                                 # The stream contains raw JSON escapes (e.g. \" for " and \\n for newline)
                                 # We want the UI to see clean code.
                                 # Simple Replace is safe for display purposes.
-                                clean_segment = new_segment.replace('\\n', '\n').replace('\\"', '"').replace("\\'", "'")
+                                clean_segment = (
+                                    new_segment.replace("\\n", "\n")
+                                    .replace('\\"', '"')
+                                    .replace("\\'", "'")
+                                )
 
                                 # Filter out structural JSON closers if they appear at the very end
                                 # (e.g. the final quote " or the closing brace })
                                 # This is visual only; the actual execution uses the full valid JSON.
-                                if len(clean_segment) == 1 and clean_segment in ('"', '}'):
+                                if len(clean_segment) == 1 and clean_segment in (
+                                    '"',
+                                    "}",
+                                ):
                                     pass  # Skip showing the closing quote
                                 else:
-                                    hc_payload = {"type": "hot_code", "content": clean_segment}
+                                    hc_payload = {
+                                        "type": "hot_code",
+                                        "content": clean_segment,
+                                    }
                                     yield json.dumps(hc_payload)
-                                    self._shunt_to_redis_stream(redis, stream_key, hc_payload)
+                                    self._shunt_to_redis_stream(
+                                        redis, stream_key, hc_payload
+                                    )
 
                 # ------------------------------------------------------------------
                 # STANDARD CONTENT STREAMING
@@ -314,9 +344,14 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                         ci_match = parse_ci(assistant_reply)
                         if ci_match:
                             code_mode = True
-                            start_payload = {"type": "hot_code", "content": "```python\n"}
+                            start_payload = {
+                                "type": "hot_code",
+                                "content": "```python\n",
+                            }
                             yield json.dumps(start_payload)
-                            self._shunt_to_redis_stream(redis, stream_key, start_payload)
+                            self._shunt_to_redis_stream(
+                                redis, stream_key, start_payload
+                            )
 
                     if code_mode:
                         # Exit code mode on closing fence
@@ -343,7 +378,6 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             stop_event.set()
 
         yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
-
 
         # ------------------------------------------------------------------
         # 🔒 NORMALIZED PERSISTENCE PATH
@@ -402,14 +436,14 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             )
 
     def process_conversation(
-            self,
-            thread_id: str,
-            message_id: Optional[str],
-            run_id: str,
-            assistant_id: str,
-            model: Any,
-            api_key: Optional[str] = None,
-            **kwargs,
+        self,
+        thread_id: str,
+        message_id: Optional[str],
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        api_key: Optional[str] = None,
+        **kwargs,
     ):
 
         yield from self.stream(

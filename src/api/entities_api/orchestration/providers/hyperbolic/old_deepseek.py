@@ -206,43 +206,22 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                             if match:
                                 _code_start_index = match.end()
 
-                        # 3. Stream the Slice (Buffered)
+                        # 3. Stream the Slice
                         if _code_start_index != -1:
-                            # Capture the full valid code string found so far
+                            # Slice from start to end
                             full_code_value = current_tool_args_buffer[
                                 _code_start_index:
                             ]
 
-                            # Identify the specific chunk we haven't sent yet
-                            unsent_buffer = full_code_value[_code_yielded_cursor:]
+                            # Determine what is new
+                            new_segment = full_code_value[_code_yielded_cursor:]
 
-                            # --- BUFFERING STRATEGY ---
-                            # To fix "one char per line" and split escape chars (e.g. \ + n),
-                            # we buffer until:
-                            # A. We found a newline (escaped as \n)
-                            # B. The buffer is getting long (>15 chars)
-                            # C. The buffer ends with a quote (end of string)
-                            # D. AND: Ensure we strictly NEVER end on a backslash
-
-                            has_newline = "\\n" in unsent_buffer
-                            is_long_enough = len(unsent_buffer) > 15
-                            is_closed = unsent_buffer.endswith(
-                                '"'
-                            ) or unsent_buffer.endswith("'")
-                            safe_cut = not unsent_buffer.endswith("\\")
-
-                            if (
-                                unsent_buffer
-                                and (has_newline or is_long_enough or is_closed)
-                                and safe_cut
-                            ):
-
-                                # Commit the cursor forward
-                                _code_yielded_cursor += len(unsent_buffer)
+                            if new_segment:
+                                _code_yielded_cursor += len(new_segment)
 
                                 # Visual De-escaping
                                 clean_segment = (
-                                    unsent_buffer.replace("\\n", "\n")
+                                    new_segment.replace("\\n", "\n")
                                     .replace('\\"', '"')
                                     .replace("\\'", "'")
                                 )
