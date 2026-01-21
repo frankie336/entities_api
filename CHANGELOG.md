@@ -1,3 +1,32 @@
+# [1.20.0](https://github.com/frankie336/entities_api/compare/v1.19.0...v1.20.0) (2026-01-21)
+
+
+### Bug Fixes
+
+* Add tool name to tool output metadata ([981e5ac](https://github.com/frankie336/entities_api/commit/981e5ace76001044ee591f4f6852000049ab6334))
+* broken google worker import ([7d83f90](https://github.com/frankie336/entities_api/commit/7d83f90ae02f5a9e2a1897d5e392937396d75fbb))
+* Default False = Use Redis Cache (Efficient). ([c5631c0](https://github.com/frankie336/entities_api/commit/c5631c0b0537ba0c5f1ff0dc402b49714378fec6))
+* gpt-oss function call 2nd turn issue ([524b693](https://github.com/frankie336/entities_api/commit/524b6938d594c297ce87d8f5901d04b56b621b83))
+* Implement native tool call response for gpt-oss Hermes class models. ([6846044](https://github.com/frankie336/entities_api/commit/684604440b5f6692b47f610cf411d88adf41f324))
+* Implement native tool call response for llama. ([610b4ed](https://github.com/frankie336/entities_api/commit/610b4edaf336c8cd99198a8e393e6cbfca7f3fc0))
+* implement native tool calling on Quen Model calls. ([6347d12](https://github.com/frankie336/entities_api/commit/6347d12ebcf912c9348ee142f76f4af43dc2d823))
+* implement process_hot_code_buffer in CodeExecutionMixin. ([e7d5db7](https://github.com/frankie336/entities_api/commit/e7d5db769e0bd5531efadb02c7123c654b438004))
+* Implement structured tool call detection for gpt-oss ([4c6934d](https://github.com/frankie336/entities_api/commit/4c6934d78e88f95846ed811d6821f198dba29d3c))
+* issue with hyperbolic/DeepSeek data flow ([4b7a0e5](https://github.com/frankie336/entities_api/commit/4b7a0e54859e15cf95fa1544952780ac7a189839))
+* issue with oss reasoning chunks ([9c4e88f](https://github.com/frankie336/entities_api/commit/9c4e88f02946f9ca65477dcbad1a358f2d211ea3))
+* issue with oss reasoning chunks ([d228581](https://github.com/frankie336/entities_api/commit/d228581cc001e152bd81ba71949a404cac5ccd47))
+* JsonUtilsMixin update. ([c73cd3f](https://github.com/frankie336/entities_api/commit/c73cd3f1bd8eae46f7c8bd3c43f3d227a599066d))
+* Reinstated partial code_interpreter instructions to _build_native_tools_system_message ([694a3fa](https://github.com/frankie336/entities_api/commit/694a3fa6343901f80b94afeb433deafc5bd1d722))
+* Remove duplicate api arg from worker signature. ([e5f1356](https://github.com/frankie336/entities_api/commit/e5f1356662e78002edadcb314a6c71ab224da458))
+* Restore gpt-oss hot code interleave. ([9d00699](https://github.com/frankie336/entities_api/commit/9d00699a21e140c47ee0c88a746b4ff512fdf206))
+* tool role tool_call_id bug ([502788e](https://github.com/frankie336/entities_api/commit/502788e7d17b4e74ac3f2aa35d654ec9a4f412fa))
+
+
+### Features
+
+* 9314d4058f78_add_agentic_state_columns_to_assistant_.py adds some level 3 agentic components to the master DB ([1c8d684](https://github.com/frankie336/entities_api/commit/1c8d684f4f930b272418a76047e70145c04a970f))
+* cut over to projectdavid==1.39.0: bringing new models online: ([5a9ed31](https://github.com/frankie336/entities_api/commit/5a9ed3183a5244e40826a422ba67b117a9e53c6e))
+
 # [1.19.0](https://github.com/frankie336/entities_api/compare/v1.18.1...v1.19.0) (2026-01-16)
 
 
