@@ -1,3 +1,12 @@
+# [1.19.0](https://github.com/frankie336/entities_api/compare/v1.18.1...v1.19.0) (2026-01-16)
+
+
+### Features
+
+* move tool-call suppression logic to inference handler ([8e56c5b](https://github.com/frankie336/entities_api/commit/8e56c5b47870803a5d1ca7fb073b6aacdcbf6898))
+* move tool-call suppression logic to inference handler ([4152548](https://github.com/frankie336/entities_api/commit/415254882786c6de79280805378a86093789c418))
+* upgrade projectdavid SDK to projectdavid==1.37.0 ([a3305b1](https://github.com/frankie336/entities_api/commit/a3305b103186385678bb1db0cdc5ad36784c331b))
+
 ## [1.18.1](https://github.com/frankie336/entities_api/compare/v1.18.0...v1.18.1) (2025-07-06)
 
 
