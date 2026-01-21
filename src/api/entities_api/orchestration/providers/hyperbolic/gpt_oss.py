@@ -10,38 +10,33 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
-
+from src.api.entities_api.orchestration.engine.orchestrator_core import \
+    OrchestratorCore
 # --- DIRECT IMPORTS ---
-from src.api.entities_api.orchestration.mixins.assistant_cache_mixin import (
-    AssistantCacheMixin,
-)
-from src.api.entities_api.orchestration.mixins.code_execution_mixin import (
-    CodeExecutionMixin,
-)
-from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import (
-    ConsumerToolHandlersMixin,
-)
-from src.api.entities_api.orchestration.mixins.conversation_context_mixin import (
-    ConversationContextMixin,
-)
-from src.api.entities_api.orchestration.mixins.file_search_mixin import FileSearchMixin
-from src.api.entities_api.orchestration.mixins.json_utils_mixin import JsonUtilsMixin
-from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import (
-    PlatformToolHandlersMixin,
-)
-from src.api.entities_api.orchestration.mixins.shell_execution_mixin import (
-    ShellExecutionMixin,
-)
-from src.api.entities_api.orchestration.mixins.tool_routing_mixin import (
-    ToolRoutingMixin,
-)
-from src.api.entities_api.orchestration.streaming.hyperbolic import (
-    HyperbolicDeltaNormalizer,
-)
-from src.api.entities_api.orchestration.streaming.hyperbolic_async_client import (
-    AsyncHyperbolicClient,
-)
+from src.api.entities_api.orchestration.mixins.assistant_cache_mixin import \
+    AssistantCacheMixin
+from src.api.entities_api.orchestration.mixins.code_execution_mixin import \
+    CodeExecutionMixin
+from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import \
+    ConsumerToolHandlersMixin
+from src.api.entities_api.orchestration.mixins.conversation_context_mixin import \
+    ConversationContextMixin
+from src.api.entities_api.orchestration.mixins.file_search_mixin import \
+    FileSearchMixin
+from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
+    JsonUtilsMixin
+from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import \
+    PlatformToolHandlersMixin
+from src.api.entities_api.orchestration.mixins.shell_execution_mixin import \
+    ShellExecutionMixin
+from src.api.entities_api.orchestration.mixins.tool_routing_mixin import \
+    ToolRoutingMixin
+from src.api.entities_api.orchestration.streaming.hyperbolic import \
+    HyperbolicDeltaNormalizer
+from src.api.entities_api.orchestration.streaming.hyperbolic_async_client import \
+    AsyncHyperbolicClient
+from src.api.entities_api.orchestration.streaming.reasoning_shunt import \
+    HyperbolicReasoningShunt
 from src.api.entities_api.utils.async_to_sync import async_to_sync_stream
 
 load_dotenv()
@@ -170,7 +165,7 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
         model: Any,
         *,
         force_refresh: bool = False,
-        stream_reasoning: bool = True,
+        stream_reasoning: bool = False,
         api_key: Optional[str] = None,
         **kwargs,
     ) -> Generator[str, None, None]:
@@ -196,9 +191,10 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             )
 
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
-            LOG.info(
-                f"[CTX-DEBUG] Final Message Roles: {[m['role'] for m in cleaned_ctx]} | Full Payload:\n{json.dumps(cleaned_ctx, indent=2)}"
-            )
+
+            # LOG.info(
+            #    f"[CTX-DEBUG] Final Message Roles: {[m['role'] for m in cleaned_ctx]} | Full Payload:\n{json.dumps(cleaned_ctx, indent=2)}"
+            # )
 
             if not api_key:
                 yield json.dumps(
@@ -210,13 +206,17 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                 api_key=api_key, base_url=os.getenv("HYPERBOLIC_BASE_URL")
             )
 
-            async_stream = client.stream_chat_completion(
-                messages=cleaned_ctx,
-                tools=extracted_tools,
-                model=model,
-                temperature=kwargs.get("temperature", 0.4),
-                top_p=0.9,
-            )
+            payload = {
+                "messages": cleaned_ctx,
+                "model": model,
+                "temperature": kwargs.get("temperature", 0.4),
+                "top_p": 0.9,
+            }
+
+            if stream_reasoning:
+                payload["tools"] = extracted_tools
+
+            async_stream = client.stream_chat_completion(**payload)
 
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
@@ -232,6 +232,12 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             self._code_yielded_cursor = 0
 
             token_iterator = async_to_sync_stream(async_stream)
+
+            # ------------------------------
+            # Shunt reasoning here
+            # -------------------------------
+            shunt = HyperbolicReasoningShunt()
+            # normalized_stream = shunt.process_stream(token_iterator)
 
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(token_iterator, run_id):
                 if stop_event.is_set():

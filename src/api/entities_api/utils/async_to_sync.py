@@ -1,7 +1,7 @@
 import asyncio
 from typing import AsyncGenerator, Generator, TypeVar
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 def async_to_sync_stream(agen: AsyncGenerator[T, None]) -> Generator[T, None, None]:
@@ -44,7 +44,9 @@ def async_to_sync_stream(agen: AsyncGenerator[T, None]) -> Generator[T, None, No
 
             # Run the loop one more time to handle cancellations
             if pending:
-                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                loop.run_until_complete(
+                    asyncio.gather(*pending, return_exceptions=True)
+                )
         except Exception:
             pass
         finally:
@@ -52,7 +54,9 @@ def async_to_sync_stream(agen: AsyncGenerator[T, None]) -> Generator[T, None, No
 
 
 # Alternative implementation using queue (if the above doesn't fix it)
-def async_to_sync_stream_queue(agen: AsyncGenerator[T, None]) -> Generator[T, None, None]:
+def async_to_sync_stream_queue(
+    agen: AsyncGenerator[T, None],
+) -> Generator[T, None, None]:
     """
     Alternative implementation using a queue for better streaming.
     Use this if the simple version still has lag.
