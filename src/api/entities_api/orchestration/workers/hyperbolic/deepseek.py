@@ -1,4 +1,4 @@
-# src/api/entities_api/orchestration/providers/hyperbolic/deepseek.py
+# src/api/entities_api/orchestration/workers/hyperbolic/deepseek.py
 from __future__ import annotations
 
 import json

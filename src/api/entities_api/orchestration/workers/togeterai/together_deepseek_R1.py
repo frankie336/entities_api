@@ -108,7 +108,7 @@ class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
         Together-AI DeepSeek-R1 streaming.
 
         • Function-call JSON never hits the client.
-        • Reasoning / hot-code behaviour mirrors other mix-in providers.
+        • Reasoning / hot-code behaviour mirrors other mix-in workers.
         """
         redis = self.redis
         stream_key = f"stream:{run_id}"
