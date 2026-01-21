@@ -218,11 +218,8 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             code_mode = False
 
             # --- HOT CODE TRACKING STATE ---
-            # We use regex to find the start, then a cursor to track what we've sent
             self._code_start_index = -1
-            self._code_yielded_cursor = (
-                0  # How many chars of the CODE VALUE we have sent
-            )
+            self._code_yielded_cursor = 0
 
             token_iterator = async_to_sync_stream(async_stream)
 
@@ -242,7 +239,7 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                     current_tool_name = ccontent
 
                 elif ctype == "tool_call":
-                    # Final full object (rarely used in streaming but good for safety)
+                    # Final full object
                     current_tool_name = ccontent.get("name")
                     args = ccontent.get("arguments", "")
                     current_tool_args_buffer = (
@@ -250,10 +247,10 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                     )
 
                 # ------------------------------------------------------------------
-                # 🔥 FIX: ROBUST BUFFER SLICING FOR NATIVE TOOLS
+                # 🔥 FIX: ROBUST BUFFER SLICING (Using Mixin Utility)
                 # ------------------------------------------------------------------
                 elif ctype == "call_arguments":
-                    # 1. Accumulate the raw JSON string
+                    # 1. Accumulate
                     current_tool_args_buffer += ccontent
 
                     if current_tool_name in (
@@ -262,8 +259,7 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                         "execute_code",
                         "interpreter",
                     ):
-
-                        # 2. Init UI if needed
+                        # 2. Init UI
                         if not code_mode:
                             code_mode = True
                             start_payload = {
@@ -275,62 +271,21 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                                 redis, stream_key, start_payload
                             )
 
-                        # 3. Locate the Start of the Code String (Once)
-                        if self._code_start_index == -1:
-                            import re
+                        # 3. Delegate to robust mixin method
+                        (
+                            self._code_start_index,
+                            self._code_yielded_cursor,
+                            hc_payload,
+                        ) = self.process_hot_code_buffer(
+                            buffer=current_tool_args_buffer,
+                            start_index=self._code_start_index,
+                            cursor=self._code_yielded_cursor,
+                            redis_client=redis,
+                            stream_key=stream_key,
+                        )
 
-                            # Look for:  "code" : "  (flexible whitespace)
-                            # Matches keys like "code" or 'code'
-                            match = re.search(
-                                r"[\"\']code[\"\']\s*:\s*[\"\']",
-                                current_tool_args_buffer,
-                            )
-                            if match:
-                                self._code_start_index = match.end()
-
-                        # 4. Stream the New Delta
-                        if self._code_start_index != -1:
-                            # The full code value present in the buffer so far
-                            # We slice from the detected start index to the end
-                            full_code_value = current_tool_args_buffer[
-                                self._code_start_index :
-                            ]
-
-                            # Calculate the new slice we haven't sent yet
-                            # _code_yielded_cursor tracks our progress into `full_code_value`
-                            new_segment = full_code_value[self._code_yielded_cursor :]
-
-                            if new_segment:
-                                # Update cursor immediately
-                                self._code_yielded_cursor += len(new_segment)
-
-                                # 5. CLEANUP / DE-ESCAPING
-                                # The stream contains raw JSON escapes (e.g. \" for " and \\n for newline)
-                                # We want the UI to see clean code.
-                                # Simple Replace is safe for display purposes.
-                                clean_segment = (
-                                    new_segment.replace("\\n", "\n")
-                                    .replace('\\"', '"')
-                                    .replace("\\'", "'")
-                                )
-
-                                # Filter out structural JSON closers if they appear at the very end
-                                # (e.g. the final quote " or the closing brace })
-                                # This is visual only; the actual execution uses the full valid JSON.
-                                if len(clean_segment) == 1 and clean_segment in (
-                                    '"',
-                                    "}",
-                                ):
-                                    pass  # Skip showing the closing quote
-                                else:
-                                    hc_payload = {
-                                        "type": "hot_code",
-                                        "content": clean_segment,
-                                    }
-                                    yield json.dumps(hc_payload)
-                                    self._shunt_to_redis_stream(
-                                        redis, stream_key, hc_payload
-                                    )
+                        if hc_payload:
+                            yield hc_payload
 
                 # ------------------------------------------------------------------
                 # STANDARD CONTENT STREAMING
@@ -339,7 +294,6 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                     assistant_reply += ccontent
 
                     parse_ci = getattr(self, "parse_code_interpreter_partial", None)
-                    # Trigger code mode from Markdown text if not already active
                     if not code_mode and parse_ci:
                         ci_match = parse_ci(assistant_reply)
                         if ci_match:
@@ -354,7 +308,6 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                             )
 
                     if code_mode:
-                        # Exit code mode on closing fence
                         if "```" in ccontent and "python" not in ccontent:
                             code_mode = False
 
@@ -393,10 +346,7 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
         if has_fc:
             try:
                 payload_dict = json.loads(normalized_fc_str)
-                # 1. Generate the ID here
                 call_id = f"call_{uuid.uuid4().hex[:8]}"
-
-                # 2. Store it on the instance so process_conversation can find it
                 self._current_tool_call_id = call_id
 
                 args_content = payload_dict.get("arguments", {})
@@ -417,7 +367,6 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                     }
                 ]
                 message_to_save = json.dumps(tool_calls_structure)
-
             except Exception as e:
                 LOG.error(f"Error structuring tool calls for persistence: {e}")
                 message_to_save = normalized_fc_str
@@ -425,7 +374,6 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
         if message_to_save:
             self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
 
-        # FIXME: we probably don't need this
         if has_fc:
             self.project_david_client.runs.update_run_status(
                 run_id, StatusEnum.pending_action.value

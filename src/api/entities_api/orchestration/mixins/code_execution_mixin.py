@@ -4,7 +4,7 @@ import base64
 import json
 import mimetypes
 import pprint
-from typing import Generator, List, Optional
+from typing import Any, Generator, List, Optional
 
 from src.api.entities_api.services.logging_service import LoggingUtility
 
@@ -199,3 +199,82 @@ class CodeExecutionMixin:
                     },
                 }
             )
+
+    def process_hot_code_buffer(
+        self,
+        buffer: str,
+        start_index: int,
+        cursor: int,
+        redis_client: Any,
+        stream_key: str,
+    ) -> tuple[int, int, Optional[str]]:
+        """
+        Process a raw JSON buffer to extract, clean, and stream code execution updates.
+        Handles the 'Matrix effect' buffering to prevent one-char-per-line rendering issues.
+
+        Args:
+            buffer: The accumulated raw JSON string of arguments.
+            start_index: The cached index where the code string starts (-1 if unknown).
+            cursor: The number of characters from the code string already processed.
+            redis_client: The Redis connection.
+            stream_key: The Redis stream key.
+
+        Returns:
+            (new_start_index, new_cursor, json_payload_string_or_None)
+        """
+        import json
+        import re
+
+        # 1. Locate Start of Code (Once)
+        if start_index == -1:
+            # Matches keys like "code" or 'code' followed by colon and quote
+            match = re.search(r"[\"\']code[\"\']\s*:\s*[\"\']", buffer)
+            if match:
+                start_index = match.end()
+            else:
+                # Code field not found yet
+                return start_index, cursor, None
+
+        # 2. Slice the relevant data
+        full_code_value = buffer[start_index:]
+        unsent_buffer = full_code_value[cursor:]
+
+        if not unsent_buffer:
+            return start_index, cursor, None
+
+        # 3. Buffering Strategy (The Fix)
+        # We buffer until we have a newline, a decent chunk size, or the end of the string.
+        has_newline = "\\n" in unsent_buffer
+        is_long_enough = len(unsent_buffer) > 15
+        is_closed = unsent_buffer.endswith('"') or unsent_buffer.endswith("'")
+
+        # Safety: Never cut on a backslash to protect escape sequences
+        safe_cut = not unsent_buffer.endswith("\\")
+
+        if (has_newline or is_long_enough or is_closed) and safe_cut:
+
+            # Commit cursor forward
+            cursor += len(unsent_buffer)
+
+            # Visual De-escaping
+            clean_segment = (
+                unsent_buffer.replace("\\n", "\n")
+                .replace('\\"', '"')
+                .replace("\\'", "'")
+            )
+
+            # Squelch structural closers at the tail end (visual only)
+            if len(clean_segment) == 1 and clean_segment in ('"', "}"):
+                return start_index, cursor, None
+
+            # Construct Payload
+            payload_dict = {"type": "hot_code", "content": clean_segment}
+
+            # Side-effect: Shunt to Redis immediately
+            # (Assumes OrchestratorCore has _shunt_to_redis_stream, which is standard in your architecture)
+            self._shunt_to_redis_stream(redis_client, stream_key, payload_dict)
+
+            return start_index, cursor, json.dumps(payload_dict)
+
+        # Not enough data to yield yet
+        return start_index, cursor, None

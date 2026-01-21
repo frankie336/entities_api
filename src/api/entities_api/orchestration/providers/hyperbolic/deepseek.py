@@ -88,6 +88,9 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
+        # Reset state at start of stream
+        self._current_tool_call_id = None
+
         try:
             if mapped := self._get_model_map(model):
                 model = mapped
@@ -122,7 +125,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
             assistant_reply, accumulated, reasoning_reply = "", "", ""
             current_block = None
 
-            # State for Hot Code Streaming (The Matrix Effect)
+            # State for Hot Code Streaming
             current_tool_name: str | None = None
             current_tool_args_buffer: str = ""
             code_mode = False
@@ -140,7 +143,6 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                     current_tool_name = ccontent
 
                 # --- METHODOLOGY: RE-INJECTION & ACCUMULATION ---
-                # We must reconstruct the tags (<fc>, <think>) for the history log
                 if ctype == "content":
                     if current_block == "fc":
                         accumulated += "</fc>"
@@ -155,7 +157,6 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                             accumulated += "</think>"
                         accumulated += "<fc>"
                         current_block = "fc"
-                    # Note: We append ccontent to accumulated later below
 
                 elif ctype == "reasoning":
                     if current_block != "think":
@@ -165,17 +166,14 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                         current_block = "think"
                     reasoning_reply += ccontent
 
-                # Always update the raw accumulation for history
                 accumulated += ccontent
 
                 # ==================================================================
-                # 🔥 PART 1: NATIVE TOOL / <FC> SNOOPING (Robust Buffer Slicing)
+                # 🔥 PART 1: NATIVE TOOL / <FC> SNOOPING (Using Mixin Utility)
                 # ==================================================================
                 if ctype == "call_arguments":
                     current_tool_args_buffer += ccontent
 
-                    # DeepSeek often treats python execution as "computer" or "code_interpreter"
-                    # We accept generic activity if we are inside an <fc> block
                     is_code_tool = (
                         current_tool_name in ("code_interpreter", "python", "computer")
                         or current_block == "fc"
@@ -194,74 +192,19 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                                 redis, stream_key, start_payload
                             )
 
-                        # 2. Locate Start of Code (Once)
-                        if _code_start_index == -1:
-                            import re
-
-                            # Flexible regex to find "code": " or 'code': '
-                            match = re.search(
-                                r"[\"\']code[\"\']\s*:\s*[\"\']",
-                                current_tool_args_buffer,
+                        # 2. Delegate to robust mixin method
+                        _code_start_index, _code_yielded_cursor, hc_payload = (
+                            self.process_hot_code_buffer(
+                                buffer=current_tool_args_buffer,
+                                start_index=_code_start_index,
+                                cursor=_code_yielded_cursor,
+                                redis_client=redis,
+                                stream_key=stream_key,
                             )
-                            if match:
-                                _code_start_index = match.end()
+                        )
 
-                        # 3. Stream the Slice (Buffered)
-                        if _code_start_index != -1:
-                            # Capture the full valid code string found so far
-                            full_code_value = current_tool_args_buffer[
-                                _code_start_index:
-                            ]
-
-                            # Identify the specific chunk we haven't sent yet
-                            unsent_buffer = full_code_value[_code_yielded_cursor:]
-
-                            # --- BUFFERING STRATEGY ---
-                            # To fix "one char per line" and split escape chars (e.g. \ + n),
-                            # we buffer until:
-                            # A. We found a newline (escaped as \n)
-                            # B. The buffer is getting long (>15 chars)
-                            # C. The buffer ends with a quote (end of string)
-                            # D. AND: Ensure we strictly NEVER end on a backslash
-
-                            has_newline = "\\n" in unsent_buffer
-                            is_long_enough = len(unsent_buffer) > 15
-                            is_closed = unsent_buffer.endswith(
-                                '"'
-                            ) or unsent_buffer.endswith("'")
-                            safe_cut = not unsent_buffer.endswith("\\")
-
-                            if (
-                                unsent_buffer
-                                and (has_newline or is_long_enough or is_closed)
-                                and safe_cut
-                            ):
-
-                                # Commit the cursor forward
-                                _code_yielded_cursor += len(unsent_buffer)
-
-                                # Visual De-escaping
-                                clean_segment = (
-                                    unsent_buffer.replace("\\n", "\n")
-                                    .replace('\\"', '"')
-                                    .replace("\\'", "'")
-                                )
-
-                                # Squelch structural closers at the tail end
-                                if len(clean_segment) == 1 and clean_segment in (
-                                    '"',
-                                    "}",
-                                ):
-                                    pass
-                                else:
-                                    hc_payload = {
-                                        "type": "hot_code",
-                                        "content": clean_segment,
-                                    }
-                                    yield json.dumps(hc_payload)
-                                    self._shunt_to_redis_stream(
-                                        redis, stream_key, hc_payload
-                                    )
+                        if hc_payload:
+                            yield hc_payload
 
                 # ==================================================================
                 # 🔥 PART 2: MARKDOWN CONTENT INTERLEAVING
@@ -274,25 +217,20 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                         else None
                     )
 
-                    # Detect start of markdown code block
                     if ci_match:
                         code_mode = True
                         start = {"type": "hot_code", "content": "```python\n"}
                         yield json.dumps(start)
                         self._shunt_to_redis_stream(redis, stream_key, start)
-                        # Don't continue; let the loop process this chunk in the next block
 
                     if code_mode:
-                        # Exit code mode on closing fence
                         if "```" in ccontent and "python" not in ccontent:
                             code_mode = False
-
                         hc_payload = {"type": "hot_code", "content": ccontent}
                         yield json.dumps(hc_payload)
                         self._shunt_to_redis_stream(redis, stream_key, hc_payload)
-                        continue  # Suppress standard content yield
+                        continue
 
-                # Standard Yield
                 yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
 
@@ -305,19 +243,45 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
             yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
             # --- SMART HISTORY PRESERVATION FIX ---
-            # Check for function calls to determine which string to save to history
             has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
+            message_to_save = assistant_reply
 
-            # If a tool was triggered, we MUST save the string containing the <fc> tags
-            # so the model sees the request in its history during the next turn.
-            message_to_save = accumulated if has_fc else assistant_reply
+            if has_fc:
+                try:
+                    raw_json = (
+                        accumulated.replace("<fc>", "").replace("</fc>", "").strip()
+                    )
+                    payload_dict = json.loads(raw_json)
+                    call_id = f"call_{uuid.uuid4().hex[:8]}"
+                    self._current_tool_call_id = call_id
+
+                    args_content = payload_dict.get("arguments", {})
+                    args_str = (
+                        json.dumps(args_content)
+                        if isinstance(args_content, dict)
+                        else str(args_content)
+                    )
+
+                    tool_calls_structure = [
+                        {
+                            "id": call_id,
+                            "type": "function",
+                            "function": {
+                                "name": payload_dict.get("name"),
+                                "arguments": args_str,
+                            },
+                        }
+                    ]
+                    message_to_save = json.dumps(tool_calls_structure)
+                except Exception as e:
+                    LOG.error(f"Error structuring tool calls: {e}")
+                    message_to_save = accumulated
 
             if message_to_save:
                 self.finalize_conversation(
                     message_to_save, thread_id, assistant_id, run_id
                 )
 
-            # Update Run Status based on whether a follow-up is needed
             if has_fc:
                 self.project_david_client.runs.update_run_status(
                     run_id, StatusEnum.pending_action.value
