@@ -19,8 +19,9 @@ from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from src.api.entities_api.inference.base_inference import BaseInference
-from src.api.entities_api.inference.deepseek.deepseek_async_client import \
-    AsyncDeepSeekClient
+from src.api.entities_api.inference.deepseek.deepseek_async_client import (
+    AsyncDeepSeekClient,
+)
 from src.api.entities_api.utils.async_to_sync import async_to_sync_stream
 
 load_dotenv()
