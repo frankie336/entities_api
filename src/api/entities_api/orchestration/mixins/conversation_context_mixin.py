@@ -26,7 +26,8 @@ from typing import Dict, List, Optional, Tuple
 from projectdavid import Entity
 
 from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.system_message.main_assembly import assemble_instructions
+from src.api.entities_api.system_message.main_assembly import \
+    assemble_instructions
 
 LOG = LoggingUtility()
 
@@ -168,7 +169,7 @@ class ConversationContextMixin:
                 "TOOL_USAGE_PROTOCOL",
                 "FUNCTION_CALL_FORMATTING",
                 "FUNCTION_CALL_WRAPPING",
-                # "CODE_INTERPRETER",
+                "CODE_INTERPRETER",
                 "TERMINATION_CONDITIONS",
                 "ADVANCED_ANALYSIS",
                 "VECTOR_SEARCH_COMMANDMENTS",
