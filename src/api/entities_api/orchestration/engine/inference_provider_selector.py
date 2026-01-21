@@ -13,8 +13,6 @@ from entities_api.orchestration.engine.inference_arbiter import \
 # from src.api.entities_api.inference.local.local_handler import LocalHandler
 # from src.api.entities_api.orchestration.providers.deepseek.deep_seek_handler import \
 #    DeepseekHandler
-from src.api.entities_api.orchestration.providers.google.google_handler import \
-    GoogleHandler
 from src.api.entities_api.orchestration.providers.hyperbolic.handler import \
     HyperbolicHandler
 from src.api.entities_api.orchestration.providers.togeterai.togetherai_handler import \
@@ -27,7 +25,6 @@ from src.api.entities_api.orchestration.providers.togeterai.togetherai_handler i
 LOG = LoggingUtility()
 TOP_LEVEL_ROUTING_MAP: dict[str, Type[Any]] = {
     "hyperbolic/": HyperbolicHandler,
-    "google/": GoogleHandler,
     "together-ai/": TogetherAIHandler,
     # "deepseek-ai/": DeepseekHandler,
     # "azure/": AzureHandler,
