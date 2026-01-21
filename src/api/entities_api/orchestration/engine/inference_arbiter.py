@@ -1,3 +1,4 @@
+# src/api/entities_api/orchestration/engine/inference_arbiter.py
 """
 Central gate‑keeper for inference requests.
 

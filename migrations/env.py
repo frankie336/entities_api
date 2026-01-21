@@ -29,7 +29,7 @@ target_metadata = Base.metadata
 # when deploying model upgrades
 # ------------------------------------------------------------------------------------
 DB_URL = os.getenv("DATABASE_URL")
-# DB_URL="mysql+pymysql://api_user:ee7d06c5bb265caed9b9d942d210d84d91be511138e498b5682e3a1f463c5539@localhost:3307/entities_db"
+# DB_URL = "mysql+pymysql://api_user:ee7d06c5bb265caed9b9d942d210d84d91be511138e498b5682e3a1f463c5539@localhost:3307/entities_db"
 
 if not DB_URL:
     raise ValueError("FATAL: DATABASE_URL environment variable is not set or empty.")
