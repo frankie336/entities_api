@@ -15,10 +15,7 @@ class HyperbolicDeltaNormalizer:
     CALL_TAG = "<|call|>"
 
     @classmethod
-    def iter_deltas(cls, raw_stream, run_id, debug_mode=False):
-        """
-        Stream processor with Real-Time fix applied.
-        """
+    def iter_deltas(cls, raw_stream, run_id):
         buffer = ""
         state = "content"
 
@@ -48,29 +45,7 @@ class HyperbolicDeltaNormalizer:
             else:
                 continue
 
-            # =========================================================
-            # FAST PATH 1: DEBUG MODE
-            # =========================================================
-            if debug_mode:
-                seg = (
-                    delta.get("content", "")
-                    if is_dict
-                    else getattr(delta, "content", "")
-                ) or ""
-                if seg:
-                    yield {"type": "content", "content": seg, "run_id": run_id}
-                r_content = (
-                    delta.get("reasoning_content")
-                    if is_dict
-                    else getattr(delta, "reasoning_content", None)
-                )
-                if r_content:
-                    yield {"type": "reasoning", "content": r_content, "run_id": run_id}
-                continue
-
-            # =========================================================
-            # FAST PATH 2: Native Reasoning
-            # =========================================================
+            # --- 2. Handle Native Reasoning (DeepSeek/Hyperbolic Specific) ---
             r_content = (
                 delta.get("reasoning_content")
                 if is_dict
@@ -143,18 +118,10 @@ class HyperbolicDeltaNormalizer:
             if not seg:
                 continue
 
+            # --- 6. Add entire segment to buffer, then process ---
             buffer += seg
 
-            # =========================================================
-            # ⚡ LAG FIX: THE FAST PATH ⚡
-            # =========================================================
-            # If no tags are initiating, flush immediately.
-            if state == "content" and "<" not in buffer:
-                yield {"type": "content", "content": buffer, "run_id": run_id}
-                buffer = ""
-                continue
-
-            # --- 6. Complex State Machine ---
+            # Process buffer and yield chunks immediately
             while buffer:
                 yielded_something = False
 
@@ -169,8 +136,6 @@ class HyperbolicDeltaNormalizer:
                         (cls.TH_START, "think"),
                     ]
 
-                    # 1. Check for complete tags match
-                    tag_found = False
                     for tag, new_state in potential_tags:
                         if tag in buffer:
                             pre, post = buffer.split(tag, 1)
@@ -184,39 +149,12 @@ class HyperbolicDeltaNormalizer:
                                 state = new_state
                             buffer = post
                             yielded_something = True
-                            tag_found = True
                             break
-                    if tag_found:
+
+                    if yielded_something:
                         continue
 
-                    # 2. Optimization: If buffer doesn't contain '<', yield all
-                    if "<" not in buffer:
-                        yield {"type": "content", "content": buffer, "run_id": run_id}
-                        buffer = ""
-                        break
-
-                    # 3. Partial tag check
-                    # We only hold back if the buffer *ends* with a partial tag prefix
-                    # Find the last '<'
-                    last_bracket = buffer.rfind("<")
-
-                    if last_bracket == -1:
-                        # Should be covered by step 2, but safety net
-                        yield {"type": "content", "content": buffer, "run_id": run_id}
-                        buffer = ""
-                        break
-
-                    # Yield everything before the bracket
-                    if last_bracket > 0:
-                        yield {
-                            "type": "content",
-                            "content": buffer[:last_bracket],
-                            "run_id": run_id,
-                        }
-                        buffer = buffer[last_bracket:]
-                        # Now buffer starts with '<'
-
-                    # Check if this '<...' is a valid prefix of any known tag
+                    # Check if buffer might be starting a tag
                     all_tags = [
                         cls.CH_ANALYSIS,
                         cls.CH_COMMENTARY,
@@ -225,28 +163,25 @@ class HyperbolicDeltaNormalizer:
                         cls.FC_START,
                         cls.TH_START,
                     ]
+                    max_tag_len = max(len(t) for t in all_tags)
 
-                    is_prefix = False
-                    for tag in all_tags:
-                        if tag.startswith(buffer):
-                            is_prefix = True
-                            break
+                    if len(buffer) <= max_tag_len:
+                        is_potential = any(tag.startswith(buffer) for tag in all_tags)
+                        if is_potential:
+                            break  # Wait for more data
 
-                    if is_prefix:
-                        # It's a partial tag, wait for more data
-                        break
-                    else:
-                        # It looked like a tag but isn't (e.g. "< 5"). Yield the '<' and continue
-                        yield {
-                            "type": "content",
-                            "content": buffer[0],
-                            "run_id": run_id,
-                        }
-                        buffer = buffer[1:]
+                    # Yield safe portion
+                    if len(buffer) > max_tag_len:
+                        safe = buffer[:-max_tag_len]
+                        yield {"type": "content", "content": safe, "run_id": run_id}
+                        buffer = buffer[-max_tag_len:]
                         yielded_something = True
 
+                    if not yielded_something:
+                        break
+
                 elif state == "channel_reasoning":
-                    # 1. Check for exit tags
+                    # Look for exit tags
                     if cls.CH_FINAL in buffer:
                         pre, post = buffer.split(cls.CH_FINAL, 1)
                         clean = pre.replace(cls.MSG_TAG, "")
@@ -275,48 +210,34 @@ class HyperbolicDeltaNormalizer:
                         yielded_something = True
                         continue
 
-                    # 2. Handle Message Tag Stripping
+                    # Strip message tags
                     if cls.MSG_TAG in buffer:
+                        before_msg = buffer
                         buffer = buffer.replace(cls.MSG_TAG, "")
-                        yielded_something = True
-                        continue
+                        if buffer != before_msg:
+                            yielded_something = True
+                            continue
 
-                    # 3. FAST YIELD LOGIC
-                    # If no '<', yield all
-                    if "<" not in buffer:
-                        yield {"type": "reasoning", "content": buffer, "run_id": run_id}
-                        buffer = ""
+                    # Check if building exit tag
+                    exit_tags = [cls.CH_FINAL, cls.CH_COMMENTARY]
+                    max_exit = max(len(t) for t in exit_tags)
+
+                    if len(buffer) <= max_exit:
+                        is_potential = any(tag.startswith(buffer) for tag in exit_tags)
+                        if is_potential:
+                            break  # Wait for more data
+
+                    # Yield safe reasoning content
+                    if len(buffer) > max_exit:
+                        safe = buffer[:-max_exit]
+                        yield {"type": "reasoning", "content": safe, "run_id": run_id}
+                        buffer = buffer[-max_exit:]
+                        yielded_something = True
+
+                    if not yielded_something:
                         break
 
-                    # If there is a '<', yield up to it
-                    idx = buffer.find("<")
-                    if idx > 0:
-                        yield {
-                            "type": "reasoning",
-                            "content": buffer[:idx],
-                            "run_id": run_id,
-                        }
-                        buffer = buffer[idx:]
-
-                    # Now buffer starts with '<'. Check if it matches specific exit tags OR Msg tag
-                    exit_tags = [cls.CH_FINAL, cls.CH_COMMENTARY, cls.MSG_TAG]
-
-                    is_prefix = False
-                    for tag in exit_tags:
-                        if tag.startswith(buffer):
-                            is_prefix = True
-                            break
-
-                    if is_prefix:
-                        break  # Wait
-
-                    # Not a tag prefix, yield char
-                    yield {"type": "reasoning", "content": buffer[0], "run_id": run_id}
-                    buffer = buffer[1:]
-                    yielded_something = True
-
                 elif state == "channel_tool_meta":
-                    # (Logic kept simple as this is usually short metadata)
                     if cls.MSG_TAG in buffer:
                         _, post = buffer.split(cls.MSG_TAG, 1)
                         state = "channel_tool_payload"
@@ -329,7 +250,7 @@ class HyperbolicDeltaNormalizer:
                         yielded_something = True
                         continue
                     else:
-                        break  # Wait
+                        break  # Wait for more data
 
                 elif state == "channel_tool_payload":
                     exit_tags = [cls.CALL_TAG, cls.CH_FINAL, cls.CH_ANALYSIS]
@@ -352,36 +273,24 @@ class HyperbolicDeltaNormalizer:
                         yielded_something = True
                         continue
 
-                    # Streaming Logic for Payload
-                    if "<" not in buffer:
+                    max_exit = max(len(t) for t in exit_tags)
+                    if len(buffer) <= max_exit:
+                        is_potential = any(tag.startswith(buffer) for tag in exit_tags)
+                        if is_potential:
+                            break
+
+                    if len(buffer) > max_exit:
+                        safe = buffer[:-max_exit]
                         yield {
                             "type": "call_arguments",
-                            "content": buffer,
+                            "content": safe,
                             "run_id": run_id,
                         }
-                        buffer = ""
+                        buffer = buffer[-max_exit:]
+                        yielded_something = True
+
+                    if not yielded_something:
                         break
-
-                    idx = buffer.find("<")
-                    if idx > 0:
-                        yield {
-                            "type": "call_arguments",
-                            "content": buffer[:idx],
-                            "run_id": run_id,
-                        }
-                        buffer = buffer[idx:]
-
-                    is_prefix = any(tag.startswith(buffer) for tag in exit_tags)
-                    if is_prefix:
-                        break
-
-                    yield {
-                        "type": "call_arguments",
-                        "content": buffer[0],
-                        "run_id": run_id,
-                    }
-                    buffer = buffer[1:]
-                    yielded_something = True
 
                 elif state == "fc":
                     if cls.FC_END in buffer:
@@ -397,38 +306,25 @@ class HyperbolicDeltaNormalizer:
                         yielded_something = True
                         continue
 
-                    # Streaming Logic
-                    if "<" not in buffer:
+                    tag_len = len(cls.FC_END)
+                    if len(buffer) <= tag_len:
+                        if cls.FC_END.startswith(buffer):
+                            break
+
+                    if len(buffer) > tag_len:
+                        safe = buffer[:-tag_len]
                         yield {
                             "type": "call_arguments",
-                            "content": buffer,
+                            "content": safe,
                             "run_id": run_id,
                         }
-                        buffer = ""
+                        buffer = buffer[-tag_len:]
+                        yielded_something = True
+
+                    if not yielded_something:
                         break
-
-                    idx = buffer.find("<")
-                    if idx > 0:
-                        yield {
-                            "type": "call_arguments",
-                            "content": buffer[:idx],
-                            "run_id": run_id,
-                        }
-                        buffer = buffer[idx:]
-
-                    if cls.FC_END.startswith(buffer):
-                        break
-
-                    yield {
-                        "type": "call_arguments",
-                        "content": buffer[0],
-                        "run_id": run_id,
-                    }
-                    buffer = buffer[1:]
-                    yielded_something = True
 
                 elif state == "think":
-                    # 1. Check for end tag
                     if cls.TH_END in buffer:
                         pre, post = buffer.split(cls.TH_END, 1)
                         if pre:
@@ -442,30 +338,16 @@ class HyperbolicDeltaNormalizer:
                         yielded_something = True
                         continue
 
-                    # 2. FAST YIELD: If no '<', strictly content
-                    if "<" not in buffer:
-                        yield {"type": "reasoning", "content": buffer, "run_id": run_id}
-                        buffer = ""
-                        break
+                    tag_len = len(cls.TH_END)
+                    if len(buffer) <= tag_len:
+                        if cls.TH_END.startswith(buffer):
+                            break
 
-                    # 3. If '<' exists, yield up to it
-                    idx = buffer.find("<")
-                    if idx > 0:
-                        yield {
-                            "type": "reasoning",
-                            "content": buffer[:idx],
-                            "run_id": run_id,
-                        }
-                        buffer = buffer[idx:]
-
-                    # 4. Buffer now starts with '<'. Check if it's the specific close tag
-                    if cls.TH_END.startswith(buffer):
-                        break  # Wait for more tokens to complete the tag
-
-                    # 5. It starts with '<' but NOT the close tag (e.g. "<div>" vs "</think>")
-                    yield {"type": "reasoning", "content": buffer[0], "run_id": run_id}
-                    buffer = buffer[1:]
-                    yielded_something = True
+                    if len(buffer) > tag_len:
+                        safe = buffer[:-tag_len]
+                        yield {"type": "reasoning", "content": safe, "run_id": run_id}
+                        buffer = buffer[-tag_len:]
+                        yielded_something = True
 
                     if not yielded_something:
                         break
