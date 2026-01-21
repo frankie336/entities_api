@@ -99,8 +99,8 @@ class HyperbolicDeltaNormalizer:
 
             # --- 4. Handle Standard Content ---
             seg = (
-                      delta.get("content", "") if is_dict else getattr(delta, "content", "")
-                  ) or ""
+                delta.get("content", "") if is_dict else getattr(delta, "content", "")
+            ) or ""
 
             # --- 5. Handle Tool Completion Trigger ---
             if finish_reason == "tool_calls":
@@ -140,7 +140,11 @@ class HyperbolicDeltaNormalizer:
                         if tag in buffer:
                             pre, post = buffer.split(tag, 1)
                             if pre:
-                                yield {"type": "content", "content": pre, "run_id": run_id}
+                                yield {
+                                    "type": "content",
+                                    "content": pre,
+                                    "run_id": run_id,
+                                }
                             if new_state:
                                 state = new_state
                             buffer = post
@@ -151,8 +155,14 @@ class HyperbolicDeltaNormalizer:
                         continue
 
                     # Check if buffer might be starting a tag
-                    all_tags = [cls.CH_ANALYSIS, cls.CH_COMMENTARY, cls.CH_FINAL,
-                                cls.MSG_TAG, cls.FC_START, cls.TH_START]
+                    all_tags = [
+                        cls.CH_ANALYSIS,
+                        cls.CH_COMMENTARY,
+                        cls.CH_FINAL,
+                        cls.MSG_TAG,
+                        cls.FC_START,
+                        cls.TH_START,
+                    ]
                     max_tag_len = max(len(t) for t in all_tags)
 
                     if len(buffer) <= max_tag_len:
@@ -176,7 +186,11 @@ class HyperbolicDeltaNormalizer:
                         pre, post = buffer.split(cls.CH_FINAL, 1)
                         clean = pre.replace(cls.MSG_TAG, "")
                         if clean:
-                            yield {"type": "reasoning", "content": clean, "run_id": run_id}
+                            yield {
+                                "type": "reasoning",
+                                "content": clean,
+                                "run_id": run_id,
+                            }
                         buffer = post
                         state = "content"
                         yielded_something = True
@@ -186,7 +200,11 @@ class HyperbolicDeltaNormalizer:
                         pre, post = buffer.split(cls.CH_COMMENTARY, 1)
                         clean = pre.replace(cls.MSG_TAG, "")
                         if clean:
-                            yield {"type": "reasoning", "content": clean, "run_id": run_id}
+                            yield {
+                                "type": "reasoning",
+                                "content": clean,
+                                "run_id": run_id,
+                            }
                         buffer = post
                         state = "channel_tool_meta"
                         yielded_something = True
@@ -241,9 +259,17 @@ class HyperbolicDeltaNormalizer:
                     if found:
                         pre, post = buffer.split(found, 1)
                         if pre:
-                            yield {"type": "call_arguments", "content": pre, "run_id": run_id}
+                            yield {
+                                "type": "call_arguments",
+                                "content": pre,
+                                "run_id": run_id,
+                            }
                         buffer = post
-                        state = "channel_reasoning" if found == cls.CH_ANALYSIS else "content"
+                        state = (
+                            "channel_reasoning"
+                            if found == cls.CH_ANALYSIS
+                            else "content"
+                        )
                         yielded_something = True
                         continue
 
@@ -255,7 +281,11 @@ class HyperbolicDeltaNormalizer:
 
                     if len(buffer) > max_exit:
                         safe = buffer[:-max_exit]
-                        yield {"type": "call_arguments", "content": safe, "run_id": run_id}
+                        yield {
+                            "type": "call_arguments",
+                            "content": safe,
+                            "run_id": run_id,
+                        }
                         buffer = buffer[-max_exit:]
                         yielded_something = True
 
@@ -266,7 +296,11 @@ class HyperbolicDeltaNormalizer:
                     if cls.FC_END in buffer:
                         pre, post = buffer.split(cls.FC_END, 1)
                         if pre:
-                            yield {"type": "call_arguments", "content": pre, "run_id": run_id}
+                            yield {
+                                "type": "call_arguments",
+                                "content": pre,
+                                "run_id": run_id,
+                            }
                         state = "content"
                         buffer = post
                         yielded_something = True
@@ -279,7 +313,11 @@ class HyperbolicDeltaNormalizer:
 
                     if len(buffer) > tag_len:
                         safe = buffer[:-tag_len]
-                        yield {"type": "call_arguments", "content": safe, "run_id": run_id}
+                        yield {
+                            "type": "call_arguments",
+                            "content": safe,
+                            "run_id": run_id,
+                        }
                         buffer = buffer[-tag_len:]
                         yielded_something = True
 
@@ -290,7 +328,11 @@ class HyperbolicDeltaNormalizer:
                     if cls.TH_END in buffer:
                         pre, post = buffer.split(cls.TH_END, 1)
                         if pre:
-                            yield {"type": "reasoning", "content": pre, "run_id": run_id}
+                            yield {
+                                "type": "reasoning",
+                                "content": pre,
+                                "run_id": run_id,
+                            }
                         state = "content"
                         buffer = post
                         yielded_something = True
