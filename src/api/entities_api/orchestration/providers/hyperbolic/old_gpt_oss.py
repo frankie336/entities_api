@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from typing import Any, Generator, Optional
 
-import requests
 from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
@@ -33,6 +33,9 @@ from src.api.entities_api.orchestration.mixins.tool_routing_mixin import \
     ToolRoutingMixin
 from src.api.entities_api.orchestration.streaming.hyperbolic import \
     HyperbolicDeltaNormalizer
+from src.api.entities_api.orchestration.streaming.hyperbolic_async_client import \
+    AsyncHyperbolicClient
+from src.api.entities_api.utils.async_to_sync import async_to_sync_stream
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -151,158 +154,173 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
     def get_assistant_cache(self) -> dict:
         return self._assistant_cache
 
-
-    from typing import Generator, Optional, Any
-
     def stream(
-            self,
-            thread_id: str,
-            message_id: Optional[str],
-            run_id: str,
-            assistant_id: str,
-            model: Any,
-            *,
-            force_refresh: bool = False,
-            stream_reasoning: bool = True,
-            api_key: Optional[str] = None,
-            **kwargs,
+        self,
+        thread_id: str,
+        message_id: Optional[str],
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        *,
+        force_refresh: bool = False,
+        stream_reasoning: bool = True,
+        api_key: Optional[str] = None,
+        **kwargs,
     ) -> Generator[str, None, None]:
         redis = get_redis()
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
+
+        # Reset state at start of stream
         self._current_tool_call_id = None
 
         try:
-            # 1. Model & Context Setup
             if isinstance(model, str) and model.startswith("hyperbolic/"):
                 model = model.replace("hyperbolic/", "")
             if mapped := self._get_model_map(model):
                 model = mapped
 
             raw_ctx = self._set_up_context_window(
-                assistant_id, thread_id, trunk=True, tools_native=True, force_refresh=force_refresh
+                assistant_id,
+                thread_id,
+                trunk=True,
+                tools_native=True,
+                force_refresh=force_refresh,
             )
-            cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
-            # 2. Direct Requests Configuration
-            url = f"{os.getenv('HYPERBOLIC_BASE_URL', 'https://api.hyperbolic.xyz/v1')}/chat/completions"
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}"
-            }
-            payload = {
-                "messages": cleaned_ctx,
-                "tools": extracted_tools,
-                "model": model,
-                "temperature": kwargs.get("temperature", 0.4),
-                "top_p": kwargs.get("top_p", 0.9),
-                "max_tokens": kwargs.get("max_tokens", 4096),  # Room for reasoning + answer
-                "stream": True
-            }
+            cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
+            LOG.info(
+                f"[CTX-DEBUG] Final Message Roles: {[m['role'] for m in cleaned_ctx]} | Full Payload:\n{json.dumps(cleaned_ctx, indent=2)}"
+            )
+
+            if not api_key:
+                yield json.dumps(
+                    {"type": "error", "content": "Missing Hyperbolic API key."}
+                )
+                return
+
+            client = AsyncHyperbolicClient(
+                api_key=api_key, base_url=os.getenv("HYPERBOLIC_BASE_URL")
+            )
+
+            async_stream = client.stream_chat_completion(
+                messages=cleaned_ctx,
+                tools=extracted_tools,
+                model=model,
+                temperature=kwargs.get("temperature", 0.4),
+                top_p=0.9,
+            )
 
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
-            # State Tracking
             assistant_reply = ""
             reasoning_reply = ""
             current_tool_name: str | None = None
             current_tool_args_buffer: str = ""
             accumulated = ""
             code_mode = False
-            last_yielded_type = None
 
             # --- HOT CODE TRACKING STATE ---
             self._code_start_index = -1
             self._code_yielded_cursor = 0
 
-            # 3. Execution using standard requests (Synchronous stream processing)
-            with requests.post(url, headers=headers, json=payload, stream=True) as response:
-                if response.status_code != 200:
-                    raise Exception(f"Hyperbolic API Error ({response.status_code}): {response.text}")
+            token_iterator = async_to_sync_stream(async_stream)
 
-                # Define a simple generator to feed the normalizer from the raw request lines
-                def raw_line_generator():
-                    for line in response.iter_lines():
-                        if line:
-                            decoded = line.decode('utf-8')
-                            if decoded.startswith("data: ") and decoded != "data: [DONE]":
-                                yield json.loads(decoded[6:])
+            for chunk in HyperbolicDeltaNormalizer.iter_deltas(token_iterator, run_id):
+                if stop_event.is_set():
+                    break
 
-                # 4. Process Deltas through our new lookahead normalizer
-                for chunk in HyperbolicDeltaNormalizer.iter_deltas(raw_line_generator(), run_id):
-                    if stop_event.is_set():
-                        break
+                ctype, ccontent = chunk["type"], chunk["content"]
 
-                    ctype, ccontent = chunk["type"], chunk["content"]
+                if ctype == "reasoning":
+                    reasoning_reply += ccontent
+                    yield json.dumps(chunk)
+                    self._shunt_to_redis_stream(redis, stream_key, chunk)
+                    continue
 
-                    # Handle Transition UI logic: If we move from reasoning to content, signal the UI
-                    if last_yielded_type == "reasoning" and ctype == "content":
-                        transition_payload = {"type": "status", "status": "thinking_complete"}
-                        yield json.dumps(transition_payload)
+                elif ctype == "tool_name":
+                    current_tool_name = ccontent
 
-                    last_yielded_type = ctype
+                elif ctype == "tool_call":
+                    # Final full object
+                    current_tool_name = ccontent.get("name")
+                    args = ccontent.get("arguments", "")
+                    current_tool_args_buffer = (
+                        json.dumps(args) if isinstance(args, dict) else str(args)
+                    )
 
-                    # A. REASONING
-                    if ctype == "reasoning":
-                        reasoning_reply += ccontent
-                        yield json.dumps(chunk)
-                        self._shunt_to_redis_stream(redis, stream_key, chunk)
+                # ------------------------------------------------------------------
+                # 🔥 FIX: ROBUST BUFFER SLICING (Using Mixin Utility)
+                # ------------------------------------------------------------------
+                elif ctype == "call_arguments":
+                    # 1. Accumulate
+                    current_tool_args_buffer += ccontent
+
+                    if current_tool_name in (
+                        "code_interpreter",
+                        "python",
+                        "execute_code",
+                        "interpreter",
+                    ):
+                        # 2. Init UI
+                        if not code_mode:
+                            code_mode = True
+                            start_payload = {
+                                "type": "hot_code",
+                                "content": "```python\n",
+                            }
+                            yield json.dumps(start_payload)
+                            self._shunt_to_redis_stream(
+                                redis, stream_key, start_payload
+                            )
+
+                        # 3. Delegate to robust mixin method
+                        (
+                            self._code_start_index,
+                            self._code_yielded_cursor,
+                            hc_payload,
+                        ) = self.process_hot_code_buffer(
+                            buffer=current_tool_args_buffer,
+                            start_index=self._code_start_index,
+                            cursor=self._code_yielded_cursor,
+                            redis_client=redis,
+                            stream_key=stream_key,
+                        )
+
+                        if hc_payload:
+                            yield hc_payload
+
+                # ------------------------------------------------------------------
+                # STANDARD CONTENT STREAMING
+                # ------------------------------------------------------------------
+                elif ctype == "content":
+                    assistant_reply += ccontent
+
+                    parse_ci = getattr(self, "parse_code_interpreter_partial", None)
+                    if not code_mode and parse_ci:
+                        ci_match = parse_ci(assistant_reply)
+                        if ci_match:
+                            code_mode = True
+                            start_payload = {
+                                "type": "hot_code",
+                                "content": "```python\n",
+                            }
+                            yield json.dumps(start_payload)
+                            self._shunt_to_redis_stream(
+                                redis, stream_key, start_payload
+                            )
+
+                    if code_mode:
+                        if "```" in ccontent and "python" not in ccontent:
+                            code_mode = False
+
+                        hc_payload = {"type": "hot_code", "content": ccontent}
+                        yield json.dumps(hc_payload)
+                        self._shunt_to_redis_stream(redis, stream_key, hc_payload)
                         continue
 
-                    # B. TOOL CALLING
-                    elif ctype == "tool_name":
-                        current_tool_name = ccontent
-
-                    elif ctype == "tool_call":
-                        current_tool_name = ccontent.get("name")
-                        args = ccontent.get("arguments", "")
-                        current_tool_args_buffer = json.dumps(args) if isinstance(args, dict) else str(args)
-
-                    elif ctype == "call_arguments":
-                        current_tool_args_buffer += ccontent
-
-                        # Logic for Hot Code Execution UI
-                        if current_tool_name in ("code_interpreter", "python", "execute_code", "interpreter"):
-                            if not code_mode:
-                                code_mode = True
-                                start_payload = {"type": "hot_code", "content": "```python\n"}
-                                yield json.dumps(start_payload)
-                                self._shunt_to_redis_stream(redis, stream_key, start_payload)
-
-                            (self._code_start_index, self._code_yielded_cursor,
-                             hc_payload) = self.process_hot_code_buffer(
-                                buffer=current_tool_args_buffer,
-                                start_index=self._code_start_index,
-                                cursor=self._code_yielded_cursor,
-                                redis_client=redis,
-                                stream_key=stream_key,
-                            )
-                            if hc_payload:
-                                yield hc_payload
-
-                    # C. STANDARD CONTENT
-                    elif ctype == "content":
-                        assistant_reply += ccontent
-
-                        # Detect if the model is writing code inside standard content
-                        parse_ci = getattr(self, "parse_code_interpreter_partial", None)
-                        if not code_mode and parse_ci:
-                            if parse_ci(assistant_reply):
-                                code_mode = True
-                                start_p = {"type": "hot_code", "content": "```python\n"}
-                                yield json.dumps(start_p)
-                                self._shunt_to_redis_stream(redis, stream_key, start_p)
-
-                        if code_mode:
-                            if "```" in ccontent and "python" not in ccontent:
-                                code_mode = False
-                            hc_payload = {"type": "hot_code", "content": ccontent}
-                            yield json.dumps(hc_payload)
-                            self._shunt_to_redis_stream(redis, stream_key, hc_payload)
-                            continue
-
-                        yield json.dumps(chunk)
-                        self._shunt_to_redis_stream(redis, stream_key, chunk)
+                    yield json.dumps(chunk)
+                    self._shunt_to_redis_stream(redis, stream_key, chunk)
 
         except Exception as exc:
             err = {"type": "error", "content": f"GPT-OSS stream error: {exc}"}
@@ -310,44 +328,63 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
             if current_tool_name:
-                accumulated = json.dumps({"name": current_tool_name, "arguments": current_tool_args_buffer})
+                accumulated = json.dumps(
+                    {"name": current_tool_name, "arguments": current_tool_args_buffer}
+                )
             stop_event.set()
 
         yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
-        # --- PERSISTENCE ---
-        # Finalize by saving to DB (This part remains unchanged but now receives "cleaned" replies)
+        # ------------------------------------------------------------------
+        # 🔒 NORMALIZED PERSISTENCE PATH
+        # ------------------------------------------------------------------
         normalized_fc_str = self._normalize_native_tool_payload(accumulated)
-        has_fc = self.parse_and_set_function_calls(normalized_fc_str if normalized_fc_str else accumulated,
-                                                   assistant_reply)
+
+        has_fc = self.parse_and_set_function_calls(
+            normalized_fc_str if normalized_fc_str else accumulated, assistant_reply
+        )
 
         message_to_save = assistant_reply
+
         if has_fc:
             try:
                 payload_dict = json.loads(normalized_fc_str)
                 call_id = f"call_{uuid.uuid4().hex[:8]}"
                 self._current_tool_call_id = call_id
 
-                tool_calls_structure = [{
-                    "id": call_id,
-                    "type": "function",
-                    "function": {
-                        "name": payload_dict.get("name"),
-                        "arguments": str(payload_dict.get("arguments", {}))
+                args_content = payload_dict.get("arguments", {})
+                args_str = (
+                    json.dumps(args_content)
+                    if isinstance(args_content, dict)
+                    else str(args_content)
+                )
+
+                tool_calls_structure = [
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {
+                            "name": payload_dict.get("name"),
+                            "arguments": args_str,
+                        },
                     }
-                }]
+                ]
                 message_to_save = json.dumps(tool_calls_structure)
-            except:
+            except Exception as e:
+                LOG.error(f"Error structuring tool calls for persistence: {e}")
                 message_to_save = normalized_fc_str
 
         if message_to_save:
             self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
 
-        # Update run status based on tool availability
-        status = StatusEnum.pending_action.value if has_fc else StatusEnum.completed.value
-        self.project_david_client.runs.update_run_status(run_id, status)
-
-
+        if has_fc:
+            self.project_david_client.runs.update_run_status(
+                run_id, StatusEnum.pending_action.value
+            )
+        else:
+            self.project_david_client.runs.update_run_status(
+                run_id, StatusEnum.completed.value
+            )
 
     def process_conversation(
         self,
