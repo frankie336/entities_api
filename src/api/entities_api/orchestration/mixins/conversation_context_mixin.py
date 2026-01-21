@@ -26,8 +26,7 @@ from typing import Dict, List, Optional, Tuple
 from projectdavid import Entity
 
 from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.system_message.main_assembly import \
-    assemble_instructions
+from src.api.entities_api.system_message.main_assembly import assemble_instructions
 
 LOG = LoggingUtility()
 
@@ -38,7 +37,13 @@ class ConversationContextMixin:
     def _normalize_roles(msgs: List[Dict]) -> List[Dict]:
         """
         Normalizes roles while preserving tool-call metadata.
-        FIXED: Handles serialization errors AND ensures content is "" (not None).
+
+        FIXES:
+        - Handles serialization errors
+        - Ensures content is "" (not None) when tool_calls exist
+        - Strips tool_call_id from non-tool roles (user, assistant, system)
+        - Only preserves tool_call_id for role="tool"
+        - Removes null/None tool_call_id fields
         """
         import json
 
@@ -98,14 +103,23 @@ class ConversationContextMixin:
             if has_tool_calls:
                 normalized_msg["content"] = ""
 
-                # --- LOGIC FIX END ---
+            # --- LOGIC FIX END ---
 
             # 5. Preserve Tool Response Metadata
-            if "tool_call_id" in m:
-                normalized_msg["tool_call_id"] = m["tool_call_id"]
+            # CRITICAL FIX: tool_call_id should ONLY exist on role="tool"
+            # OpenAI format does not allow tool_call_id on user/assistant/system roles
+            if role == "tool":
+                # Only add tool_call_id for tool role messages
+                if "tool_call_id" in m and m["tool_call_id"] is not None:
+                    normalized_msg["tool_call_id"] = m["tool_call_id"]
 
-            if "name" in m:
-                normalized_msg["name"] = m["name"]
+                # Also preserve 'name' field for tool responses
+                if "name" in m and m["name"]:
+                    normalized_msg["name"] = m["name"]
+
+            # For all other roles (user, assistant, system, platform):
+            # Do NOT include tool_call_id even if it exists in source message
+            # This fixes the malformed dialogue issue where every message had tool_call_id: null
 
             out.append(normalized_msg)
 
