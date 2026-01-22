@@ -40,8 +40,9 @@ class ToolRoutingMixin:
         """
         Robustly locate a function call payload.
         """
-        from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
-            JsonUtilsMixin
+        from src.api.entities_api.orchestration.mixins.json_utils_mixin import (
+            JsonUtilsMixin,
+        )
 
         if not isinstance(self, JsonUtilsMixin):
             raise TypeError("ToolRoutingMixin must be mixed with JsonUtilsMixin")
@@ -128,7 +129,7 @@ class ToolRoutingMixin:
         LOG.debug("FC-SCAN ✗ nothing found")
         return None
 
-    def process_function_calls(
+    def process_tool_calls(
         self,
         thread_id: str,
         run_id: str,
@@ -163,6 +164,7 @@ class ToolRoutingMixin:
                 arguments_dict=args,
             )
             return
+
         if name == "computer":
             yield from self.handle_shell_action(
                 thread_id=thread_id,
@@ -181,6 +183,7 @@ class ToolRoutingMixin:
                 arguments_dict=args,
             )
             return
+
         if name in PLATFORM_TOOLS:
             if name in SPECIAL_CASE_TOOL_HANDLING:
                 self._process_tool_calls(

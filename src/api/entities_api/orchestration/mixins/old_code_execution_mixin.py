@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import mimetypes
 import pprint
@@ -28,7 +29,6 @@ class CodeExecutionMixin:
         Streams sandbox output **live** while accumulating a plain-text
         summary and optional file previews.
         """
-        # 1. Notify start
         yield json.dumps(
             {
                 "stream_type": "code_execution",
@@ -36,7 +36,6 @@ class CodeExecutionMixin:
             }
         )
 
-        # 2. Persist Action
         action = self.project_david_client.actions.create_action(
             tool_name="code_interpreter",
             run_id=run_id,
@@ -46,116 +45,49 @@ class CodeExecutionMixin:
 
         code: str = arguments_dict.get("code", "")
 
-        # ---------------------------------------------------------
-        # ⚡ HOT CODE REPLAY (Line-by-Line Typewriter)
-        # ---------------------------------------------------------
-        if code:
-            yield json.dumps(
-                {
-                    "stream_type": "code_execution",
-                    "chunk": {"type": "hot_code", "content": "```python\n"},
-                }
-            )
-            for line in code.splitlines(keepends=True):
-                yield json.dumps(
-                    {
-                        "stream_type": "code_execution",
-                        "chunk": {"type": "hot_code", "content": line},
-                    }
-                )
-            yield json.dumps(
-                {
-                    "stream_type": "code_execution",
-                    "chunk": {"type": "hot_code", "content": "\n```\n"},
-                }
-            )
-        # ---------------------------------------------------------
-
         uploaded_files: List[dict] = []
         hot_code_buffer: List[str] = []
         final_content_for_assistant = ""
         LOG.info("Run %s: streaming sandbox output…", run_id)
-
-        # Use a proper JSON decoder to handle split/merged packets
-        decoder = json.JSONDecoder()
-        stream_buffer = ""
-
-        # 3. Stream Execution Output (Robust Parsing)
         try:
             for chunk_str in self.code_execution_client.stream_output(code):
-                stream_buffer += chunk_str
-
-                # Continuously decode valid objects from the buffer
-                while stream_buffer:
-                    stream_buffer = stream_buffer.lstrip()  # Remove leading whitespace
-                    if not stream_buffer:
-                        break
-
-                    try:
-                        # raw_decode returns the object and the index where it ended
-                        wrapper, idx = decoder.raw_decode(stream_buffer)
-                        # Slice off the processed part
-                        stream_buffer = stream_buffer[idx:]
-                    except json.JSONDecodeError:
-                        # Not enough data for a full JSON object yet; wait for next chunk
-                        break
-
-                    # --- Process the Successfully Decoded Wrapper ---
+                yield chunk_str
+                try:
+                    wrapper = json.loads(chunk_str)
                     payload = (
                         wrapper["chunk"]
                         if isinstance(wrapper, dict) and "chunk" in wrapper
                         else wrapper if isinstance(wrapper, dict) else None
                     )
-
                     if not isinstance(payload, dict):
                         continue
-
                     ctype = payload.get("type")
                     content = payload.get("content")
-
-                    # --- OUTPUT HANDLER ---
-                    if ctype in ("hot_code_output", "stdout", "stderr", "console"):
-                        if content is not None:
-                            clean_content = str(content)
-                            # Backend sanitization replacing frontend helper
-                            clean_content = clean_content.replace("\\n", "\n")
-
-                            hot_code_buffer.append(clean_content)
-
-                            yield json.dumps(
-                                {
-                                    "stream_type": "code_execution",
-                                    "chunk": {
-                                        "type": "hot_code_output",
-                                        "content": clean_content,
-                                    },
-                                }
-                            )
-
-                    # --- STATUS HANDLER ---
-                    elif ctype == "status":
+                    if ctype == "status":
                         status = content
                         LOG.debug("Run %s: sandbox status → %s", run_id, status)
                         if status == "complete" and isinstance(
                             payload.get("uploaded_files"), list
                         ):
                             uploaded_files.extend(payload["uploaded_files"])
-
-                        yield json.dumps(
-                            {"stream_type": "code_execution", "chunk": payload}
-                        )
-
-                    # --- ERROR HANDLER ---
+                    elif ctype == "hot_code_output":
+                        hot_code_buffer.append(str(content))
                     elif ctype == "error":
                         LOG.error("Run %s: sandbox error chunk: %s", run_id, content)
                         hot_code_buffer.append(f"[Code Exec Error] {content}")
-                        yield json.dumps(
-                            {
-                                "stream_type": "code_execution",
-                                "chunk": {"type": "error", "content": content},
-                            }
-                        )
-
+                except json.JSONDecodeError:
+                    LOG.warning(
+                        "Run %s: non-JSON sandbox chunk ignored: %.120s",
+                        run_id,
+                        chunk_str,
+                    )
+                except Exception as e:
+                    LOG.error(
+                        "Run %s: error parsing sandbox chunk: %s",
+                        run_id,
+                        e,
+                        exc_info=True,
+                    )
         except Exception as stream_err:
             LOG.error(
                 "Run %s: sandbox streaming failed: %s",
@@ -172,15 +104,10 @@ class CodeExecutionMixin:
                     },
                 }
             )
+            uploaded_files = []
             hot_code_buffer.append(f"[Streaming error] {stream_err}")
-
-        # 4. Construct Final Summary for LLM
-        if len(hot_code_buffer) > 0:
+        if hot_code_buffer:
             final_content_for_assistant = "\n".join(hot_code_buffer).strip()
-            if not final_content_for_assistant:
-                final_content_for_assistant = (
-                    "[Code executed successfully. Output contained only whitespace.]"
-                )
         elif not uploaded_files:
             final_content_for_assistant = (
                 "[Code executed successfully, no output and no files generated.]"
@@ -189,14 +116,14 @@ class CodeExecutionMixin:
             final_content_for_assistant = (
                 "[Code executed successfully, files generated but no textual output.]"
             )
-
-        # 5. Process and Yield Generated Files
         for file_meta in uploaded_files:
             file_id = file_meta.get("id")
             filename = file_meta.get("filename")
             if not file_id or not filename:
+                LOG.warning(
+                    "Run %s: skipping file with missing metadata: %s", run_id, file_meta
+                )
                 continue
-
             mime_type, _ = mimetypes.guess_type(filename)
             mime_type = mime_type or "application/octet-stream"
             try:
@@ -204,9 +131,18 @@ class CodeExecutionMixin:
                     file_id=file_id
                 )
             except Exception as e:
-                LOG.error(f"Error fetching file {file_id}: {e}")
-                b64 = ""
-
+                LOG.error(
+                    "Run %s: error fetching file %s (%s): %s",
+                    run_id,
+                    filename,
+                    file_id,
+                    e,
+                    exc_info=True,
+                )
+                b64 = base64.b64encode(
+                    f"Error retrieving {filename}: {e}".encode()
+                ).decode()
+                mime_type = "text/plain"
             yield json.dumps(
                 {
                     "stream_type": "code_execution",
@@ -221,8 +157,6 @@ class CodeExecutionMixin:
                     },
                 }
             )
-
-        # 6. Yield Final Content Summary
         yield json.dumps(
             {
                 "stream_type": "code_execution",
@@ -235,15 +169,12 @@ class CodeExecutionMixin:
                 "chunk": {"type": "status", "status": "complete", "run_id": run_id},
             }
         )
-
         if uploaded_files:
             LOG.info(
                 "Run %s: uploaded_files metadata:\n%s",
                 run_id,
                 pprint.pformat(uploaded_files),
             )
-
-        # 7. Submit Output back to Thread/Assistant
         try:
             self.submit_tool_output(
                 thread_id=thread_id,

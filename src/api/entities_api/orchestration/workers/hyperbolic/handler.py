@@ -1,18 +1,19 @@
-# src/api/entities_api/orchestration/providers/hyperbolic/handler.py
+# src/api/entities_api/orchestration/workers/hyperbolic/handler.py
 from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.orchestration.engine.inference_arbiter import \
-    InferenceArbiter
-from src.api.entities_api.orchestration.providers.hyperbolic.deepseek import \
-    HyperbolicDs1
-from src.api.entities_api.orchestration.providers.hyperbolic.gpt_oss import \
-    HyperbolicGptOss
-from src.api.entities_api.orchestration.providers.hyperbolic.llama import \
-    HyperbolicLlama33
-from src.api.entities_api.orchestration.providers.hyperbolic.quen import \
-    HyperbolicQuenQwq32B
+from entities_api.orchestration.engine.inference_arbiter import InferenceArbiter
+from src.api.entities_api.orchestration.workers.hyperbolic.deepseek import HyperbolicDs1
+from src.api.entities_api.orchestration.workers.hyperbolic.gpt_oss import (
+    HyperbolicGptOss,
+)
+from src.api.entities_api.orchestration.workers.hyperbolic.llama import (
+    HyperbolicLlama33,
+)
+from src.api.entities_api.orchestration.workers.hyperbolic.quen import (
+    HyperbolicQuenQwq32B,
+)
 
 logging_utility = LoggingUtility()
 
@@ -122,7 +123,7 @@ class HyperbolicHandler:
     ) -> Generator[str, None, None]:
         worker = self._get_specific_handler_instance(model)
 
-        yield from worker.process_function_calls(
+        yield from worker.process_tool_calls(
             thread_id=thread_id,
             run_id=run_id,
             assistant_id=assistant_id,

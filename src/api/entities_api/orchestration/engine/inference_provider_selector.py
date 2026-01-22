@@ -5,21 +5,23 @@ from typing import Any, Type
 from projectdavid_common.constants.ai_model_map import MODEL_MAP
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.orchestration.engine.inference_arbiter import \
-    InferenceArbiter
-# TODO: Migrate providers to Mixin architecture
+from entities_api.orchestration.engine.inference_arbiter import InferenceArbiter
+
+# TODO: Migrate workers to Mixin architecture
 # from src.api.entities_api.inference.azure.azure_handler import AzureHandler
 # from src.api.entities_api.inference.groq.groq_handler import GroqHandler
 # from src.api.entities_api.inference.local.local_handler import LocalHandler
-# from src.api.entities_api.orchestration.providers.deepseek.deep_seek_handler import \
+# from src.api.entities_api.orchestration.workers.deepseek.deep_seek_handler import \
 #    DeepseekHandler
-from src.api.entities_api.orchestration.providers.hyperbolic.handler import \
-    HyperbolicHandler
-from src.api.entities_api.orchestration.providers.togeterai.togetherai_handler import \
-    TogetherAIHandler
+from src.api.entities_api.orchestration.workers.hyperbolic.handler import (
+    HyperbolicHandler,
+)
+from src.api.entities_api.orchestration.workers.togeterai.togetherai_handler import (
+    TogetherAIHandler,
+)
 
 # Cut over from old architecture
-# from src.api.entities_api.orchestration.providers.hyperbolic.new_handler import HyperbolicHandler
+# from src.api.entities_api.orchestration.workers.hyperbolic.new_handler import HyperbolicHandler
 
 
 LOG = LoggingUtility()

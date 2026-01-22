@@ -2,12 +2,13 @@ from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from src.api.entities_api.orchestration.engine.inference_arbiter import \
-    InferenceArbiter
-from src.api.entities_api.orchestration.providers.togeterai.together_deepseek_R1 import \
-    TogetherDeepSeekR1Inference
-from src.api.entities_api.orchestration.providers.togeterai.together_deepseek_v3 import \
-    TogetherDeepSeekV3Inference
+from src.api.entities_api.orchestration.engine.inference_arbiter import InferenceArbiter
+from src.api.entities_api.orchestration.workers.togeterai.together_deepseek_R1 import (
+    TogetherDeepSeekR1Inference,
+)
+from src.api.entities_api.orchestration.workers.togeterai.together_deepseek_v3 import (
+    TogetherDeepSeekV3Inference,
+)
 
 LOG = LoggingUtility()
 
@@ -128,7 +129,7 @@ class TogetherAIHandler:
         self, thread_id, run_id, assistant_id, model=None, api_key: Optional[str] = None
     ) -> Generator[str, None, None]:
         handler = self._get_specific_handler_instance(model)
-        yield from handler.process_function_calls(
+        yield from handler.process_tool_calls(
             thread_id=thread_id,
             run_id=run_id,
             assistant_id=assistant_id,

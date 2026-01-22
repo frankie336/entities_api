@@ -26,8 +26,7 @@ from typing import Dict, List, Optional, Tuple
 from projectdavid import Entity
 
 from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.system_message.main_assembly import \
-    assemble_instructions
+from src.api.entities_api.system_message.main_assembly import assemble_instructions
 
 LOG = LoggingUtility()
 
@@ -198,14 +197,14 @@ class ConversationContextMixin:
         assistant_id: str,
         thread_id: str,
         trunk: Optional[bool] = True,
-        tools_native: Optional[bool] = False,
+        structured_tool_call: Optional[bool] = False,
         # Default False = Use Redis Cache (Efficient).
         # Set True = Ignore Redis, Hit DB (Accurate for Turn 2).
         force_refresh: Optional[bool] = False,
     ):
         """Prepares context window with optional cache invalidation."""
 
-        if tools_native:
+        if structured_tool_call:
             system_msg = self._build_native_tools_system_message(assistant_id)
         else:
             system_msg = self._build_system_message(assistant_id)
@@ -260,100 +259,6 @@ class ConversationContextMixin:
 
         if trunk:
             return self.conversation_truncator.truncate(normalized)
-
-        return normalized
-
-    def old_set_up_context_window(
-        self,
-        assistant_id: str,
-        thread_id: str,
-        trunk: bool = True,
-        tools_native: bool = False,
-        force_refresh: Optional[bool] = False,
-    ):
-        """Prepares and optimizes conversation context for model processing.
-
-        Constructs the conversation history while ensuring it fits within the model's
-        context window limits through intelligent truncation. Combines multiple elements
-        to create rich context:
-        - Assistant's configured tools
-        - Current instructions
-        - Temporal awareness (today's date)
-        - Complete conversation history
-
-        Args:
-            assistant_id (str): UUID of the assistant profile to retrieve tools/instructions
-            thread_id (str): UUID of conversation thread for message history retrieval
-            trunk (bool): Enable context window optimization via truncation (default: True)
-
-        Returns:
-            list: Processed message list containing either:
-                - Truncated messages (if trunk=True)
-                - Full normalized messages (if trunk=False)
-
-        Processing Pipeline:
-            1. Retrieve assistant configuration and tools
-            2. Fetch complete conversation history
-            3. Inject system message with:
-               - Active tools list
-               - Current instructions
-               - Temporal context (today's date)
-            4. Normalize message roles for API consistency
-            5. Apply sliding window truncation when enabled
-
-        Note:
-            Uses LRU-cached service calls for assistant/message retrieval to optimize
-            repeated requests with identical parameters.
-        """
-        if tools_native:
-            system_msg = self._build_native_tools_system_message(assistant_id)
-        else:
-            system_msg = self._build_system_message(assistant_id)
-
-        redis_key = f"thread:{thread_id}:history"
-
-        # 1. Check Redis (only if NOT forcing a refresh)
-        if not force_refresh:
-            raw_list = self.redis.lrange(redis_key, 0, -1)
-            # LOG.debug(f"[CTX] Redis Hit: {bool(raw_list)}")
-
-        # --- DEBUG LOGGING: REDIS STATE ---
-        LOG.debug(f"[CTX-BUILD] Redis Key: {redis_key}")
-        LOG.debug(f"[CTX-BUILD] Redis Hit: {bool(raw_list)} | Count: {len(raw_list)}")
-        # ----------------------------------
-
-        if not raw_list:
-            LOG.debug("[CTX-BUILD] Redis MISS -> Fetching from DB via API...")
-            client = Entity(
-                base_url=os.getenv("ASSISTANTS_BASE_URL"),
-                api_key=os.getenv("ADMIN_API_KEY"),
-            )
-            full_hist = client.messages.get_formatted_messages(
-                thread_id, system_message=system_msg["content"]
-            )
-
-            # --- DEBUG LOGGING: DB STATE ---
-            LOG.debug(f"[CTX-BUILD] DB Fetch Count: {len(full_hist)}")
-            # -------------------------------
-
-            for msg in full_hist[-200:]:
-                self.redis.rpush(redis_key, json.dumps(msg))
-            self.redis.ltrim(redis_key, -200, -1)
-            raw_list = [json.dumps(m) for m in full_hist]
-
-        msgs = [system_msg] + [json.loads(x) for x in raw_list]
-
-        # --- DEBUG LOGGING: PRE-TRUNCATION ---
-        debug_roles = [m.get("role") for m in msgs]
-        LOG.debug(f"[CTX-BUILD] Pre-Truncation Roles: {debug_roles}")
-        # -------------------------------------
-
-        normalized = self._normalize_roles(msgs)
-
-        if trunk:
-            truncated = self.conversation_truncator.truncate(normalized)
-            LOG.debug(f"[CTX-BUILD] Post-Truncation Count: {len(truncated)}")
-            return truncated
 
         return normalized
 

@@ -1,11 +1,13 @@
 """
-Together-AI DeepSeek-V3 provider (mixin architecture)
+Together-AI DeepSeek-R1 provider (mixin edition)
 
-Behaviour parity with the legacy BaseInference implementation:
-• two-pass conversation orchestration (model → tool-exec → model)
-• suppresses any { "type": "function_call", ... } chunks from the CLIENT
-  while still routing them through Redis for downstream handlers
-• optional run-specific Together-API key overrides
+Key points
+----------
+• Same streaming / tool-routing semantics as the legacy BaseInference version
+• Suppresses {"type": "function_call", ...} chunks from the *client* while still
+  forwarding them to Redis
+• Two-pass orchestration: model->tools->model (only if tools were invoked)
+• Optional per-request Together-AI API-key overrides
 """
 
 from __future__ import annotations
@@ -19,13 +21,19 @@ from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
-from entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
 from src.api.entities_api.dependencies import get_redis
 from src.api.entities_api.orchestration.mixins import (
-    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
-    ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
-    PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
+    AssistantCacheMixin,
+    CodeExecutionMixin,
+    ConsumerToolHandlersMixin,
+    ConversationContextMixin,
+    FileSearchMixin,
+    JsonUtilsMixin,
+    PlatformToolHandlersMixin,
+    ShellExecutionMixin,
+    ToolRoutingMixin,
+)
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -42,10 +50,10 @@ class _ProviderMixins(
     ShellExecutionMixin,
     FileSearchMixin,
 ):
-    """Flattened mix-in bundle – the concrete provider inherits only once."""
+    """Flattened mix-ins so the concrete provider inherits only once."""
 
 
-class TogetherDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
+class TogetherDeepSeekR1Inference(_ProviderMixins, OrchestratorCore):
 
     def __init__(
         self,
@@ -64,11 +72,11 @@ class TogetherDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
         self.thread_id = thread_id
         self.base_url = base_url or os.getenv("TOGETHER_BASE_URL")
         self.api_key = api_key
-        self.model_name = extra.get("model_name", "deepseek-ai/DeepSeek-V3")
+        self.model_name = extra.get("model_name", "deepseek-ai/DeepSeek-R1")
         self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
         self.setup_services()
-        LOG.debug("TogetherDeepSeekV3 ready (assistant=%s)", assistant_id or "<lazy>")
+        LOG.debug("TogetherDeepSeekR1 ready (assistant=%s)", assistant_id or "<lazy>")
 
     @property
     def assistant_cache(self) -> dict:
@@ -103,10 +111,10 @@ class TogetherDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
         """
-        Together-AI DeepSeek-V3 streaming.
+        Together-AI DeepSeek-R1 streaming.
 
-        • Function-call chunks are written to Redis but *never* yielded.
-        • Reasoning / hot-code handling identical to Hyperbolic version.
+        • Function-call JSON never hits the client.
+        • Reasoning / hot-code behaviour mirrors other mix-in workers.
         """
         redis = self.redis
         stream_key = f"stream:{run_id}"
@@ -288,7 +296,7 @@ class TogetherDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
         stream_reasoning: bool = False,
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
-        """① model stream → ② tools → ③ post-tool stream (if needed)."""
+        """two-pass contract: model → tools → model (if tools executed)."""
         yield from self.stream(
             thread_id,
             message_id,
@@ -300,7 +308,7 @@ class TogetherDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
         )
         fc_pending = bool(self.get_function_call_state())
         if fc_pending:
-            yield from self.process_function_calls(
+            yield from self.process_tool_calls(
                 thread_id, run_id, assistant_id, model=model, api_key=api_key
             )
             yield from self.stream(

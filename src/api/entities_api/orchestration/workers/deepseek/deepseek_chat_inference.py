@@ -11,15 +11,22 @@ from dotenv import load_dotenv
 from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.inference.deepseek.deepseek_async_client import \
-    AsyncDeepSeekClient
+from src.api.entities_api.inference.deepseek.deepseek_async_client import (
+    AsyncDeepSeekClient,
+)
 from src.api.entities_api.orchestration.mixins import (
-    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
-    ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
-    PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
+    AssistantCacheMixin,
+    CodeExecutionMixin,
+    ConsumerToolHandlersMixin,
+    ConversationContextMixin,
+    FileSearchMixin,
+    JsonUtilsMixin,
+    PlatformToolHandlersMixin,
+    ShellExecutionMixin,
+    ToolRoutingMixin,
+)
 from src.api.entities_api.utils.async_to_sync import async_to_sync_stream
 
 load_dotenv()
@@ -313,6 +320,6 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):
             api_key=api_key,
         )
         if self.get_function_call_state():
-            yield from self.process_function_calls(
+            yield from self.process_tool_calls(
                 thread_id, run_id, assistant_id, model=model, api_key=api_key
             )

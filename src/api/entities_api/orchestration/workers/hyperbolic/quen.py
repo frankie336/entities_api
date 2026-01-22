@@ -1,4 +1,4 @@
-# src/api/entities_api/orchestration/providers/hyperbolic/quen.py
+# src/api/entities_api/orchestration/workers/hyperbolic/quen.py
 from __future__ import annotations
 
 import json
@@ -10,16 +10,24 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
 from src.api.entities_api.orchestration.mixins import (
-    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
-    ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
-    PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
-from src.api.entities_api.orchestration.streaming.hyperbolic import \
-    HyperbolicDeltaNormalizer
-from src.api.entities_api.orchestration.streaming.hyperbolic_async_client import \
-    AsyncHyperbolicClient
+    AssistantCacheMixin,
+    CodeExecutionMixin,
+    ConsumerToolHandlersMixin,
+    ConversationContextMixin,
+    FileSearchMixin,
+    JsonUtilsMixin,
+    PlatformToolHandlersMixin,
+    ShellExecutionMixin,
+    ToolRoutingMixin,
+)
+from src.api.entities_api.orchestration.streaming.hyperbolic import (
+    HyperbolicDeltaNormalizer,
+)
+from src.api.entities_api.orchestration.streaming.hyperbolic_async_client import (
+    AsyncHyperbolicClient,
+)
 from src.api.entities_api.utils.async_to_sync import async_to_sync_stream
 
 load_dotenv()
@@ -265,7 +273,7 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
 
         # Turn 2: Follow-up after tool execution
         if self.get_function_call_state():
-            yield from self.process_function_calls(
+            yield from self.process_tool_calls(
                 thread_id, run_id, assistant_id, model=model, api_key=api_key
             )
             self.set_tool_response_state(False)
