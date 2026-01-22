@@ -321,7 +321,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
         )
 
         if self.get_function_call_state():
-            yield from self.process_function_calls(
+            yield from self.process_tool_calls(
                 thread_id, run_id, assistant_id, model=model, api_key=api_key
             )
             self.set_tool_response_state(False)

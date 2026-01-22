@@ -191,7 +191,7 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                 assistant_id,
                 thread_id,
                 trunk=True,
-                tools_native=True,
+                structured_tool_call=True,
                 force_refresh=force_refresh,
             )
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
@@ -368,7 +368,7 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             #  - Yields any interleaving chunks from function call handler
             # -----------------------------------------------------------
 
-            yield from self.process_function_calls(
+            yield from self.process_tool_calls(
                 thread_id,
                 run_id,
                 assistant_id,

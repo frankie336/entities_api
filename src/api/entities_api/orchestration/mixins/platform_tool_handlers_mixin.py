@@ -139,6 +139,7 @@ class PlatformToolHandlersMixin:
         output: str,
         action,
     ):
+
         self._submit_platform_tool_output(
             thread_id=thread_id,
             assistant_id=assistant_id,

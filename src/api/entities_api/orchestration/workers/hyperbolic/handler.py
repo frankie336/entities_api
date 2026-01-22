@@ -122,7 +122,7 @@ class HyperbolicHandler:
     ) -> Generator[str, None, None]:
         worker = self._get_specific_handler_instance(model)
 
-        yield from worker.process_function_calls(
+        yield from worker.process_tool_calls(
             thread_id=thread_id,
             run_id=run_id,
             assistant_id=assistant_id,

@@ -15,6 +15,8 @@ ERROR_NO_CONTENT = "ERROR: The Tool has failed to return any content. The curren
 DIRECT_DATABASE_URL = (
     "mysql+pymysql://ollama:3e4Qv5uo2Cg31zC1@localhost:3307/cosmic_catalyst"
 )
+
+
 MODEL_MAP = {
     "deepseek-ai/deepseek-reasoner": "deepseek-reasoner",
     "deepseek-ai/deepseek-chat": "deepseek-chat",

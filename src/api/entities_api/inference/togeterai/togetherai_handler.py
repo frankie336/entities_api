@@ -127,7 +127,7 @@ class TogetherAIHandler:
         self, thread_id, run_id, assistant_id, model=None, api_key: Optional[str] = None
     ) -> Generator[str, None, None]:
         handler = self._get_specific_handler_instance(model)
-        yield from handler.process_function_calls(
+        yield from handler.process_tool_calls(
             thread_id=thread_id,
             run_id=run_id,
             assistant_id=assistant_id,

@@ -115,12 +115,12 @@ class DeepseekHandler:
             **kwargs,
         )
 
-    def process_function_calls(
+    def process_tool_calls(
         self, thread_id, run_id, assistant_id, model=None, api_key=None
     ) -> Generator[str, None, None]:
-        logging_utility.debug(f"Dispatching process_function_calls for: {model}")
+        logging_utility.debug(f"Dispatching process_tool_calls for: {model}")
         handler = self._get_specific_handler_instance(model)
-        yield from handler.process_function_calls(
+        yield from handler.process_tool_calls(
             thread_id=thread_id,
             run_id=run_id,
             assistant_id=assistant_id,

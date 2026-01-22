@@ -64,7 +64,7 @@
 | `_set_up_context_window`             | Correct (`_`)      | Yes                      | Internal helper for preparing model input context.                            |
 | `parse_and_set_function_calls`       | Public             | No                       | Public method for post-stream processing.                                     |
 | `stream_hyperbolic`           | Public             | No                       | Public method providing a specific streaming implementation.                  |
-| `process_function_calls`               | Public             | No                       | Public orchestration method for handling detected function calls.             |
+| `process_tool_calls`               | Public             | No                       | Public orchestration method for handling detected function calls.             |
 | `process_conversation`                 | N/A (Abstract)     | No                       | Abstract method; main public entry point for subclasses.                      |
 | `cached_user_details`                  | Public             | No                       | Public utility method (with caching).                                         |
 

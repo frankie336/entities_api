@@ -198,14 +198,14 @@ class ConversationContextMixin:
         assistant_id: str,
         thread_id: str,
         trunk: Optional[bool] = True,
-        tools_native: Optional[bool] = False,
+        structured_tool_call: Optional[bool] = False,
         # Default False = Use Redis Cache (Efficient).
         # Set True = Ignore Redis, Hit DB (Accurate for Turn 2).
         force_refresh: Optional[bool] = False,
     ):
         """Prepares context window with optional cache invalidation."""
 
-        if tools_native:
+        if structured_tool_call:
             system_msg = self._build_native_tools_system_message(assistant_id)
         else:
             system_msg = self._build_system_message(assistant_id)

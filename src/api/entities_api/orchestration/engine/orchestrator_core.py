@@ -102,7 +102,7 @@ class OrchestratorCore(
             for chunk in self.stream(...):
                 yield chunk
 
-            for chunk in self.process_function_calls(...):
+            for chunk in self.process_tool_calls(...):
                 yield chunk
 
             # optional: another self.stream(...) round-trip if a tool

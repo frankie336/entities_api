@@ -186,7 +186,7 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                 assistant_id,
                 thread_id,
                 trunk=True,
-                tools_native=True,
+                structured_tool_call=True,
                 force_refresh=force_refresh,
             )
 
@@ -427,7 +427,8 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             #  - Yields any interleaving chunks from function call handler
             # -----------------------------------------------------------
 
-            yield from self.process_function_calls(
+            # FIXME: We could probably rework hot code streaming here
+            yield from self.process_tool_calls(
                 thread_id,
                 run_id,
                 assistant_id,

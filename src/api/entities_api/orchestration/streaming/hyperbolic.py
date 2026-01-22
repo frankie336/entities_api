@@ -25,13 +25,10 @@ class HyperbolicDeltaNormalizer:
         )
 
         for token in raw_stream:
-            seg = ""
+            # --- Normalize Input (Universal Adapter) ---
             choices = []
-
-            # Helper to normalize access between Dict (AsyncClient) and Object (OpenAI SDK)
             is_dict = isinstance(token, dict)
 
-            # --- 1. Normalize Access to Delta ---
             if is_dict:
                 choices = token.get("choices", [])
                 if not choices or not isinstance(choices, list):
@@ -45,27 +42,21 @@ class HyperbolicDeltaNormalizer:
             else:
                 continue
 
-            # --- 2. Handle Native Reasoning (DeepSeek/Hyperbolic Specific) ---
+            # --- 1. Handle Native Reasoning (Yields Instantly) ---
             r_content = (
                 delta.get("reasoning_content")
                 if is_dict
                 else getattr(delta, "reasoning_content", None)
             )
-
             if r_content:
-                yield {
-                    "type": "reasoning",
-                    "content": r_content,
-                    "run_id": run_id,
-                }
+                yield {"type": "reasoning", "content": r_content, "run_id": run_id}
 
-            # --- 3. Handle Native Tool Calls ---
+            # --- 2. Handle Native Tool Calls ---
             t_calls = (
                 delta.get("tool_calls")
                 if is_dict
                 else getattr(delta, "tool_calls", None)
             )
-
             if t_calls:
                 for tc in t_calls:
                     if is_dict:
@@ -80,7 +71,6 @@ class HyperbolicDeltaNormalizer:
                         fn_args = getattr(fn, "arguments", "")
 
                     tool_data = pending_tool_calls[t_index]
-
                     if fn_name:
                         tool_data["function"]["name"] = fn_name
                         yield {
@@ -88,7 +78,6 @@ class HyperbolicDeltaNormalizer:
                             "content": fn_name,
                             "run_id": run_id,
                         }
-
                     if fn_args:
                         tool_data["function"]["arguments"] += fn_args
                         yield {
@@ -97,12 +86,12 @@ class HyperbolicDeltaNormalizer:
                             "run_id": run_id,
                         }
 
-            # --- 4. Handle Standard Content ---
+            # --- 3. Handle Standard Content ---
             seg = (
                 delta.get("content", "") if is_dict else getattr(delta, "content", "")
             ) or ""
 
-            # --- 5. Handle Tool Completion Trigger ---
+            # --- 4. Tool Completion Trigger ---
             if finish_reason == "tool_calls":
                 for idx, data in list(pending_tool_calls.items()):
                     name = data["function"]["name"]
@@ -118,16 +107,37 @@ class HyperbolicDeltaNormalizer:
             if not seg:
                 continue
 
-            # --- 6. Add entire segment to buffer, then process ---
             buffer += seg
 
-            # Process buffer and yield chunks immediately
+            # ==================================================================
+            # ⚡ REAL-TIME OPTIMISTIC STATE MACHINE ⚡
+            # ==================================================================
             while buffer:
                 yielded_something = False
 
+                # -----------------------------------------------------------
+                # STATE: CONTENT
+                # -----------------------------------------------------------
                 if state == "content":
-                    # Look for any complete tags
-                    potential_tags = [
+                    # 1. NO TAG? FLUSH ALL.
+                    if "<" not in buffer:
+                        yield {"type": "content", "content": buffer, "run_id": run_id}
+                        buffer = ""
+                        break
+
+                    # 2. TAG EXISTS? FLUSH BEFORE IT.
+                    lt_idx = buffer.find("<")
+                    if lt_idx > 0:
+                        yield {
+                            "type": "content",
+                            "content": buffer[:lt_idx],
+                            "run_id": run_id,
+                        }
+                        buffer = buffer[lt_idx:]
+                        # Buffer now starts with "<"
+
+                    # 3. CHECK KNOWN TAGS
+                    all_tags = [
                         (cls.CH_ANALYSIS, "channel_reasoning"),
                         (cls.CH_COMMENTARY, "channel_tool_meta"),
                         (cls.CH_FINAL, None),
@@ -136,229 +146,180 @@ class HyperbolicDeltaNormalizer:
                         (cls.TH_START, "think"),
                     ]
 
-                    for tag, new_state in potential_tags:
-                        if tag in buffer:
-                            pre, post = buffer.split(tag, 1)
-                            if pre:
-                                yield {
-                                    "type": "content",
-                                    "content": pre,
-                                    "run_id": run_id,
-                                }
+                    # A. Exact Match
+                    match_found = False
+                    for tag, new_state in all_tags:
+                        if buffer.startswith(tag):
                             if new_state:
                                 state = new_state
-                            buffer = post
+                            buffer = buffer[len(tag) :]
                             yielded_something = True
+                            match_found = True
                             break
-
-                    if yielded_something:
+                    if match_found:
                         continue
 
-                    # Check if buffer might be starting a tag
-                    all_tags = [
-                        cls.CH_ANALYSIS,
-                        cls.CH_COMMENTARY,
-                        cls.CH_FINAL,
-                        cls.MSG_TAG,
-                        cls.FC_START,
-                        cls.TH_START,
-                    ]
-                    max_tag_len = max(len(t) for t in all_tags)
+                    # B. Partial Match (The only time we wait)
+                    # We only wait if buffer is "<", "<t", "<thi", etc.
+                    is_partial = any(tag.startswith(buffer) for tag, _ in all_tags)
 
-                    if len(buffer) <= max_tag_len:
-                        is_potential = any(tag.startswith(buffer) for tag in all_tags)
-                        if is_potential:
-                            break  # Wait for more data
-
-                    # Yield safe portion
-                    if len(buffer) > max_tag_len:
-                        safe = buffer[:-max_tag_len]
-                        yield {"type": "content", "content": safe, "run_id": run_id}
-                        buffer = buffer[-max_tag_len:]
+                    if is_partial:
+                        break  # Wait for next token
+                    else:
+                        # It looked like a tag but isn't (e.g. "< 5" or "<div")
+                        yield {
+                            "type": "content",
+                            "content": buffer[0],
+                            "run_id": run_id,
+                        }
+                        buffer = buffer[1:]
                         yielded_something = True
 
-                    if not yielded_something:
+                # -----------------------------------------------------------
+                # STATE: THINK (Reasoning)
+                # -----------------------------------------------------------
+                elif state == "think":
+                    # 1. NO TAG? FLUSH ALL.
+                    if "<" not in buffer:
+                        yield {"type": "reasoning", "content": buffer, "run_id": run_id}
+                        buffer = ""
                         break
 
-                elif state == "channel_reasoning":
-                    # Look for exit tags
-                    if cls.CH_FINAL in buffer:
-                        pre, post = buffer.split(cls.CH_FINAL, 1)
-                        clean = pre.replace(cls.MSG_TAG, "")
-                        if clean:
-                            yield {
-                                "type": "reasoning",
-                                "content": clean,
-                                "run_id": run_id,
-                            }
-                        buffer = post
+                    # 2. FLUSH BEFORE TAG
+                    lt_idx = buffer.find("<")
+                    if lt_idx > 0:
+                        yield {
+                            "type": "reasoning",
+                            "content": buffer[:lt_idx],
+                            "run_id": run_id,
+                        }
+                        buffer = buffer[lt_idx:]
+
+                    # 3. CHECK END TAG
+                    if buffer.startswith(cls.TH_END):
+                        buffer = buffer[len(cls.TH_END) :]
                         state = "content"
                         yielded_something = True
                         continue
 
-                    if cls.CH_COMMENTARY in buffer:
-                        pre, post = buffer.split(cls.CH_COMMENTARY, 1)
-                        clean = pre.replace(cls.MSG_TAG, "")
-                        if clean:
-                            yield {
-                                "type": "reasoning",
-                                "content": clean,
-                                "run_id": run_id,
-                            }
-                        buffer = post
+                    # 4. PARTIAL CHECK (</, </t, </think)
+                    if cls.TH_END.startswith(buffer):
+                        break  # Wait
+
+                    # 5. FALSE ALARM (e.g. "<" inside math equation)
+                    yield {"type": "reasoning", "content": buffer[0], "run_id": run_id}
+                    buffer = buffer[1:]
+                    yielded_something = True
+
+                # -----------------------------------------------------------
+                # STATE: CHANNEL REASONING
+                # -----------------------------------------------------------
+                elif state == "channel_reasoning":
+                    special_markers = [cls.CH_FINAL, cls.CH_COMMENTARY, cls.MSG_TAG]
+
+                    # Check partials first
+                    potential_match = False
+                    for m in special_markers:
+                        if m.startswith(buffer):
+                            potential_match = True
+                            break
+
+                    # Only wait if it's potentially one of OUR tags
+                    if potential_match and len(buffer) < max(
+                        len(m) for m in special_markers
+                    ):
+                        # If buffer is "<", we must wait because it could be "<|channel..."
+                        # If buffer is "<|", wait.
+                        break
+
+                    # Check exact matches
+                    if buffer.startswith(cls.CH_FINAL):
+                        buffer = buffer[len(cls.CH_FINAL) :]
+                        state = "content"
+                        yielded_something = True
+                        continue
+                    if buffer.startswith(cls.CH_COMMENTARY):
+                        buffer = buffer[len(cls.CH_COMMENTARY) :]
                         state = "channel_tool_meta"
                         yielded_something = True
                         continue
-
-                    # Strip message tags
-                    if cls.MSG_TAG in buffer:
-                        before_msg = buffer
-                        buffer = buffer.replace(cls.MSG_TAG, "")
-                        if buffer != before_msg:
-                            yielded_something = True
-                            continue
-
-                    # Check if building exit tag
-                    exit_tags = [cls.CH_FINAL, cls.CH_COMMENTARY]
-                    max_exit = max(len(t) for t in exit_tags)
-
-                    if len(buffer) <= max_exit:
-                        is_potential = any(tag.startswith(buffer) for tag in exit_tags)
-                        if is_potential:
-                            break  # Wait for more data
-
-                    # Yield safe reasoning content
-                    if len(buffer) > max_exit:
-                        safe = buffer[:-max_exit]
-                        yield {"type": "reasoning", "content": safe, "run_id": run_id}
-                        buffer = buffer[-max_exit:]
+                    if buffer.startswith(cls.MSG_TAG):
+                        buffer = buffer[len(cls.MSG_TAG) :]
                         yielded_something = True
+                        continue
 
-                    if not yielded_something:
-                        break
+                    # Yield safe char
+                    yield {"type": "reasoning", "content": buffer[0], "run_id": run_id}
+                    buffer = buffer[1:]
+                    yielded_something = True
 
+                # -----------------------------------------------------------
+                # OTHER STATES (Optimized)
+                # -----------------------------------------------------------
                 elif state == "channel_tool_meta":
                     if cls.MSG_TAG in buffer:
                         _, post = buffer.split(cls.MSG_TAG, 1)
                         state = "channel_tool_payload"
                         buffer = post
                         yielded_something = True
-                        continue
                     elif cls.CH_FINAL in buffer:
                         state = "content"
                         buffer = ""
                         yielded_something = True
-                        continue
                     else:
-                        break  # Wait for more data
+                        break
 
                 elif state == "channel_tool_payload":
                     exit_tags = [cls.CALL_TAG, cls.CH_FINAL, cls.CH_ANALYSIS]
-                    found = next((tag for tag in exit_tags if tag in buffer), None)
 
-                    if found:
-                        pre, post = buffer.split(found, 1)
-                        if pre:
-                            yield {
-                                "type": "call_arguments",
-                                "content": pre,
-                                "run_id": run_id,
-                            }
-                        buffer = post
+                    # State transition check
+                    if any(buffer.startswith(t) for t in exit_tags):
+                        matched = next(t for t in exit_tags if buffer.startswith(t))
                         state = (
                             "channel_reasoning"
-                            if found == cls.CH_ANALYSIS
+                            if matched == cls.CH_ANALYSIS
                             else "content"
                         )
+                        buffer = buffer[len(matched) :]
                         yielded_something = True
                         continue
 
-                    max_exit = max(len(t) for t in exit_tags)
-                    if len(buffer) <= max_exit:
-                        is_potential = any(tag.startswith(buffer) for tag in exit_tags)
-                        if is_potential:
-                            break
-
-                    if len(buffer) > max_exit:
-                        safe = buffer[:-max_exit]
-                        yield {
-                            "type": "call_arguments",
-                            "content": safe,
-                            "run_id": run_id,
-                        }
-                        buffer = buffer[-max_exit:]
-                        yielded_something = True
-
-                    if not yielded_something:
+                    if any(t.startswith(buffer) for t in exit_tags):
                         break
+
+                    yield {
+                        "type": "call_arguments",
+                        "content": buffer[0],
+                        "run_id": run_id,
+                    }
+                    buffer = buffer[1:]
+                    yielded_something = True
 
                 elif state == "fc":
-                    if cls.FC_END in buffer:
-                        pre, post = buffer.split(cls.FC_END, 1)
-                        if pre:
-                            yield {
-                                "type": "call_arguments",
-                                "content": pre,
-                                "run_id": run_id,
-                            }
+                    if buffer.startswith(cls.FC_END):
+                        buffer = buffer[len(cls.FC_END) :]
                         state = "content"
-                        buffer = post
                         yielded_something = True
                         continue
-
-                    tag_len = len(cls.FC_END)
-                    if len(buffer) <= tag_len:
-                        if cls.FC_END.startswith(buffer):
-                            break
-
-                    if len(buffer) > tag_len:
-                        safe = buffer[:-tag_len]
-                        yield {
-                            "type": "call_arguments",
-                            "content": safe,
-                            "run_id": run_id,
-                        }
-                        buffer = buffer[-tag_len:]
-                        yielded_something = True
-
-                    if not yielded_something:
+                    if cls.FC_END.startswith(buffer):
                         break
 
-                elif state == "think":
-                    if cls.TH_END in buffer:
-                        pre, post = buffer.split(cls.TH_END, 1)
-                        if pre:
-                            yield {
-                                "type": "reasoning",
-                                "content": pre,
-                                "run_id": run_id,
-                            }
-                        state = "content"
-                        buffer = post
-                        yielded_something = True
-                        continue
+                    yield {
+                        "type": "call_arguments",
+                        "content": buffer[0],
+                        "run_id": run_id,
+                    }
+                    buffer = buffer[1:]
+                    yielded_something = True
 
-                    tag_len = len(cls.TH_END)
-                    if len(buffer) <= tag_len:
-                        if cls.TH_END.startswith(buffer):
-                            break
+                if not yielded_something:
+                    break
 
-                    if len(buffer) > tag_len:
-                        safe = buffer[:-tag_len]
-                        yield {"type": "reasoning", "content": safe, "run_id": run_id}
-                        buffer = buffer[-tag_len:]
-                        yielded_something = True
-
-                    if not yielded_something:
-                        break
-
-        # Flush remaining buffer
+        # Flush remaining buffer at end of stream
         if buffer:
-            if state == "channel_reasoning" or state == "think":
-                clean = buffer.replace(cls.MSG_TAG, "")
-                if clean:
-                    yield {"type": "reasoning", "content": clean, "run_id": run_id}
-            elif state == "channel_tool_payload" or state == "fc":
+            if state in ["channel_reasoning", "think"]:
+                yield {"type": "reasoning", "content": buffer, "run_id": run_id}
+            elif state in ["channel_tool_payload", "fc"]:
                 yield {"type": "call_arguments", "content": buffer, "run_id": run_id}
             elif state == "content":
                 yield {"type": "content", "content": buffer, "run_id": run_id}

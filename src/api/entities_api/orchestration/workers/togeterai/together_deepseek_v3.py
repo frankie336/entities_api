@@ -300,7 +300,7 @@ class TogetherDeepSeekV3Inference(_ProviderMixins, OrchestratorCore):
         )
         fc_pending = bool(self.get_function_call_state())
         if fc_pending:
-            yield from self.process_function_calls(
+            yield from self.process_tool_calls(
                 thread_id, run_id, assistant_id, model=model, api_key=api_key
             )
             yield from self.stream(
