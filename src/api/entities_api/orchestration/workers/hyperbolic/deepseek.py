@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from typing import Any, Generator, Optional
 
 from dotenv import load_dotenv
@@ -10,14 +11,21 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
 from src.api.entities_api.orchestration.mixins import (
-    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
-    ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
-    PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
-from src.api.entities_api.orchestration.streaming.hyperbolic import \
-    HyperbolicDeltaNormalizer
+    AssistantCacheMixin,
+    CodeExecutionMixin,
+    ConsumerToolHandlersMixin,
+    ConversationContextMixin,
+    FileSearchMixin,
+    JsonUtilsMixin,
+    PlatformToolHandlersMixin,
+    ShellExecutionMixin,
+    ToolRoutingMixin,
+)
+from src.api.entities_api.orchestration.streaming.hyperbolic import (
+    HyperbolicDeltaNormalizer,
+)
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -88,9 +96,6 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
-        # Reset state at start of stream
-        self._current_tool_call_id = None
-
         try:
             if mapped := self._get_model_map(model):
                 model = mapped
@@ -125,13 +130,6 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
             assistant_reply, accumulated, reasoning_reply = "", "", ""
             current_block = None
 
-            # State for Hot Code Streaming
-            current_tool_name: str | None = None
-            current_tool_args_buffer: str = ""
-            code_mode = False
-            _code_start_index = -1
-            _code_yielded_cursor = 0
-
             # 2. Process deltas via Normalizer
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
@@ -139,10 +137,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
 
                 ctype, ccontent = chunk["type"], chunk["content"]
 
-                if ctype == "tool_name":
-                    current_tool_name = ccontent
-
-                # --- METHODOLOGY: RE-INJECTION & ACCUMULATION ---
+                # --- HISTORY RECONSTRUCTION (Tag Injection) ---
                 if ctype == "content":
                     if current_block == "fc":
                         accumulated += "</fc>"
@@ -166,71 +161,10 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                         current_block = "think"
                     reasoning_reply += ccontent
 
+                # Accumulate raw stream for persistence
                 accumulated += ccontent
 
-                # ==================================================================
-                # 🔥 PART 1: NATIVE TOOL / <FC> SNOOPING (Using Mixin Utility)
-                # ==================================================================
-                if ctype == "call_arguments":
-                    current_tool_args_buffer += ccontent
-
-                    is_code_tool = (
-                        current_tool_name in ("code_interpreter", "python", "computer")
-                        or current_block == "fc"
-                    )
-
-                    if is_code_tool:
-                        # 1. Init UI
-                        if not code_mode:
-                            code_mode = True
-                            start_payload = {
-                                "type": "hot_code",
-                                "content": "```python\n",
-                            }
-                            yield json.dumps(start_payload)
-                            self._shunt_to_redis_stream(
-                                redis, stream_key, start_payload
-                            )
-
-                        # 2. Delegate to robust mixin method
-                        _code_start_index, _code_yielded_cursor, hc_payload = (
-                            self.process_hot_code_buffer(
-                                buffer=current_tool_args_buffer,
-                                start_index=_code_start_index,
-                                cursor=_code_yielded_cursor,
-                                redis_client=redis,
-                                stream_key=stream_key,
-                            )
-                        )
-
-                        if hc_payload:
-                            yield hc_payload
-
-                # ==================================================================
-                # 🔥 PART 2: MARKDOWN CONTENT INTERLEAVING
-                # ==================================================================
-                if ctype == "content":
-                    parse_ci = getattr(self, "parse_code_interpreter_partial", None)
-                    ci_match = (
-                        parse_ci(assistant_reply)
-                        if parse_ci and not code_mode
-                        else None
-                    )
-
-                    if ci_match:
-                        code_mode = True
-                        start = {"type": "hot_code", "content": "```python\n"}
-                        yield json.dumps(start)
-                        self._shunt_to_redis_stream(redis, stream_key, start)
-
-                    if code_mode:
-                        if "```" in ccontent and "python" not in ccontent:
-                            code_mode = False
-                        hc_payload = {"type": "hot_code", "content": ccontent}
-                        yield json.dumps(hc_payload)
-                        self._shunt_to_redis_stream(redis, stream_key, hc_payload)
-                        continue
-
+                # Yield immediately (No Hot Code Snooping)
                 yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
 
@@ -242,37 +176,20 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
 
             yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
-            # --- SMART HISTORY PRESERVATION FIX ---
+            # --- SMART HISTORY PRESERVATION ---
             has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
             message_to_save = assistant_reply
 
             if has_fc:
                 try:
+                    # Clean tags for JSON parsing
                     raw_json = (
                         accumulated.replace("<fc>", "").replace("</fc>", "").strip()
                     )
+
                     payload_dict = json.loads(raw_json)
-                    call_id = f"call_{uuid.uuid4().hex[:8]}"
-                    self._current_tool_call_id = call_id
 
-                    args_content = payload_dict.get("arguments", {})
-                    args_str = (
-                        json.dumps(args_content)
-                        if isinstance(args_content, dict)
-                        else str(args_content)
-                    )
-
-                    tool_calls_structure = [
-                        {
-                            "id": call_id,
-                            "type": "function",
-                            "function": {
-                                "name": payload_dict.get("name"),
-                                "arguments": args_str,
-                            },
-                        }
-                    ]
-                    message_to_save = json.dumps(tool_calls_structure)
+                    message_to_save = json.dumps(payload_dict)
                 except Exception as e:
                     LOG.error(f"Error structuring tool calls: {e}")
                     message_to_save = accumulated

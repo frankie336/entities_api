@@ -10,33 +10,35 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
+
 # --- DIRECT IMPORTS ---
-from src.api.entities_api.orchestration.mixins.assistant_cache_mixin import \
-    AssistantCacheMixin
-from src.api.entities_api.orchestration.mixins.code_execution_mixin import \
-    CodeExecutionMixin
-from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import \
-    ConsumerToolHandlersMixin
-from src.api.entities_api.orchestration.mixins.conversation_context_mixin import \
-    ConversationContextMixin
-from src.api.entities_api.orchestration.mixins.file_search_mixin import \
-    FileSearchMixin
-from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
-    JsonUtilsMixin
-from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import \
-    PlatformToolHandlersMixin
-from src.api.entities_api.orchestration.mixins.shell_execution_mixin import \
-    ShellExecutionMixin
-from src.api.entities_api.orchestration.mixins.tool_routing_mixin import \
-    ToolRoutingMixin
-from src.api.entities_api.orchestration.streaming.hyperbolic import \
-    HyperbolicDeltaNormalizer
-from src.api.entities_api.orchestration.streaming.hyperbolic_async_client import \
-    AsyncHyperbolicClient
-from src.api.entities_api.orchestration.streaming.reasoning_shunt import \
-    HyperbolicReasoningShunt
+from src.api.entities_api.orchestration.mixins.assistant_cache_mixin import (
+    AssistantCacheMixin,
+)
+from src.api.entities_api.orchestration.mixins.code_execution_mixin import (
+    CodeExecutionMixin,
+)
+from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import (
+    ConsumerToolHandlersMixin,
+)
+from src.api.entities_api.orchestration.mixins.conversation_context_mixin import (
+    ConversationContextMixin,
+)
+from src.api.entities_api.orchestration.mixins.file_search_mixin import FileSearchMixin
+from src.api.entities_api.orchestration.mixins.json_utils_mixin import JsonUtilsMixin
+from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import (
+    PlatformToolHandlersMixin,
+)
+from src.api.entities_api.orchestration.mixins.shell_execution_mixin import (
+    ShellExecutionMixin,
+)
+from src.api.entities_api.orchestration.mixins.tool_routing_mixin import (
+    ToolRoutingMixin,
+)
+from src.api.entities_api.orchestration.streaming.hyperbolic import (
+    HyperbolicDeltaNormalizer,
+)
 from src.api.entities_api.utils.async_to_sync import async_to_sync_stream
 
 load_dotenv()
@@ -192,10 +194,6 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
 
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
-            # LOG.info(
-            #    f"[CTX-DEBUG] Final Message Roles: {[m['role'] for m in cleaned_ctx]} | Full Payload:\n{json.dumps(cleaned_ctx, indent=2)}"
-            # )
-
             if not api_key:
                 yield json.dumps(
                     {"type": "error", "content": "Missing Hyperbolic API key."}
@@ -222,14 +220,11 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
 
             assistant_reply = ""
             reasoning_reply = ""
+
+            # Simplified Tool State
             current_tool_name: str | None = None
             current_tool_args_buffer: str = ""
             accumulated = ""
-            code_mode = False
-
-            # --- HOT CODE TRACKING STATE ---
-            self._code_start_index = -1
-            self._code_yielded_cursor = 0
 
             token_iterator = async_to_sync_stream(async_stream)
 
@@ -249,83 +244,22 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                     current_tool_name = ccontent
 
                 elif ctype == "tool_call":
-                    # Final full object
+                    # Final full object received (safety catch)
                     current_tool_name = ccontent.get("name")
                     args = ccontent.get("arguments", "")
                     current_tool_args_buffer = (
                         json.dumps(args) if isinstance(args, dict) else str(args)
                     )
 
-                # ------------------------------------------------------------------
-                # 🔥 FIX: ROBUST BUFFER SLICING (Using Mixin Utility)
-                # ------------------------------------------------------------------
                 elif ctype == "call_arguments":
-                    # 1. Accumulate
+                    # Simply accumulate arguments.
+                    # No hot code extraction here - it happens later during execution.
                     current_tool_args_buffer += ccontent
 
-                    if current_tool_name in (
-                        "code_interpreter",
-                        "python",
-                        "execute_code",
-                        "interpreter",
-                    ):
-                        # 2. Init UI
-                        if not code_mode:
-                            code_mode = True
-                            start_payload = {
-                                "type": "hot_code",
-                                "content": "```python\n",
-                            }
-                            yield json.dumps(start_payload)
-                            self._shunt_to_redis_stream(
-                                redis, stream_key, start_payload
-                            )
-
-                        # 3. Delegate to robust mixin method
-                        (
-                            self._code_start_index,
-                            self._code_yielded_cursor,
-                            hc_payload,
-                        ) = self.process_hot_code_buffer(
-                            buffer=current_tool_args_buffer,
-                            start_index=self._code_start_index,
-                            cursor=self._code_yielded_cursor,
-                            redis_client=redis,
-                            stream_key=stream_key,
-                        )
-
-                        if hc_payload:
-                            yield hc_payload
-
-                # ------------------------------------------------------------------
-                # STANDARD CONTENT STREAMING
-                # ------------------------------------------------------------------
                 elif ctype == "content":
                     assistant_reply += ccontent
-
-                    parse_ci = getattr(self, "parse_code_interpreter_partial", None)
-                    if not code_mode and parse_ci:
-                        ci_match = parse_ci(assistant_reply)
-                        if ci_match:
-                            code_mode = True
-                            start_payload = {
-                                "type": "hot_code",
-                                "content": "```python\n",
-                            }
-                            yield json.dumps(start_payload)
-                            self._shunt_to_redis_stream(
-                                redis, stream_key, start_payload
-                            )
-
-                    if code_mode:
-                        if "```" in ccontent and "python" not in ccontent:
-                            code_mode = False
-
-                        hc_payload = {"type": "hot_code", "content": ccontent}
-                        yield json.dumps(hc_payload)
-                        self._shunt_to_redis_stream(redis, stream_key, hc_payload)
-                        continue
-
+                    # Simply yield content.
+                    # No code interpreter regex parsing here.
                     yield json.dumps(chunk)
                     self._shunt_to_redis_stream(redis, stream_key, chunk)
 
@@ -334,10 +268,18 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             yield json.dumps(err)
             self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
+            # 1. Native Tool Finalization
             if current_tool_name:
                 accumulated = json.dumps(
                     {"name": current_tool_name, "arguments": current_tool_args_buffer}
                 )
+            # 2. Manual <fc> Finalization (Safe Fallback for Llama 3.3 Prompting)
+            elif (
+                current_tool_args_buffer
+                and current_tool_args_buffer.strip().startswith("{")
+            ):
+                accumulated = current_tool_args_buffer
+
             stop_event.set()
 
         yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})

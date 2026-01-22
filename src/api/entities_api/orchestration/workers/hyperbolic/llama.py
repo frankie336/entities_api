@@ -11,14 +11,21 @@ from projectdavid_common.validation import StatusEnum
 
 from entities_api.utils.async_to_sync import async_to_sync_stream
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
 from src.api.entities_api.orchestration.mixins import (
-    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
-    ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
-    PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
-from src.api.entities_api.orchestration.streaming.hyperbolic import \
-    HyperbolicDeltaNormalizer
+    AssistantCacheMixin,
+    CodeExecutionMixin,
+    ConsumerToolHandlersMixin,
+    ConversationContextMixin,
+    FileSearchMixin,
+    JsonUtilsMixin,
+    PlatformToolHandlersMixin,
+    ShellExecutionMixin,
+    ToolRoutingMixin,
+)
+from src.api.entities_api.orchestration.streaming.hyperbolic import (
+    HyperbolicDeltaNormalizer,
+)
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -104,7 +111,7 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
             if mapped := self._get_model_map(model):
                 model = mapped
 
-            # 2. Context & Tool Extraction (Using Mixin logic)
+            # 2. Context & Tool Extraction
             ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
 
             if not api_key:
@@ -127,18 +134,14 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
 
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
-            assistant_reply, accumulated = "", ""
+            assistant_reply = ""
             reasoning_reply = ""
-            code_mode = False
-
-            # --- HOT CODE TRACKING STATE ---
-            self._code_start_index = -1
-            self._code_yielded_cursor = 0
 
             # Helper for constructing JSON string manually in 'accumulated'
+            accumulated = ""
             is_native_tool_call = False
-            current_native_tool_call = {}
-            current_tool_name = None
+            current_tool_name: str | None = None
+            current_tool_args_buffer: str = ""
 
             token_iterator = async_to_sync_stream(async_stream)
 
@@ -149,66 +152,31 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
 
                 ctype, ccontent = chunk["type"], chunk["content"]
 
-                # --- METHODOLOGY: ACCUMULATION (No XML Tags) ---
+                # --- METHODOLOGY: ACCUMULATION (No Hot Code Snooping) ---
                 if ctype == "content":
                     assistant_reply += ccontent
 
                 elif ctype == "tool_name":
-                    # Detected start of Llama tool call
+                    # Detected start of Native tool call
                     is_native_tool_call = True
                     current_tool_name = ccontent
-                    current_native_tool_call = {"name": ccontent, "arguments": ""}
-                    # Note: We don't append to accumulated yet, waiting for args
+                    # Start building the JSON structure for history
                     accumulated += f'{{"name": "{ccontent}", "arguments": '
 
                 elif ctype == "call_arguments":
-                    # Append raw JSON arguments to history
+                    # Simply append raw JSON arguments to buffers
                     if is_native_tool_call:
-                        current_native_tool_call["arguments"] += ccontent
-
-                        # --- ROBUST HOT CODE HANDLING ---
-                        if current_tool_name in (
-                            "code_interpreter",
-                            "python",
-                            "execute_code",
-                            "interpreter",
-                        ):
-                            # 1. Init UI
-                            if not code_mode:
-                                code_mode = True
-                                start_payload = {
-                                    "type": "hot_code",
-                                    "content": "```python\n",
-                                }
-                                yield json.dumps(start_payload)
-                                self._shunt_to_redis_stream(
-                                    redis, stream_key, start_payload
-                                )
-
-                            # 2. Delegate to robust mixin method
-                            (
-                                self._code_start_index,
-                                self._code_yielded_cursor,
-                                hc_payload,
-                            ) = self.process_hot_code_buffer(
-                                buffer=current_native_tool_call["arguments"],
-                                start_index=self._code_start_index,
-                                cursor=self._code_yielded_cursor,
-                                redis_client=redis,
-                                stream_key=stream_key,
-                            )
-
-                            if hc_payload:
-                                yield hc_payload
-
+                        current_tool_args_buffer += ccontent
                     accumulated += ccontent
 
                 elif ctype == "tool_call":
-                    # Full tool call object received (final check)
+                    # Full tool call object received (final check/flush)
                     if isinstance(ccontent, dict):
                         if is_native_tool_call:
+                            # We were already streaming, so we trust the stream
                             pass
                         else:
+                            # Unexpected full object, append it directly
                             accumulated += json.dumps(ccontent)
 
                 elif ctype == "reasoning":
@@ -223,6 +191,7 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
             self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
             # Ensure JSON is valid in history if tool call was interrupted or finished
+            # This closes the string we opened in 'tool_name'
             if is_native_tool_call and accumulated:
                 stripped = accumulated.strip()
                 if not stripped.endswith("}"):
@@ -235,7 +204,7 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
         # Check for function calls to determine what to save
         has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
 
-        # Save 'accumulated' (raw JSON string) if tool was triggered
+        # Save 'accumulated' (raw JSON string) if tool was triggered, else content
         message_to_save = accumulated if has_fc else assistant_reply
 
         if not message_to_save:

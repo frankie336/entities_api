@@ -7,8 +7,9 @@ from dotenv import load_dotenv
 from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.orchestration.streaming.hyperbolic_async_client import \
-    AsyncHyperbolicClient
+from entities_api.orchestration.streaming.hyperbolic_async_client import (
+    AsyncHyperbolicClient,
+)
 from src.api.entities_api.dependencies import get_redis
 from src.api.entities_api.inference.base_inference import BaseInference
 from src.api.entities_api.utils.async_to_sync import async_to_sync_stream
