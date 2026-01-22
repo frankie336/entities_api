@@ -1,9 +1,6 @@
 # entities_api/services/assistant_setup_service.py
 import argparse
-import getpass  # Import getpass to hide API key input
-import os
 import sys
-import time
 
 # --- Path Setup (Example - uncomment/adjust if needed) ---
 # Ensure project root is in path to find projectdavid, etc.
@@ -20,7 +17,7 @@ try:
     from projectdavid_common.constants.tools import TOOLS_ID_MAP
 
     from entities_api.constants.assistant import BASE_TOOLS, DEFAULT_MODEL
-    from entities_api.ptool_definitions.assemply import assemble_tools
+    from entities_api.platform_tools.definitions import assemble_tools
     from entities_api.services.logging_service import LoggingUtility
     from entities_api.system_message.main_assembly import assemble_instructions
 except ImportError as e:

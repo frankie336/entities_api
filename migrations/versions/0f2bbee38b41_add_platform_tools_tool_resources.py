@@ -1,4 +1,4 @@
-"""add ptool_handlers + tool_resources
+"""add handlers + tool_resources
 
 Revision ID: 0f2bbee38b41
 Revises: e844e0ceaba2
@@ -35,7 +35,7 @@ def upgrade() -> None:
 
     safe_alter_column(
         "assistants",
-        "ptool_handlers",
+        "handlers",
         existing_type=mysql.JSON(),
         comment='Optional array of inline tool specs, e.g. [{"type": "file_search", "vector_store_ids": ["vs_123"]}]',
         existing_comment='Optional array of inline tool specs, e.g. [{"type": "file_search", "vector_store_ids": ["..."]}]',
@@ -62,7 +62,7 @@ def downgrade() -> None:
 
     safe_alter_column(
         "assistants",
-        "ptool_handlers",
+        "handlers",
         existing_type=mysql.JSON(),
         comment='Optional array of inline tool specs, e.g. [{"type": "file_search", "vector_store_ids": ["..."]}]',
         existing_comment='Optional array of inline tool specs, e.g. [{"type": "file_search", "vector_store_ids": ["vs_123"]}]',

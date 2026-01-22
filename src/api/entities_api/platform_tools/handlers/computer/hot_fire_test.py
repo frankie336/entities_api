@@ -1,4 +1,4 @@
-from src.api.entities_api.ptool_handlers.computer.shell_command_interface import \
+from entities_api.platform_tools.handlers.computer.shell_command_interface import \
     run_shell_commands
 
 commands_list = ["telnet host.docker.internal 9001"]

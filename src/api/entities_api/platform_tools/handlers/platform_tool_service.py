@@ -2,13 +2,13 @@ import inspect
 import threading
 from typing import Any, Dict, Generator, Union
 
-from src.api.entities_api.ptool_handlers.code_interpreter.code_execution_client import \
+from entities_api.platform_tools.handlers.code_interpreter.code_execution_client import \
     StreamOutput
-from src.api.entities_api.ptool_handlers.computer.shell_command_interface import \
+from entities_api.platform_tools.handlers.computer.shell_command_interface import \
     ShellCommandInterface
-from src.api.entities_api.ptool_handlers.vector_store.vector_search_handler import \
+from entities_api.platform_tools.handlers.vector_store.vector_search_handler import \
     VectorSearchHandler
-from src.api.entities_api.ptool_handlers.web.web_search_handler import \
+from entities_api.platform_tools.handlers.web.web_search_handler import \
     FirecrawlService
 from src.api.entities_api.services.logging_service import LoggingUtility
 
