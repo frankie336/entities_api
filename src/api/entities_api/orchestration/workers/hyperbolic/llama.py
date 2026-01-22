@@ -4,7 +4,6 @@ import json
 import os
 from typing import Any, Generator, Optional
 
-import requests
 from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
@@ -145,7 +144,6 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
 
                 ctype, ccontent = chunk["type"], chunk["content"]
 
-                # --- METHODOLOGY: ACCUMULATION (No Hot Code Snooping) ---
                 if ctype == "content":
                     assistant_reply += ccontent
 

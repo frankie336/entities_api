@@ -150,10 +150,7 @@ We don’t just support RAG — we orchestrate it:
 | ![Hyperbolic](https://img.shields.io/badge/Hyperbolic-✅%20Integrated-brightgreen) | ![Tools OK](https://img.shields.io/badge/Tool%20Calls-✅%20Via%20Entities-brightgreen) |
 | ![Together AI](https://img.shields.io/badge/Together%20AI-✅%20Integrated-brightgreen) | ![Tools OK](https://img.shields.io/badge/Tool%20Calls-✅%20Via%20Entities-brightgreen) |
 | ![DeepSeek](https://img.shields.io/badge/DeepSeek-✅%20Integrated-brightgreen) | ![Tools OK](https://img.shields.io/badge/Tool%20Calls-✅%20Via%20Entities-brightgreen) |
-| ![Google (Gemini/Gemma)](https://img.shields.io/badge/Google%20(Gemini%2FGemma)-🟡%20In%20Progress-yellow) | ![Tools OK](https://img.shields.io/badge/Tool%20Calls-✅%20Via%20Entities-brightgreen) |
 | ![Ollama (Local)](https://img.shields.io/badge/Ollama%20(Local)-🟡%20In%20Progress-yellow) | ![Tools OK](https://img.shields.io/badge/Tool%20Calls-✅%20Via%20Entities-brightgreen) |
-| ![OpenAI](https://img.shields.io/badge/OpenAI-🔲%20Planned-lightgrey) | ![Tools Pending](https://img.shields.io/badge/Tool%20Calls-🔲%20Pending-lightgrey) |
-| ![Anthropic](https://img.shields.io/badge/Anthropic-🔲%20Planned-lightgrey) | ![Tools Pending](https://img.shields.io/badge/Tool%20Calls-🔲%20Pending-lightgrey) |
 
 
 | Badge         | Meaning                            |
