@@ -146,7 +146,7 @@ def get_formatted_messages(
     # --- FIX APPLIED HERE ---
     svc = MessageService()
     try:
-        return svc.list_messages_for_thread(thread_id)
+        return svc.get_formatted_messages(thread_id)
     except HTTPException:
         raise
     except Exception as e:

@@ -9,7 +9,11 @@ from redis import Redis as SyncRedis
 try:
     from redis.asyncio import Redis as AsyncRedis
 except ImportError:
-    AsyncRedis = None
+    # Use a dummy class instead of None so isinstance() and type hints don't break
+    class AsyncRedis:
+        pass
+
+
 REDIS_ASSISTANT_TTL = int(os.getenv("REDIS_ASSISTANT_TTL_SECONDS", "300"))
 
 
@@ -27,18 +31,20 @@ class AssistantCache:
 
     async def get(self, assistant_id: str):
         key = self._cache_key(assistant_id)
-        if AsyncRedis is not None and isinstance(self.redis, AsyncRedis):
+        if isinstance(self.redis, AsyncRedis):
             raw = await self.redis.get(key)
         else:
+            # Pass arguments directly after the function name
             raw = await asyncio.to_thread(self.redis.get, key)
         return json.loads(raw) if raw else None
 
     async def set(self, assistant_id: str, payload: dict):
         key = self._cache_key(assistant_id)
         data = json.dumps(payload)
-        if AsyncRedis is not None and isinstance(self.redis, AsyncRedis):
+        if isinstance(self.redis, AsyncRedis):
             await self.redis.set(key, data, ex=REDIS_ASSISTANT_TTL)
         else:
+            # kwargs are passed directly to to_thread
             await asyncio.to_thread(self.redis.set, key, data, ex=REDIS_ASSISTANT_TTL)
 
     async def retrieve(self, assistant_id: str):
@@ -56,6 +62,31 @@ class AssistantCache:
         payload = {"instructions": assistant.instructions, "tools": clean_tools}
         await self.set(assistant_id, payload)
         return payload
+
+    async def delete(self, assistant_id: str):
+        """
+        Invalidates the cache for a specific assistant.
+        """
+        key = self._cache_key(assistant_id)
+        if isinstance(self.redis, AsyncRedis):
+            await self.redis.delete(key)
+        else:
+            # Corrected syntax: func followed by args
+            await asyncio.to_thread(self.redis.delete, key)
+
+    def invalidate_sync(self, assistant_id: str):
+        """
+        Synchronous wrapper for cache invalidation, used by Sync CRUD services.
+        """
+        key = self._cache_key(assistant_id)
+        # Check if we are holding a SyncRedis client or AsyncRedis
+        if hasattr(self.redis, "delete") and not asyncio.iscoroutinefunction(
+            self.redis.delete
+        ):
+            self.redis.delete(key)
+        else:
+            # If we somehow have an Async client in a sync context, run it
+            asyncio.run(self.delete(assistant_id))
 
     def retrieve_sync(self, assistant_id: str):
         """
