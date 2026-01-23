@@ -1,3 +1,4 @@
+# src/api/entities_api/services/tools.py
 from typing import List, Optional
 
 from fastapi import HTTPException
@@ -6,6 +7,7 @@ from projectdavid_common.constants.tools import TOOLS_ID_MAP
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
+from entities_api.utils.cache_utils import get_sync_invalidator
 # --- FIX: Step 1 ---
 # Import the SessionLocal factory.
 from src.api.entities_api.db.database import SessionLocal
@@ -22,6 +24,32 @@ class ToolService:
     # The constructor no longer accepts or stores a database session.
     def __init__(self):
         logging_utility.info("ToolService initialized.")
+
+    @staticmethod
+    def _invalidate_assistants_using_tool(db: Session, tool_id: str):
+        """
+        Finds all assistants linked to this tool and invalidates their cache.
+        Note: Removed 'self' as it is no longer needed.
+        """
+        try:
+            # Find assistants that have this tool in their 'tools' relationship
+            assistants = (
+                db.query(Assistant).filter(Assistant.tools.any(id=tool_id)).all()
+            )
+
+            if not assistants:
+                return
+
+            # This helper seems to handle its own instantiation
+            cache = get_sync_invalidator()
+            for asst in assistants:
+                cache.invalidate_sync(asst.id)
+                logging_utility.info(
+                    f"Invalidated assistant {asst.id} due to tool update"
+                )
+
+        except Exception as e:
+            logging_utility.error(f"Error during bulk cache invalidation: {e}")
 
     def create_tool(
         self, tool: validator.ToolCreate, set_id: Optional[str] = None
@@ -98,6 +126,13 @@ class ToolService:
                     )
                 assistant.tools.append(tool)
                 db.commit()
+
+                # --- NEW: INVALIDATION ---
+                try:
+                    get_sync_invalidator().invalidate_sync(assistant_id)
+                except Exception as e:
+                    logging_utility.error(f"Cache invalidation failed: {e}")
+
                 logging_utility.info(
                     "Successfully associated tool ID %s with assistant ID %s",
                     tool_id,
@@ -134,6 +169,13 @@ class ToolService:
                 if tool in assistant.tools:
                     assistant.tools.remove(tool)
                     db.commit()
+
+                    # --- NEW: INVALIDATION ---
+                    try:
+                        get_sync_invalidator().invalidate_sync(assistant_id)
+                    except Exception as e:
+                        logging_utility.error(f"Cache invalidation failed: {e}")
+
                     logging_utility.info(
                         "Successfully disassociated tool ID %s from assistant ID %s",
                         tool_id,
@@ -194,6 +236,7 @@ class ToolService:
         logging_utility.info(
             "Updating tool with ID: %s, ToolUpdate: %s", tool_id, tool_update
         )
+
         with SessionLocal() as db:
             try:
                 db_tool = self._get_tool_or_404(tool_id, db)
@@ -202,6 +245,12 @@ class ToolService:
                     setattr(db_tool, key, value)
                 db.commit()
                 db.refresh(db_tool)
+
+                # --- NEW: INVALIDATION ---
+                # Since the tool definition (parameters/description) changed,
+                # ALL assistants using this tool are now serving stale configs.
+                self._invalidate_assistants_using_tool(db, tool_id)
+
                 return validator.ToolRead.model_validate(db_tool)
             except HTTPException as e:
                 raise
@@ -216,11 +265,35 @@ class ToolService:
         logging_utility.info("Deleting tool with ID: %s", tool_id)
         with SessionLocal() as db:
             try:
+                # 1. Identify linked assistants BEFORE deleting the tool
+                # This ensures we have the IDs needed for cache invalidation
+                assistants_to_invalidate = (
+                    db.query(Assistant).filter(Assistant.tools.any(id=tool_id)).all()
+                )
+
+                # 2. Perform the deletion
                 db_tool = self._get_tool_or_404(tool_id, db)
                 db.delete(db_tool)
                 db.commit()
-                logging_utility.info("Tool with ID %s deleted successfully", tool_id)
-            except HTTPException as e:
+                logging_utility.info(
+                    "Tool with ID %s deleted successfully from DB", tool_id
+                )
+
+                # 3. Invalidate the cache for affected assistants
+                if assistants_to_invalidate:
+                    try:
+                        cache = get_sync_invalidator()
+                        for asst in assistants_to_invalidate:
+                            cache.invalidate_sync(asst.id)
+                            logging_utility.info(
+                                f"Invalidated assistant cache for: {asst.id}"
+                            )
+                    except Exception as e:
+                        # We log but don't raise here so the DB deletion remains "successful"
+                        logging_utility.error(f"Error during cache invalidation: {e}")
+
+            except HTTPException:
+                # Re-raise known HTTP errors (like 404 from _get_tool_or_404)
                 raise
             except Exception as e:
                 db.rollback()

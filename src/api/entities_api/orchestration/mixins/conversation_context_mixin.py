@@ -131,9 +131,13 @@ class ConversationContextMixin:
         Pull the assistant’s cached tool list + instructions through
         AssistantCacheMixin’s accessor, then craft the final system prompt.
         """
+
+        # TODO: Inject core platform instructions here
+
         cache = self.get_assistant_cache()
         cfg = cache.retrieve_sync(assistant_id)
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
         return {
             "role": "system",
             "content": f"tools:\n{json.dumps(cfg['tools'])}\n{cfg['instructions']}\nToday's date and time: {today}",

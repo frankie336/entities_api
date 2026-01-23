@@ -12,11 +12,13 @@ from src.api.entities_api.db.database import SessionLocal
 from src.api.entities_api.models.models import (Assistant, Tool, User,
                                                 VectorStore)
 from src.api.entities_api.services.logging_service import LoggingUtility
+from src.api.entities_api.utils.cache_utils import get_sync_invalidator
 
 logging_utility = LoggingUtility()
 validator = ValidationInterface()
 
 
+# TODO We need a delete assistant method !
 class AssistantService:
     """
     CRUD + relationship utilities for `Assistant`.
@@ -141,6 +143,18 @@ class AssistantService:
         assistant_id: str,
         assistant_update: validator.AssistantUpdate,
     ) -> validator.AssistantRead:
+
+        # ------------------------------------------
+        # Invalidates current assistant cache!
+        # ------------------------------------------
+        try:
+            cache = get_sync_invalidator()
+            cache.invalidate_sync(assistant_id)
+            logging_utility.info(f"Invalidated cache for assistant {assistant_id}")
+        except Exception as e:
+            # Don't fail the HTTP request just because Redis failed
+            logging_utility.error(f"Failed to invalidate cache: {e}")
+
         with SessionLocal() as db:
             db_asst = db.query(Assistant).filter(Assistant.id == assistant_id).first()
             if not db_asst:
