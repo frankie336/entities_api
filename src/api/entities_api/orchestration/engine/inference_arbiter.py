@@ -22,7 +22,7 @@ try:
     from redis.asyncio import Redis as AsyncRedis
 except ModuleNotFoundError:
     AsyncRedis = None
-from src.api.entities_api.services.cached_assistant import AssistantCache
+from entities_api.cache.cached_assistant import AssistantCache
 
 logging_utility = LoggingUtility()
 

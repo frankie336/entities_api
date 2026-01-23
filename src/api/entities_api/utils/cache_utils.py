@@ -2,7 +2,7 @@ import os
 
 from redis import Redis as SyncRedis
 
-from src.api.entities_api.services.cached_assistant import AssistantCache
+from entities_api.cache.cached_assistant import AssistantCache
 
 
 def get_sync_invalidator() -> AssistantCache:
