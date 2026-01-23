@@ -1,3 +1,17 @@
+## [1.20.1](https://github.com/frankie336/entities_api/compare/v1.20.0...v1.20.1) (2026-01-21)
+
+
+### Bug Fixes
+
+* filter  "<|channel|>analysis" ([ed24d0b](https://github.com/frankie336/entities_api/commit/ed24d0b207f9bc303f3f94b8fb78b7865e65ed92))
+* Improve speed and smoothness of streaming. ([cc0d000](https://github.com/frankie336/entities_api/commit/cc0d000a609ca411a02dd80162a7d770006bdd4a))
+* Improve speed and smoothness of streaming. ([e4ad4ff](https://github.com/frankie336/entities_api/commit/e4ad4ff80a7421c0d3f9088ad968eec451e88801))
+* Major speed improvements in inference. ([d284045](https://github.com/frankie336/entities_api/commit/d284045550e94606658f363ab7a15d01eebadce5))
+* Move AsyncHyperbolicClient to client factory. ([dde4690](https://github.com/frankie336/entities_api/commit/dde4690654481268e0879115467010dd7396496d))
+* Resolve forward stream delay issue ([ab25252](https://github.com/frankie336/entities_api/commit/ab25252783dfffeb58f7b977e45b23c8ced09ef0))
+* Resolve gpt-oss-120b reasoning tokens not generating issue. ([b755611](https://github.com/frankie336/entities_api/commit/b7556113fb127bb183eaf1331605d3712c0ceece))
+* Resolve gpt-oss-120b reasoning tokens not generating issue. ([dc7050d](https://github.com/frankie336/entities_api/commit/dc7050d9efeb8709393b6f40d724fb9845059846))
+
 # [1.20.0](https://github.com/frankie336/entities_api/compare/v1.19.0...v1.20.0) (2026-01-21)
 
 
