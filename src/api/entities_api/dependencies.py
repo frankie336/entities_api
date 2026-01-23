@@ -8,7 +8,8 @@ from fastapi.security import APIKeyHeader
 from redis.asyncio import Redis
 from sqlalchemy.orm import Session
 
-from entities_api.cache.cached_assistant import AssistantCache
+from entities_api.cache.assistant_cache import AssistantCache
+from entities_api.cache.message_cache import MessageCache
 # Import the single, authoritative 'get_db' function from your central database file.
 # This ensures all dependencies use the same database session configuration.
 from src.api.entities_api.db.database import get_db
@@ -94,3 +95,7 @@ async def get_assistant_cache(redis: Redis = Depends(get_redis)) -> AssistantCac
         pd_base_url=os.getenv("ASSISTANTS_BASE_URL"),
         pd_api_key=os.getenv("ADMIN_API_KEY"),
     )
+
+
+async def get_message_cache(redis: Redis = Depends(get_redis)) -> MessageCache:
+    return MessageCache(redis=redis)

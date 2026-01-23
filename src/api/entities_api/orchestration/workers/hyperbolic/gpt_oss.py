@@ -10,29 +10,25 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
+
 # --- DIRECT IMPORTS ---
-from src.api.entities_api.orchestration.mixins.assistant_cache_mixin import \
-    AssistantCacheMixin
-from src.api.entities_api.orchestration.mixins.code_execution_mixin import \
-    CodeExecutionMixin
-from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import \
-    ConsumerToolHandlersMixin
-from src.api.entities_api.orchestration.mixins.conversation_context_mixin import \
-    ConversationContextMixin
-from src.api.entities_api.orchestration.mixins.file_search_mixin import \
-    FileSearchMixin
-from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
-    JsonUtilsMixin
-from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import \
-    PlatformToolHandlersMixin
-from src.api.entities_api.orchestration.mixins.shell_execution_mixin import \
-    ShellExecutionMixin
-from src.api.entities_api.orchestration.mixins.tool_routing_mixin import \
-    ToolRoutingMixin
-from src.api.entities_api.orchestration.streaming.hyperbolic import \
-    HyperbolicDeltaNormalizer
+from src.api.entities_api.orchestration.mixins.assistant_cache_mixin import AssistantCacheMixin
+from src.api.entities_api.orchestration.mixins.code_execution_mixin import CodeExecutionMixin
+from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import (
+    ConsumerToolHandlersMixin,
+)
+from src.api.entities_api.orchestration.mixins.conversation_context_mixin import (
+    ConversationContextMixin,
+)
+from src.api.entities_api.orchestration.mixins.file_search_mixin import FileSearchMixin
+from src.api.entities_api.orchestration.mixins.json_utils_mixin import JsonUtilsMixin
+from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import (
+    PlatformToolHandlersMixin,
+)
+from src.api.entities_api.orchestration.mixins.shell_execution_mixin import ShellExecutionMixin
+from src.api.entities_api.orchestration.mixins.tool_routing_mixin import ToolRoutingMixin
+from src.api.entities_api.orchestration.streaming.hyperbolic import HyperbolicDeltaNormalizer
 from src.api.entities_api.utils.async_to_sync import async_to_sync_stream
 
 load_dotenv()
@@ -69,9 +65,7 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
         assistant_cache: dict | None = None,
         **extra,
     ) -> None:
-        self._assistant_cache: dict = (
-            assistant_cache or extra.get("assistant_cache") or {}
-        )
+        self._assistant_cache: dict = assistant_cache or extra.get("assistant_cache") or {}
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
@@ -118,11 +112,7 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
         if isinstance(args, str):
             try:
                 parsed = json.loads(args)
-                if (
-                    isinstance(parsed, dict)
-                    and "name" in parsed
-                    and "arguments" in parsed
-                ):
+                if isinstance(parsed, dict) and "name" in parsed and "arguments" in parsed:
                     args = parsed["arguments"]
                 else:
                     args = parsed
@@ -189,9 +179,7 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
             if not api_key:
-                yield json.dumps(
-                    {"type": "error", "content": "Missing Hyperbolic API key."}
-                )
+                yield json.dumps({"type": "error", "content": "Missing Hyperbolic API key."})
                 return
 
             client = self._get_hyperbolic_client(
@@ -268,10 +256,7 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                     {"name": current_tool_name, "arguments": current_tool_args_buffer}
                 )
             # 2. Manual <fc> Finalization (Safe Fallback for Llama 3.3 Prompting)
-            elif (
-                current_tool_args_buffer
-                and current_tool_args_buffer.strip().startswith("{")
-            ):
+            elif current_tool_args_buffer and current_tool_args_buffer.strip().startswith("{"):
                 accumulated = current_tool_args_buffer
 
             stop_event.set()
@@ -325,9 +310,7 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
                 run_id, StatusEnum.pending_action.value
             )
         else:
-            self.project_david_client.runs.update_run_status(
-                run_id, StatusEnum.completed.value
-            )
+            self.project_david_client.runs.update_run_status(run_id, StatusEnum.completed.value)
 
     def process_conversation(
         self,

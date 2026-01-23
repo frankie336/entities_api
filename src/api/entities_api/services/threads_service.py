@@ -7,6 +7,7 @@ from projectdavid_common import UtilsInterface, ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.orm import Session
 
+from entities_api.utils.cache_utils import get_sync_message_cache
 # Import the SessionLocal factory from your central database file.
 # NOTE: Ensure this import path is correct for your project structure.
 from src.api.entities_api.db.database import SessionLocal
@@ -62,14 +63,33 @@ class ThreadService:
             return self._create_thread_read_detailed(db_thread)
 
     def delete_thread(self, thread_id: str) -> validator.ThreadDeleted:
+        logging_utility.info("Deleting thread and clearing history: %s", thread_id)
         with SessionLocal() as db:
-            db_thread = self._get_thread_or_404(thread_id, db)
+            try:
+                db_thread = self._get_thread_or_404(thread_id, db)
 
-            db.query(Message).filter(Message.thread_id == thread_id).delete()
-            db_thread.participants = []
-            db.delete(db_thread)
-            db.commit()
-            return validator.ThreadDeleted(id=thread_id)
+                # 1. DB Cleanup
+                db.query(Message).filter(Message.thread_id == thread_id).delete()
+                db_thread.participants = []
+                db.delete(db_thread)
+                db.commit()
+
+                # 2. Cache Invalidation using the Sync Helper
+                try:
+                    msg_cache = get_sync_message_cache()
+                    msg_cache.delete_history_sync(thread_id)
+                    logging_utility.info(
+                        f"Invalidated message cache for thread: {thread_id}"
+                    )
+                except Exception as e:
+                    logging_utility.error(f"Failed to invalidate message cache: {e}")
+
+                return validator.ThreadDeleted(id=thread_id)
+
+            except Exception as e:
+                db.rollback()
+                logging_utility.error("Error deleting thread: %s", str(e))
+                raise HTTPException(status_code=500, detail="Delete failed")
 
     def list_threads_by_user(self, user_id: str) -> List[str]:
         with SessionLocal() as db:

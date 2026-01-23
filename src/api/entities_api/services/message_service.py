@@ -197,7 +197,7 @@ class MessageService:
             return ValidationInterface.MessageRead.model_validate(db_message)
 
     # ------------------------------------------------------------------
-    # 🔍 DEFINITIVE FIX: JOIN Message -> Action -> Tool to get 'name'
+    # DEFINITIVE FIX: JOIN Message -> Action -> Tool to get 'name'
     # ------------------------------------------------------------------
     def get_formatted_messages(self, thread_id: str) -> List[Dict[str, Any]]:
         """

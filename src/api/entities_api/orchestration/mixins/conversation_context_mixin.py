@@ -6,48 +6,44 @@ All logic that builds the message list passed to the LLM:
 • role-normalisation + truncation
 """
 
-from src.api.entities_api.services.logging_service import LoggingUtility
-
-LOG = LoggingUtility()
-
-"""
-All logic that builds the message list passed to the LLM:
-
-• fetch Redis-cached history (or cold-load from DB once)
-• inject current assistant tools / instructions
-• role-normalisation + truncation
-"""
-
+import asyncio
 import json
 import os
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
+from fastapi import Depends
 from projectdavid import Entity
 
+from src.api.entities_api.dependencies import get_message_cache
+from src.api.entities_api.orchestration.mixins import AssistantCacheMixin
 from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.system_message.main_assembly import \
-    assemble_instructions
+from src.api.entities_api.system_message.main_assembly import assemble_instructions
 
 LOG = LoggingUtility()
 
 
 class ConversationContextMixin:
+    _message_cache = None
+
+    @property
+    def message_cache(self):
+        """
+        Fixed: Avoid using Depends() manually.
+        Use the sync factory helper instead.
+        """
+        if not self._message_cache:
+            # Import your sync helper (adjust the import path to your project structure)
+            from src.api.entities_api.cache.message_cache import get_sync_message_cache
+
+            self._message_cache = get_sync_message_cache()
+        return self._message_cache
 
     @staticmethod
     def _normalize_roles(msgs: List[Dict]) -> List[Dict]:
         """
         Normalizes roles while preserving tool-call metadata.
-
-        FIXES:
-        - Handles serialization errors
-        - Ensures content is "" (not None) when tool_calls exist
-        - Strips tool_call_id from non-tool roles (user, assistant, system)
-        - Only preserves tool_call_id for role="tool"
-        - Removes null/None tool_call_id fields
         """
-        import json
-
         out: List[Dict] = []
 
         for m in msgs:
@@ -61,33 +57,28 @@ class ConversationContextMixin:
 
             # 2. Extract Content
             raw_content = m.get("content")
-            # Default to None if missing, strip if string
             content = str(raw_content).strip() if raw_content is not None else None
 
             # 3. Build Base Message
             normalized_msg = {"role": role, "content": content}
 
-            # --- LOGIC FIX START ---
-
             has_tool_calls = False
 
-            # Case A: Tool calls exist as a proper List (Memory / Correct DB)
+            # Case A: Tool calls exist as a proper List
             if "tool_calls" in m and m["tool_calls"]:
                 normalized_msg["tool_calls"] = m["tool_calls"]
                 has_tool_calls = True
 
             # Case B: Tool calls got flattened into 'content' string (Redis/DB Serialization Bug)
-            # We detect this by checking if content looks like a JSON array of functions
             elif (
                 role == "assistant"
                 and content
                 and isinstance(content, str)
                 and content.strip().startswith("[{")
-                and "function" in content  # heuristic check
+                and "function" in content
             ):
                 try:
                     parsed_tools = json.loads(content)
-                    # Validate it's actually a list of tool calls
                     if (
                         isinstance(parsed_tools, list)
                         and len(parsed_tools) > 0
@@ -96,44 +87,24 @@ class ConversationContextMixin:
                         normalized_msg["tool_calls"] = parsed_tools
                         has_tool_calls = True
                 except (json.JSONDecodeError, TypeError):
-                    # It was just a user saying "[{...}]" literally, ignore.
                     pass
 
-            # 4. SAFETY LOCK: strict API requirement
-            # If tool calls exist, Content MUST be an empty string "", NOT None.
+            # 4. SAFETY LOCK: If tool calls exist, Content MUST be "", NOT None.
             if has_tool_calls:
                 normalized_msg["content"] = ""
 
-            # --- LOGIC FIX END ---
-
             # 5. Preserve Tool Response Metadata
-            # CRITICAL FIX: tool_call_id should ONLY exist on role="tool"
-            # OpenAI format does not allow tool_call_id on user/assistant/system roles
             if role == "tool":
-                # Only add tool_call_id for tool role messages
                 if "tool_call_id" in m and m["tool_call_id"] is not None:
                     normalized_msg["tool_call_id"] = m["tool_call_id"]
-
-                # Also preserve 'name' field for tool responses
                 if "name" in m and m["name"]:
                     normalized_msg["name"] = m["name"]
-
-            # For all other roles (user, assistant, system, platform):
-            # Do NOT include tool_call_id even if it exists in source message
-            # This fixes the malformed dialogue issue where every message had tool_call_id: null
 
             out.append(normalized_msg)
 
         return out
 
     def _build_system_message(self, assistant_id: str) -> Dict:
-        """
-        Pull the assistant’s cached tool list + instructions through
-        AssistantCacheMixin’s accessor, then craft the final system prompt.
-        """
-
-        # TODO: Inject core platform instructions here
-
         cache = self.get_assistant_cache()
         cfg = cache.retrieve_sync(assistant_id)
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -144,28 +115,17 @@ class ConversationContextMixin:
         }
 
     def _build_amended_system_message(self, assistant_id: str) -> Dict:
-        """
-        Use to build alternative system message for R1
-        """
         cache = self.get_assistant_cache()
         cfg = cache.retrieve_sync(assistant_id)
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        excluded_instructions = assemble_instructions(
-            exclude_keys=["TOOL_USAGE_PROTOCOL"]
-        )
+        excluded_instructions = assemble_instructions(exclude_keys=["TOOL_USAGE_PROTOCOL"])
         return {
             "role": "system",
             "content": f"tools:\n{json.dumps(cfg['tools'])}\n{excluded_instructions}\nToday's date and time: {today}",
         }
 
     def _build_native_tools_system_message(self, assistant_id: str) -> Dict:
-        """
-        Use to build  system message for models with native tool channels, eg gpt-oss
-        """
-
-        # The assistant cache contains the system message and tools per assistant
         cache = self.get_assistant_cache()
-
         cfg = cache.retrieve_sync(assistant_id)
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         excluded_instructions = assemble_instructions(
@@ -182,7 +142,6 @@ class ConversationContextMixin:
                 "QUERY_OPTIMIZATION",
                 "RESULT_CURATION",
                 "VALIDATION_IMPERATIVES",
-                "TERMINATION_CONDITIONS",
                 "ERROR_HANDLING",
                 "OUTPUT_FORMAT_RULES",
                 "LATEX_MARKDOWN_FORMATTING",
@@ -203,64 +162,43 @@ class ConversationContextMixin:
         thread_id: str,
         trunk: Optional[bool] = True,
         structured_tool_call: Optional[bool] = False,
-        # Default False = Use Redis Cache (Efficient).
-        # Set True = Ignore Redis, Hit DB (Accurate for Turn 2).
         force_refresh: Optional[bool] = False,
-    ):
-        """Prepares context window with optional cache invalidation."""
-
+    ) -> List[Dict]:
+        """
+        Synchronous context window setup.
+        Leverages sync helpers in MessageCache to avoid 'await' pain.
+        """
+        # 1. Build System Message (Uses retrieve_sync internally)
         if structured_tool_call:
             system_msg = self._build_native_tools_system_message(assistant_id)
         else:
             system_msg = self._build_system_message(assistant_id)
 
-        redis_key = f"thread:{thread_id}:history"
-        raw_list = []
-
-        # 1. Check Redis (only if NOT forcing a refresh)
-        if not force_refresh:
-            raw_list = self.redis.lrange(redis_key, 0, -1)
-            # LOG.debug(f"[CTX] Redis Hit: {bool(raw_list)}")
-
-        # 2. Fetch from DB if cache missed OR force_refresh was requested
-        if not raw_list:
-            if force_refresh:
-                LOG.debug(
-                    f"[CTX] Force Refresh Active. Bypassing Redis for {thread_id}"
-                )
-            else:
-                LOG.debug(f"[CTX] Redis Miss. Fetching DB for {thread_id}")
-
+        # 2. Get history using the SYNC helper
+        if force_refresh:
+            LOG.debug(f"[CTX] Force Refresh Active. Bypassing Redis for {thread_id}")
             client = Entity(
                 base_url=os.getenv("ASSISTANTS_BASE_URL"),
                 api_key=os.getenv("ADMIN_API_KEY"),
             )
-
-            # Fetch fresh list (includes new Tool Messages saved by ActionService)
+            # Fetch fresh list from DB
             full_hist = client.messages.get_formatted_messages(
                 thread_id,
                 system_message=None,
             )
+            # Sync the cache
+            self.message_cache.set_history_sync(thread_id, full_hist)
+            msgs = full_hist
+        else:
+            # Standard path: hit Redis first via sync helper
+            msgs = self.message_cache.get_history_sync(thread_id)
 
-            # Re-populate Redis
-            self.redis.delete(redis_key)
-            for msg in full_hist[-200:]:
-                self.redis.rpush(redis_key, json.dumps(msg))
-            self.redis.ltrim(redis_key, -200, -1)
-            raw_list = [json.dumps(m) for m in full_hist]
-
-        # Decode
-        msgs = [json.loads(x) for x in raw_list]
-
-        # Deduplicate System Messages
+        # 3. Process Context: Filter system messages and prepend current one
         msgs = [m for m in msgs if m.get("role") != "system"]
+        full_context = [system_msg] + msgs
 
-        # Prepend Context System Message
-        msgs = [system_msg] + msgs
-        # msgs = msgs
-
-        # Normalization & Truncation
-        normalized = self._normalize_roles(msgs)
+        # 4. Normalization & Truncation
+        normalized = self._normalize_roles(full_context)
 
         if trunk:
             return self.conversation_truncator.truncate(normalized)
@@ -270,16 +208,6 @@ class ConversationContextMixin:
     def replace_system_message(
         self, context_window: list[dict], new_system_message: str | None = None
     ) -> list[dict]:
-        """
-        Removes the existing system message and optionally replaces it with a new one.
-
-        Args:
-            context_window: Output from `_set_up_context_window`.
-            new_system_message: Content of the replacement system message (if None, just remove the old one).
-
-        Returns:
-            Updated context window without the original system message (and optionally a new one).
-        """
         filtered_messages = [msg for msg in context_window if msg["role"] != "system"]
         if new_system_message is not None:
             new_system_msg = {"role": "system", "content": new_system_message}
@@ -289,48 +217,30 @@ class ConversationContextMixin:
     def prepare_native_tool_context(
         self, context_window: List[Dict]
     ) -> Tuple[List[Dict], Optional[List[Dict]]]:
-        """
-        NEW: Performs 'Context Surgery' to extract tool definitions
-        from the system message and prepare the context for native tool-calling models.
-
-        Returns:
-            (cleaned_ctx, extracted_tools)
-        """
         cleaned_ctx = []
         extracted_tools = None
 
         for msg in context_window:
             role = msg.get("role")
             content = msg.get("content") or ""
-            new_msg = dict(msg)  # Clone to avoid mutating original list items
+            new_msg = dict(msg)
 
-            # 1. Extract tools from system prompt if injected as text by _build_system_message
             if role == "system" and "tools:\n[" in content:
                 try:
                     parts = content.split("tools:\n", 1)
                     system_text = parts[0].strip()
-                    # Find where the JSON array ends
                     tools_json_str = parts[1].strip()
 
-                    # We assume the Mixin's injection format: tools:\n[...JSON...]\nInstructions
-                    # We can use a simple split or more robust JSON detection
                     if "\n" in tools_json_str:
                         json_part, instructions_part = tools_json_str.split("\n", 1)
                         extracted_tools = json.loads(json_part)
-                        new_msg["content"] = (
-                            f"{system_text}\n{instructions_part}".strip()
-                        )
+                        new_msg["content"] = f"{system_text}\n{instructions_part}".strip()
                     else:
                         extracted_tools = json.loads(tools_json_str)
-                        new_msg["content"] = (
-                            system_text
-                            if system_text
-                            else "You are a helpful assistant."
-                        )
+                        new_msg["content"] = system_text or "You are a helpful assistant."
                 except Exception as e:
                     LOG.error(f"[CTX-MIXIN] Failed tool extraction: {e}")
 
-            # 2. Stringify tool content (APIs like Hyperbolic require content to be a string)
             if role == "tool" and not isinstance(content, str):
                 new_msg["content"] = json.dumps(content)
 

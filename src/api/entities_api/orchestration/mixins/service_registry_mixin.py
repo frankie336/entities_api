@@ -19,7 +19,7 @@ from projectdavid.clients.tools_client import ToolsClient
 from projectdavid.clients.users_client import UsersClient
 from projectdavid.clients.vectors import VectorStoreClient
 
-from entities_api.cache.cached_assistant import AssistantCache
+from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.platform_tools.handlers.code_interpreter.code_execution_client import \
     StreamOutput
 from src.api.entities_api.services.conversation_truncator import \
