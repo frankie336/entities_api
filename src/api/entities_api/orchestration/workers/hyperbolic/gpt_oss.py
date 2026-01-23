@@ -98,7 +98,7 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
         LOG.debug("Hyperbolic-GptOss provider ready (assistant=%s)", assistant_id)
 
     # ------------------------------------------------------------------
-    # 🔒 NORMALIZATION FIX
+    # NORMALIZATION FIX
     # ------------------------------------------------------------------
     def _normalize_native_tool_payload(self, accumulated: str | None) -> str | None:
         if not accumulated:

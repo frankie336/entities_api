@@ -199,7 +199,7 @@ class MessageService:
     # ------------------------------------------------------------------
     # 🔍 DEFINITIVE FIX: JOIN Message -> Action -> Tool to get 'name'
     # ------------------------------------------------------------------
-    def list_messages_for_thread(self, thread_id: str) -> List[Dict[str, Any]]:
+    def get_formatted_messages(self, thread_id: str) -> List[Dict[str, Any]]:
         """
         Refactored to ensure Assistant Tool Calls are structured for OpenAI/Hyperbolic protocols.
         """
