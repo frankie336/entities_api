@@ -1,3 +1,23 @@
+## [1.20.2](https://github.com/frankie336/entities_api/compare/v1.20.1...v1.20.2) (2026-01-23)
+
+
+### Bug Fixes
+
+* change method list_thread_messages to get_formatted_messages ([67d142f](https://github.com/frankie336/entities_api/commit/67d142f8deb0efdd3d05d4da0654cad2406f7666))
+* delete async_client.py. ([9c1ca9f](https://github.com/frankie336/entities_api/commit/9c1ca9f0c1ab6cfa5d31ba296f569aa7e014b946))
+* delete old /inference dir. ([baa5c2e](https://github.com/frankie336/entities_api/commit/baa5c2e755fab988e075b8edb6551601fb3db100))
+* filter  "<|channel|>analysis" ([a5dd32a](https://github.com/frankie336/entities_api/commit/a5dd32a57fd3a879b1774ce62ea170ac54f1d0c7))
+* Implement cache invalidation for assistants cached_assistant ([7f4d3c5](https://github.com/frankie336/entities_api/commit/7f4d3c52d80b00844a8f07a12c9d7901b190ff2e))
+* implement new architecture for hot_code. Complex parsing and replay from each worker is needless when hot_code can be replayed direct from the handler. ([e49ea75](https://github.com/frankie336/entities_api/commit/e49ea75e0987b05052a2b286b0339a28726708ea))
+* Improve speed and smoothness of streaming. ([0e16437](https://github.com/frankie336/entities_api/commit/0e164378fdc5722ee19f75319a3b32d47c27ee30))
+* Improve speed and smoothness of streaming. ([b3e9191](https://github.com/frankie336/entities_api/commit/b3e919132480bea23337161e93dca7484c94ee77))
+* Major speed improvements in inference. ([dc06f29](https://github.com/frankie336/entities_api/commit/dc06f294b0ae9d68bc5733053db26eec660152c1))
+* Move AsyncHyperbolicClient to client factory. ([9ba074c](https://github.com/frankie336/entities_api/commit/9ba074c33925aeed4a5b713c11166f599bdfe16a))
+* Resolve forward stream delay issue ([09deac8](https://github.com/frankie336/entities_api/commit/09deac88058cb4d7e0b4e819d5a9029f29604195))
+* Resolve gpt-oss-120b reasoning tokens not generating issue. ([a78e11c](https://github.com/frankie336/entities_api/commit/a78e11c325394f5fb3ff7ae1e67c4377d691aa4e))
+* Resolve gpt-oss-120b reasoning tokens not generating issue. ([90bc1c4](https://github.com/frankie336/entities_api/commit/90bc1c4f6463cf8bb37ceb6b466bd26506b86277))
+* Resolve hyperbolic/meta-llama- models function calling issues. Previously, the model did not respond to the first turn. This was due to passing in the tool call array in the request payload. ([3e19625](https://github.com/frankie336/entities_api/commit/3e196257f5aa230682cb9ef915b45f13a5adf591))
+
 ## [1.20.1](https://github.com/frankie336/entities_api/compare/v1.20.0...v1.20.1) (2026-01-21)
 
 
