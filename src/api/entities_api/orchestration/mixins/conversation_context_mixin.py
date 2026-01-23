@@ -18,7 +18,8 @@ from projectdavid import Entity
 from src.api.entities_api.dependencies import get_message_cache
 from src.api.entities_api.orchestration.mixins import AssistantCacheMixin
 from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.system_message.main_assembly import assemble_instructions
+from src.api.entities_api.system_message.main_assembly import \
+    assemble_instructions
 
 LOG = LoggingUtility()
 
@@ -34,7 +35,8 @@ class ConversationContextMixin:
         """
         if not self._message_cache:
             # Import your sync helper (adjust the import path to your project structure)
-            from src.api.entities_api.cache.message_cache import get_sync_message_cache
+            from src.api.entities_api.cache.message_cache import \
+                get_sync_message_cache
 
             self._message_cache = get_sync_message_cache()
         return self._message_cache
@@ -118,7 +120,9 @@ class ConversationContextMixin:
         cache = self.get_assistant_cache()
         cfg = cache.retrieve_sync(assistant_id)
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        excluded_instructions = assemble_instructions(exclude_keys=["TOOL_USAGE_PROTOCOL"])
+        excluded_instructions = assemble_instructions(
+            exclude_keys=["TOOL_USAGE_PROTOCOL"]
+        )
         return {
             "role": "system",
             "content": f"tools:\n{json.dumps(cfg['tools'])}\n{excluded_instructions}\nToday's date and time: {today}",
@@ -234,10 +238,14 @@ class ConversationContextMixin:
                     if "\n" in tools_json_str:
                         json_part, instructions_part = tools_json_str.split("\n", 1)
                         extracted_tools = json.loads(json_part)
-                        new_msg["content"] = f"{system_text}\n{instructions_part}".strip()
+                        new_msg["content"] = (
+                            f"{system_text}\n{instructions_part}".strip()
+                        )
                     else:
                         extracted_tools = json.loads(tools_json_str)
-                        new_msg["content"] = system_text or "You are a helpful assistant."
+                        new_msg["content"] = (
+                            system_text or "You are a helpful assistant."
+                        )
                 except Exception as e:
                     LOG.error(f"[CTX-MIXIN] Failed tool extraction: {e}")
 
