@@ -1,9 +1,8 @@
-# src/api/entities_api/orchestration/workers/hyperbolic/deepseek.py
+# src/api/entities_api/orchestration/workers/hyperbolic/hb_quen.py
 from __future__ import annotations
 
 import json
 import os
-import uuid
 from typing import Any, Generator, Optional
 
 from dotenv import load_dotenv
@@ -35,32 +34,42 @@ class _ProviderMixins(
     ShellExecutionMixin,
     FileSearchMixin,
 ):
-    """Flat bundle → single inheritance in the concrete class."""
+    """C3-safe flat bundle."""
 
 
-class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
+class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
     """
-    Specialized DeepSeek-V3/R1 Provider.
-    Uses a custom state-machine to handle XML-tagged thinking and tool-calls.
+    Modular Async Hyperbolic Qwen-QwQ-32B provider.
+    Refactored to support Smart History Preservation for multi-turn tool use.
     """
 
     def __init__(
-        self, *, assistant_id=None, thread_id=None, redis=None, **extra
+        self,
+        *,
+        assistant_id: str | None = None,
+        thread_id: str | None = None,
+        redis=None,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        assistant_cache: dict | None = None,
+        **extra,
     ) -> None:
-        self._assistant_cache = extra.get("assistant_cache") or {}
+        self._assistant_cache: dict = (
+            assistant_cache or extra.get("assistant_cache") or {}
+        )
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
-        self.base_url = os.getenv("BASE_URL")
-        self.api_key = extra.get("api_key")
-        self.model_name = extra.get("model_name", "deepseek-ai/DeepSeek-V3")
+        self.base_url = base_url or os.getenv("BASE_URL")
+        self.api_key = api_key
 
         # Attributes required by ConversationContextMixin / Truncator logic
+        self.model_name = extra.get("model_name", "quen/Qwen1_5-32B-Chat")
         self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
 
         self.setup_services()
-        LOG.debug("Hyperbolic-Ds1 provider ready (assistant=%s)", assistant_id)
+        LOG.debug("Hyperbolic-Qwq-32B provider ready (assistant=%s)", assistant_id)
 
     @property
     def assistant_cache(self) -> dict:
@@ -81,7 +90,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
         assistant_id: str,
         model: Any,
         *,
-        stream_reasoning: bool = True,
+        stream_reasoning: bool = False,  # Defaulted to False for Qwen
         api_key: Optional[str] = None,
         **kwargs,
     ) -> Generator[str, None, None]:
@@ -94,13 +103,8 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                 model = mapped
 
             # 1. Context Window Setup
+            # Note: Removed the DeepSeek-R1 specific system message replacement
             ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
-
-            if model == "deepseek-ai/DeepSeek-R1":
-                amended = self._build_amended_system_message(assistant_id=assistant_id)
-                ctx = self.replace_system_message(
-                    ctx, json.dumps(amended, ensure_ascii=False)
-                )
 
             payload = {
                 "model": model,
@@ -146,6 +150,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                         accumulated += "<fc>"
                         current_block = "fc"
 
+                # Kept consistent with style guide, though Qwen rarely outputs reasoning
                 elif ctype == "reasoning":
                     if current_block != "think":
                         if current_block == "fc":
@@ -157,7 +162,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
                 # Accumulate raw stream for persistence
                 accumulated += ccontent
 
-                # Yield immediately (No Hot Code Snooping)
+                # Yield immediately
                 yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
 
@@ -175,16 +180,17 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
 
             if has_fc:
                 try:
-                    # Clean tags for JSON parsing
+                    # Clean tags for JSON parsing (Only removing <fc>, no hot_code)
                     raw_json = (
                         accumulated.replace("<fc>", "").replace("</fc>", "").strip()
                     )
 
                     payload_dict = json.loads(raw_json)
-
                     message_to_save = json.dumps(payload_dict)
                 except Exception as e:
-                    LOG.error(f"Error structuring tool calls: {e}")
+                    # Log error but default to saving the raw accumulated text
+                    # (Assuming LOG is available in scope or via self.logger)
+                    print(f"Error structuring tool calls: {e}")
                     message_to_save = accumulated
 
             if message_to_save:
@@ -219,6 +225,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
         stream_reasoning=True,
         **kwargs,
     ):
+        # Turn 1: Initial Generation
         yield from self.stream(
             thread_id,
             message_id,
@@ -230,6 +237,7 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
             **kwargs,
         )
 
+        # Turn 2: Follow-up after tool execution
         if self.get_function_call_state():
             yield from self.process_tool_calls(
                 thread_id, run_id, assistant_id, model=model, api_key=api_key
@@ -237,7 +245,6 @@ class HyperbolicDs1(_ProviderMixins, OrchestratorCore):
             self.set_tool_response_state(False)
             self.set_function_call_state(None)
 
-            # Follow-up with the tool results in context
             yield from self.stream(
                 thread_id,
                 None,

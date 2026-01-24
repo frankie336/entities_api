@@ -92,7 +92,7 @@ python scripts/create_user.py \
 ```bash
 Using Admin API Key (loaded from environment variable 'ADMIN_API_KEY') starting with: ad_ZXLo...
 
-Initializing API client for base URL: http://api:9000
+Initializing API client for base_workers URL: http://api:9000
 API client initialized.
 
 Attempting to create user 'Alice Tester' (alice@example.com)...

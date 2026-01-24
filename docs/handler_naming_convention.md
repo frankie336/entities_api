@@ -37,7 +37,7 @@ When handling models with dot or dash versions (e.g. `3.3`, `1.5-pro`, `002`), *
 Use PascalCase matching the file's meaning:
 
 ```python
-# Inside llama.py
+# Inside hb_llama.py
 class HyperbolicLlama33Handler(BaseInferenceHandler):
     ...
 ```

@@ -27,7 +27,7 @@ def count_tokens(input_string: str, tokenizer_name: str = "gpt2") -> int:
 
 if __name__ == "__main__":
     input_text = "This is an example string to test tokenization."
-    tokenizer_name = "bert-base-uncased"
+    tokenizer_name = "bert-base_workers-uncased"
     try:
         token_count = count_tokens(input_text, tokenizer_name)
         print(f"Number of tokens: {token_count}")

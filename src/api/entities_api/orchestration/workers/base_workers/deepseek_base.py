@@ -1,8 +1,7 @@
-# src/api/entities_api/orchestration/workers/hyperbolic/quen.py
 from __future__ import annotations
 
 import json
-import os
+from abc import ABC, abstractmethod
 from typing import Any, Generator, Optional
 
 from dotenv import load_dotenv
@@ -18,9 +17,6 @@ from src.api.entities_api.orchestration.mixins import (
     PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
 from src.api.entities_api.orchestration.streaming.hyperbolic import \
     HyperbolicDeltaNormalizer
-from src.api.entities_api.orchestration.streaming.hyperbolic_async_client import \
-    AsyncHyperbolicClient
-from src.api.entities_api.utils.async_to_sync import async_to_sync_stream
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -37,42 +33,36 @@ class _ProviderMixins(
     ShellExecutionMixin,
     FileSearchMixin,
 ):
-    """C3-safe flat bundle."""
+    """Mixins bundle."""
 
 
-class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
+class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
     """
-    Modular Async Hyperbolic Qwen-QwQ-32B provider.
-    Refactored to support Smart History Preservation for multi-turn tool use.
+    Shared Logic for DeepSeek-V3/R1 across any provider (Hyperbolic, Together, etc.).
     """
 
     def __init__(
-        self,
-        *,
-        assistant_id: str | None = None,
-        thread_id: str | None = None,
-        redis=None,
-        base_url: str | None = None,
-        api_key: str | None = None,
-        assistant_cache: dict | None = None,
-        **extra,
+        self, *, assistant_id=None, thread_id=None, redis=None, **extra
     ) -> None:
-        self._assistant_cache: dict = (
-            assistant_cache or extra.get("assistant_cache") or {}
-        )
+        self._assistant_cache = extra.get("assistant_cache") or {}
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
-        self.base_url = base_url or os.getenv("BASE_URL")
-        self.api_key = api_key
+        self.api_key = extra.get("api_key")
 
-        # Attributes required by ConversationContextMixin / Truncator logic
-        self.model_name = extra.get("model_name", "quen/Qwen1_5-32B-Chat")
+        # Default model, can be overridden by kwargs
+        self.model_name = extra.get("model_name", "deepseek-ai/DeepSeek-V3")
+
         self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
 
         self.setup_services()
-        LOG.debug("Hyperbolic-Qwq-32B provider ready (assistant=%s)", assistant_id)
+        LOG.debug(f"{self.__class__.__name__} ready (assistant={assistant_id})")
+
+    @abstractmethod
+    def _get_client_instance(self, api_key: str):
+        """Subclasses must implement specific provider client creation."""
+        pass
 
     @property
     def assistant_cache(self) -> dict:
@@ -85,6 +75,9 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
     def get_assistant_cache(self) -> dict:
         return self._assistant_cache
 
+    # -------------------------------------------------------------------------
+    # SHARED STREAMING LOGIC
+    # -------------------------------------------------------------------------
     def stream(
         self,
         thread_id: str,
@@ -93,7 +86,7 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
         assistant_id: str,
         model: Any,
         *,
-        stream_reasoning: bool = False,  # Defaulted to False for Qwen
+        stream_reasoning: bool = True,
         api_key: Optional[str] = None,
         **kwargs,
     ) -> Generator[str, None, None]:
@@ -101,13 +94,21 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
+        # Use instance API key if not passed explicitly
+        api_key = api_key or self.api_key
+
         try:
             if mapped := self._get_model_map(model):
                 model = mapped
 
             # 1. Context Window Setup
-            # Note: Removed the DeepSeek-R1 specific system message replacement
             ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
+
+            if model == "deepseek-ai/DeepSeek-R1":
+                amended = self._build_amended_system_message(assistant_id=assistant_id)
+                ctx = self.replace_system_message(
+                    ctx, json.dumps(amended, ensure_ascii=False)
+                )
 
             payload = {
                 "model": model,
@@ -121,16 +122,18 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
             yield json.dumps(start_chunk)
             self._shunt_to_redis_stream(redis, stream_key, start_chunk)
 
-            client = self._get_openai_client(
-                base_url=os.getenv("HYPERBOLIC_BASE_URL"), api_key=api_key
-            )
+            # -----------------------------------------------------------
+            # DYNAMIC CLIENT INJECTION
+            # -----------------------------------------------------------
+            client = self._get_client_instance(api_key=api_key)
             raw_stream = client.chat.completions.create(**payload)
+            # -----------------------------------------------------------
 
             # State for History Reconstruction
             assistant_reply, accumulated, reasoning_reply = "", "", ""
             current_block = None
 
-            # 2. Process deltas via Normalizer
+            # 2. Process deltas via Shared Normalizer
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
                     break
@@ -153,7 +156,6 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
                         accumulated += "<fc>"
                         current_block = "fc"
 
-                # Kept consistent with style guide, though Qwen rarely outputs reasoning
                 elif ctype == "reasoning":
                     if current_block != "think":
                         if current_block == "fc":
@@ -183,17 +185,14 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
 
             if has_fc:
                 try:
-                    # Clean tags for JSON parsing (Only removing <fc>, no hot_code)
+                    # Clean tags for JSON parsing
                     raw_json = (
                         accumulated.replace("<fc>", "").replace("</fc>", "").strip()
                     )
-
                     payload_dict = json.loads(raw_json)
                     message_to_save = json.dumps(payload_dict)
                 except Exception as e:
-                    # Log error but default to saving the raw accumulated text
-                    # (Assuming LOG is available in scope or via self.logger)
-                    print(f"Error structuring tool calls: {e}")
+                    LOG.error(f"Error structuring tool calls: {e}")
                     message_to_save = accumulated
 
             if message_to_save:
@@ -228,7 +227,7 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
         stream_reasoning=True,
         **kwargs,
     ):
-        # Turn 1: Initial Generation
+        """Standard process loop, relies on self.stream implementation."""
         yield from self.stream(
             thread_id,
             message_id,
@@ -240,7 +239,6 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
             **kwargs,
         )
 
-        # Turn 2: Follow-up after tool execution
         if self.get_function_call_state():
             yield from self.process_tool_calls(
                 thread_id, run_id, assistant_id, model=model, api_key=api_key

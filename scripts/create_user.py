@@ -66,7 +66,7 @@ def create_api_client(base_url, api_key):
             )
         return client
     except Exception as e:
-        print(f"Error initializing API client for base URL {base_url}: {e}")
+        print(f"Error initializing API client for base_workers URL {base_url}: {e}")
         sys.exit(1)
 
 
@@ -223,7 +223,7 @@ def main():
         help="Full name for the new user. If omitted, a default name is used.",
     )
     parser.add_argument(
-        "--base-url",
+        "--base_workers-url",
         type=str,
         default=DEFAULT_BASE_URL,
         help=f"Base URL for the API. Default: {DEFAULT_BASE_URL}",

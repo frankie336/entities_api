@@ -282,9 +282,9 @@ if __name__ == "__main__":
         help="The User ID context for this operation. If omitted, you will be prompted.",
     )
     parser.add_argument(
-        "--base-url",
+        "--base_workers-url",
         default=None,  # Or set a default like "http://localhost:9000"
-        help="Optional base URL for the API endpoint.",
+        help="Optional base_workers URL for the API endpoint.",
     )
 
     args = parser.parse_args()

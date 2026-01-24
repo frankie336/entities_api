@@ -1,13 +1,16 @@
+# src/api/entities_api/orchestration/workers/togeterai/together_handler.py
 from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from src.api.entities_api.orchestration.engine.inference_arbiter import \
     InferenceArbiter
-from src.api.entities_api.orchestration.workers.togeterai.together_deepseek_R1 import \
-    TogetherDeepSeekR1Inference
-from src.api.entities_api.orchestration.workers.togeterai.together_deepseek_v3 import \
-    TogetherDeepSeekV3Inference
+from src.api.entities_api.orchestration.workers.togeterai.together_deepseek import \
+    TogetherDs1
+from src.api.entities_api.orchestration.workers.togeterai.together_llama import \
+    TogetherLlamaWorker
+from src.api.entities_api.orchestration.workers.togeterai.together_quen import \
+    TogetherQwenWorker
 
 LOG = LoggingUtility()
 
@@ -20,24 +23,24 @@ class TogetherAIHandler:
     """
 
     SUBMODEL_CLASS_MAP: dict[str, Type[Any]] = {
-        "deepseek-ai/DeepSeek-R1": TogetherDeepSeekR1Inference,
-        "deepseek-ai/DeepSeek-V3": TogetherDeepSeekV3Inference,
-        "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B": TogetherDeepSeekR1Inference,
-        "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B": TogetherDeepSeekR1Inference,
-        "deepseek-ai/DeepSeek-R1-Distill-Llama-70B-free": TogetherDeepSeekR1Inference,
-        "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": TogetherDeepSeekV3Inference,
-        "meta-llama/Llama-4-Scout-17B-16E-Instruct": TogetherDeepSeekV3Inference,
-        "meta-llama/Llama-3.3-70B-Instruct-Turbo": TogetherDeepSeekV3Inference,
-        "meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo": TogetherDeepSeekV3Inference,
-        "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo": TogetherDeepSeekV3Inference,
-        "meta-llama/Llama-Vision-Free": TogetherDeepSeekV3Inference,
-        "meta-llama/LlamaGuard-2-8b": TogetherDeepSeekV3Inference,
-        "google/gemma-2-9b-it": TogetherDeepSeekV3Inference,
-        "mistralai/Mistral-7B-Instruct-v0.2": TogetherDeepSeekV3Inference,
-        "mistralai/Mistral-7B-Instruct-v0.3": TogetherDeepSeekV3Inference,
-        "Qwen/QwQ-32B": TogetherDeepSeekV3Inference,
-        "Qwen/Qwen2.5-Coder-32B-Instruct": TogetherDeepSeekV3Inference,
-        "Qwen/Qwen2-VL-72B-Instruct": TogetherDeepSeekV3Inference,
+        "deepseek-ai/DeepSeek-R1": TogetherDs1,
+        "deepseek-ai/DeepSeek-V3": TogetherDs1,
+        "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B": TogetherDs1,  # <--unable to access no serverless
+        "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B": TogetherDs1,  # <--unable to access no serverless
+        "deepseek-ai/DeepSeek-R1-Distill-Llama-70B-free": TogetherDs1,
+        "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": TogetherLlamaWorker,
+        "meta-llama/Llama-4-Scout-17B-16E-Instruct": TogetherLlamaWorker,
+        "meta-llama/Llama-3.3-70B-Instruct-Turbo": TogetherLlamaWorker,
+        "meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo": TogetherLlamaWorker,  # <--- unable to reach
+        "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo": TogetherLlamaWorker,  # <--- unable to reach
+        "meta-llama/Llama-Vision-Free": TogetherLlamaWorker,  # <--- unable to reach
+        "meta-llama/LlamaGuard-2-8b": TogetherLlamaWorker,
+        "google/gemma-2-9b-it": TogetherLlamaWorker,
+        "mistralai/Mistral-7B-Instruct-v0.2": TogetherLlamaWorker,
+        "mistralai/Mistral-7B-Instruct-v0.3": TogetherLlamaWorker,
+        "Qwen/QwQ-32B": TogetherQwenWorker,
+        "Qwen/Qwen2.5-Coder-32B-Instruct": TogetherQwenWorker,
+        "Qwen/Qwen2-VL-72B-Instruct": TogetherQwenWorker,
     }
 
     def __init__(self, arbiter: InferenceArbiter):

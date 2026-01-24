@@ -116,7 +116,7 @@ async def completions(
         prefix = "data: "
         suffix = "\n\n"
 
-        # Pre-construct the base dict to avoid recreating it if possible
+        # Pre-construct the base_workers dict to avoid recreating it if possible
         # (Only useful if we aren't parsing incoming JSON)
 
         idx = 0

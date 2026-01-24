@@ -2,7 +2,7 @@
 # MULTI-STAGE DOCKERFILE (SANDBOX)
 # -------------------------
 
-# === Stage 0: base layer (common bootstrap) ============================================
+# === Stage 0: base_workers layer (common bootstrap) ============================================
 FROM python:3.11-slim AS base
 WORKDIR /install
 

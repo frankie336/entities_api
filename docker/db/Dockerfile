@@ -1,4 +1,4 @@
-# Use the latest MySQL image as the base
+# Use the latest MySQL image as the base_workers
 FROM mysql:latest
 
 # Copy the correct entrypoint script

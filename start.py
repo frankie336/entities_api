@@ -1253,7 +1253,7 @@ class DockerManager:
             " without cache (--no-cache)" if self.args.no_cache else " using cache"
         )
         parallel_desc = " in parallel (--parallel)" if self.args.parallel else ""
-        pull_desc = " (will attempt to pull base images)"  # Default behavior
+        pull_desc = " (will attempt to pull base_workers images)"  # Default behavior
 
         self.log.info(
             f"Building images{target_desc}{cache_desc}{parallel_desc}{pull_desc}..."
@@ -1266,7 +1266,7 @@ class DockerManager:
         if self.args.parallel:
             # Note: Parallel builds can make logs harder to read if errors occur
             build_cmd.append("--parallel")
-        # build_cmd.append("--pull") # Explicitly pull base images (often default, but can ensure latest)
+        # build_cmd.append("--pull") # Explicitly pull base_workers images (often default, but can ensure latest)
 
         # Add specific services if provided
         if target_services:

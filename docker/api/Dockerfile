@@ -2,7 +2,7 @@
 # MULTI-STAGE DOCKERFILE
 # -------------------------
 
-# === Stage 0: base layer ===============================================================
+# === Stage 0: base_workers layer ===============================================================
 FROM python:3.11-slim AS base
 WORKDIR /install
 

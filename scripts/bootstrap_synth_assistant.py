@@ -57,7 +57,9 @@ if __name__ == "__main__":
     parser.add_argument("--api-key", help="The API key for authenticating.")
     parser.add_argument("--user-id", help="The User ID context for this operation.")
     parser.add_argument(
-        "--base-url", default=None, help="Optional base URL for the API endpoint."
+        "--base_workers-url",
+        default=None,
+        help="Optional base_workers URL for the API endpoint.",
     )
     parser.add_argument(
         "--name", default="Synth", help="Name of the assistant (default: 'Q')."
