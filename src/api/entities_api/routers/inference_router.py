@@ -121,7 +121,9 @@ async def completions(
 
         idx = 0
         error_occurred = False
-
+        # --------------------------
+        # The inbound payload here!
+        # ---------------------------
         try:
             sync_gen_args = {
                 "thread_id": stream_request.thread_id,
@@ -129,7 +131,7 @@ async def completions(
                 "run_id": run_id,
                 "assistant_id": stream_request.assistant_id,
                 "model": stream_request.model,
-                "stream_reasoning": True,
+                "stream_reasoning": False,
                 "api_key": stream_request.api_key,
             }
 

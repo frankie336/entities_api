@@ -73,7 +73,7 @@ class OrchestratorCore(
         assistant_id: str,
         model: Any,
         *,
-        stream_reasoning: bool = True,
+        stream_reasoning: bool = False,
         api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
         """

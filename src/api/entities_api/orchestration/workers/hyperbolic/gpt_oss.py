@@ -201,12 +201,17 @@ class HyperbolicGptOss(_ProviderMixins, OrchestratorCore):
             payload = {
                 "messages": cleaned_ctx,
                 "model": model,
+                "tools": extracted_tools,
                 "temperature": kwargs.get("temperature", 0.4),
                 "top_p": 0.9,
             }
 
+            LOG.info(
+                f"DEBUG: stream_reasoning value: {stream_reasoning} | type: {type(stream_reasoning)}"
+            )
+
             if stream_reasoning:
-                payload["tools"] = extracted_tools
+                del payload["tools"]
 
             async_stream = client.stream_chat_completion(**payload)
 

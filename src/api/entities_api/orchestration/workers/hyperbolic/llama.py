@@ -89,6 +89,9 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
         run_id: str,
         assistant_id: str,
         model: Any,
+        *,
+        force_refresh: bool = False,
+        stream_reasoning: bool = False,
         api_key: Optional[str] = None,
         **kwargs,
     ) -> Generator[str, None, None]:
@@ -103,6 +106,16 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
             if mapped := self._get_model_map(model):
                 model = mapped
 
+            raw_ctx = self._set_up_context_window(
+                assistant_id,
+                thread_id,
+                trunk=True,
+                structured_tool_call=True,
+                force_refresh=force_refresh,
+            )
+
+            cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
+
             # 2. Context & Tool Extraction
             ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
 
@@ -115,7 +128,8 @@ class HyperbolicLlama33(_ProviderMixins, OrchestratorCore):
             )
 
             payload = {
-                "messages": ctx,
+                "messages": cleaned_ctx,
+                "tools": extracted_tools,
                 "model": model,
                 "temperature": kwargs.get("temperature", 0.6),
                 "top_p": 0.9,

@@ -66,7 +66,7 @@ class HyperbolicHandler:
         run_id: str,
         assistant_id: str,
         model: Any,
-        stream_reasoning: bool = True,
+        stream_reasoning: bool = False,
         api_key: Optional[str] = None,
         **kwargs,
     ) -> Generator[str, None, None]:
@@ -94,7 +94,7 @@ class HyperbolicHandler:
         run_id: str,
         assistant_id: str,
         model: Any,
-        stream_reasoning: bool = True,
+        stream_reasoning: bool = False,
         api_key: Optional[str] = None,
         **kwargs,
     ) -> Generator[str, None, None]:

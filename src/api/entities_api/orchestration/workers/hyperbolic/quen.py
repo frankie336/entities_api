@@ -93,7 +93,7 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
         assistant_id: str,
         model: Any,
         *,
-        stream_reasoning: bool = True,
+        stream_reasoning: bool = False,  # Defaulted to False for Qwen
         api_key: Optional[str] = None,
         **kwargs,
     ) -> Generator[str, None, None]:
@@ -102,50 +102,42 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
         stop_event = self.start_cancellation_monitor(run_id)
 
         try:
-            if isinstance(model, str) and model.startswith("hyperbolic/"):
-                model = model.replace("hyperbolic/", "")
             if mapped := self._get_model_map(model):
                 model = mapped
 
-            # 1. Context setup (Trunk=True for context window management)
-            raw_ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
+            # 1. Context Window Setup
+            # Note: Removed the DeepSeek-R1 specific system message replacement
+            ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
 
-            # 2. Extract tools and clean context
-            cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
+            payload = {
+                "model": model,
+                "messages": ctx,
+                "max_tokens": 10000,
+                "temperature": kwargs.get("temperature", 0.6),
+                "stream": True,
+            }
 
-            if not api_key:
-                err = {"type": "error", "content": "Missing API key for Hyperbolic."}
-                yield json.dumps(err)
-                return
+            start_chunk = {"type": "status", "status": "started", "run_id": run_id}
+            yield json.dumps(start_chunk)
+            self._shunt_to_redis_stream(redis, stream_key, start_chunk)
 
-            client = AsyncHyperbolicClient(
-                api_key=api_key, base_url=os.getenv("HYPERBOLIC_BASE_URL")
+            client = self._get_openai_client(
+                base_url=os.getenv("HYPERBOLIC_BASE_URL"), api_key=api_key
             )
+            raw_stream = client.chat.completions.create(**payload)
 
-            # 3. Request Stream
-            async_stream = client.stream_chat_completion(
-                messages=cleaned_ctx,
-                tools=extracted_tools,
-                model=model,
-                temperature=kwargs.get("temperature", 0.6),
-                top_p=0.9,
-            )
-
-            yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
-
+            # State for History Reconstruction
             assistant_reply, accumulated, reasoning_reply = "", "", ""
-            code_mode, current_block = False, None
+            current_block = None
 
-            token_iterator = async_to_sync_stream(async_stream)
-
-            # 4. Standardized Processing
-            for chunk in HyperbolicDeltaNormalizer.iter_deltas(token_iterator, run_id):
+            # 2. Process deltas via Normalizer
+            for chunk in HyperbolicDeltaNormalizer.iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
                     break
 
                 ctype, ccontent = chunk["type"], chunk["content"]
 
-                # --- METHODOLOGY: RE-INJECTION & ACCUMULATION ---
+                # --- HISTORY RECONSTRUCTION (Tag Injection) ---
                 if ctype == "content":
                     if current_block == "fc":
                         accumulated += "</fc>"
@@ -153,12 +145,15 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
                         accumulated += "</think>"
                     current_block = None
                     assistant_reply += ccontent
+
                 elif ctype == "call_arguments":
                     if current_block != "fc":
                         if current_block == "think":
                             accumulated += "</think>"
                         accumulated += "<fc>"
                         current_block = "fc"
+
+                # Kept consistent with style guide, though Qwen rarely outputs reasoning
                 elif ctype == "reasoning":
                     if current_block != "think":
                         if current_block == "fc":
@@ -167,78 +162,60 @@ class HyperbolicQuenQwq32B(_ProviderMixins, OrchestratorCore):
                         current_block = "think"
                     reasoning_reply += ccontent
 
+                # Accumulate raw stream for persistence
                 accumulated += ccontent
 
-                # --- CODE INTERPRETER HANDLERS ---
-                if ctype == "content":
-                    parse_ci = getattr(self, "parse_code_interpreter_partial", None)
-                    ci_match = (
-                        parse_ci(accumulated) if parse_ci and (not code_mode) else None
-                    )
-
-                    if ci_match:
-                        code_mode = True
-                        start = {"type": "hot_code", "content": "```python\n"}
-                        yield json.dumps(start)
-                        self._shunt_to_redis_stream(redis, stream_key, start)
-                        if hasattr(self, "_process_code_interpreter_chunks"):
-                            res, _ = self._process_code_interpreter_chunks(
-                                "", ci_match.get("code", "")
-                            )
-                            for r in res:
-                                yield r
-                                self._shunt_to_redis_stream(
-                                    redis, stream_key, json.loads(r)
-                                )
-                        continue
-
-                    if code_mode:
-                        if hasattr(self, "_process_code_interpreter_chunks"):
-                            res, _ = self._process_code_interpreter_chunks(ccontent, "")
-                            for r in res:
-                                yield r
-                                self._shunt_to_redis_stream(
-                                    redis, stream_key, json.loads(r)
-                                )
-                        else:
-                            yield json.dumps({"type": "hot_code", "content": ccontent})
-                        continue
-
+                # Yield immediately
                 yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
 
-        except Exception as exc:
-            err = {"type": "error", "content": f"Qwen stream error: {exc}"}
-            yield json.dumps(err)
-            self._shunt_to_redis_stream(redis, stream_key, err)
-        finally:
+            # 3. Final Close-out
             if current_block == "fc":
                 accumulated += "</fc>"
             elif current_block == "think":
                 accumulated += "</think>"
+
+            yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
+
+            # --- SMART HISTORY PRESERVATION ---
+            has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
+            message_to_save = assistant_reply
+
+            if has_fc:
+                try:
+                    # Clean tags for JSON parsing (Only removing <fc>, no hot_code)
+                    raw_json = (
+                        accumulated.replace("<fc>", "").replace("</fc>", "").strip()
+                    )
+
+                    payload_dict = json.loads(raw_json)
+                    message_to_save = json.dumps(payload_dict)
+                except Exception as e:
+                    # Log error but default to saving the raw accumulated text
+                    # (Assuming LOG is available in scope or via self.logger)
+                    print(f"Error structuring tool calls: {e}")
+                    message_to_save = accumulated
+
+            if message_to_save:
+                self.finalize_conversation(
+                    message_to_save, thread_id, assistant_id, run_id
+                )
+
+            if has_fc:
+                self.project_david_client.runs.update_run_status(
+                    run_id, StatusEnum.pending_action.value
+                )
+            else:
+                self.project_david_client.runs.update_run_status(
+                    run_id, StatusEnum.completed.value
+                )
+
+        except Exception as exc:
+            err = {"type": "error", "content": str(exc)}
+            yield json.dumps(err)
+            self._shunt_to_redis_stream(redis, stream_key, err)
+        finally:
             stop_event.set()
-
-        # 5. FINAL CLOSE-OUT & SMART HISTORY PRESERVATION
-        yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
-
-        # Determine if a function call was detected
-        has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
-
-        # FIX: Save 'accumulated' (with <fc> tags) if a tool was triggered.
-        # This keeps the history protocol valid for the next turn.
-        message_to_save = accumulated if has_fc else (reasoning_reply + assistant_reply)
-
-        if message_to_save:
-            self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
-
-        if has_fc:
-            self.project_david_client.runs.update_run_status(
-                run_id, StatusEnum.pending_action.value
-            )
-        else:
-            self.project_david_client.runs.update_run_status(
-                run_id, StatusEnum.completed.value
-            )
 
     def process_conversation(
         self,
