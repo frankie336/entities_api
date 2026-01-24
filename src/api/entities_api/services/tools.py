@@ -8,7 +8,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from entities_api.utils.cache_utils import get_sync_invalidator
-
 # --- FIX: Step 1 ---
 # Import the SessionLocal factory.
 from src.api.entities_api.db.database import SessionLocal

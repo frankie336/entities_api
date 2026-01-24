@@ -12,9 +12,8 @@ from projectdavid import Entity
 from together import Together
 
 # Import your AsyncHyperbolicClient definition
-from src.api.entities_api.orchestration.streaming.hyperbolic_async_client import (
-    AsyncHyperbolicClient,
-)
+from src.api.entities_api.orchestration.streaming.hyperbolic_async_client import \
+    AsyncHyperbolicClient
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 load_dotenv()

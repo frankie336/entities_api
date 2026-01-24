@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 # --- FIX: Step 1 ---
 # Import the SessionLocal factory.
 from src.api.entities_api.db.database import SessionLocal
-from src.api.entities_api.models.models import Assistant, Tool, User, VectorStore
+from src.api.entities_api.models.models import (Assistant, Tool, User,
+                                                VectorStore)
 from src.api.entities_api.services.logging_service import LoggingUtility
 from src.api.entities_api.utils.cache_utils import get_sync_invalidator
 

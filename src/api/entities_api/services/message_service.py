@@ -6,7 +6,6 @@ from fastapi import HTTPException
 from projectdavid_common import UtilsInterface, ValidationInterface
 
 from src.api.entities_api.db.database import SessionLocal
-
 # FIX: Import Action/Tool for the JOIN
 from src.api.entities_api.models.models import Action, Message, Thread, Tool
 from src.api.entities_api.services.logging_service import LoggingUtility
