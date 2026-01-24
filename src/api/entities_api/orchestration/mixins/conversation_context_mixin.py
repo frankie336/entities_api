@@ -18,8 +18,7 @@ from projectdavid import Entity
 from src.api.entities_api.dependencies import get_message_cache
 from src.api.entities_api.orchestration.mixins import AssistantCacheMixin
 from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.system_message.main_assembly import \
-    assemble_instructions
+from src.api.entities_api.system_message.main_assembly import assemble_instructions
 
 LOG = LoggingUtility()
 
@@ -35,8 +34,7 @@ class ConversationContextMixin:
         """
         if not self._message_cache:
             # Import your sync helper (adjust the import path to your project structure)
-            from src.api.entities_api.cache.message_cache import \
-                get_sync_message_cache
+            from src.api.entities_api.cache.message_cache import get_sync_message_cache
 
             self._message_cache = get_sync_message_cache()
         return self._message_cache

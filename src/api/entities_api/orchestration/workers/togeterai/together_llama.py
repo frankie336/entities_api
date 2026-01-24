@@ -1,5 +1,6 @@
-from src.api.entities_api.orchestration.workers.base_workers.llama_base import \
-    LlamaBaseWorker
+from src.api.entities_api.orchestration.workers.base_workers.llama_base import (
+    LlamaBaseWorker,
+)
 
 
 class TogetherLlamaWorker(LlamaBaseWorker):

@@ -3,14 +3,16 @@ from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from src.api.entities_api.orchestration.engine.inference_arbiter import \
-    InferenceArbiter
-from src.api.entities_api.orchestration.workers.togeterai.together_deepseek import \
-    TogetherDs1
-from src.api.entities_api.orchestration.workers.togeterai.together_llama import \
-    TogetherLlamaWorker
-from src.api.entities_api.orchestration.workers.togeterai.together_quen import \
-    TogetherQwenWorker
+from src.api.entities_api.orchestration.engine.inference_arbiter import InferenceArbiter
+from src.api.entities_api.orchestration.workers.togeterai.together_deepseek import (
+    TogetherDs1,
+)
+from src.api.entities_api.orchestration.workers.togeterai.together_llama import (
+    TogetherLlamaWorker,
+)
+from src.api.entities_api.orchestration.workers.togeterai.together_quen import (
+    TogetherQwenWorker,
+)
 
 LOG = LoggingUtility()
 
@@ -23,11 +25,13 @@ class TogetherAIHandler:
     """
 
     SUBMODEL_CLASS_MAP: dict[str, Type[Any]] = {
+        # --- DeepSeek ---
         "deepseek-ai/DeepSeek-R1": TogetherDs1,
         "deepseek-ai/DeepSeek-V3": TogetherDs1,
         "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B": TogetherDs1,  # <--unable to access no serverless
         "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B": TogetherDs1,  # <--unable to access no serverless
         "deepseek-ai/DeepSeek-R1-Distill-Llama-70B-free": TogetherDs1,
+        # --- Meta Llama / Mistral / Google ---
         "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": TogetherLlamaWorker,
         "meta-llama/Llama-4-Scout-17B-16E-Instruct": TogetherLlamaWorker,
         "meta-llama/Llama-3.3-70B-Instruct-Turbo": TogetherLlamaWorker,
@@ -38,9 +42,31 @@ class TogetherAIHandler:
         "google/gemma-2-9b-it": TogetherLlamaWorker,
         "mistralai/Mistral-7B-Instruct-v0.2": TogetherLlamaWorker,
         "mistralai/Mistral-7B-Instruct-v0.3": TogetherLlamaWorker,
+        # --- Qwen (Legacy/Existing) ---
         "Qwen/QwQ-32B": TogetherQwenWorker,
         "Qwen/Qwen2.5-Coder-32B-Instruct": TogetherQwenWorker,
         "Qwen/Qwen2-VL-72B-Instruct": TogetherQwenWorker,
+        # --- Qwen (New Additions - Qwen 3) ---
+        "Qwen/Qwen3-Next-80B-A3B-Instruct": TogetherQwenWorker,
+        "Qwen/Qwen3-Next-80B-A3B-Thinking": TogetherQwenWorker,
+        "Qwen/Qwen3-Next-80B-A3B-Instruct-FP8": TogetherQwenWorker,
+        "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8": TogetherQwenWorker,
+        "Qwen/Qwen3-235B-A22B-Instruct-2507-tput": TogetherQwenWorker,
+        "Qwen/Qwen3-235B-A22B-fp8-tput": TogetherQwenWorker,
+        "Qwen/Qwen3-235B-A22B-Thinking-2507": TogetherQwenWorker,
+        "Qwen/Qwen3-VL-8B-Instruct": TogetherQwenWorker,
+        "Qwen/Qwen3-VL-32B-Instruct": TogetherQwenWorker,
+        "Qwen/Qwen3-VL-235B-A22B-Instruct-FP": TogetherQwenWorker,
+        "Qwen/Qwen3-8B": TogetherQwenWorker,
+        "Qwen/Qwen3-14B-Base": TogetherQwenWorker,
+        # --- Qwen (New Additions - Qwen 2.5/Misc) ---
+        "Qwen/Qwen2.5-72B-Instruct": TogetherQwenWorker,
+        "Qwen/Qwen2.5-72B-Instruct-Turbo": TogetherQwenWorker,
+        "Qwen/Qwen2.5-VL-72B-Instruct": TogetherQwenWorker,
+        "Qwen/Qwen2.5-7B-Instruct-Turbo": TogetherQwenWorker,
+        "Qwen/Qwen2.5-1.5B": TogetherQwenWorker,
+        "Qwen/Qwen-Image": TogetherQwenWorker,
+        "Qwen/Qwen2-7B": TogetherQwenWorker,
     }
 
     def __init__(self, arbiter: InferenceArbiter):
