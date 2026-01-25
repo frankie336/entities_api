@@ -8,7 +8,7 @@ from entities_api.orchestration.engine.inference_arbiter import \
 from src.api.entities_api.orchestration.workers.hyperbolic.hb_deepseek import \
     HyperbolicDs1
 from src.api.entities_api.orchestration.workers.hyperbolic.hb_gpt_oss import \
-    HyperbolicGptOss
+    HyperbolicGptOssWorker
 from src.api.entities_api.orchestration.workers.hyperbolic.hb_llama import \
     HyperbolicLlamaWorker
 from src.api.entities_api.orchestration.workers.hyperbolic.hb_quen import \
@@ -29,7 +29,7 @@ class HyperbolicHandler:
         "deepseek-r1": HyperbolicDs1,
         "meta-llama/": HyperbolicLlamaWorker,
         "Qwen/": HyperbolicQuenQwq32B,
-        "openai/gpt-oss-": HyperbolicGptOss,
+        "openai/gpt-oss-": HyperbolicGptOssWorker,
     }
 
     def __init__(self, arbiter: InferenceArbiter):

@@ -1,3 +1,4 @@
+# tests/integration/unified_inference_test.py
 """
 Automated Model Benchmark: Reasoning & Tool Use
 -----------------------------------------------
@@ -13,9 +14,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from constants import TOGETHER_AI_MODELS
 from dotenv import load_dotenv
+from models import HYPERBOLIC_MODELS, TOGETHER_AI_MODELS
 from projectdavid import Entity
+
+from src.api.entities_api.system_message.main_assembly import \
+    assemble_instructions
 
 # ------------------------------------------------------------------
 # 0. Setup & Config
@@ -36,23 +40,23 @@ ENTITIES_API_KEY = os.getenv("ENTITIES_API_KEY")
 USER_ID = os.getenv("ENTITIES_USER_ID")
 REPORT_FILE = root_dir / "model_compatibility_report.md"
 
-# --- MULTI-PROVIDER MODEL CONFIG ---
-# Structure: "Readable_Label": {"id": "INTERNAL_KEY_WITH_PREFIX", "provider": "provider_name"}
-
-REASONING_INSTRUCTIONS = """You are a helpful assistant equipped with specific tools.
-RULES:
-1. TOOL USE: You have a tool called 'get_flight_times'. If the user asks about flights, you MUST use this tool.
-2. REASONING: If you need to think through a problem, use <think> tags or your internal reasoning process visible to the user.
-"""
+tool_instructions = assemble_instructions(
+    include_keys=[
+        "TOOL_USAGE_PROTOCOL",
+        "FUNCTION_CALL_FORMATTING",
+        "FUNCTION_CALL_WRAPPING",
+    ]
+)
 
 
 def get_api_key_for_provider(provider: str) -> str:
     """Dynamic key resolver based on provider name."""
-    if provider == "together-ai":
+    p = provider.lower()
+    if "together" in p:
         return os.getenv("TOGETHER_API_KEY", "")
-    elif provider == "hyperbolic":
+    elif "hyperbolic" in p:
         return os.getenv("HYPERBOLIC_API_KEY", "")
-    elif provider == "openai":
+    elif "openai" in p:
         return os.getenv("OPENAI_API_KEY", "")
     return ""
 
@@ -91,14 +95,12 @@ class ReportManager:
             "# 🧪 Model Compatibility Report",
             f"**Last Update:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             "",
-            # ADDED: Endpoint ID Column
             "| Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Last Run | Notes |",
             "| :--- | :--- | :--- | :---: | :---: | :---: | :--- | :--- |",
         ]
 
         existing_rows = {}
 
-        # 1. Read existing file
         if file_path.exists():
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
@@ -106,7 +108,6 @@ class ReportManager:
                     for line in lines:
                         if line.strip().startswith("| **"):
                             try:
-                                # Key off the Model Name (first column)
                                 parts = line.split("|")
                                 name = parts[1].replace("**", "").strip()
                                 existing_rows[name] = line.strip()
@@ -115,7 +116,6 @@ class ReportManager:
             except Exception as e:
                 print(f"{RED}[!] Error reading existing report: {e}{RESET}")
 
-        # 2. Update/Insert new results
         for res in new_results:
             inf_icon = "✅" if res["inference_ok"] else "❌"
             reas_icon = "🧠" if res["reasoning_detected"] else "—"
@@ -126,12 +126,9 @@ class ReportManager:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
             note = res["error_msg"] if res["error_msg"] else "OK"
 
-            # Format: | Name | Provider | ID | Inf | Reas | Tool | Time | Note |
-            # Added res['id'] in code-ticks
             row = f"| **{res['name']}** | {res['provider']} | `{res['id']}` | {inf_icon} | {reas_icon} | {tool_icon} | {timestamp} | {note} |"
             existing_rows[res["name"]] = row
 
-        # 3. Write Back
         with open(file_path, "w", encoding="utf-8") as f:
             f.write("\n".join(header_lines) + "\n")
             for name in sorted(existing_rows.keys()):
@@ -164,7 +161,7 @@ class ModelTester:
 
             assistant = self.client.assistants.create_assistant(
                 name=f"Bench_{self.model_label}",
-                instructions=REASONING_INSTRUCTIONS,
+                instructions=tool_instructions,
                 model=self.model_id,
                 tools=[
                     {
@@ -182,7 +179,6 @@ class ModelTester:
                             },
                         },
                     },
-                    {"type": "code_interpreter"},
                 ],
             )
 
@@ -202,7 +198,6 @@ class ModelTester:
             "error_msg": "",
         }
 
-        # --- Test 1: Reasoning / Inference ---
         print(
             f"\n{YELLOW}--- Stage 1: Inference & Reasoning ({self.model_label}) ---{RESET}"
         )
@@ -230,7 +225,6 @@ class ModelTester:
             result["error_msg"] = f"Inference Exception: {str(e)[:50]}"
             return result
 
-        # --- Test 2: Tools ---
         if result["inference_ok"]:
             print(f"\n{YELLOW}--- Stage 2: Tool Calls ({self.model_label}) ---{RESET}")
             try:
@@ -299,9 +293,10 @@ class ModelTester:
 
         try:
             for chunk in sync_stream.stream_chunks(
-                provider=self.provider,  # Dynamic provider string
+                provider=self.provider,
                 model=self.model_id,
                 timeout_per_chunk=timeout,
+                suppress_fc=False,  # <--- CRITICAL: Must be False for tool detection
             ):
                 ctype = chunk.get("type")
                 content = chunk.get("content", "")
@@ -315,7 +310,6 @@ class ModelTester:
                 elif ctype == "error":
                     flags["has_error"] = True
 
-                # Visuals
                 if ctype == "reasoning":
                     if current_mode != "reasoning":
                         print(f"\n{CYAN}🤔 [THOUGHT PROCESS]{RESET}\n", end="")
@@ -356,7 +350,16 @@ def main(models):
 
     print(f"Starting Benchmark for {len(models)} models...\n")
 
-    for label, config in models.items():
+    for label, raw_config in models.items():
+        # --- FIX: Handle String Configs vs Dict Configs ---
+        if isinstance(raw_config, str):
+            # If the config is just a string (ID), create the dict structure.
+            # We assume 'hyperbolic' is the provider since that's what we are running.
+            config = {"id": raw_config, "provider": "hyperbolic"}
+        else:
+            config = raw_config
+        # --------------------------------------------------
+
         tester = ModelTester(label, config)
 
         # 1. Setup
@@ -388,4 +391,4 @@ def main(models):
 
 
 if __name__ == "__main__":
-    main(models=TOGETHER_AI_MODELS)
+    main(models=HYPERBOLIC_MODELS)
