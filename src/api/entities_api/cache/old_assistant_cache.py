@@ -1,7 +1,7 @@
 import asyncio
 import json
 import os
-from typing import Any, Dict, List, Union
+from typing import Union
 
 from projectdavid import Entity
 from redis import Redis as SyncRedis
@@ -34,6 +34,7 @@ class AssistantCache:
         if isinstance(self.redis, AsyncRedis):
             raw = await self.redis.get(key)
         else:
+            # Pass arguments directly after the function name
             raw = await asyncio.to_thread(self.redis.get, key)
         return json.loads(raw) if raw else None
 
@@ -43,49 +44,22 @@ class AssistantCache:
         if isinstance(self.redis, AsyncRedis):
             await self.redis.set(key, data, ex=REDIS_ASSISTANT_TTL)
         else:
+            # kwargs are passed directly to to_thread
             await asyncio.to_thread(self.redis.set, key, data, ex=REDIS_ASSISTANT_TTL)
 
     async def retrieve(self, assistant_id: str):
-        """
-        Fetches assistant details.
-        Tools are now extracted directly from the assistant object (tool_configs),
-        removing the need for a separate tools API lookup.
-        """
         cached = await self.get(assistant_id)
         if cached:
             return cached
-
         client = Entity(base_url=self.pd_base_url, api_key=self.pd_api_key)
-
-        # 1. Fetch Assistant
         assistant = await asyncio.to_thread(
             client.assistants.retrieve_assistant, assistant_id=assistant_id
         )
-
-        # 2. Extract Tools directly from the Assistant object
-        # (This maps to the JSON 'tool_configs' column in the DB)
-        raw_tools = getattr(assistant, "tools", []) or []
-
-        # 3. Normalize Pydantic models to dicts for JSON serialization
-        clean_tools = []
-        for t in raw_tools:
-            if isinstance(t, dict):
-                clean_tools.append(t)
-            elif hasattr(t, "model_dump"):  # Pydantic v2
-                clean_tools.append(t.model_dump())
-            elif hasattr(t, "dict"):  # Pydantic v1
-                clean_tools.append(t.dict())
-            else:
-                # Fallback for unexpected types
-                clean_tools.append(dict(t))
-
-        payload = {
-            "instructions": assistant.instructions,
-            "tools": clean_tools,
-            # Optional: You might want to cache the model name here too if needed downstream
-            # "model": assistant.model
-        }
-
+        tools = await asyncio.to_thread(
+            client.tools.list_tools, assistant_id=assistant_id, restructure=True
+        )
+        clean_tools = [t if isinstance(t, dict) else t.dict() for t in tools]
+        payload = {"instructions": assistant.instructions, "tools": clean_tools}
         await self.set(assistant_id, payload)
         return payload
 
@@ -97,6 +71,7 @@ class AssistantCache:
         if isinstance(self.redis, AsyncRedis):
             await self.redis.delete(key)
         else:
+            # Corrected syntax: func followed by args
             await asyncio.to_thread(self.redis.delete, key)
 
     def invalidate_sync(self, assistant_id: str):
@@ -111,11 +86,7 @@ class AssistantCache:
             self.redis.delete(key)
         else:
             # If we somehow have an Async client in a sync context, run it
-            try:
-                asyncio.run(self.delete(assistant_id))
-            except RuntimeError:
-                # Fallback if an event loop is already running
-                pass
+            asyncio.run(self.delete(assistant_id))
 
     def retrieve_sync(self, assistant_id: str):
         """

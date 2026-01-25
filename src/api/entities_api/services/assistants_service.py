@@ -162,19 +162,28 @@ class AssistantService:
 
             data = assistant_update.model_dump(exclude_unset=True)
 
+            # Update basic fields
             for key, val in data.items():
                 if key not in self.RELATIONSHIP_FIELDS:
                     setattr(db_asst, key, val)
 
+            # -------------------------------------------------------
+            # TOOLS UPDATE (Source of Truth: tool_configs JSON)
+            # -------------------------------------------------------
             if "tools" in data:
-                # Pass the session to the helper
-                resolved_ids = self._resolve_tool_ids(data["tools"], db)
-                new_tools = db.query(Tool).filter(Tool.id.in_(resolved_ids)).all()
-                db_asst.tools = new_tools
-                if all(isinstance(item, dict) for item in data["tools"]):
-                    db_asst.tool_configs = data["tools"]
-                else:
-                    db_asst.tool_configs = [{"type": t.type} for t in new_tools]
+                # Get the current list (ensure it's a list)
+                current_configs = (
+                    list(db_asst.tool_configs) if db_asst.tool_configs else []
+                )
+                incoming_tools = data["tools"]
+
+                # Extend the array: append new tools if they aren't already exactly present
+                for new_tool in incoming_tools:
+                    if new_tool not in current_configs:
+                        current_configs.append(new_tool)
+
+                db_asst.tool_configs = current_configs
+                # Note: We no longer touch db_asst.tools relationship
 
             if "users" in data:
                 db_asst.users = (

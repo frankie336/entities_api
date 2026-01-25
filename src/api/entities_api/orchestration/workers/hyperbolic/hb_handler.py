@@ -10,7 +10,7 @@ from src.api.entities_api.orchestration.workers.hyperbolic.hb_deepseek import \
 from src.api.entities_api.orchestration.workers.hyperbolic.hb_gpt_oss import \
     HyperbolicGptOss
 from src.api.entities_api.orchestration.workers.hyperbolic.hb_llama import \
-    HyperbolicLlama33
+    HyperbolicLlamaWorker
 from src.api.entities_api.orchestration.workers.hyperbolic.hb_quen import \
     HyperbolicQuenQwq32B
 
@@ -27,7 +27,7 @@ class HyperbolicHandler:
         "deepseek-v3": HyperbolicDs1,
         "deepseek-ai/DeepSeek-V3-0324": HyperbolicDs1,
         "deepseek-r1": HyperbolicDs1,
-        "meta-llama/": HyperbolicLlama33,
+        "meta-llama/": HyperbolicLlamaWorker,
         "Qwen/": HyperbolicQuenQwq32B,
         "openai/gpt-oss-": HyperbolicGptOss,
     }

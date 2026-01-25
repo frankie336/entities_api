@@ -363,6 +363,7 @@ class Assistant(Base):
     tools = relationship(
         "Tool", secondary=assistant_tools, back_populates="assistants", lazy="joined"
     )
+
     users = relationship(
         "User", secondary=user_assistants, back_populates="assistants", lazy="select"
     )
