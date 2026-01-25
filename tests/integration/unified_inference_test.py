@@ -83,12 +83,12 @@ def get_flight_times(tool_name: str, arguments) -> str:
 
 
 # ------------------------------------------------------------------
-# 2. Report Manager
+# 2. Report Manager (Refactored for Provider-First Sorting)
 # ------------------------------------------------------------------
 class ReportManager:
     @staticmethod
     def update_report(new_results: List[Dict]):
-        """Reads existing MD, updates specific rows, writes back."""
+        """Reads existing MD, updates rows, and sorts by Provider then Model Name."""
         file_path = Path(REPORT_FILE)
 
         header_lines = [
@@ -99,23 +99,29 @@ class ReportManager:
             "| :--- | :--- | :--- | :---: | :---: | :---: | :--- | :--- |",
         ]
 
-        existing_rows = {}
+        # Key: Model Name, Value: { 'provider': str, 'row': str }
+        data_store = {}
 
+        # 1. Read existing rows and extract provider metadata
         if file_path.exists():
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
-                    lines = f.readlines()
-                    for line in lines:
-                        if line.strip().startswith("| **"):
-                            try:
-                                parts = line.split("|")
+                    for line in f:
+                        clean_line = line.strip()
+                        if clean_line.startswith("| **"):
+                            parts = [p.strip() for p in clean_line.split("|")]
+                            if len(parts) >= 3:
+                                # Extract Name (Part 1) and Provider (Part 2)
                                 name = parts[1].replace("**", "").strip()
-                                existing_rows[name] = line.strip()
-                            except IndexError:
-                                pass
+                                provider = parts[2].strip()
+                                data_store[name] = {
+                                    "provider": provider,
+                                    "row": clean_line,
+                                }
             except Exception as e:
                 print(f"{RED}[!] Error reading existing report: {e}{RESET}")
 
+        # 2. Process new results (overwrite or add)
         for res in new_results:
             inf_icon = "✅" if res["inference_ok"] else "❌"
             reas_icon = "🧠" if res["reasoning_detected"] else "—"
@@ -126,15 +132,33 @@ class ReportManager:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
             note = res["error_msg"] if res["error_msg"] else "OK"
 
-            row = f"| **{res['name']}** | {res['provider']} | `{res['id']}` | {inf_icon} | {reas_icon} | {tool_icon} | {timestamp} | {note} |"
-            existing_rows[res["name"]] = row
+            # Construct the Markdown row
+            new_row = (
+                f"| **{res['name']}** | {res['provider']} | `{res['id']}` | "
+                f"{inf_icon} | {reas_icon} | {tool_icon} | {timestamp} | {note} |"
+            )
 
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(header_lines) + "\n")
-            for name in sorted(existing_rows.keys()):
-                f.write(existing_rows[name] + "\n")
+            # Store with metadata for sorting
+            data_store[res["name"]] = {"provider": res["provider"], "row": new_row}
 
-        print(f"\n{GREEN}[✓] Report updated: {file_path}{RESET}")
+        # 3. Sort by Provider (Primary) and Name (Secondary)
+        # We sort by the values of our data_store
+        sorted_names = sorted(
+            data_store.keys(),
+            key=lambda k: (data_store[k]["provider"].lower(), k.lower()),
+        )
+
+        # 4. Write back to file
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(header_lines) + "\n")
+                for name in sorted_names:
+                    f.write(data_store[name]["row"] + "\n")
+            print(
+                f"\n{GREEN}[✓] Report updated and sorted by Provider: {file_path}{RESET}"
+            )
+        except Exception as e:
+            print(f"{RED}[!] Failed to write report: {e}{RESET}")
 
 
 # ------------------------------------------------------------------

@@ -3,17 +3,15 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
-from projectdavid import Entity
 from projectdavid_common import UtilsInterface, ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.exc import IntegrityError
 
+from src.api.entities_api.db.database import SessionLocal
 # FIX: Removed Tool from imports, kept Action and Run
 from src.api.entities_api.models.models import Action, Run
-from src.api.entities_api.db.database import SessionLocal
 from src.api.entities_api.utils.conversion_utils import datetime_to_iso
 
-client = Entity()
 validator = ValidationInterface()
 logging_utility = LoggingUtility()
 
@@ -46,7 +44,9 @@ class ActionService:
 
             db.commit()
 
-    def update_action_output(self, action_id: str, new_content: str, is_partial: bool = True):
+    def update_action_output(
+        self, action_id: str, new_content: str, is_partial: bool = True
+    ):
         with SessionLocal() as db:
             action = db.query(Action).get(action_id)
             if not action:
@@ -76,7 +76,9 @@ class ActionService:
             action.result = current_result
             db.commit()
 
-    def create_action(self, action_data: validator.ActionCreate) -> validator.ActionRead:
+    def create_action(
+        self, action_data: validator.ActionCreate
+    ) -> validator.ActionRead:
         logging_utility.info(
             "Creating action for tool_call_id: %s, run_id: %s",
             action_data.tool_call_id,
@@ -121,17 +123,21 @@ class ActionService:
                     # We accept that tool_name might be null in the Read response
                     # unless we pass what came in, but ActionRead usually requires it from DB.
                     # Mapping tool_name to tool_call_id or "dynamic" as fallback.
-                    tool_name=action_data.tool_name or "dynamic_tool"
+                    tool_name=action_data.tool_name or "dynamic_tool",
                 )
             except IntegrityError as e:
                 db.rollback()
-                logging_utility.error("IntegrityError during action creation: %s", str(e))
+                logging_utility.error(
+                    "IntegrityError during action creation: %s", str(e)
+                )
                 raise HTTPException(
                     status_code=400, detail="Invalid action data or duplicate entry"
                 )
             except Exception as e:
                 db.rollback()
-                logging_utility.error("Unexpected error during action creation: %s", str(e))
+                logging_utility.error(
+                    "Unexpected error during action creation: %s", str(e)
+                )
                 raise HTTPException(
                     status_code=500,
                     detail="An error occurred while creating the action",
@@ -144,7 +150,9 @@ class ActionService:
             try:
                 action = db.query(Action).filter(Action.id == action_id).first()
                 if not action:
-                    raise HTTPException(status_code=404, detail=f"Action {action_id} not found")
+                    raise HTTPException(
+                        status_code=404, detail=f"Action {action_id} not found"
+                    )
 
                 # FIX: Removed client.tool_service.get_tool_by_id(...)
                 # Since we don't store the name, we assume the caller has context
@@ -154,13 +162,11 @@ class ActionService:
                     id=action.id,
                     run_id=action.run_id,
                     # tool_id removed from response
-                    tool_name=action.tool_call_id, # Fallback, as name is not in DB
-
+                    tool_name=action.tool_call_id,  # Fallback, as name is not in DB
                     # --- NEW FIELDS ---
                     tool_call_id=action.tool_call_id,
                     turn_index=action.turn_index,
                     # ------------------
-
                     triggered_at=datetime_to_iso(action.triggered_at),
                     expires_at=datetime_to_iso(action.expires_at),
                     is_processed=action.is_processed,
@@ -205,7 +211,7 @@ class ActionService:
                 return validator.ActionRead(
                     id=action.id,
                     tool_call_id=action.tool_call_id,
-                    tool_name=action.tool_call_id, # Fallback
+                    tool_name=action.tool_call_id,  # Fallback
                     status=action.status,
                     result=action.result,
                     processed_at=datetime_to_iso(action.processed_at),
@@ -213,23 +219,29 @@ class ActionService:
             except Exception as e:
                 db.rollback()
                 logging_utility.error(f"Error updating action status: {str(e)}")
-                raise HTTPException(status_code=500, detail="Error updating action status")
+                raise HTTPException(
+                    status_code=500, detail="Error updating action status"
+                )
 
     def get_actions_by_status(
         self, run_id: str, status: Optional[str] = "pending"
     ) -> List[validator.ActionRead]:
-        logging_utility.info(f"Retrieving actions for run_id: {run_id} with status: {status}")
+        logging_utility.info(
+            f"Retrieving actions for run_id: {run_id} with status: {status}"
+        )
         with SessionLocal() as db:
             try:
                 actions = (
-                    db.query(Action).filter(Action.run_id == run_id, Action.status == status).all()
+                    db.query(Action)
+                    .filter(Action.run_id == run_id, Action.status == status)
+                    .all()
                 )
                 return [
                     validator.ActionRead(
                         id=action.id,
                         run_id=action.run_id,
                         tool_call_id=action.tool_call_id,
-                        tool_name=action.tool_call_id, # Fallback
+                        tool_name=action.tool_call_id,  # Fallback
                         triggered_at=datetime_to_iso(action.triggered_at),
                         expires_at=datetime_to_iso(action.expires_at),
                         is_processed=action.is_processed,
@@ -258,13 +270,14 @@ class ActionService:
                     Action.function_args.label("function_arguments"),
                     # FIX: We cannot fetch Tool.name anymore.
                     # The consumer must rely on tool_call_id or function_args.
-                    Action.tool_call_id.label("tool_name"), # Using call_id as proxy for name if needed
+                    Action.tool_call_id.label(
+                        "tool_name"
+                    ),  # Using call_id as proxy for name if needed
                     Run.id.label("run_id"),
                     Run.status.label("run_status"),
                 )
                 # FIX: Removed .join(Tool, ...)
-                .join(Run, Action.run_id == Run.id)
-                .filter(Action.status == "pending")
+                .join(Run, Action.run_id == Run.id).filter(Action.status == "pending")
             )
 
             if run_id:
@@ -285,7 +298,9 @@ class ActionService:
                     )
                 db.delete(action)
                 db.commit()
-                logging_utility.info("Action with ID %s deleted successfully", action_id)
+                logging_utility.info(
+                    "Action with ID %s deleted successfully", action_id
+                )
             except Exception as e:
                 db.rollback()
                 logging_utility.error("Error deleting action: %s", str(e))

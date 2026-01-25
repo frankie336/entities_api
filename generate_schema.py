@@ -3,7 +3,6 @@ import os
 import sys
 from unittest.mock import MagicMock
 
-
 # -------------------------------------------------------------------------
 # 1. SETUP DUMMY ENVIRONMENT
 #    We set these before importing the app to prevent config validation errors.
@@ -36,6 +35,7 @@ sys.modules["src.api.entities_api.db.database"] = mock_db_module
 # -------------------------------------------------------------------------
 try:
     from fastapi.openapi.utils import get_openapi
+
     from src.api.entities_api.app import create_app
 
     print(">> Initializing FastAPI App (Schema Mode)...")

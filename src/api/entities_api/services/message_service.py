@@ -1,3 +1,4 @@
+# src/api/entities_api/services/message_service.py
 import json
 import time
 from typing import Any, Dict, List, Optional
@@ -6,8 +7,9 @@ from fastapi import HTTPException
 from projectdavid_common import UtilsInterface, ValidationInterface
 
 from src.api.entities_api.db.database import SessionLocal
-# FIX: Import Action/Tool for the JOIN
-from src.api.entities_api.models.models import Action, Message, Thread, Tool
+# FIX: Removed Tool from imports. Kept Action if needed for other logic,
+# but removed it from the messages JOIN.
+from src.api.entities_api.models.models import Message, Thread
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 validator = ValidationInterface()
@@ -22,14 +24,14 @@ class MessageService:
 
     def create_message(self, message: validator.MessageCreate) -> validator.MessageRead:
         logging_utility.info(
-            f"Creating message for thread_id={message.thread_id}, role={message.role}. Source: {__file__}"
+            f"Creating message for thread_id={message.thread_id}, role={message.role}."
         )
         with SessionLocal() as db:
             db_thread = db.query(Thread).filter(Thread.id == message.thread_id).first()
             if not db_thread:
                 raise HTTPException(status_code=404, detail="Thread not found")
 
-            # Safe access
+            # tool_id is now just a string reference, not a Foreign Key
             t_id = getattr(message, "tool_id", None)
             tc_id = getattr(message, "tool_call_id", None)
 
@@ -42,7 +44,7 @@ class MessageService:
                 created_at=int(time.time()),
                 incomplete_at=None,
                 incomplete_details=None,
-                meta_data=json.dumps(message.meta_data),
+                meta_data=json.dumps(message.meta_data) if message.meta_data else "{}",
                 object="message",
                 role=message.role,
                 run_id=None,
@@ -61,54 +63,15 @@ class MessageService:
                 logging_utility.error(f"Error saving message: {e}")
                 raise HTTPException(status_code=500, detail="Failed to create message")
 
-            return ValidationInterface.MessageRead(
-                id=db_message.id,
-                assistant_id=db_message.assistant_id,
-                attachments=db_message.attachments,
-                completed_at=db_message.completed_at,
-                content=db_message.content,
-                created_at=db_message.created_at,
-                incomplete_at=db_message.incomplete_at,
-                incomplete_details=db_message.incomplete_details,
-                meta_data=json.loads(db_message.meta_data or "{}"),
-                object=db_message.object,
-                role=db_message.role,
-                run_id=db_message.run_id,
-                status=db_message.status,
-                thread_id=db_message.thread_id,
-                sender_id=db_message.sender_id,
-                tool_id=db_message.tool_id,
-                tool_call_id=db_message.tool_call_id,
-            )
+            return validator.MessageRead.model_validate(db_message)
 
-    def retrieve_message(self, message_id: str) -> ValidationInterface.MessageRead:
-        logging_utility.info(
-            f"Retrieving message with id={message_id}. Source: {__file__}"
-        )
+    def retrieve_message(self, message_id: str) -> validator.MessageRead:
         with SessionLocal() as db:
             db_message = db.query(Message).filter(Message.id == message_id).first()
             if not db_message:
                 raise HTTPException(status_code=404, detail="Message not found")
 
-            return ValidationInterface.MessageRead(
-                id=db_message.id,
-                assistant_id=db_message.assistant_id,
-                attachments=db_message.attachments,
-                completed_at=db_message.completed_at,
-                content=db_message.content,
-                created_at=db_message.created_at,
-                incomplete_at=db_message.incomplete_at,
-                incomplete_details=db_message.incomplete_details,
-                meta_data=json.loads(db_message.meta_data or "{}"),
-                object=db_message.object,
-                role=db_message.role,
-                run_id=db_message.run_id,
-                status=db_message.status,
-                thread_id=db_message.thread_id,
-                sender_id=db_message.sender_id,
-                tool_id=db_message.tool_id,
-                tool_call_id=db_message.tool_call_id,
-            )
+            return validator.MessageRead.model_validate(db_message)
 
     def list_messages(
         self,
@@ -116,9 +79,6 @@ class MessageService:
         limit: int = 20,
         order: str = "asc",
     ) -> validator.MessagesList:
-        logging_utility.info(
-            f"Listing messages for thread_id={thread_id}, limit={limit}, order={order}."
-        )
         with SessionLocal() as db:
             db_thread = db.query(Thread).filter(Thread.id == thread_id).first()
             if not db_thread:
@@ -134,6 +94,7 @@ class MessageService:
 
             messages: List[validator.MessageRead] = []
             for db_msg in db_messages:
+                # Ensure meta_data is a dict for Pydantic validation
                 if isinstance(db_msg.meta_data, str):
                     try:
                         db_msg.meta_data = json.loads(db_msg.meta_data)
@@ -156,7 +117,7 @@ class MessageService:
         assistant_id: str,
         sender_id: str,
         is_last_chunk: bool = False,
-    ) -> Optional[ValidationInterface.MessageRead]:
+    ) -> Optional[validator.MessageRead]:
         if thread_id not in self.message_chunks:
             self.message_chunks[thread_id] = []
         self.message_chunks[thread_id].append(content)
@@ -188,30 +149,23 @@ class MessageService:
                 db.rollback()
                 raise HTTPException(status_code=500, detail="Failed to save message")
 
-            if isinstance(db_message.meta_data, str):
-                try:
-                    db_message.meta_data = json.loads(db_message.meta_data)
-                except (json.JSONDecodeError, TypeError):
-                    db_message.meta_data = {}
-
-            return ValidationInterface.MessageRead.model_validate(db_message)
+            return validator.MessageRead.model_validate(db_message)
 
     # ------------------------------------------------------------------
-    # DEFINITIVE FIX: JOIN Message -> Action -> Tool to get 'name'
+    # REFACTORED: Removed Tool/Action JOINs
     # ------------------------------------------------------------------
     def get_formatted_messages(self, thread_id: str) -> List[Dict[str, Any]]:
         """
-        Refactored to ensure Assistant Tool Calls are structured for OpenAI/Hyperbolic protocols.
+        Structures messages for LLM consumption without relying on the Tool table.
         """
         with SessionLocal() as db:
             db_thread = db.query(Thread).filter(Thread.id == thread_id).first()
             if not db_thread:
                 raise HTTPException(status_code=404, detail="Thread not found")
 
-            results = (
-                db.query(Message, Tool.name)
-                .outerjoin(Action, Message.tool_id == Action.id)
-                .outerjoin(Tool, Action.tool_id == Tool.id)
+            # Simple query: No joins to deprecated Tool table
+            messages = (
+                db.query(Message)
                 .filter(Message.thread_id == thread_id)
                 .order_by(Message.created_at.asc())
                 .all()
@@ -219,18 +173,17 @@ class MessageService:
 
             formatted_messages: List[Dict[str, Any]] = []
 
-            for db_message, tool_name in results:
+            for db_message in messages:
                 role = db_message.role
 
                 # --- 1. TOOL RESPONSE ---
                 if role == "tool":
-                    # Ensure we provide BOTH tool_call_id and name
+                    # In OpenAI/Hyperbolic protocol, 'name' is often expected but
+                    # 'tool_call_id' is the primary identifier.
                     formatted_messages.append(
                         {
                             "role": "tool",
-                            "tool_call_id": db_message.tool_call_id
-                            or db_message.tool_id,
-                            "name": tool_name,
+                            "tool_call_id": db_message.tool_call_id,
                             "content": db_message.content,
                         }
                     )
@@ -239,10 +192,9 @@ class MessageService:
                 # --- 2. ASSISTANT (CONTENT vs TOOL CALL) ---
                 if role == "assistant":
                     try:
-                        # Attempt to see if this content is a tool call JSON
+                        # Check if content holds tool_calls JSON (Level 2/3 behavior)
                         parsed = json.loads(db_message.content)
 
-                        # A more robust check for tool call structure
                         is_tool_list = (
                             isinstance(parsed, list)
                             and len(parsed) > 0
@@ -252,29 +204,20 @@ class MessageService:
                         )
 
                         if is_tool_list:
-                            # CRITICAL: Content MUST be None or "" for tool_calls to be valid
                             formatted_messages.append(
                                 {
                                     "role": "assistant",
-                                    "content": "",
+                                    "content": None,  # Content must be null for tool_calls
                                     "tool_calls": parsed,
                                 }
                             )
                         else:
-                            # It's a standard text response
                             formatted_messages.append(
-                                {
-                                    "role": "assistant",
-                                    "content": db_message.content,
-                                }
+                                {"role": "assistant", "content": db_message.content}
                             )
                     except (json.JSONDecodeError, TypeError):
-                        # Not JSON, treat as text
                         formatted_messages.append(
-                            {
-                                "role": "assistant",
-                                "content": db_message.content,
-                            }
+                            {"role": "assistant", "content": db_message.content}
                         )
                     continue
 
@@ -290,14 +233,11 @@ class MessageService:
 
     def submit_tool_output(
         self, message: validator.MessageCreate
-    ) -> ValidationInterface.MessageRead:
+    ) -> validator.MessageRead:
         with SessionLocal() as db:
             db_thread = db.query(Thread).filter(Thread.id == message.thread_id).first()
             if not db_thread:
                 raise HTTPException(status_code=404, detail="Thread not found")
-
-            t_id = getattr(message, "tool_id", None)
-            tc_id = getattr(message, "tool_call_id", None)
 
             db_message = Message(
                 id=UtilsInterface.IdentifierService.generate_message_id(),
@@ -308,8 +248,8 @@ class MessageService:
                 object="message",
                 role="tool",
                 thread_id=message.thread_id,
-                tool_id=t_id,
-                tool_call_id=tc_id,
+                tool_id=message.tool_id,
+                tool_call_id=message.tool_call_id,
             )
             try:
                 db.add(db_message)
@@ -319,13 +259,7 @@ class MessageService:
                 db.rollback()
                 raise HTTPException(status_code=500, detail="Failed to create message")
 
-            if isinstance(db_message.meta_data, str):
-                try:
-                    db_message.meta_data = json.loads(db_message.meta_data)
-                except (json.JSONDecodeError, TypeError):
-                    db_message.meta_data = {}
-
-            return ValidationInterface.MessageRead.model_validate(db_message)
+            return validator.MessageRead.model_validate(db_message)
 
     def delete_message(self, message_id: str) -> validator.MessageDeleted:
         with SessionLocal() as db:

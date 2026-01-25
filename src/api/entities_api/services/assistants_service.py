@@ -1,3 +1,4 @@
+# src/api/entities_api/services/assistant_service.py
 import time
 from typing import Any, List
 
@@ -6,11 +7,9 @@ from projectdavid import Entity
 from projectdavid_common import UtilsInterface, ValidationInterface
 from sqlalchemy.orm import Session
 
-# --- FIX: Step 1 ---
-# Import the SessionLocal factory.
+# --- FIX: Removed Tool from imports ---
 from src.api.entities_api.db.database import SessionLocal
-from src.api.entities_api.models.models import (Assistant, Tool, User,
-                                                VectorStore)
+from src.api.entities_api.models.models import Assistant, User, VectorStore
 from src.api.entities_api.services.logging_service import LoggingUtility
 from src.api.entities_api.utils.cache_utils import get_sync_invalidator
 
@@ -18,14 +17,13 @@ logging_utility = LoggingUtility()
 validator = ValidationInterface()
 
 
-# TODO We need a delete assistant method !
 class AssistantService:
     """
     CRUD + relationship utilities for `Assistant`.
     """
 
-    # ORM collections that require explicit handling
-    RELATIONSHIP_FIELDS = {"tools", "users", "vector_stores"}
+    # Removed "tools" from relationship fields as it is now a JSON column (tool_configs)
+    RELATIONSHIP_FIELDS = {"users", "vector_stores"}
 
     # ────────────────────────────────────────────────
     # Helpers
@@ -41,46 +39,12 @@ class AssistantService:
                 ids.append(item["id"])
         return ids
 
-    # --- FIX: Step 3 ---
-    # Helper methods that touch the database must now accept a session.
-    def _resolve_tool_ids(self, raw: list[Any], db: Session) -> list[str]:
-        """
-        Accepts:
-          • ["tool_abc", "tool_xyz"]
-          • [{"id": "tool_abc"}, {"type": "web_search"}]
-        Returns a list of tool IDs, creating a Tool row if only `type` is given.
-        """
-        ids: list[str] = []
-
-        for item in raw or []:
-            if isinstance(item, str):
-                ids.append(item)
-                continue
-
-            if isinstance(item, dict) and "id" in item:
-                ids.append(item["id"])
-                continue
-
-            if isinstance(item, dict) and "type" in item:
-                tool_type = item["type"]
-                tool = db.query(Tool).filter(Tool.type == tool_type).one_or_none()
-                if not tool:
-                    tool = Tool(
-                        id=f"tool_{tool_type}",
-                        name=tool_type.replace("_", " ").title(),
-                        type=tool_type,
-                    )
-                    db.add(tool)
-                    db.flush()  # assign PK
-                ids.append(tool.id)
-
-        return ids
+    # --- FIX: Removed _resolve_tool_ids ---
+    # We no longer create or resolve Tool rows in the database.
 
     # ────────────────────────────────────────────────
     # Constructor
     # ────────────────────────────────────────────────
-    # --- FIX: Step 2 ---
-    # The constructor no longer accepts or stores a database session.
     def __init__(self):
         self.client = Entity()
 
@@ -90,8 +54,6 @@ class AssistantService:
     def create_assistant(
         self, assistant: validator.AssistantCreate
     ) -> validator.AssistantRead:
-        # --- FIX: Step 4 ---
-        # Each method now creates and manages its own session.
         with SessionLocal() as db:
             assistant_id = (
                 assistant.id or UtilsInterface.IdentifierService.generate_assistant_id()
@@ -112,6 +74,7 @@ class AssistantService:
                 description=assistant.description,
                 model=assistant.model,
                 instructions=assistant.instructions,
+                # Mapping the 'tools' list from the schema to the JSON column
                 tool_configs=assistant.tools,
                 tool_resources=assistant.tool_resources,
                 meta_data=assistant.meta_data,
@@ -130,12 +93,7 @@ class AssistantService:
             db_asst = db.query(Assistant).filter(Assistant.id == assistant_id).first()
             if not db_asst:
                 raise HTTPException(status_code=404, detail="Assistant not found")
-            logging_utility.debug(
-                "Retrieved assistant %s | tool_configs=%s | tool_resources=%s",
-                assistant_id,
-                db_asst.tool_configs,
-                db_asst.tool_resources,
-            )
+
             return self.map_to_read_model(db_asst)
 
     def update_assistant(
@@ -144,15 +102,11 @@ class AssistantService:
         assistant_update: validator.AssistantUpdate,
     ) -> validator.AssistantRead:
 
-        # ------------------------------------------
-        # Invalidates current assistant cache!
-        # ------------------------------------------
         try:
             cache = get_sync_invalidator()
             cache.invalidate_sync(assistant_id)
             logging_utility.info(f"Invalidated cache for assistant {assistant_id}")
         except Exception as e:
-            # Don't fail the HTTP request just because Redis failed
             logging_utility.error(f"Failed to invalidate cache: {e}")
 
         with SessionLocal() as db:
@@ -162,28 +116,19 @@ class AssistantService:
 
             data = assistant_update.model_dump(exclude_unset=True)
 
-            # Update basic fields
+            # Update basic fields (including tool_configs if passed directly)
             for key, val in data.items():
-                if key not in self.RELATIONSHIP_FIELDS:
+                if key not in self.RELATIONSHIP_FIELDS and key != "tools":
                     setattr(db_asst, key, val)
 
             # -------------------------------------------------------
-            # TOOLS UPDATE (Source of Truth: tool_configs JSON)
+            # TOOLS UPDATE (Handled as JSON blob)
             # -------------------------------------------------------
             if "tools" in data:
-                # Get the current list (ensure it's a list)
-                current_configs = (
-                    list(db_asst.tool_configs) if db_asst.tool_configs else []
-                )
+                # Replace or append logic for the JSON tool definitions
                 incoming_tools = data["tools"]
-
-                # Extend the array: append new tools if they aren't already exactly present
-                for new_tool in incoming_tools:
-                    if new_tool not in current_configs:
-                        current_configs.append(new_tool)
-
-                db_asst.tool_configs = current_configs
-                # Note: We no longer touch db_asst.tools relationship
+                # If you want to replace tools entirely (standard OpenAI behavior):
+                db_asst.tool_configs = incoming_tools
 
             if "users" in data:
                 db_asst.users = (
@@ -230,9 +175,6 @@ class AssistantService:
             if assistant in user.assistants:
                 user.assistants.remove(assistant)
                 db.commit()
-                logging_utility.info(
-                    "Assistant %s disassociated from user %s", assistant_id, user_id
-                )
             else:
                 raise HTTPException(400, "Assistant not associated with the user")
 
@@ -247,13 +189,14 @@ class AssistantService:
     # Mapper
     # ────────────────────────────────────────────────
     def map_to_read_model(self, db_asst: Assistant) -> validator.AssistantRead:
-        # This method does not interact with the DB, so no changes are needed.
+        """
+        Maps DB Assistant to Pydantic AssistantRead.
+        Ensures the 'tools' field in schema is populated from 'tool_configs' JSON.
+        """
         data = db_asst.__dict__.copy()
         data.pop("_sa_instance_state", None)
 
-        if db_asst.tool_configs:
-            data["tools"] = db_asst.tool_configs
-        else:
-            data["tools"] = [{"id": t.id, "type": t.type} for t in db_asst.tools]
+        # FIX: The source of truth is strictly the tool_configs JSON column
+        data["tools"] = db_asst.tool_configs or []
 
         return validator.AssistantRead.model_validate(data)

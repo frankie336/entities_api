@@ -23,64 +23,72 @@ async def run_sync_generator_in_thread(
     sync_gen_func, *args, **kwargs
 ) -> AsyncGenerator[Any, None]:
     """
-    Runs a synchronous generator function in a separate thread.
+    Optimized Bridge: Runs a synchronous generator in a separate thread and
+    pumps data into the async event loop using zero-latency fire-and-forget queuing
+    with built-in backpressure handling.
     """
     loop = asyncio.get_running_loop()
-    # Queue size acts as a buffer. 512 is plenty.
+    # 512 is the 'shock absorber'. It can hold ~500 tokens/chunks before
+    # the worker thread is asked to slow down.
     queue = asyncio.Queue(maxsize=512)
     finished_sentinel = object()
 
     def run_generator():
         try:
-            # We cache the put coroutine function to avoid attribute lookups in loop
-            put_coro = queue.put
-
             for item in sync_gen_func(*args, **kwargs):
                 if loop.is_closed():
                     break
 
-                # CRITICAL CHANGE: Fire and forget unless we need backpressure.
-                # using run_coroutine_threadsafe returns a Future.
-                # calling .result() forces the thread to WAIT for the loop to process the put.
-                # We only want to wait if the queue is actually getting full (handled by queue.put internal logic).
-                future = asyncio.run_coroutine_threadsafe(put_coro(item), loop)
-
-                try:
-                    # We wait for the result to ensure backpressure if the queue is full.
-                    # However, this effectively syncs the thread and loop 1:1.
-                    # Given the speed of queue.put, this is usually acceptable,
-                    # but if you see lag, the JSON processing in the main loop is likely the bottleneck causing this wait.
-                    future.result()
-                except Exception:
-                    break
+                # --- BACKPRESSURE TWEAK ---
+                # Before we schedule the 'put', we check if the queue is full.
+                # This prevents the thread from overwhelming the Event Loop/Memory
+                # if the client's internet connection is slow.
+                while not loop.is_closed():
+                    if queue.qsize() < 512:
+                        # Schedule the put on the loop as soon as possible (fire-and-forget)
+                        loop.call_soon_threadsafe(queue.put_nowait, item)
+                        break
+                    else:
+                        # Queue is full: Client is slow.
+                        # We sleep the worker thread for 10ms to allow the loop to drain.
+                        time.sleep(0.01)
 
         except Exception as e:
             logging_utility.error(f"Error in sync generator thread: {e}", exc_info=True)
             if not loop.is_closed():
-                asyncio.run_coroutine_threadsafe(queue.put(e), loop)
+                loop.call_soon_threadsafe(queue.put_nowait, e)
         finally:
             if not loop.is_closed():
-                asyncio.run_coroutine_threadsafe(queue.put(finished_sentinel), loop)
+                loop.call_soon_threadsafe(queue.put_nowait, finished_sentinel)
 
-    # Run in the default ThreadPoolExecutor
+    # Execute the synchronous generator in the default ThreadPoolExecutor
     thread_task = loop.run_in_executor(None, run_generator)
 
     try:
         while True:
+            # The async consumer waits here for items.
+            # Because queue.get() is async, the main thread is free to handle
+            # other requests while waiting for the next LLM token.
             item = await queue.get()
+
             if item is finished_sentinel:
                 break
             if isinstance(item, Exception):
                 raise item
+
             yield item
-    except Exception:
-        # If the consumer (client) disconnects, we cancel the producer
-        thread_task.cancel()
+
+    except Exception as e:
+        logging_utility.warning(f"Streaming connection terminated: {e}")
+        # Note: We don't need to manually 'raise' here if using StreamingResponse,
+        # but we do want to ensure we stop the generator.
         raise
     finally:
-        # Cleanup
+        # Cleanup: Check if the thread task is still running
         if not thread_task.done():
-            thread_task.cancel()
+            # We can't kill a sync thread, but the 'if loop.is_closed()' check
+            # inside run_generator will eventually cause it to exit.
+            pass
 
 
 @router.post(
