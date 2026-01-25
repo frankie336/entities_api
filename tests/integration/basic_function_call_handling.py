@@ -28,40 +28,10 @@ USER_ID = os.getenv("ENTITIES_USER_ID")  # e.g. user_xxx…
 ASSISTANT_ID = "plt_ast_9fnJT01VGrK4a9fcNr8z2O"  # existing assistant
 # ASSISTANT_ID = create_assistant.id
 
-MODEL_ID = "together-ai/deepseek-ai/DeepSeek-V3"
+MODEL_ID = "hyperbolic/openai/gpt-oss-120b"
 PROVIDER_KW = "Hyperbolic"  # router reads model path anyway
 
-# HYPERBOLIC_API_KEY = os.getenv("HYPERBOLIC_API_KEY")    # provider key
-
-HYPERBOLIC_API_KEY = "d2c62c6ff04138210ca7e644fb8270a1d9508fbf93205465958040385a69701b"
-
-
-# -------------------------------------------
-# Temp update tools for master assistant
-# --------------------------------------------
-
-
-update_assistant = client.assistants.update_assistant(
-    assistant_id=ASSISTANT_ID,
-    tools=[
-        {
-            "type": "function",
-            "function": {
-                "name": "get_flight_times",
-                "description": "Get flight times",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "departure": {"type": "string"},
-                        "arrival": {"type": "string"},
-                    },
-                    "required": ["departure", "arrival"],
-                },
-            },
-        },
-    ],
-)
-print(f"Updated assistants tools with: {update_assistant.tools} ")
+HYPERBOLIC_API_KEY = os.getenv("HYPERBOLIC_API_KEY")  # provider key
 
 
 # ------------------------------------------------------------------
@@ -196,19 +166,3 @@ if handled:
     print("\n\n--- End of Stream ---")
 else:
     print("\n[!] No function call detected or execution failed.")
-
-
-# post fix example
-client = Entity(api_key=os.getenv("ENTITIES_API_KEY"))
-thread_id = thread.id
-messages = client.messages.list_messages(thread_id=thread_id)
-
-# message_dialogue = client.messages.list_messages(thread_id=thread_id).json()
-# print('This is the message dialogue from the orchestrated run:', message_dialogue)
-
-formatted_messages = client.messages.get_formatted_messages(thread_id=thread_id)
-print("Formatted inbound messages from the orchestrated run:", formatted_messages)
-
-
-assistant = client.assistants.retrieve_assistant(assistant_id=ASSISTANT_ID)
-print(assistant.tools)
