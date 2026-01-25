@@ -1,20 +1,20 @@
 import os
+
 from together import Together
 
 # Ideally, set this in your environment variables: export TOGETHER_API_KEY="your_key"
-client = Together(api_key=os.environ.get("TOGETHER_API_KEY", "d2c62c6ff04138210ca7e644fb8270a1d9508fbf93205465958040385a69701b"))
-
+client = Together(
+    api_key=os.environ.get(
+        "TOGETHER_API_KEY",
+        "d2c62c6ff04138210ca7e644fb8270a1d9508fbf93205465958040385a69701b",
+    )
+)
 
 
 response_stream = client.chat.completions.create(
     model="Qwen/Qwen3-Next-80B-A3B-Thinking",
-    messages=[
-        {
-            "role": "user",
-            "content": "Explain black holes in PhD terms"
-        }
-    ],
-    stream=True  # 1. Enable Streaming
+    messages=[{"role": "user", "content": "Explain black holes in PhD terms"}],
+    stream=True,  # 1. Enable Streaming
 )
 
 print(f"{'DELTA TYPE':<15} | {'CONTENT PAYLOAD'}")

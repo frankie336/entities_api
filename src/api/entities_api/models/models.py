@@ -1,4 +1,3 @@
-# src/api/entities_api/models/models.py
 import secrets
 import time
 from datetime import datetime
@@ -17,18 +16,16 @@ from sqlalchemy.orm import declarative_base, joinedload, relationship
 logger = LoggingUtility()
 Base = declarative_base()
 validation = ValidationInterface
+
+# --- Association Tables ---
+
 thread_participants = Table(
     "thread_participants",
     Base.metadata,
     Column("thread_id", String(64), ForeignKey("threads.id"), primary_key=True),
     Column("user_id", String(64), ForeignKey("users.id"), primary_key=True),
 )
-assistant_tools = Table(
-    "assistant_tools",
-    Base.metadata,
-    Column("assistant_id", String(64), ForeignKey("assistants.id")),
-    Column("tool_id", String(64), ForeignKey("tools.id")),
-)
+
 user_assistants = Table(
     "user_assistants",
     Base.metadata,
@@ -55,6 +52,9 @@ thread_vector_stores = Table(
 )
 
 
+# --- Enums & Context ---
+
+
 class StatusEnum(PyEnum):
     deleted = "deleted"
     active = "active"
@@ -72,6 +72,9 @@ class StatusEnum(PyEnum):
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+# --- Core Models ---
 
 
 class ApiKey(Base):
@@ -238,9 +241,10 @@ class Message(Base):
     object = Column(String(64), nullable=False)
     role = Column(String(32), nullable=False)
     run_id = Column(String(64), nullable=True)
-    tool_id = Column(
-        String(64), nullable=True
-    )  # Existing: usually refers to the Tool DB ID
+
+    # Kept as simple String, no longer linked to deleted Tool table
+    tool_id = Column(String(64), nullable=True)
+
     status = Column(String(32), nullable=True)
     thread_id = Column(String(64), nullable=False)
     sender_id = Column(String(64), nullable=True)
@@ -287,7 +291,7 @@ class Run(Base):
     thread_id = Column(String(64), nullable=False)
     tool_choice = Column(String(64), nullable=True)
 
-    # list-valued JSON stays plain JSON
+    # list-valued JSON stays plain JSON (Definitions, not DB refs)
     tools = Column(JSON, nullable=True)
 
     # --- Agentic Behavior State (Level 3) ---
@@ -360,10 +364,6 @@ class Assistant(Base):
     )
 
     # --- Relationships ---
-    tools = relationship(
-        "Tool", secondary=assistant_tools, back_populates="assistants", lazy="joined"
-    )
-
     users = relationship(
         "User", secondary=user_assistants, back_populates="assistants", lazy="select"
     )
@@ -376,24 +376,13 @@ class Assistant(Base):
     )
 
 
-class Tool(Base):
-    __tablename__ = "tools"
-    id = Column(String(64), primary_key=True, index=True)
-    name = Column(String(128), nullable=False)
-    type = Column(String(64), nullable=False)
-    function = Column(JSON, nullable=True)
-    assistants = relationship(
-        "Assistant", secondary=assistant_tools, back_populates="tools"
-    )
-    actions = relationship("Action", back_populates="tool")
-
-
 class Action(Base):
     __tablename__ = "actions"
 
     id = Column(String(64), primary_key=True, index=True)
     run_id = Column(String(64), ForeignKey("runs.id"), nullable=True)
-    tool_id = Column(String(64), ForeignKey("tools.id"), nullable=True)
+
+    # Removed tool_id FK/Relationship as Tool table is deprecated.
 
     # --- Agentic Tracking (Level 3) ---
     tool_call_id = Column(
@@ -418,14 +407,12 @@ class Action(Base):
     result = Column(JSON, nullable=True)
 
     # --- Relationships ---
-    tool = relationship("Tool", back_populates="actions")
     run = relationship("Run", back_populates="actions")
 
     @staticmethod
     def get_full_action_query(session):
-        return session.query(Action).options(
-            joinedload(Action.run), joinedload(Action.tool)
-        )
+        # Removed joinedload(Action.tool)
+        return session.query(Action).options(joinedload(Action.run))
 
 
 class Sandbox(Base):
