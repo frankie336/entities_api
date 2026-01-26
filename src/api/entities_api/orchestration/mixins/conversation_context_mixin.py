@@ -6,17 +6,13 @@ All logic that builds the message list passed to the LLM:
 • role-normalisation + truncation
 """
 
-import asyncio
 import json
 import os
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
-from fastapi import Depends
 from projectdavid import Entity
 
-from src.api.entities_api.dependencies import get_message_cache
-from src.api.entities_api.orchestration.mixins import AssistantCacheMixin
 from src.api.entities_api.services.logging_service import LoggingUtility
 from src.api.entities_api.system_message.main_assembly import \
     assemble_instructions
@@ -128,10 +124,16 @@ class ConversationContextMixin:
             "content": f"tools:\n{json.dumps(cfg['tools'])}\n{excluded_instructions}\nToday's date and time: {today}",
         }
 
-    def _build_native_tools_system_message(self, assistant_id: str) -> Dict:
+    def _build_native_function_calls_system_message(self, assistant_id: str) -> Dict:
         cache = self.get_assistant_cache()
         cfg = cache.retrieve_sync(assistant_id)
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        """
+        Models with native function calling ability do not need instructions
+        on structured json responses
+        """
+
         excluded_instructions = assemble_instructions(
             exclude_keys=[
                 "TOOL_USAGE_PROTOCOL",
@@ -169,40 +171,58 @@ class ConversationContextMixin:
         force_refresh: Optional[bool] = False,
     ) -> List[Dict]:
         """
-        Synchronous context window setup.
-        Leverages sync helpers in MessageCache to avoid 'await' pain.
+        Synchronous context window setup with integrated Refresh & Cache debugging.
         """
-        # 1. Build System Message (Uses retrieve_sync internally)
+        # 1. Build System Message
         if structured_tool_call:
-            system_msg = self._build_native_tools_system_message(assistant_id)
+            system_msg = self._build_native_function_calls_system_message(assistant_id)
         else:
             system_msg = self._build_system_message(assistant_id)
 
         # 2. Get history using the SYNC helper
         if force_refresh:
-            LOG.debug(f"[CTX] Force Refresh Active. Bypassing Redis for {thread_id}")
+            LOG.debug(f"[CTX-REFRESH] 🔄 Force Refresh Active for {thread_id}")
             client = Entity(
                 base_url=os.getenv("ASSISTANTS_BASE_URL"),
                 api_key=os.getenv("ADMIN_API_KEY"),
             )
+
             # Fetch fresh list from DB
             full_hist = client.messages.get_formatted_messages(
                 thread_id,
                 system_message=None,
             )
+
+            # --- DEBUG: DB VERIFICATION ---
+            import json
+
+            last_role = full_hist[-1].get("role") if full_hist else "N/A"
+            LOG.info(
+                f"[CTX-REFRESH] Fresh DB Fetch: {len(full_hist)} msgs | Last Role: {last_role}"
+            )
+            LOG.debug(f"[CTX-REFRESH] DB Content: {json.dumps(full_hist, indent=2)}")
+
             # Sync the cache
             self.message_cache.set_history_sync(thread_id, full_hist)
             msgs = full_hist
         else:
-            # Standard path: hit Redis first via sync helper
+            # Standard path: hit Redis first
             msgs = self.message_cache.get_history_sync(thread_id)
+            LOG.debug(f"[CTX-CACHE] Redis Hit for {thread_id}: {len(msgs)} msgs found.")
 
         # 3. Process Context: Filter system messages and prepend current one
         msgs = [m for m in msgs if m.get("role") != "system"]
         full_context = [system_msg] + msgs
 
-        # 4. Normalization & Truncation
+        # 4. Normalization
         normalized = self._normalize_roles(full_context)
+
+        # --- DEBUG: FINAL OUTBOUND PAYLOAD ---
+        import json
+
+        LOG.info(
+            f"\n=== 🚀 OUTBOUND CONTEXT (Size: {len(normalized)}) ===\n{json.dumps(normalized, indent=2)}\n======================================"
+        )
 
         if trunk:
             return self.conversation_truncator.truncate(normalized)

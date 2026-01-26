@@ -273,7 +273,12 @@ class Run(Base):
     started_at = Column(Integer, nullable=True)
 
     incomplete_details = Column(String(256), nullable=True)
-    instructions = Column(String(1024), nullable=True)
+
+    # --- FIX APPLIED HERE ---
+    # Changed from String(1024) to Text to support long system prompts/tool protocols
+    instructions = Column(Text, nullable=True)
+    # ------------------------
+
     last_error = Column(String(256), nullable=True)
     max_completion_tokens = Column(Integer, nullable=True)
     max_prompt_tokens = Column(Integer, nullable=True)
@@ -311,7 +316,7 @@ class Run(Base):
         String(32),
         default="standard",
         server_default="standard",
-        comment="Snapshot of Assistant.agent_mode at run creation.",
+        comment="Determines execution logic: 'standard' (Level 2) or 'autonomous' (Level 3).",
     )
 
     truncation_strategy = Column(

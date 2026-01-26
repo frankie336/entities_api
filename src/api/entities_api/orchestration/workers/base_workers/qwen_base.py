@@ -11,29 +11,12 @@ from projectdavid_common.validation import StatusEnum
 from src.api.entities_api.dependencies import get_redis
 from src.api.entities_api.orchestration.engine.orchestrator_core import \
     OrchestratorCore
-from src.api.entities_api.orchestration.mixins import (
-    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
-    ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
-    PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
+from src.api.entities_api.orchestration.mixins.providers import _ProviderMixins
 from src.api.entities_api.orchestration.streaming.hyperbolic import \
     HyperbolicDeltaNormalizer
 
 load_dotenv()
 LOG = LoggingUtility()
-
-
-class _ProviderMixins(
-    AssistantCacheMixin,
-    JsonUtilsMixin,
-    ConversationContextMixin,
-    ToolRoutingMixin,
-    PlatformToolHandlersMixin,
-    ConsumerToolHandlersMixin,
-    CodeExecutionMixin,
-    ShellExecutionMixin,
-    FileSearchMixin,
-):
-    """Flat bundle → single inheritance in the concrete class."""
 
 
 class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):

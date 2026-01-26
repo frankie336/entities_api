@@ -12,10 +12,25 @@ from projectdavid_common.validation import StatusEnum
 from src.api.entities_api.dependencies import get_redis
 from src.api.entities_api.orchestration.engine.orchestrator_core import \
     OrchestratorCore
-from src.api.entities_api.orchestration.mixins import (
-    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
-    ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
-    PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
+# --- RESTORED DIRECT MIXIN IMPORTS ---
+from src.api.entities_api.orchestration.mixins.assistant_cache_mixin import \
+    AssistantCacheMixin
+from src.api.entities_api.orchestration.mixins.code_execution_mixin import \
+    CodeExecutionMixin
+from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import \
+    ConsumerToolHandlersMixin
+from src.api.entities_api.orchestration.mixins.conversation_context_mixin import \
+    ConversationContextMixin
+from src.api.entities_api.orchestration.mixins.file_search_mixin import \
+    FileSearchMixin
+from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
+    JsonUtilsMixin
+from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import \
+    PlatformToolHandlersMixin
+from src.api.entities_api.orchestration.mixins.shell_execution_mixin import \
+    ShellExecutionMixin
+from src.api.entities_api.orchestration.mixins.tool_routing_mixin import \
+    ToolRoutingMixin
 from src.api.entities_api.orchestration.streaming.hyperbolic import \
     HyperbolicDeltaNormalizer
 
@@ -23,6 +38,7 @@ load_dotenv()
 LOG = LoggingUtility()
 
 
+# --- RESTORED LOCAL MIXIN BUNDLE ---
 class _ProviderMixins(
     AssistantCacheMixin,
     JsonUtilsMixin,
@@ -62,7 +78,7 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
         self.setup_services()
 
-        # Runtime Safety for Mixins
+        # Runtime Safety Check (Should pass now)
         if not hasattr(self, "get_function_call_state"):
             LOG.error("CRITICAL: ToolRoutingMixin failed to load. Monkey-patching.")
             self.get_function_call_state = lambda: None
@@ -303,6 +319,7 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             **kwargs,
         )
 
+        # This will now work correctly because ToolRoutingMixin is guaranteed to be present
         if self.get_function_call_state():
             tool_call_id = getattr(self, "_current_tool_call_id", None)
             yield from self.process_tool_calls(

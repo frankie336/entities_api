@@ -1,10 +1,8 @@
 """
-Cookbook Demo: Function-Call Round-Trip  (Together AI)
------------------------------------------------------
-• Uses an existing assistant  (ID = "default") that already has the
-  `get_flight_times` function-tool attached.
-• Sends a user message that should trigger the function.
-• Executes the tool server-side and streams the final assistant reply.
+Debug Mode: Function-Call Round-Trip (Hyperbolic/GPT-OSS)
+---------------------------------------------------------
+This version prints EVERY chunk received from the stream raw,
+allowing you to inspect exactly what the `DeltaNormalizer` is yielding.
 """
 
 import json
@@ -18,74 +16,45 @@ from projectdavid import Entity
 # ------------------------------------------------------------------
 load_dotenv()
 
+# ANSI Colors for Debugging
+CYAN = "\033[96m"
+GREEN = "\033[92m"
+YELLOW = "\033[93m"
+RED = "\033[91m"
+GREY = "\033[90m"
+RESET = "\033[0m"
+
 client = Entity(
     base_url=os.getenv("BASE_URL", "http://localhost:9000"),
     api_key=os.getenv("ENTITIES_API_KEY"),
 )
 
+USER_ID = os.getenv("ENTITIES_USER_ID")
+ASSISTANT_ID = "asst_jsz6lbclq9qdhotxYOGoTH"
 
-USER_ID = os.getenv("ENTITIES_USER_ID")  # e.g. user_xxx…
-ASSISTANT_ID = "plt_ast_9fnJT01VGrK4a9fcNr8z2O"  # existing assistant
-# ASSISTANT_ID = create_assistant.id
+MODEL_ID = "hyperbolic/deepseek-ai/DeepSeek-V3-0324"
+PROVIDER_KW = "Hyperbolic"
 
-MODEL_ID = "hyperbolic/openai/gpt-oss-120b"
-PROVIDER_KW = "Hyperbolic"  # router reads model path anyway
-
-HYPERBOLIC_API_KEY = os.getenv("HYPERBOLIC_API_KEY")  # provider key
+HYPERBOLIC_API_KEY = os.getenv("HYPERBOLIC_API_KEY")
 
 
 # ------------------------------------------------------------------
-# 1.  Tool executor  (runs locally for this demo)
+# 1.  Tool executor
 # ------------------------------------------------------------------
 def get_flight_times(tool_name: str, arguments) -> str:
-    """Fake flight-time lookup with hardened argument handling."""
+    """Fake flight-time lookup."""
     if tool_name != "get_flight_times":
         return json.dumps({"status": "error", "message": f"unknown tool '{tool_name}'"})
 
-    # --- DEBUG TRACE ---
-    print("[DEBUG] Raw arguments:", repr(arguments), type(arguments))
-
-    # --- NORMALIZATION ---
-    if isinstance(arguments, str):
-        try:
-            arguments = json.loads(arguments)
-        except json.JSONDecodeError as e:
-            return json.dumps(
-                {
-                    "status": "error",
-                    "message": "invalid JSON arguments",
-                    "detail": str(e),
-                    "raw": arguments,
-                }
-            )
-
-    if not isinstance(arguments, dict):
-        return json.dumps(
-            {
-                "status": "error",
-                "message": "arguments must be a dict",
-                "received_type": str(type(arguments)),
-            }
-        )
-
-    # --- SAFE ACCESS ---
-    departure = arguments.get("departure")
-    arrival = arguments.get("arrival")
-
-    if not departure or not arrival:
-        return json.dumps(
-            {
-                "status": "error",
-                "message": "missing required parameters",
-                "received": arguments,
-            }
-        )
+    print(
+        f"\n{YELLOW}[LOCAL EXEC] Tool invoked: {tool_name} | Args: {arguments}{RESET}"
+    )
 
     return json.dumps(
         {
             "status": "success",
-            "departure": departure,
-            "arrival": arrival,
+            "departure": arguments.get("departure", "UNK"),
+            "arrival": arguments.get("arrival", "UNK"),
             "duration": "4h 30m",
             "departure_time": "10:00 AM PST",
             "arrival_time": "06:30 PM EST",
@@ -96,6 +65,7 @@ def get_flight_times(tool_name: str, arguments) -> str:
 # ------------------------------------------------------------------
 # 2.  Thread + message + run
 # ------------------------------------------------------------------
+print(f"{GREY}[1/4] Creating Thread & Message...{RESET}")
 thread = client.threads.create_thread()
 
 message = client.messages.create_message(
@@ -105,10 +75,11 @@ message = client.messages.create_message(
     assistant_id=ASSISTANT_ID,
 )
 
+print(f"{GREY}[2/4] Creating Run...{RESET}")
 run = client.runs.create_run(assistant_id=ASSISTANT_ID, thread_id=thread.id)
 
 # ------------------------------------------------------------------
-# 3.  Stream initial LLM response (should contain the function call)
+# 3.  Stream initial LLM response (RAW DEBUG MODE)
 # ------------------------------------------------------------------
 stream = client.synchronous_inference_stream
 stream.setup(
@@ -120,18 +91,35 @@ stream.setup(
     api_key=HYPERBOLIC_API_KEY,
 )
 
-print("\n[▶] Initial stream …\n")
+print(f"\n{CYAN}[▶] STREAM 1: Initial Generation (Raw Inspection){RESET}")
+print(f"{'TYPE':<20} | {'PAYLOAD'}")
+print("-" * 80)
+
 for chunk in stream.stream_chunks(
     provider=PROVIDER_KW, model=MODEL_ID, suppress_fc=False, timeout_per_chunk=10.0
 ):
-    if chunk.get("type") == "function_call":
-        print(f"\n[function_call] → {chunk['name']}({chunk['arguments']})\n")
-    else:
-        print(chunk.get("content", ""), end="", flush=True)
+    c_type = chunk.get("type", "unknown")
+
+    # Visual Coloring based on type
+    row_color = RESET
+    if c_type == "content":
+        row_color = GREEN
+    elif c_type in ["tool_name", "call_arguments", "tool_call"]:
+        row_color = YELLOW
+    elif c_type == "reasoning":
+        row_color = CYAN
+    elif c_type == "error":
+        row_color = RED
+    elif c_type == "status":
+        row_color = GREY
+
+    # Print the full dictionary
+    print(f"{row_color}{c_type:<20} | {json.dumps(chunk, default=str)}{RESET}")
 
 # ------------------------------------------------------------------
 # 4.  Poll run → execute tool → send tool result
 # ------------------------------------------------------------------
+print(f"\n{GREY}[3/4] Polling for Tool Execution...{RESET}")
 handled = client.runs.poll_and_execute_action(
     run_id=run.id,
     thread_id=thread.id,
@@ -140,14 +128,16 @@ handled = client.runs.poll_and_execute_action(
     actions_client=client.actions,
     messages_client=client.messages,
     timeout=60.0,
-    interval=3,
+    interval=0.3,
 )
 
 # ------------------------------------------------------------------
-# 5.  Stream final assistant response
+# 5.  Stream final assistant response (RAW DEBUG MODE)
 # ------------------------------------------------------------------
 if handled:
-    print("\n\n[✓] Tool executed, streaming final answer …\n")
+    print(f"\n{CYAN}[▶] STREAM 2: Final Response (Raw Inspection){RESET}")
+    print(f"{'TYPE':<20} | {'PAYLOAD'}")
+    print("-" * 80)
 
     stream.setup(
         user_id=USER_ID,
@@ -159,10 +149,20 @@ if handled:
     )
 
     for chunk in stream.stream_chunks(
-        provider=PROVIDER_KW, model=MODEL_ID, timeout_per_chunk=60.0
+        provider=PROVIDER_KW, model=MODEL_ID, timeout_per_chunk=180.0
     ):
-        print(chunk.get("content", ""), end="", flush=True)
+        c_type = chunk.get("type", "unknown")
 
-    print("\n\n--- End of Stream ---")
+        row_color = RESET
+        if c_type == "content":
+            row_color = GREEN
+        elif c_type == "status":
+            row_color = GREY
+        elif c_type == "reasoning":
+            row_color = CYAN
+
+        print(f"{row_color}{c_type:<20} | {json.dumps(chunk, default=str)}{RESET}")
+
+    print(f"\n{GREY}--- End of Stream ---{RESET}")
 else:
-    print("\n[!] No function call detected or execution failed.")
+    print(f"\n{RED}[!] No function call detected or execution failed.{RESET}")

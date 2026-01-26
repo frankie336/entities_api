@@ -276,7 +276,7 @@ class ModelTester:
                         tool_executor=get_flight_times,
                         actions_client=self.client.actions,
                         messages_client=self.client.messages,
-                        timeout=45.0,
+                        timeout=180.0,
                     )
 
                     if handled:

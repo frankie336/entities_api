@@ -15,7 +15,6 @@ from projectdavid.clients.files_client import FileClient
 from projectdavid.clients.messages_client import MessagesClient
 from projectdavid.clients.runs import RunsClient
 from projectdavid.clients.threads_client import ThreadsClient
-from projectdavid.clients.tools_client import ToolsClient
 from projectdavid.clients.users_client import UsersClient
 from projectdavid.clients.vectors import VectorStoreClient
 
@@ -111,10 +110,6 @@ class ServiceRegistryMixin:
     @property
     def run_service(self) -> RunsClient:
         return self._get_service(RunsClient)
-
-    @property
-    def tool_service(self) -> ToolsClient:
-        return self._get_service(ToolsClient)
 
     @property
     def action_client(self) -> ActionsClient:

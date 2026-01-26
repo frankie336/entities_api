@@ -7,8 +7,7 @@ from fastapi import HTTPException
 from projectdavid_common import UtilsInterface, ValidationInterface
 
 from src.api.entities_api.db.database import SessionLocal
-# FIX: Removed Tool from imports. Kept Action if needed for other logic,
-# but removed it from the messages JOIN.
+# FIX: Removed Tool from imports.
 from src.api.entities_api.models.models import Message, Thread
 from src.api.entities_api.services.logging_service import LoggingUtility
 
@@ -22,6 +21,20 @@ class MessageService:
         self.message_chunks: Dict[str, List[str]] = {}
         logging_utility.info(f"Initialized MessageService. Source: {__file__}")
 
+    def _prepare_for_read(self, db_msg: Message) -> Message:
+        """
+        Helper to ensure meta_data is a dict before Pydantic validation.
+        Fixes the 'Input should be a valid dictionary' error.
+        """
+        if isinstance(db_msg.meta_data, str):
+            try:
+                db_msg.meta_data = json.loads(db_msg.meta_data)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                db_msg.meta_data = {}
+        elif db_msg.meta_data is None:
+            db_msg.meta_data = {}
+        return db_msg
+
     def create_message(self, message: validator.MessageCreate) -> validator.MessageRead:
         logging_utility.info(
             f"Creating message for thread_id={message.thread_id}, role={message.role}."
@@ -30,10 +43,6 @@ class MessageService:
             db_thread = db.query(Thread).filter(Thread.id == message.thread_id).first()
             if not db_thread:
                 raise HTTPException(status_code=404, detail="Thread not found")
-
-            # tool_id is now just a string reference, not a Foreign Key
-            t_id = getattr(message, "tool_id", None)
-            tc_id = getattr(message, "tool_call_id", None)
 
             db_message = Message(
                 id=UtilsInterface.IdentifierService.generate_message_id(),
@@ -44,15 +53,16 @@ class MessageService:
                 created_at=int(time.time()),
                 incomplete_at=None,
                 incomplete_details=None,
-                meta_data=json.dumps(message.meta_data) if message.meta_data else "{}",
+                # FIX: Pass dict directly. SQLAlchemy JSON type handles serialization.
+                meta_data=message.meta_data or {},
                 object="message",
                 role=message.role,
                 run_id=None,
                 status=None,
                 thread_id=message.thread_id,
                 sender_id=message.sender_id,
-                tool_id=t_id,
-                tool_call_id=tc_id,
+                tool_id=getattr(message, "tool_id", None),
+                tool_call_id=getattr(message, "tool_call_id", None),
             )
             try:
                 db.add(db_message)
@@ -63,7 +73,9 @@ class MessageService:
                 logging_utility.error(f"Error saving message: {e}")
                 raise HTTPException(status_code=500, detail="Failed to create message")
 
-            return validator.MessageRead.model_validate(db_message)
+            return validator.MessageRead.model_validate(
+                self._prepare_for_read(db_message)
+            )
 
     def retrieve_message(self, message_id: str) -> validator.MessageRead:
         with SessionLocal() as db:
@@ -71,7 +83,9 @@ class MessageService:
             if not db_message:
                 raise HTTPException(status_code=404, detail="Message not found")
 
-            return validator.MessageRead.model_validate(db_message)
+            return validator.MessageRead.model_validate(
+                self._prepare_for_read(db_message)
+            )
 
     def list_messages(
         self,
@@ -92,15 +106,10 @@ class MessageService:
             )
             db_messages = query.limit(limit).all()
 
-            messages: List[validator.MessageRead] = []
-            for db_msg in db_messages:
-                # Ensure meta_data is a dict for Pydantic validation
-                if isinstance(db_msg.meta_data, str):
-                    try:
-                        db_msg.meta_data = json.loads(db_msg.meta_data)
-                    except (TypeError, ValueError):
-                        db_msg.meta_data = {}
-                messages.append(validator.MessageRead.model_validate(db_msg))
+            messages = [
+                validator.MessageRead.model_validate(self._prepare_for_read(m))
+                for m in db_messages
+            ]
 
             return validator.MessagesList(
                 data=messages,
@@ -135,7 +144,7 @@ class MessageService:
                 completed_at=int(time.time()),
                 content=complete_message,
                 created_at=int(time.time()),
-                meta_data=json.dumps({}),
+                meta_data={},  # FIX: Raw dict
                 object="message",
                 role=role,
                 thread_id=thread_id,
@@ -149,11 +158,10 @@ class MessageService:
                 db.rollback()
                 raise HTTPException(status_code=500, detail="Failed to save message")
 
-            return validator.MessageRead.model_validate(db_message)
+            return validator.MessageRead.model_validate(
+                self._prepare_for_read(db_message)
+            )
 
-    # ------------------------------------------------------------------
-    # REFACTORED: Removed Tool/Action JOINs
-    # ------------------------------------------------------------------
     def get_formatted_messages(self, thread_id: str) -> List[Dict[str, Any]]:
         """
         Structures messages for LLM consumption without relying on the Tool table.
@@ -163,7 +171,6 @@ class MessageService:
             if not db_thread:
                 raise HTTPException(status_code=404, detail="Thread not found")
 
-            # Simple query: No joins to deprecated Tool table
             messages = (
                 db.query(Message)
                 .filter(Message.thread_id == thread_id)
@@ -176,10 +183,7 @@ class MessageService:
             for db_message in messages:
                 role = db_message.role
 
-                # --- 1. TOOL RESPONSE ---
                 if role == "tool":
-                    # In OpenAI/Hyperbolic protocol, 'name' is often expected but
-                    # 'tool_call_id' is the primary identifier.
                     formatted_messages.append(
                         {
                             "role": "tool",
@@ -189,12 +193,9 @@ class MessageService:
                     )
                     continue
 
-                # --- 2. ASSISTANT (CONTENT vs TOOL CALL) ---
                 if role == "assistant":
                     try:
-                        # Check if content holds tool_calls JSON (Level 2/3 behavior)
                         parsed = json.loads(db_message.content)
-
                         is_tool_list = (
                             isinstance(parsed, list)
                             and len(parsed) > 0
@@ -207,7 +208,7 @@ class MessageService:
                             formatted_messages.append(
                                 {
                                     "role": "assistant",
-                                    "content": None,  # Content must be null for tool_calls
+                                    "content": None,
                                     "tool_calls": parsed,
                                 }
                             )
@@ -221,7 +222,6 @@ class MessageService:
                         )
                     continue
 
-                # --- 3. USER / SYSTEM ---
                 formatted_messages.append(
                     {
                         "role": role,
@@ -244,7 +244,7 @@ class MessageService:
                 assistant_id=message.assistant_id,
                 content=message.content,
                 created_at=int(time.time()),
-                meta_data=json.dumps(message.meta_data or {}),
+                meta_data=message.meta_data or {},  # FIX: Raw dict
                 object="message",
                 role="tool",
                 thread_id=message.thread_id,
@@ -259,7 +259,9 @@ class MessageService:
                 db.rollback()
                 raise HTTPException(status_code=500, detail="Failed to create message")
 
-            return validator.MessageRead.model_validate(db_message)
+            return validator.MessageRead.model_validate(
+                self._prepare_for_read(db_message)
+            )
 
     def delete_message(self, message_id: str) -> validator.MessageDeleted:
         with SessionLocal() as db:
