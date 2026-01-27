@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.cache.message_cache import MessageCache
+
 # Import the single, authoritative 'get_db' function from your central database file.
 # This ensures all dependencies use the same database session configuration.
 from src.api.entities_api.db.database import get_db

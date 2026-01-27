@@ -20,8 +20,9 @@ class HyperbolicDeltaNormalizer:
         state = "content"
 
         # State for Native Tool Accumulation
+        # We use a dict to handle parallel tool calls (though usually serial in OSS)
         pending_tool_calls = defaultdict(
-            lambda: {"index": 0, "function": {"name": None, "arguments": ""}}
+            lambda: {"index": 0, "function": {"name": "", "arguments": ""}}
         )
 
         for token in raw_stream:
@@ -71,13 +72,17 @@ class HyperbolicDeltaNormalizer:
                         fn_args = getattr(fn, "arguments", "")
 
                     tool_data = pending_tool_calls[t_index]
+
+                    # Accumulate Name (Some providers stream name chunks)
                     if fn_name:
-                        tool_data["function"]["name"] = fn_name
+                        tool_data["function"]["name"] += fn_name
                         yield {
                             "type": "tool_name",
                             "content": fn_name,
                             "run_id": run_id,
                         }
+
+                    # Accumulate Arguments
                     if fn_args:
                         tool_data["function"]["arguments"] += fn_args
                         yield {
@@ -91,7 +96,8 @@ class HyperbolicDeltaNormalizer:
                 delta.get("content", "") if is_dict else getattr(delta, "content", "")
             ) or ""
 
-            # --- 4. Tool Completion Trigger ---
+            # --- 4. Tool Completion Trigger (Explicit) ---
+            # We yield the full object here as a safety net if the stream provides it
             if finish_reason == "tool_calls":
                 for idx, data in list(pending_tool_calls.items()):
                     name = data["function"]["name"]
@@ -134,7 +140,6 @@ class HyperbolicDeltaNormalizer:
                             "run_id": run_id,
                         }
                         buffer = buffer[lt_idx:]
-                        # Buffer now starts with "<"
 
                     # 3. CHECK KNOWN TAGS
                     all_tags = [
@@ -159,14 +164,12 @@ class HyperbolicDeltaNormalizer:
                     if match_found:
                         continue
 
-                    # B. Partial Match (The only time we wait)
-                    # We only wait if buffer is "<", "<t", "<thi", etc.
+                    # B. Partial Match
                     is_partial = any(tag.startswith(buffer) for tag, _ in all_tags)
 
                     if is_partial:
                         break  # Wait for next token
                     else:
-                        # It looked like a tag but isn't (e.g. "< 5" or "<div")
                         yield {
                             "type": "content",
                             "content": buffer[0],
@@ -179,13 +182,11 @@ class HyperbolicDeltaNormalizer:
                 # STATE: THINK (Reasoning)
                 # -----------------------------------------------------------
                 elif state == "think":
-                    # 1. NO TAG? FLUSH ALL.
                     if "<" not in buffer:
                         yield {"type": "reasoning", "content": buffer, "run_id": run_id}
                         buffer = ""
                         break
 
-                    # 2. FLUSH BEFORE TAG
                     lt_idx = buffer.find("<")
                     if lt_idx > 0:
                         yield {
@@ -195,18 +196,15 @@ class HyperbolicDeltaNormalizer:
                         }
                         buffer = buffer[lt_idx:]
 
-                    # 3. CHECK END TAG
                     if buffer.startswith(cls.TH_END):
                         buffer = buffer[len(cls.TH_END) :]
                         state = "content"
                         yielded_something = True
                         continue
 
-                    # 4. PARTIAL CHECK (</, </t, </think)
                     if cls.TH_END.startswith(buffer):
                         break  # Wait
 
-                    # 5. FALSE ALARM (e.g. "<" inside math equation)
                     yield {"type": "reasoning", "content": buffer[0], "run_id": run_id}
                     buffer = buffer[1:]
                     yielded_something = True
@@ -217,22 +215,17 @@ class HyperbolicDeltaNormalizer:
                 elif state == "channel_reasoning":
                     special_markers = [cls.CH_FINAL, cls.CH_COMMENTARY, cls.MSG_TAG]
 
-                    # Check partials first
                     potential_match = False
                     for m in special_markers:
                         if m.startswith(buffer):
                             potential_match = True
                             break
 
-                    # Only wait if it's potentially one of OUR tags
                     if potential_match and len(buffer) < max(
                         len(m) for m in special_markers
                     ):
-                        # If buffer is "<", we must wait because it could be "<|channel..."
-                        # If buffer is "<|", wait.
                         break
 
-                    # Check exact matches
                     if buffer.startswith(cls.CH_FINAL):
                         buffer = buffer[len(cls.CH_FINAL) :]
                         state = "content"
@@ -248,13 +241,12 @@ class HyperbolicDeltaNormalizer:
                         yielded_something = True
                         continue
 
-                    # Yield safe char
                     yield {"type": "reasoning", "content": buffer[0], "run_id": run_id}
                     buffer = buffer[1:]
                     yielded_something = True
 
                 # -----------------------------------------------------------
-                # OTHER STATES (Optimized)
+                # OTHER STATES
                 # -----------------------------------------------------------
                 elif state == "channel_tool_meta":
                     if cls.MSG_TAG in buffer:
@@ -272,7 +264,6 @@ class HyperbolicDeltaNormalizer:
                 elif state == "channel_tool_payload":
                     exit_tags = [cls.CALL_TAG, cls.CH_FINAL, cls.CH_ANALYSIS]
 
-                    # State transition check
                     if any(buffer.startswith(t) for t in exit_tags):
                         matched = next(t for t in exit_tags if buffer.startswith(t))
                         state = (
@@ -314,6 +305,20 @@ class HyperbolicDeltaNormalizer:
 
                 if not yielded_something:
                     break
+
+        # --- FINALIZATION: Flush Pending Tools ---
+        # FIX: Ensure tools are yielded even if finish_reason="stop" or stream cuts off
+        if pending_tool_calls:
+            for idx, data in list(pending_tool_calls.items()):
+                name = data["function"]["name"]
+                args = data["function"]["arguments"]
+                if name:
+                    yield {
+                        "type": "tool_call",
+                        "content": {"name": name, "arguments": args},
+                        "run_id": run_id,
+                    }
+            pending_tool_calls.clear()
 
         # Flush remaining buffer at end of stream
         if buffer:

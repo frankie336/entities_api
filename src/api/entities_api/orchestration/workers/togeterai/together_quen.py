@@ -1,5 +1,6 @@
-from src.api.entities_api.orchestration.workers.base_workers.qwen_base import \
-    QwenBaseWorker
+from src.api.entities_api.orchestration.workers.base_workers.qwen_base import (
+    QwenBaseWorker,
+)
 
 
 class TogetherQwenWorker(QwenBaseWorker):
