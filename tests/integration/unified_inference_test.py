@@ -85,10 +85,16 @@ def get_flight_times(tool_name: str, arguments) -> str:
 # ------------------------------------------------------------------
 # 2. Report Manager (Refactored for Provider-First Sorting)
 # ------------------------------------------------------------------
+# ------------------------------------------------------------------
+# 2. Report Manager (Refactored for ID-Based Deduplication)
+# ------------------------------------------------------------------
 class ReportManager:
     @staticmethod
     def update_report(new_results: List[Dict]):
-        """Reads existing MD, updates rows, and sorts by Provider then Model Name."""
+        """
+        Reads existing MD, deduplicates based on ENDPOINT ID,
+        updates rows, and sorts by Provider then Model Name.
+        """
         file_path = Path(REPORT_FILE)
 
         header_lines = [
@@ -99,33 +105,44 @@ class ReportManager:
             "| :--- | :--- | :--- | :---: | :---: | :---: | :--- | :--- |",
         ]
 
-        # Key: Model Name, Value: { 'provider': str, 'row': str }
+        # Key: Endpoint ID (str), Value: Dict containing metadata and the full row string
+        # Using ID as key prevents duplicates even if the Display Name changes.
         data_store = {}
 
-        # 1. Read existing rows and extract provider metadata
+        # 1. Read existing rows
         if file_path.exists():
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     for line in f:
                         clean_line = line.strip()
+                        # Simple check to ensure it's a data row
                         if clean_line.startswith("| **"):
                             parts = [p.strip() for p in clean_line.split("|")]
-                            if len(parts) >= 3:
-                                # Extract Name (Part 1) and Provider (Part 2)
+
+                            # Ensure row has enough columns (Index 3 is Endpoint ID)
+                            if len(parts) >= 4:
+                                # Extract Name (Part 1)
                                 name = parts[1].replace("**", "").strip()
+                                # Extract Provider (Part 2)
                                 provider = parts[2].strip()
-                                data_store[name] = {
+                                # Extract ID (Part 3) - Remove backticks
+                                endpoint_id = parts[3].replace("`", "").strip()
+
+                                data_store[endpoint_id] = {
+                                    "name": name,
                                     "provider": provider,
                                     "row": clean_line,
                                 }
             except Exception as e:
                 print(f"{RED}[!] Error reading existing report: {e}{RESET}")
 
-        # 2. Process new results (overwrite or add)
+        # 2. Process new results (Upsert based on ID)
         for res in new_results:
             inf_icon = "✅" if res["inference_ok"] else "❌"
             reas_icon = "🧠" if res["reasoning_detected"] else "—"
             tool_icon = "✅" if res["tool_call_ok"] else "❌"
+
+            # If inference failed, tools shouldn't show X, just dash
             if not res["inference_ok"]:
                 tool_icon = "—"
 
@@ -138,24 +155,27 @@ class ReportManager:
                 f"{inf_icon} | {reas_icon} | {tool_icon} | {timestamp} | {note} |"
             )
 
-            # Store with metadata for sorting
-            data_store[res["name"]] = {"provider": res["provider"], "row": new_row}
+            # Overwrite existing entry for this ID
+            data_store[res["id"]] = {
+                "name": res["name"],  # Update name in case it changed in config
+                "provider": res["provider"],
+                "row": new_row,
+            }
 
-        # 3. Sort by Provider (Primary) and Name (Secondary)
-        # We sort by the values of our data_store
-        sorted_names = sorted(
-            data_store.keys(),
-            key=lambda k: (data_store[k]["provider"].lower(), k.lower()),
+        # 3. Sort by Provider (Primary) and Model Name (Secondary)
+        sorted_items = sorted(
+            data_store.values(),
+            key=lambda item: (item["provider"].lower(), item["name"].lower()),
         )
 
         # 4. Write back to file
         try:
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(header_lines) + "\n")
-                for name in sorted_names:
-                    f.write(data_store[name]["row"] + "\n")
+                for item in sorted_items:
+                    f.write(item["row"] + "\n")
             print(
-                f"\n{GREEN}[✓] Report updated and sorted by Provider: {file_path}{RESET}"
+                f"\n{GREEN}[✓] Report updated (ID-based deduplication): {file_path}{RESET}"
             )
         except Exception as e:
             print(f"{RED}[!] Failed to write report: {e}{RESET}")
@@ -415,4 +435,4 @@ def main(models):
 
 
 if __name__ == "__main__":
-    main(models=HYPERBOLIC_MODELS)
+    main(models=TOGETHER_AI_MODELS)

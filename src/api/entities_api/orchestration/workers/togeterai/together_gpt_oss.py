@@ -1,6 +1,5 @@
-from src.api.entities_api.orchestration.workers.base_workers.new_base_gpt_oss_base import (
-    GptOssBaseWorker,
-)
+from src.api.entities_api.orchestration.workers.base_workers.base_gpt_oss_base import \
+    GptOssBaseWorker
 
 
 class TogetherGptOssWorker(GptOssBaseWorker):

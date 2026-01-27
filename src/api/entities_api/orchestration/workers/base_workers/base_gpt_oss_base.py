@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-import uuid
 import re
+import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Generator, Optional
 
@@ -12,35 +12,29 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
-
+from src.api.entities_api.orchestration.engine.orchestrator_core import \
+    OrchestratorCore
 # --- DIRECT IMPORTS ---
-from src.api.entities_api.orchestration.mixins.assistant_cache_mixin import (
-    AssistantCacheMixin,
-)
-from src.api.entities_api.orchestration.mixins.code_execution_mixin import (
-    CodeExecutionMixin,
-)
-from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import (
-    ConsumerToolHandlersMixin,
-)
-from src.api.entities_api.orchestration.mixins.conversation_context_mixin import (
-    ConversationContextMixin,
-)
-from src.api.entities_api.orchestration.mixins.file_search_mixin import FileSearchMixin
-from src.api.entities_api.orchestration.mixins.json_utils_mixin import JsonUtilsMixin
-from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import (
-    PlatformToolHandlersMixin,
-)
-from src.api.entities_api.orchestration.mixins.shell_execution_mixin import (
-    ShellExecutionMixin,
-)
-from src.api.entities_api.orchestration.mixins.tool_routing_mixin import (
-    ToolRoutingMixin,
-)
-from src.api.entities_api.orchestration.streaming.hyperbolic import (
-    HyperbolicDeltaNormalizer,
-)
+from src.api.entities_api.orchestration.mixins.assistant_cache_mixin import \
+    AssistantCacheMixin
+from src.api.entities_api.orchestration.mixins.code_execution_mixin import \
+    CodeExecutionMixin
+from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import \
+    ConsumerToolHandlersMixin
+from src.api.entities_api.orchestration.mixins.conversation_context_mixin import \
+    ConversationContextMixin
+from src.api.entities_api.orchestration.mixins.file_search_mixin import \
+    FileSearchMixin
+from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
+    JsonUtilsMixin
+from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import \
+    PlatformToolHandlersMixin
+from src.api.entities_api.orchestration.mixins.shell_execution_mixin import \
+    ShellExecutionMixin
+from src.api.entities_api.orchestration.mixins.tool_routing_mixin import \
+    ToolRoutingMixin
+from src.api.entities_api.orchestration.streaming.hyperbolic import \
+    HyperbolicDeltaNormalizer
 from src.api.entities_api.utils.async_to_sync import async_to_sync_stream
 
 load_dotenv()
@@ -78,7 +72,9 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         assistant_cache: dict | None = None,
         **extra,
     ) -> None:
-        self._assistant_cache: dict = assistant_cache or extra.get("assistant_cache") or {}
+        self._assistant_cache: dict = (
+            assistant_cache or extra.get("assistant_cache") or {}
+        )
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
@@ -122,7 +118,11 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         if isinstance(args, str):
             try:
                 parsed = json.loads(args)
-                if isinstance(parsed, dict) and "name" in parsed and "arguments" in parsed:
+                if (
+                    isinstance(parsed, dict)
+                    and "name" in parsed
+                    and "arguments" in parsed
+                ):
                     args = parsed["arguments"]
                 else:
                     args = parsed
@@ -195,7 +195,9 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
             if not api_key:
-                yield json.dumps({"type": "error", "content": "Missing Hyperbolic API key."})
+                yield json.dumps(
+                    {"type": "error", "content": "Missing Hyperbolic API key."}
+                )
                 return
 
             client = self._get_client_instance(api_key=api_key)
@@ -295,7 +297,9 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                         pass
 
                     # Pattern: FunctionName {JSON}
-                    fix_match = re.match(r"^\s*([a-zA-Z0-9_]+)\s*(\{.*)", original_content, re.DOTALL)
+                    fix_match = re.match(
+                        r"^\s*([a-zA-Z0-9_]+)\s*(\{.*)", original_content, re.DOTALL
+                    )
                     if fix_match:
                         func_name = fix_match.group(1)
                         func_args = fix_match.group(2)
@@ -303,15 +307,21 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                             # Use raw_decode to ignore trailing garbage (like repeated structs)
                             parsed_args, _ = json.JSONDecoder().raw_decode(func_args)
 
-                            valid_payload = json.dumps({"name": func_name, "arguments": parsed_args})
+                            valid_payload = json.dumps(
+                                {"name": func_name, "arguments": parsed_args}
+                            )
 
                             accumulated = accumulated.replace(
                                 f"<fc>{original_content}</fc>",
-                                f"<fc>{valid_payload}</fc>"
+                                f"<fc>{valid_payload}</fc>",
                             )
-                            LOG.debug(f"DEBUG: Sanitized tool call structure for: {func_name}")
+                            LOG.debug(
+                                f"DEBUG: Sanitized tool call structure for: {func_name}"
+                            )
                         except Exception as e:
-                            LOG.warning(f"DEBUG: Failed to sanitize potential tool call: {e}")
+                            LOG.warning(
+                                f"DEBUG: Failed to sanitize potential tool call: {e}"
+                            )
             except Exception as e:
                 LOG.error(f"DEBUG: Error during tool call sanitization: {e}")
 
@@ -320,9 +330,13 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
         # Double check state via the Mixin getter
         mixin_state = (
-            self.get_function_call_state() if hasattr(self, "get_function_call_state") else has_fc
+            self.get_function_call_state()
+            if hasattr(self, "get_function_call_state")
+            else has_fc
         )
-        LOG.debug(f"DEBUG: Detection Summary -> parse_result: {has_fc}, mixin_state: {mixin_state}")
+        LOG.debug(
+            f"DEBUG: Detection Summary -> parse_result: {has_fc}, mixin_state: {mixin_state}"
+        )
 
         message_to_save = assistant_reply
 
@@ -423,7 +437,9 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             self._current_tool_call_id = None
             self._force_refresh = True
 
-            LOG.info("DEBUG: Tool results processed. Starting Turn 2 stream (Final Response).")
+            LOG.info(
+                "DEBUG: Tool results processed. Starting Turn 2 stream (Final Response)."
+            )
             # Turn 2: Final Response after Tool Output
             yield from self.stream(
                 thread_id,
