@@ -9,7 +9,8 @@ from sse_starlette.sse import EventSourceResponse
 
 from src.api.entities_api.dependencies import get_api_key
 from src.api.entities_api.models.models import ApiKey as ApiKeyModel
-from src.api.entities_api.services.event_handler_service import EventMonitoringService
+from src.api.entities_api.services.event_handler_service import \
+    EventMonitoringService
 from src.api.entities_api.services.sse_manager import SSEManager
 
 logging_utility = UtilsInterface.LoggingUtility()

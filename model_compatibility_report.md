@@ -1,12 +1,12 @@
 # 🧪 Model Compatibility Report
-**Last Update:** 2026-01-27 00:37:23
+**Last Update:** 2026-01-27 01:19:56
 
 | Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Last Run | Notes |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- | :--- |
 | **DeepSeek-R1-0528** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-R1-0528` | ❌ | — | — | 2026-01-25 01:38 | OK |
 | **DeepSeek-V3** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-V3` | ✅ | — | ✅ | 2026-01-26 21:35 | OK |
 | **DeepSeek-V3-0324** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-V3-0324` | ✅ | — | ✅ | 2026-01-25 01:42 | OK |
-| **gpt-oss-120b** | hyperbolic | `hyperbolic/openai/gpt-oss-120b` | ✅ | — | ❌ | 2026-01-27 00:37 | OK |
+| **gpt-oss-120b** | hyperbolic | `hyperbolic/openai/gpt-oss-120b` | ✅ | — | ✅ | 2026-01-27 01:19 | OK |
 | **gpt-oss-120b-turbo** | hyperbolic | `hyperbolic/openai/gpt-oss-120b-turbo` | ❌ | — | — | 2026-01-26 02:27 | OK |
 | **hyperbolic/deepseek-ai/DeepSeek-R1** | hyperbolic | `deepseek-ai/DeepSeek-R1` | ❌ | — | — | 2026-01-25 00:58 | OK |
 | **hyperbolic/deepseek-ai/DeepSeek-R1-0528** | hyperbolic | `deepseek-ai/DeepSeek-R1-0528` | ❌ | — | — | 2026-01-25 00:58 | OK |
