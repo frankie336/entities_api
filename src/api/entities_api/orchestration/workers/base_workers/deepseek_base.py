@@ -11,19 +11,14 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import \
+    OrchestratorCore
 from src.api.entities_api.orchestration.mixins import (
-    AssistantCacheMixin,
-    CodeExecutionMixin,
-    ConsumerToolHandlersMixin,
-    ConversationContextMixin,
-    FileSearchMixin,
-    JsonUtilsMixin,
-    PlatformToolHandlersMixin,
-    ShellExecutionMixin,
-    ToolRoutingMixin,
-)
-from src.api.entities_api.orchestration.streaming.hyperbolic import HyperbolicDeltaNormalizer
+    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
+    ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
+    PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
+from src.api.entities_api.orchestration.streaming.hyperbolic import \
+    HyperbolicDeltaNormalizer
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -49,7 +44,9 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
     Uses a custom state-machine to handle XML-tagged thinking and tool-calls.
     """
 
-    def __init__(self, *, assistant_id=None, thread_id=None, redis=None, **extra) -> None:
+    def __init__(
+        self, *, assistant_id=None, thread_id=None, redis=None, **extra
+    ) -> None:
         self._assistant_cache = extra.get("assistant_cache") or {}
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
@@ -106,7 +103,9 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
             if model == "deepseek-ai/DeepSeek-R1":
                 amended = self._build_amended_system_message(assistant_id=assistant_id)
-                ctx = self.replace_system_message(ctx, json.dumps(amended, ensure_ascii=False))
+                ctx = self.replace_system_message(
+                    ctx, json.dumps(amended, ensure_ascii=False)
+                )
 
             payload = {
                 "model": model,
@@ -184,7 +183,9 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             if has_fc:
                 try:
                     # Clean tags for JSON parsing
-                    raw_json = accumulated.replace("<fc>", "").replace("</fc>", "").strip()
+                    raw_json = (
+                        accumulated.replace("<fc>", "").replace("</fc>", "").strip()
+                    )
 
                     payload_dict = json.loads(raw_json)
 
@@ -194,14 +195,18 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                     message_to_save = accumulated
 
             if message_to_save:
-                self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
+                self.finalize_conversation(
+                    message_to_save, thread_id, assistant_id, run_id
+                )
 
             if has_fc:
                 self.project_david_client.runs.update_run_status(
                     run_id, StatusEnum.pending_action.value
                 )
             else:
-                self.project_david_client.runs.update_run_status(run_id, StatusEnum.completed.value)
+                self.project_david_client.runs.update_run_status(
+                    run_id, StatusEnum.completed.value
+                )
 
         except Exception as exc:
             err = {"type": "error", "content": str(exc)}

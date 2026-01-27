@@ -1,11 +1,12 @@
 # 🧪 Model Compatibility Report
-**Last Update:** 2026-01-26 21:35:59
+**Last Update:** 2026-01-26 22:25:33
 
 | Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Last Run | Notes |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- | :--- |
 | **DeepSeek-R1-0528** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-R1-0528` | ❌ | — | — | 2026-01-25 01:38 | OK |
 | **DeepSeek-V3** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-V3` | ✅ | — | ✅ | 2026-01-26 21:35 | OK |
 | **DeepSeek-V3-0324** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-V3-0324` | ✅ | — | ✅ | 2026-01-25 01:42 | OK |
+| **gpt-oss-120b** | hyperbolic | `hyperbolic/openai/gpt-oss-120b` | ❌ | — | — | 2026-01-26 22:25 | Stream Error during Inference |
 | **gpt-oss-120b-turbo** | hyperbolic | `hyperbolic/openai/gpt-oss-120b-turbo` | ❌ | — | — | 2026-01-26 02:27 | OK |
 | **hyperbolic/deepseek-ai/DeepSeek-R1** | hyperbolic | `deepseek-ai/DeepSeek-R1` | ❌ | — | — | 2026-01-25 00:58 | OK |
 | **hyperbolic/deepseek-ai/DeepSeek-R1-0528** | hyperbolic | `deepseek-ai/DeepSeek-R1-0528` | ❌ | — | — | 2026-01-25 00:58 | OK |
@@ -58,7 +59,6 @@
 | **GLM-4.5-Air-FP8** | together-ai | `together-ai/zai-org/GLM-4.5-Air-FP8` | ❌ | — | — | 2026-01-26 19:47 | OK |
 | **GLM-4.6** | together-ai | `together-ai/zai-org/GLM-4.6` | ❌ | — | — | 2026-01-26 19:47 | OK |
 | **GLM-4.7** | together-ai | `together-ai/zai-org/GLM-4.7` | ❌ | — | — | 2026-01-26 19:47 | OK |
-| **gpt-oss-120b** | together-ai | `together-ai/openai/gpt-oss-120b` | ❌ | — | — | 2026-01-26 19:47 | Stream Error during Inference |
 | **gpt-oss-20b** | together-ai | `together-ai/openai/gpt-oss-20b` | ❌ | — | — | 2026-01-26 19:47 | Stream Error during Inference |
 | **Kimi-K2-Instruct-0905** | together-ai | `together-ai/moonshotai/Kimi-K2-Instruct-0905` | ❌ | — | — | 2026-01-26 19:47 | OK |
 | **Kimi-K2-Thinking** | together-ai | `together-ai/moonshotai/Kimi-K2-Thinking` | ❌ | — | — | 2026-01-26 19:47 | OK |

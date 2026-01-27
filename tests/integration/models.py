@@ -320,10 +320,10 @@ HYPERBOLIC_MODELS = {
     #    "id": "hyperbolic/deepseek-ai/DeepSeek-R1-0528",
     #    "provider": "hyperbolic",
     # },
-    "DeepSeek-V3": {
-        "id": "hyperbolic/deepseek-ai/DeepSeek-V3",
-        "provider": "hyperbolic",
-    },
+    # "DeepSeek-V3": {
+    #    "id": "hyperbolic/deepseek-ai/DeepSeek-V3",
+    #    "provider": "hyperbolic",
+    # },
     # "DeepSeek-V3-0324": {
     #    "id": "hyperbolic/deepseek-ai/DeepSeek-V3-0324",
     #    "provider": "hyperbolic",
@@ -360,11 +360,11 @@ HYPERBOLIC_MODELS = {
     #    "id": "hyperbolic/mistralai/Pixtral-12B-2409",
     #    "provider": "hyperbolic",
     # },
-    ## --- openai ---
-    # "gpt-oss-120b": {
-    #    "id": "hyperbolic/openai/gpt-oss-120b",
-    #    "provider": "hyperbolic",
-    # },
+    # --- openai ---
+    "gpt-oss-120b": {
+        "id": "hyperbolic/openai/gpt-oss-120b",
+        "provider": "hyperbolic",
+    },
     # "gpt-oss-120b-turbo": {
     #    "id": "hyperbolic/openai/gpt-oss-120b-turbo",
     #    "provider": "hyperbolic",
