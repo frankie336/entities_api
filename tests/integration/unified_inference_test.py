@@ -432,4 +432,4 @@ def main(models):
 
 
 if __name__ == "__main__":
-    main(models=TOGETHER_AI_MODELS)
+    main(models=HYPERBOLIC_MODELS)
