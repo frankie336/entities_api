@@ -1,6 +1,4 @@
-# src/api/entities_api/orchestration/workers/hyperbolic/together_deepseek.py
 from __future__ import annotations
-
 import json
 import os
 from abc import ABC, abstractmethod
@@ -13,40 +11,25 @@ from projectdavid_common.validation import StatusEnum
 from src.api.entities_api.dependencies import get_redis
 from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
 from src.api.entities_api.orchestration.mixins import (
-    AssistantCacheMixin,
-    CodeExecutionMixin,
-    ConsumerToolHandlersMixin,
-    ConversationContextMixin,
-    FileSearchMixin,
-    JsonUtilsMixin,
-    PlatformToolHandlersMixin,
-    ShellExecutionMixin,
-    ToolRoutingMixin,
+    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
+    ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
+    PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin,
 )
 from src.api.entities_api.orchestration.streaming.hyperbolic import HyperbolicDeltaNormalizer
 
 load_dotenv()
 LOG = LoggingUtility()
 
-
 class _ProviderMixins(
-    AssistantCacheMixin,
-    JsonUtilsMixin,
-    ConversationContextMixin,
-    ToolRoutingMixin,
-    PlatformToolHandlersMixin,
-    ConsumerToolHandlersMixin,
-    CodeExecutionMixin,
-    ShellExecutionMixin,
-    FileSearchMixin,
+    AssistantCacheMixin, JsonUtilsMixin, ConversationContextMixin,
+    ToolRoutingMixin, PlatformToolHandlersMixin, ConsumerToolHandlersMixin,
+    CodeExecutionMixin, ShellExecutionMixin, FileSearchMixin,
 ):
-    """Flat bundle → single inheritance in the concrete class."""
-
+    """Mixins bundle."""
 
 class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
     """
-    Specialized DeepSeek-V3/R1 Provider.
-    Uses a custom state-machine to handle XML-tagged thinking and tool-calls.
+    Shared Logic for DeepSeek-V3/R1 across any provider (Hyperbolic, Together, etc.).
     """
 
     def __init__(self, *, assistant_id=None, thread_id=None, redis=None, **extra) -> None:
@@ -54,16 +37,16 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
-        self.base_url = os.getenv("BASE_URL")
         self.api_key = extra.get("api_key")
+
+        # Default model, can be overridden by kwargs
         self.model_name = extra.get("model_name", "deepseek-ai/DeepSeek-V3")
 
-        # Attributes required by ConversationContextMixin / Truncator logic
         self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
 
         self.setup_services()
-        LOG.debug("Hyperbolic-Ds1 provider ready (assistant=%s)", assistant_id)
+        LOG.debug(f"{self.__class__.__name__} ready (assistant={assistant_id})")
 
     @abstractmethod
     def _get_client_instance(self, api_key: str):
@@ -81,6 +64,9 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
     def get_assistant_cache(self) -> dict:
         return self._assistant_cache
 
+    # -------------------------------------------------------------------------
+    # SHARED STREAMING LOGIC
+    # -------------------------------------------------------------------------
     def stream(
         self,
         thread_id: str,
@@ -96,6 +82,9 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         redis = get_redis()
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
+
+        # Use instance API key if not passed explicitly
+        api_key = api_key or self.api_key
 
         try:
             if mapped := self._get_model_map(model):
@@ -131,7 +120,7 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             assistant_reply, accumulated, reasoning_reply = "", "", ""
             current_block = None
 
-            # 2. Process deltas via Normalizer
+            # 2. Process deltas via Shared Normalizer
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
                     break
@@ -165,7 +154,7 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                 # Accumulate raw stream for persistence
                 accumulated += ccontent
 
-                # Yield immediately (No Hot Code Snooping)
+                # Yield immediately
                 yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
 
@@ -185,9 +174,7 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                 try:
                     # Clean tags for JSON parsing
                     raw_json = accumulated.replace("<fc>", "").replace("</fc>", "").strip()
-
                     payload_dict = json.loads(raw_json)
-
                     message_to_save = json.dumps(payload_dict)
                 except Exception as e:
                     LOG.error(f"Error structuring tool calls: {e}")
@@ -210,26 +197,11 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         finally:
             stop_event.set()
 
-    def process_conversation(
-        self,
-        thread_id,
-        message_id,
-        run_id,
-        assistant_id,
-        model,
-        api_key=None,
-        stream_reasoning=True,
-        **kwargs,
-    ):
+    def process_conversation(self, thread_id, message_id, run_id, assistant_id, model, api_key=None, stream_reasoning=True, **kwargs):
+        """Standard process loop, relies on self.stream implementation."""
         yield from self.stream(
-            thread_id,
-            message_id,
-            run_id,
-            assistant_id,
-            model,
-            api_key=api_key,
-            stream_reasoning=stream_reasoning,
-            **kwargs,
+            thread_id, message_id, run_id, assistant_id, model,
+            api_key=api_key, stream_reasoning=stream_reasoning, **kwargs,
         )
 
         if self.get_function_call_state():
@@ -239,14 +211,7 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             self.set_tool_response_state(False)
             self.set_function_call_state(None)
 
-            # Follow-up with the tool results in context
             yield from self.stream(
-                thread_id,
-                None,
-                run_id,
-                assistant_id,
-                model,
-                api_key=api_key,
-                stream_reasoning=stream_reasoning,
-                **kwargs,
+                thread_id, None, run_id, assistant_id, model,
+                api_key=api_key, stream_reasoning=stream_reasoning, **kwargs,
             )
