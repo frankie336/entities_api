@@ -83,9 +83,6 @@ def get_flight_times(tool_name: str, arguments) -> str:
 
 
 # ------------------------------------------------------------------
-# 2. Report Manager (Refactored for Provider-First Sorting)
-# ------------------------------------------------------------------
-# ------------------------------------------------------------------
 # 2. Report Manager (Refactored for ID-Based Deduplication)
 # ------------------------------------------------------------------
 class ReportManager:

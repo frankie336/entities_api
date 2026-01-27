@@ -198,15 +198,14 @@ class ActionService:
                 for action in actions
             ]
 
-    def get_pending_actions(self, run_id=None) -> List[Dict[str, Any]]:
+    def get_pending_actions(self, run_id=None) -> List[validator.ActionRead]:
         """
-        Retrieves pending actions using the Action ORM model directly.
+        Retrieves pending actions and returns them as Pydantic models.
         """
         with SessionLocal() as db:
             target_statuses = ["pending", "action_required", "requires_action"]
 
             # 1. Select Action objects
-            # We use joinedload(Action.run) to efficiently fetch the related Run status in one go
             query = (
                 db.query(Action)
                 .options(joinedload(Action.run))
@@ -219,18 +218,21 @@ class ActionService:
 
             actions = query.all()
 
-            # 3. Convert to Dictionary
+            # 3. Convert to Pydantic ActionRead models
+            # Mapping DB columns to Pydantic fields
             return [
-                {
-                    "action_id": action.id,
-                    "tool_call_id": action.tool_call_id,
-                    "action_status": action.status,
-                    "function_arguments": action.function_args,  # Automatically handled since column is JSON type
-                    "tool_name": action.tool_name,
-                    "run_id": action.run_id,
-                    # Access the relationship safely
-                    "run_status": action.run.status if action.run else None,
-                }
+                validator.ActionRead(
+                    id=action.id,
+                    run_id=action.run_id,
+                    tool_name=action.tool_name,
+                    tool_call_id=action.tool_call_id,
+                    status=action.status,
+                    function_args=action.function_args,
+                    triggered_at=(
+                        str(action.triggered_at) if action.triggered_at else None
+                    ),
+                    # Add other fields if necessary
+                )
                 for action in actions
             ]
 
