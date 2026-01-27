@@ -108,8 +108,10 @@ def upgrade() -> None:
         ),
     )
 
-    # Ensure content is NOT NULL
-    safe_alter_column("messages", "content", existing_type=mysql.TEXT(), nullable=False)
+    # Ensure function_call is NOT NULL
+    safe_alter_column(
+        "messages", "function_call", existing_type=mysql.TEXT(), nullable=False
+    )
 
     # --- Table: runs ---
     add_column_if_missing(
@@ -169,7 +171,9 @@ def downgrade() -> None:
     drop_column_if_exists("runs", "current_turn")
 
     # --- Table: messages ---
-    safe_alter_column("messages", "content", existing_type=mysql.TEXT(), nullable=True)
+    safe_alter_column(
+        "messages", "function_call", existing_type=mysql.TEXT(), nullable=True
+    )
     drop_column_if_exists("messages", "tool_call_id")
     drop_column_if_exists("messages", "tool_calls")
     drop_column_if_exists("messages", "reasoning")

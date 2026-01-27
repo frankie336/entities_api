@@ -67,8 +67,10 @@ def _change_to_integer_if_needed(table: str, col: str, nullable: bool = True) ->
 
 def upgrade() -> None:
     """Upgrade schema."""
-    # messages.content → NOT NULL (only if messages table exists)
-    safe_alter_column("messages", "content", existing_type=sa.Text(), nullable=False)
+    # messages.function_call → NOT NULL (only if messages table exists)
+    safe_alter_column(
+        "messages", "function_call", existing_type=sa.Text(), nullable=False
+    )
 
     # runs.* timestamps → Integer epoch seconds (conditionally)
     _change_to_integer_if_needed("runs", "cancelled_at", nullable=True)
@@ -105,5 +107,7 @@ def downgrade() -> None:
                 "runs", "cancelled_at", type_=sa.DateTime(), nullable=True
             )
 
-    # messages.content → back to nullable if table exists
-    safe_alter_column("messages", "content", existing_type=sa.Text(), nullable=True)
+    # messages.function_call → back to nullable if table exists
+    safe_alter_column(
+        "messages", "function_call", existing_type=sa.Text(), nullable=True
+    )

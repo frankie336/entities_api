@@ -25,8 +25,10 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     """Upgrade schema using SafeDDL helpers."""
 
-    # 1. Fix messages content nullability
-    safe_alter_column("messages", "content", existing_type=mysql.TEXT(), nullable=False)
+    # 1. Fix messages function_call nullability
+    safe_alter_column(
+        "messages", "function_call", existing_type=mysql.TEXT(), nullable=False
+    )
 
     # 2. Sync reasoning column type (LongText mapping)
     safe_alter_column(
@@ -92,5 +94,7 @@ def downgrade() -> None:
         existing_nullable=True,
     )
 
-    # 4. Revert messages content back to nullable
-    safe_alter_column("messages", "content", existing_type=mysql.TEXT(), nullable=True)
+    # 4. Revert messages function_call back to nullable
+    safe_alter_column(
+        "messages", "function_call", existing_type=mysql.TEXT(), nullable=True
+    )

@@ -13,6 +13,8 @@ from src.api.entities_api.orchestration.workers.hyperbolic.hb_llama import \
     HyperbolicLlamaWorker
 from src.api.entities_api.orchestration.workers.hyperbolic.hb_quen import \
     HyperbolicQuenQwq32B
+from src.api.entities_api.orchestration.workers.hyperbolic.old_deepseek import \
+    HyperbolicDs1
 
 logging_utility = LoggingUtility()
 

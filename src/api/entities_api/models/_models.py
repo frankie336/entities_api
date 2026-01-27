@@ -387,34 +387,28 @@ class Action(Base):
     id = Column(String(64), primary_key=True, index=True)
     run_id = Column(String(64), ForeignKey("runs.id"), nullable=True)
 
+    # Removed tool_id FK/Relationship as Tool table is deprecated.
+
     # --- Agentic Tracking (Level 3) ---
     tool_call_id = Column(
         String(64),
         nullable=True,
         index=True,
-        comment="The unique ID linking this action to a specific LLM tool request.",
+        comment="The unique ID linking this action to a specific LLM tool request (native or generated).",
     )
-
-    # NEW: Store the name of the function (e.g., 'get_weather')
-    tool_name = Column(
-        String(64),
-        nullable=True,
-        comment="The name of the function/tool to be executed.",
-    )
-
     turn_index = Column(
         Integer,
         default=0,
         nullable=True,
-        comment="The iteration of the autonomous loop.",
+        comment="The iteration of the autonomous loop in which this action was triggered.",
     )
 
     triggered_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=True)
     is_processed = Column(Boolean, default=False)
     processed_at = Column(DateTime, nullable=True)
-    status = Column(String(64), nullable=True)  # Can be 'pending' or 'action_required'
-    function_args = Column(JSON, nullable=True)  # The JSON arguments string
+    status = Column(String(64), nullable=True)
+    function_args = Column(JSON, nullable=True)
     result = Column(JSON, nullable=True)
 
     # --- Relationships ---
@@ -422,6 +416,7 @@ class Action(Base):
 
     @staticmethod
     def get_full_action_query(session):
+        # Removed joinedload(Action.tool)
         return session.query(Action).options(joinedload(Action.run))
 
 

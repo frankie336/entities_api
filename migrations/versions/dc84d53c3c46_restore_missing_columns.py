@@ -117,8 +117,10 @@ def _int_to_bigint_swap(table: str, base_col: str) -> None:
 
 def upgrade() -> None:
     """Upgrade schema."""
-    # Keep messages.content NOT NULL
-    safe_alter_column("messages", "content", existing_type=sa.Text(), nullable=False)
+    # Keep messages.function_call NOT NULL
+    safe_alter_column(
+        "messages", "function_call", existing_type=sa.Text(), nullable=False
+    )
 
     # Convert runs.* from BIGINT → INT (epoch seconds stay numeric; just width change)
     for col in ("cancelled_at", "completed_at", "failed_at", "started_at"):
@@ -128,8 +130,10 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
-    # Revert messages.content to nullable to match prior state
-    safe_alter_column("messages", "content", existing_type=sa.Text(), nullable=True)
+    # Revert messages.function_call to nullable to match prior state
+    safe_alter_column(
+        "messages", "function_call", existing_type=sa.Text(), nullable=True
+    )
 
     # Convert runs.* from INT → BIGINT
     for col in ("cancelled_at", "completed_at", "failed_at", "started_at"):

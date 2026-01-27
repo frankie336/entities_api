@@ -353,7 +353,9 @@ class HyperbolicGptOssWorker(_ProviderMixins, OrchestratorCore):
             has_tools = self.get_function_call_state() is not None
 
         if has_tools:
-            LOG.info(f"Orchestrator: Tool call detected for run {run_id}. Processing tools...")
+            LOG.info(
+                f"Orchestrator: Tool call detected for run {run_id}. Processing tools..."
+            )
 
             # Use the ID captured in stream(), but fallback to Mixin search if None
             tool_call_id = getattr(self, "_current_tool_call_id", None)
@@ -385,7 +387,7 @@ class HyperbolicGptOssWorker(_ProviderMixins, OrchestratorCore):
                 run_id,
                 assistant_id,
                 model,
-                force_refresh=True, # Ensure it sees the tool result in the DB
+                force_refresh=True,  # Ensure it sees the tool result in the DB
                 api_key=api_key,
                 **kwargs,
             )

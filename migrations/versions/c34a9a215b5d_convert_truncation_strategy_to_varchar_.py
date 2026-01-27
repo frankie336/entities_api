@@ -22,10 +22,10 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     """Upgrade schema."""
 
-    # messages.content → NOT NULL (guarded)
+    # messages.function_call → NOT NULL (guarded)
     safe_alter_column(
         "messages",
-        "content",
+        "function_call",
         existing_type=mysql.TEXT(),
         nullable=False,
     )
@@ -55,10 +55,10 @@ def downgrade() -> None:
         server_default=None,
     )
 
-    # messages.content → nullable (guarded)
+    # messages.function_call → nullable (guarded)
     safe_alter_column(
         "messages",
-        "content",
+        "function_call",
         existing_type=mysql.TEXT(),
         nullable=True,
     )

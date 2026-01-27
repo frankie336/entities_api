@@ -64,8 +64,10 @@ def upgrade() -> None:
         print("[Alembic-safeDDL] ⚠️ Skipped – table not found: tools")
 
     # 5. Alter 'messages' columns
-    # Make content nullable=False
-    safe_alter_column("messages", "content", existing_type=mysql.TEXT(), nullable=False)
+    # Make function_call nullable=False
+    safe_alter_column(
+        "messages", "function_call", existing_type=mysql.TEXT(), nullable=False
+    )
 
     # Change reasoning type to Long Text
     safe_alter_column(
@@ -93,7 +95,9 @@ def downgrade() -> None:
         nullable=True,
     )
 
-    safe_alter_column("messages", "content", existing_type=mysql.TEXT(), nullable=True)
+    safe_alter_column(
+        "messages", "function_call", existing_type=mysql.TEXT(), nullable=True
+    )
 
     # 2. Recreate 'tools' table
     if not has_table("tools"):

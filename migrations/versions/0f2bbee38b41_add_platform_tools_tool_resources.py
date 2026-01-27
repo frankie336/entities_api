@@ -44,7 +44,7 @@ def upgrade() -> None:
 
     safe_alter_column(
         "messages",
-        "content",
+        "function_call",
         existing_type=mysql.TEXT(),
         nullable=False,
     )
@@ -55,7 +55,7 @@ def downgrade() -> None:
 
     safe_alter_column(
         "messages",
-        "content",
+        "function_call",
         existing_type=mysql.TEXT(),
         nullable=True,
     )
