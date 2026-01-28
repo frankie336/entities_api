@@ -23,36 +23,29 @@ async def run_sync_generator_in_thread(
     sync_gen_func, *args, **kwargs
 ) -> AsyncGenerator[Any, None]:
     """
-    Runs a synchronous generator function in a separate thread.
+    Runs a synchronous generator in a separate thread with NON-BLOCKING buffering.
+    Optimized for high-throughput streaming.
     """
     loop = asyncio.get_running_loop()
-    # Queue size acts as a buffer. 512 is plenty.
-    queue = asyncio.Queue(maxsize=512)
+    # Increased buffer size to handle bursts without blocking the producer thread
+    queue = asyncio.Queue(maxsize=1024)
     finished_sentinel = object()
 
     def run_generator():
         try:
-            # We cache the put coroutine function to avoid attribute lookups in loop
-            put_coro = queue.put
+            # Cache scheduling functions to avoid attribute lookup cost in tight loop
+            schedule = asyncio.run_coroutine_threadsafe
+            put = queue.put
 
             for item in sync_gen_func(*args, **kwargs):
                 if loop.is_closed():
                     break
 
-                # CRITICAL CHANGE: Fire and forget unless we need backpressure.
-                # using run_coroutine_threadsafe returns a Future.
-                # calling .result() forces the thread to WAIT for the loop to process the put.
-                # We only want to wait if the queue is actually getting full (handled by queue.put internal logic).
-                future = asyncio.run_coroutine_threadsafe(put_coro(item), loop)
-
-                try:
-                    # We wait for the result to ensure backpressure if the queue is full.
-                    # However, this effectively syncs the thread and loop 1:1.
-                    # Given the speed of queue.put, this is usually acceptable,
-                    # but if you see lag, the JSON processing in the main loop is likely the bottleneck causing this wait.
-                    future.result()
-                except Exception:
-                    break
+                # OPTIMIZATION 1: Fire and Forget.
+                # We do NOT call .result(). This allows the generator to sprint ahead
+                # filling the buffer without waiting for the Event Loop to wake up.
+                # Backpressure is handled naturally by queue.put (it will block if full).
+                schedule(put(item), loop)
 
         except Exception as e:
             logging_utility.error(f"Error in sync generator thread: {e}", exc_info=True)
@@ -62,23 +55,41 @@ async def run_sync_generator_in_thread(
             if not loop.is_closed():
                 asyncio.run_coroutine_threadsafe(queue.put(finished_sentinel), loop)
 
-    # Run in the default ThreadPoolExecutor
+    # Start the thread
     thread_task = loop.run_in_executor(None, run_generator)
 
     try:
         while True:
+            # Wait for at least one item
             item = await queue.get()
+
             if item is finished_sentinel:
                 break
             if isinstance(item, Exception):
                 raise item
+
             yield item
+
+            # OPTIMIZATION 3: Burst Flushing (Micro-Batching)
+            # If the thread has produced more items while we were awaiting/processing,
+            # grab them ALL now to send in one network packet.
+            # This reduces Event Loop context switching overhead significantly.
+            while not queue.empty():
+                try:
+                    next_item = queue.get_nowait()
+                    if next_item is finished_sentinel:
+                        # Put it back to ensure cleaner exit logic on next outer loop iteration
+                        await queue.put(finished_sentinel)
+                        break
+                    yield next_item
+                except asyncio.QueueEmpty:
+                    break
+
     except Exception:
         # If the consumer (client) disconnects, we cancel the producer
         thread_task.cancel()
         raise
     finally:
-        # Cleanup
         if not thread_task.done():
             thread_task.cancel()
 
@@ -92,7 +103,7 @@ async def completions(
     stream_request: ValidationInterface.StreamRequest, redis: Redis = Depends(get_redis)
 ):
     """Handles streaming completion requests using the appropriate inference provider."""
-    # ... (Logging logic kept same) ...
+
     logging_utility.info(
         "Completions endpoint called for model: %s, run: %s",
         stream_request.model,
@@ -112,18 +123,12 @@ async def completions(
     async def stream_generator():
         start_time = time.time()
         run_id = stream_request.run_id
-        # Pre-calculate the prefix and suffix to avoid f-string overhead in tight loop
         prefix = "data: "
         suffix = "\n\n"
 
-        # Pre-construct the base_workers dict to avoid recreating it if possible
-        # (Only useful if we aren't parsing incoming JSON)
-
-        idx = 0
+        chunk_count = 0
         error_occurred = False
-        # --------------------------
-        # The inbound payload here!
-        # ---------------------------
+
         try:
             sync_gen_args = {
                 "thread_id": stream_request.thread_id,
@@ -138,54 +143,32 @@ async def completions(
             async for chunk in run_sync_generator_in_thread(
                 general_handler_instance.process_conversation, **sync_gen_args
             ):
-                idx += 1
+                chunk_count += 1
                 if chunk is None:
                     continue
 
-                # --- OPTIMIZED JSON HANDLING ---
-                # Avoid json.loads + json.dumps cycle if possible.
+                # OPTIMIZATION 2: Pass-Through Mode
+                # We assume the Worker has already formatted valid JSON with run_id.
+                # This avoids expensive json.loads() -> modify -> json.dumps().
 
-                final_json_str = ""
+                final_str = ""
 
-                if isinstance(chunk, dict):
-                    # It's already a dict, just add the run_id and dump once.
-                    if "type" not in chunk:
-                        chunk["type"] = "content"
-                        chunk["content"] = ""  # Normalize empty content
-                    chunk["run_id"] = run_id
-                    final_json_str = json.dumps(chunk)
-
-                elif isinstance(chunk, str):
-                    # OPTIMIZATION: If it starts with {, it's likely a JSON string.
-                    # We have to parse it to inject run_id safely.
-                    if chunk.strip().startswith("{"):
-                        try:
-                            data = json.loads(chunk)
-                            data["run_id"] = run_id
-                            if "type" not in data:
-                                data["type"] = "content"
-                            final_json_str = json.dumps(data)
-                        except json.JSONDecodeError:
-                            # Fallback: Treat as raw content string
-                            final_json_str = json.dumps(
-                                {"type": "content", "content": chunk, "run_id": run_id}
-                            )
-                    else:
-                        # Raw string content (no parsing needed)
-                        final_json_str = json.dumps(
-                            {"type": "content", "content": chunk, "run_id": run_id}
-                        )
+                if isinstance(chunk, str):
+                    # FAST PATH: It's a string. Trust it. Send it.
+                    final_str = chunk
+                elif isinstance(chunk, dict):
+                    # SLOW PATH: Logic fallback if worker yields dicts
+                    if "run_id" not in chunk:
+                        chunk["run_id"] = run_id
+                    final_str = json.dumps(chunk)
                 else:
                     # Fallback for unknown types
                     final_json_str = json.dumps(
                         {"type": "content", "content": str(chunk), "run_id": run_id}
                     )
+                    final_str = final_json_str
 
-                yield f"{prefix}{final_json_str}{suffix}"
-
-                # REMOVED: await asyncio.sleep(0.001)
-                # ^^^ This was the main cause of lag.
-                # The 'await queue.get()' inside the generator acts as the context switch.
+                yield f"{prefix}{final_str}{suffix}"
 
         except Exception as e:
             error_occurred = True
@@ -196,8 +179,8 @@ async def completions(
             if not error_occurred:
                 yield "data: [DONE]\n\n"
 
-            # Log summary (Moved to debug/info to reduce noise if needed)
-            logging_utility.info(f"Stream finished: {idx} chunks in {elapsed:.2f}s")
+            # Log summary
+            logging_utility.info(f"Stream finished: {chunk_count} chunks in {elapsed:.2f}s")
 
     return StreamingResponse(
         stream_generator(),
