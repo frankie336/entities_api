@@ -9,11 +9,9 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
 from src.api.entities_api.orchestration.mixins.providers import _ProviderMixins
-from src.api.entities_api.orchestration.streaming.hyperbolic import \
-    HyperbolicDeltaNormalizer
+from src.api.entities_api.orchestration.streaming.hyperbolic import HyperbolicDeltaNormalizer
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -25,9 +23,7 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
     Handles QwQ-32B/Qwen2.5 specific stream parsing and history preservation.
     """
 
-    def __init__(
-        self, *, assistant_id=None, thread_id=None, redis=None, **extra
-    ) -> None:
+    def __init__(self, *, assistant_id=None, thread_id=None, redis=None, **extra) -> None:
         self._assistant_cache = extra.get("assistant_cache") or {}
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
@@ -82,6 +78,13 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         # Use instance key if not provided
         api_key = api_key or self.api_key
 
+        # --- FIX 1: Early Variable Initialization (Safety) ---
+        assistant_reply = ""
+        accumulated = ""
+        reasoning_reply = ""
+        current_block = None
+        # -----------------------------------------------------
+
         try:
             if mapped := self._get_model_map(model):
                 model = mapped
@@ -107,10 +110,6 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             client = self._get_client_instance(api_key=api_key)
             raw_stream = self._execute_stream_request(client, payload)
             # -----------------------------------------------------------
-
-            # State for History Reconstruction
-            assistant_reply, accumulated, reasoning_reply = "", "", ""
-            current_block = None
 
             # 2. Process deltas via Shared Normalizer
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(raw_stream, run_id):
@@ -158,35 +157,42 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
             yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
-            # --- SMART HISTORY PRESERVATION ---
+            # ------------------------------------------------------------------
+            # 💉 FIX 2: TIMEOUT PREVENTION (Keep-Alive Heartbeat)
+            # ------------------------------------------------------------------
+            # Send a 'processing' signal to reset the client's timeout timer
+            # while the server performs the blocking database save.
+            yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
+
+            # ------------------------------------------------------------------
+            # 🔒 FIX 3: SAFE PERSISTENCE LOGIC
+            # ------------------------------------------------------------------
             has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
             message_to_save = assistant_reply
 
             if has_fc:
                 try:
-                    # Clean tags for JSON parsing (Only removing <fc>, no hot_code)
-                    raw_json = (
-                        accumulated.replace("<fc>", "").replace("</fc>", "").strip()
-                    )
+                    # Clean tags for JSON parsing
+                    raw_json = accumulated.replace("<fc>", "").replace("</fc>", "").strip()
+                    # Validate JSON structure
                     payload_dict = json.loads(raw_json)
+
+                    # Store as clean JSON
                     message_to_save = json.dumps(payload_dict)
                 except Exception as e:
                     LOG.error(f"Error structuring tool calls: {e}")
+                    # Fallback to accumulated string so no data is lost
                     message_to_save = accumulated
 
             if message_to_save:
-                self.finalize_conversation(
-                    message_to_save, thread_id, assistant_id, run_id
-                )
+                self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
 
             if has_fc:
                 self.project_david_client.runs.update_run_status(
                     run_id, StatusEnum.pending_action.value
                 )
             else:
-                self.project_david_client.runs.update_run_status(
-                    run_id, StatusEnum.completed.value
-                )
+                self.project_david_client.runs.update_run_status(run_id, StatusEnum.completed.value)
 
         except Exception as exc:
             err = {"type": "error", "content": str(exc)}

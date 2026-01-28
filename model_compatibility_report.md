@@ -1,15 +1,15 @@
 # 🧪 Model Compatibility Report
-**Last Update:** 2026-01-27 18:41:00
+**Last Update:** 2026-01-28 00:04:19
 
 | Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Last Run | Notes |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- | :--- |
-| **DeepSeek-R1** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-R1` | ✅ | 🧠 | ✅ | 2026-01-27 10:09 | OK |
-| **DeepSeek-R1-0528** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-R1-0528` | ❌ | — | — | 2026-01-27 10:09 | OK |
-| **DeepSeek-V3** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-V3` | ✅ | — | ✅ | 2026-01-27 10:11 | OK |
-| **DeepSeek-V3-0324** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-V3-0324` | ✅ | — | ✅ | 2026-01-27 10:11 | OK |
-| **gpt-oss-120b** | hyperbolic | `hyperbolic/openai/gpt-oss-120b` | ✅ | — | ✅ | 2026-01-27 10:13 | OK |
-| **gpt-oss-120b-turbo** | hyperbolic | `hyperbolic/openai/gpt-oss-120b-turbo` | ❌ | — | — | 2026-01-27 10:13 | OK |
-| **gpt-oss-20b** | hyperbolic | `hyperbolic/openai/gpt-oss-20b` | ✅ | 🧠 | ❌ | 2026-01-27 10:15 | OK |
+| **DeepSeek-R1** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-R1` | ❌ | — | — | 2026-01-28 00:00 | Setup Failed: [WinError 10053] An established connection was aborted by the software in your host machine |
+| **DeepSeek-R1-0528** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-R1-0528` | ❌ | — | — | 2026-01-28 00:00 | Setup Failed: Server disconnected without sending a response. |
+| **DeepSeek-V3** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-V3` | ❌ | — | — | 2026-01-28 00:00 | Setup Failed: [WinError 10053] An established connection was aborted by the software in your host machine |
+| **DeepSeek-V3-0324** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-V3-0324` | ❌ | — | — | 2026-01-28 00:00 | Setup Failed: [WinError 10053] An established connection was aborted by the software in your host machine |
+| **gpt-oss-120b** | hyperbolic | `hyperbolic/openai/gpt-oss-120b` | ❌ | — | — | 2026-01-27 22:01 | Setup Failed: [WinError 10061] No connection could be made because the target machine actively refused it |
+| **gpt-oss-120b-turbo** | hyperbolic | `hyperbolic/openai/gpt-oss-120b-turbo` | ❌ | — | — | 2026-01-27 22:02 | Setup Failed: [WinError 10061] No connection could be made because the target machine actively refused it |
+| **gpt-oss-20b** | hyperbolic | `hyperbolic/openai/gpt-oss-20b` | ❌ | — | — | 2026-01-27 22:02 | Setup Failed: [WinError 10061] No connection could be made because the target machine actively refused it |
 | **hyperbolic/deepseek-ai/DeepSeek-R1** | hyperbolic | `deepseek-ai/DeepSeek-R1` | ❌ | — | — | 2026-01-25 00:58 | OK |
 | **hyperbolic/deepseek-ai/DeepSeek-R1-0528** | hyperbolic | `deepseek-ai/DeepSeek-R1-0528` | ❌ | — | — | 2026-01-25 00:58 | OK |
 | **hyperbolic/deepseek-ai/DeepSeek-V3** | hyperbolic | `deepseek-ai/DeepSeek-V3` | ❌ | — | — | 2026-01-25 00:56 | OK |
@@ -30,30 +30,29 @@
 | **hyperbolic/Qwen/Qwen3-Coder-480B-A35B-Instruct** | hyperbolic | `Qwen/Qwen3-Coder-480B-A35B-Instruct` | ❌ | — | — | 2026-01-25 00:58 | OK |
 | **hyperbolic/Qwen/Qwen3-Next-80B-A3B-Instruct** | hyperbolic | `Qwen/Qwen3-Next-80B-A3B-Instruct` | ❌ | — | — | 2026-01-25 00:59 | OK |
 | **hyperbolic/Qwen/QwQ-32B** | hyperbolic | `Qwen/QwQ-32B` | ❌ | — | — | 2026-01-25 00:58 | OK |
-| **Llama-3.2-3B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Llama-3.2-3B-Instruct` | ❌ | — | — | 2026-01-27 10:12 | OK |
-| **Llama-3.3-70B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Llama-3.3-70B-Instruct` | ❌ | — | — | 2026-01-27 10:12 | OK |
-| **Meta-Llama-3.1-405B** | hyperbolic | `hyperbolic/meta-llama/Meta-Llama-3.1-405B` | ❌ | — | — | 2026-01-27 10:12 | OK |
-| **Meta-Llama-3.1-405B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Meta-Llama-3.1-405B-Instruct` | ❌ | — | — | 2026-01-27 10:12 | OK |
-| **Meta-Llama-3.1-70B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Meta-Llama-3.1-70B-Instruct` | ❌ | — | — | 2026-01-27 10:12 | OK |
-| **Meta-Llama-3.1-8B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Meta-Llama-3.1-8B-Instruct` | ❌ | — | — | 2026-01-27 10:12 | OK |
-| **Pixtral-12B-2409** | hyperbolic | `hyperbolic/mistralai/Pixtral-12B-2409` | ❌ | — | — | 2026-01-27 10:12 | OK |
-| **Qwen2.5-72B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-72B-Instruct` | ✅ | — | ❌ | 2026-01-27 18:41 | OK |
-| **Qwen2.5-Coder-32B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-Coder-32B-Instruct` | ✅ | — | ✅ | 2026-01-27 10:04 | OK |
-| **Qwen2.5-VL-72B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-VL-72B-Instruct` | ❌ | — | — | 2026-01-27 10:04 | OK |
-| **Qwen2.5-VL-7B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-VL-7B-Instruct` | ❌ | — | — | 2026-01-27 10:04 | OK |
-| **Qwen3-235B-A22B** | hyperbolic | `hyperbolic/Qwen/Qwen3-235B-A22B` | ✅ | 🧠 | ✅ | 2026-01-27 10:05 | OK |
-| **Qwen3-235B-A22B-Instruct-2507** | hyperbolic | `hyperbolic/Qwen/Qwen3-235B-A22B-Instruct-2507` | ✅ | — | ✅ | 2026-01-27 10:06 | OK |
-| **Qwen3-Coder-480B-A35B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen3-Coder-480B-A35B-Instruct` | ✅ | — | ✅ | 2026-01-27 10:07 | OK |
-| **Qwen3-Next-80B-A3B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen3-Next-80B-A3B-Instruct` | ❌ | — | — | 2026-01-27 10:07 | OK |
-| **Qwen3-Next-80B-A3B-Thinking** | hyperbolic | `hyperbolic/Qwen/Qwen3-Next-80B-A3B-Thinking` | ✅ | 🧠 | ✅ | 2026-01-27 10:08 | OK |
-| **QwQ-32B** | hyperbolic | `hyperbolic/Qwen/QwQ-32B` | ✅ | 🧠 | ❌ | 2026-01-27 18:37 | OK |
+| **Llama-3.2-3B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Llama-3.2-3B-Instruct` | ❌ | — | — | 2026-01-28 00:00 | Setup Failed: Server disconnected without sending a response. |
+| **Llama-3.3-70B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Llama-3.3-70B-Instruct` | ❌ | — | — | 2026-01-28 00:00 | Setup Failed: Server disconnected without sending a response. |
+| **Meta-Llama-3.1-405B** | hyperbolic | `hyperbolic/meta-llama/Meta-Llama-3.1-405B` | ❌ | — | — | 2026-01-28 00:00 | Setup Failed: Server disconnected without sending a response. |
+| **Meta-Llama-3.1-405B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Meta-Llama-3.1-405B-Instruct` | ❌ | — | — | 2026-01-28 00:00 | Setup Failed: Server disconnected without sending a response. |
+| **Meta-Llama-3.1-70B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Meta-Llama-3.1-70B-Instruct` | ❌ | — | — | 2026-01-28 00:00 | Setup Failed: Server disconnected without sending a response. |
+| **Meta-Llama-3.1-8B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Meta-Llama-3.1-8B-Instruct` | ❌ | — | — | 2026-01-28 00:00 | Setup Failed: Server disconnected without sending a response. |
+| **Pixtral-12B-2409** | hyperbolic | `hyperbolic/mistralai/Pixtral-12B-2409` | ❌ | — | — | 2026-01-28 00:00 | Setup Failed: [WinError 10053] An established connection was aborted by the software in your host machine |
+| **Qwen2.5-72B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-72B-Instruct` | ✅ | — | ✅ | 2026-01-28 00:04 | OK |
+| **Qwen2.5-Coder-32B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-Coder-32B-Instruct` | ❌ | — | — | 2026-01-28 00:00 | Setup Failed: Server disconnected without sending a response. |
+| **Qwen2.5-VL-72B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-VL-72B-Instruct` | ❌ | — | — | 2026-01-28 00:00 | Setup Failed: Server disconnected without sending a response. |
+| **Qwen2.5-VL-7B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-VL-7B-Instruct` | ❌ | — | — | 2026-01-28 00:00 | Setup Failed: Server disconnected without sending a response. |
+| **Qwen3-235B-A22B** | hyperbolic | `hyperbolic/Qwen/Qwen3-235B-A22B` | ❌ | — | — | 2026-01-28 00:00 | Setup Failed: Server disconnected without sending a response. |
+| **Qwen3-235B-A22B-Instruct-2507** | hyperbolic | `hyperbolic/Qwen/Qwen3-235B-A22B-Instruct-2507` | ❌ | — | — | 2026-01-28 00:00 | Setup Failed: Server disconnected without sending a response. |
+| **Qwen3-Coder-480B-A35B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen3-Coder-480B-A35B-Instruct` | ❌ | — | — | 2026-01-28 00:00 | Setup Failed: Server disconnected without sending a response. |
+| **Qwen3-Next-80B-A3B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen3-Next-80B-A3B-Instruct` | ❌ | — | — | 2026-01-28 00:00 | Setup Failed: Server disconnected without sending a response. |
+| **Qwen3-Next-80B-A3B-Thinking** | hyperbolic | `hyperbolic/Qwen/Qwen3-Next-80B-A3B-Thinking` | ❌ | — | — | 2026-01-28 00:00 | Setup Failed: Server disconnected without sending a response. |
+| **QwQ-32B** | hyperbolic | `hyperbolic/Qwen/QwQ-32B` | ✅ | 🧠 | ❌ | 2026-01-28 00:02 | OK |
 | **Apriel-1.5-15b-Thinker** | together-ai | `together-ai/ServiceNow-AI/Apriel-1.5-15b-Thinker` | ❌ | — | — | 2026-01-27 09:29 | OK |
 | **Apriel-1.6-15b-Thinker** | together-ai | `together-ai/ServiceNow-AI/Apriel-1.6-15b-Thinker` | ❌ | — | — | 2026-01-27 09:29 | OK |
 | **cogito-v2-1-671b** | together-ai | `together-ai/deepcogito/cogito-v2-1-671b` | ❌ | — | — | 2026-01-27 09:29 | OK |
 | **cogito-v2-preview-llama-109B-MoE** | together-ai | `together-ai/deepcogito/cogito-v2-preview-llama-109B-MoE` | ❌ | — | — | 2026-01-27 09:29 | OK |
 | **cogito-v2-preview-llama-405B** | together-ai | `together-ai/deepcogito/cogito-v2-preview-llama-405B` | ❌ | — | — | 2026-01-27 09:29 | OK |
 | **cogito-v2-preview-llama-70B** | together-ai | `together-ai/deepcogito/cogito-v2-preview-llama-70B` | ❌ | — | — | 2026-01-27 09:29 | OK |
-| **DeepSeek-R1** | together-ai | `together-ai/deepseek-ai/DeepSeek-R1` | ✅ | 🧠 | ❌ | 2026-01-27 09:30 | OK |
 | **DeepSeek-R1-0528-tput** | together-ai | `together-ai/deepseek-ai/DeepSeek-R1-0528-tput` | ❌ | — | — | 2026-01-27 09:31 | OK |
 | **DeepSeek-R1-Distill-Llama-70B** | together-ai | `together-ai/deepseek-ai/DeepSeek-R1-Distill-Llama-70B` | ❌ | — | — | 2026-01-27 09:31 | OK |
 | **DeepSeek-R1-Distill-Qwen-1.5B** | together-ai | `together-ai/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B` | ❌ | — | — | 2026-01-25 00:26 | Stream Error during Inference |
@@ -101,20 +100,17 @@
 | **Qwen2-7B** | together-ai | `together-ai/Qwen/Qwen2-7B` | ❌ | — | — | 2026-01-25 00:45 | Stream Error during Inference |
 | **Qwen2-VL-72B** | together-ai | `together-ai/Qwen/Qwen2-VL-72B-Instruct` | ❌ | — | — | 2026-01-25 00:30 | Stream Error during Inference |
 | **Qwen2.5-1.5B** | together-ai | `together-ai/Qwen/Qwen2.5-1.5B` | ❌ | — | — | 2026-01-25 00:44 | Stream Error during Inference |
-| **Qwen2.5-14B-Instruct** | together-ai | `together-ai/Qwen/Qwen2.5-14B-Instruct` | ❌ | — | — | 2026-01-27 09:18 | OK |
-| **Qwen2.5-72B-Instruct** | together-ai | `together-ai/Qwen/Qwen2.5-72B-Instruct` | ❌ | — | — | 2026-01-27 09:18 | Stream Error during Inference |
-| **Qwen2.5-72B-Instruct-Turbo** | together-ai | `together-ai/Qwen/Qwen2.5-72B-Instruct-Turbo` | ✅ | — | ✅ | 2026-01-27 09:19 | OK |
-| **Qwen2.5-7B-Instruct-Turbo** | together-ai | `together-ai/Qwen/Qwen2.5-7B-Instruct-Turbo` | ✅ | — | ✅ | 2026-01-27 09:20 | OK |
+| **Qwen2.5-14B-Instruct** | together-ai | `together-ai/Qwen/Qwen2.5-14B-Instruct` | ❌ | — | — | 2026-01-27 21:57 | OK |
+| **Qwen2.5-72B-Instruct** | together-ai | `together-ai/Qwen/Qwen2.5-72B-Instruct` | ❌ | — | — | 2026-01-27 21:57 | Stream Error during Inference |
+| **Qwen2.5-72B-Instruct-Turbo** | together-ai | `together-ai/Qwen/Qwen2.5-72B-Instruct-Turbo` | ✅ | — | ❌ | 2026-01-27 21:39 | Tool Exception: 'dict' object has no attribute 'id' |
+| **Qwen2.5-7B-Instruct-Turbo** | together-ai | `together-ai/Qwen/Qwen2.5-7B-Instruct-Turbo` | ✅ | — | ❌ | 2026-01-27 21:41 | Tool Exception: 'dict' object has no attribute 'id' |
 | **Qwen2.5-Coder-32B** | together-ai | `together-ai/Qwen/Qwen2.5-Coder-32B-Instruct` | ❌ | — | — | 2026-01-25 00:29 | Stream Error during Inference |
-| **Qwen2.5-VL-72B-Instruct** | together-ai | `together-ai/Qwen/Qwen2.5-VL-72B-Instruct` | ❌ | — | — | 2026-01-27 09:21 | Stream Error during Inference |
 | **Qwen3-14B-Base** | together-ai | `together-ai/Qwen/Qwen3-14B-Base` | ❌ | — | — | 2026-01-25 00:41 | Stream Error during Inference |
 | **Qwen3-235B-A22B-fp8-tput** | together-ai | `together-ai/Qwen/Qwen3-235B-A22B-fp8-tput` | ✅ | 🧠 | ❌ | 2026-01-27 09:24 | OK |
 | **Qwen3-235B-A22B-Instruct-2507-tput** | together-ai | `together-ai/Qwen/Qwen3-235B-A22B-Instruct-2507-tput` | ✅ | — | ✅ | 2026-01-27 09:22 | OK |
 | **Qwen3-235B-A22B-Thinking-2507** | together-ai | `together-ai/Qwen/Qwen3-235B-A22B-Thinking-2507` | ✅ | — | ✅ | 2026-01-27 09:23 | OK |
 | **Qwen3-8B** | together-ai | `together-ai/Qwen/Qwen3-8B` | ❌ | — | — | 2026-01-25 00:40 | Stream Error during Inference |
 | **Qwen3-Coder-480B-A35B-Instruct-FP8** | together-ai | `together-ai/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8` | ✅ | — | ✅ | 2026-01-27 09:25 | OK |
-| **Qwen3-Next-80B-A3B-Instruct** | together-ai | `together-ai/Qwen/Qwen3-Next-80B-A3B-Instruct` | ✅ | — | ✅ | 2026-01-27 09:26 | OK |
-| **Qwen3-Next-80B-A3B-Thinking** | together-ai | `together-ai/Qwen/Qwen3-Next-80B-A3B-Thinking` | ✅ | — | ✅ | 2026-01-27 09:27 | OK |
 | **Qwen3-Next-80B-FP8** | together-ai | `together-ai/Qwen/Qwen3-Next-80B-A3B-Instruct-FP8` | ❌ | — | — | 2026-01-25 00:32 | Stream Error during Inference |
 | **Qwen3-VL-235B-FP** | together-ai | `together-ai/Qwen/Qwen3-VL-235B-A22B-Instruct-FP` | ❌ | — | — | 2026-01-25 00:40 | Stream Error during Inference |
 | **Qwen3-VL-32B-Instruct** | together-ai | `together-ai/Qwen/Qwen3-VL-32B-Instruct` | ❌ | — | — | 2026-01-27 09:28 | OK |

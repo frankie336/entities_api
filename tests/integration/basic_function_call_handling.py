@@ -30,9 +30,14 @@ client = Entity(
 )
 
 USER_ID = os.getenv("ENTITIES_USER_ID")
-ASSISTANT_ID = "asst_jsz6lbclq9qdhotxYOGoTH"
 
-MODEL_ID = "hyperbolic/deepseek-ai/DeepSeek-V3-0324"
+
+NORMAL_ASSISTANT_ID = "asst_bToQ4dQQnuhJuhlU5M6COG"
+GPT_OSS_ASSISTANT_ID = "asst_kaK6ZNRxhERIjKqxpHmrVf"
+
+ASSISTANT_ID = NORMAL_ASSISTANT_ID
+
+MODEL_ID = "hyperbolic/meta-llama/Meta-Llama-3.1-405B-Instruct"
 PROVIDER_KW = "Hyperbolic"
 
 HYPERBOLIC_API_KEY = os.getenv("HYPERBOLIC_API_KEY")
@@ -127,8 +132,8 @@ handled = client.runs.poll_and_execute_action(
     tool_executor=get_flight_times,
     actions_client=client.actions,
     messages_client=client.messages,
-    timeout=60.0,
-    interval=0.3,
+    timeout=10,
+    interval=0.1,
 )
 
 # ------------------------------------------------------------------

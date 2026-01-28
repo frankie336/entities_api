@@ -18,8 +18,7 @@ from dotenv import load_dotenv
 from models import HYPERBOLIC_MODELS, TOGETHER_AI_MODELS
 from projectdavid import Entity
 
-from src.api.entities_api.system_message.main_assembly import \
-    assemble_instructions
+from src.api.entities_api.system_message.main_assembly import assemble_instructions
 
 # ------------------------------------------------------------------
 # 0. Setup & Config
@@ -254,7 +253,7 @@ class ModelTester:
                 assistant_id=self.assistant_id, thread_id=thread.id
             )
 
-            flags = self._stream_and_analyze(thread.id, run.id, timeout=45.0)
+            flags = self._stream_and_analyze(thread.id, run.id, timeout=180.0)
 
             if flags["has_error"]:
                 result["error_msg"] = "Stream Error during Inference"
@@ -282,7 +281,7 @@ class ModelTester:
                     assistant_id=self.assistant_id, thread_id=thread.id
                 )
 
-                flags = self._stream_and_analyze(thread.id, run.id, timeout=30.0)
+                flags = self._stream_and_analyze(thread.id, run.id, timeout=60.0)
 
                 if flags["has_tool_call"]:
                     print(f"\n{YELLOW}[*] Executing Tool Logic...{RESET}")

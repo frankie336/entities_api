@@ -11,15 +11,20 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
 from src.api.entities_api.orchestration.mixins import (
-    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
-    ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
-    PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
+    AssistantCacheMixin,
+    CodeExecutionMixin,
+    ConsumerToolHandlersMixin,
+    ConversationContextMixin,
+    FileSearchMixin,
+    JsonUtilsMixin,
+    PlatformToolHandlersMixin,
+    ShellExecutionMixin,
+    ToolRoutingMixin,
+)
 from src.api.entities_api.orchestration.mixins.providers import _ProviderMixins
-from src.api.entities_api.orchestration.streaming.hyperbolic import \
-    HyperbolicDeltaNormalizer
+from src.api.entities_api.orchestration.streaming.hyperbolic import HyperbolicDeltaNormalizer
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -31,9 +36,7 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
     Uses a custom state-machine to handle XML-tagged thinking and tool-calls.
     """
 
-    def __init__(
-        self, *, assistant_id=None, thread_id=None, redis=None, **extra
-    ) -> None:
+    def __init__(self, *, assistant_id=None, thread_id=None, redis=None, **extra) -> None:
         self._assistant_cache = extra.get("assistant_cache") or {}
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
@@ -81,6 +84,16 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
+        # Reset state at start of stream
+        self._current_tool_call_id = None
+
+        # --- Variables Initialized Early (Safety) ---
+        accumulated: str = ""
+        assistant_reply: str = ""
+        reasoning_reply: str = ""
+        current_block: str | None = None
+        # --------------------------------------------
+
         try:
             if mapped := self._get_model_map(model):
                 model = mapped
@@ -90,9 +103,7 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
             if model == "deepseek-ai/DeepSeek-R1":
                 amended = self._build_amended_system_message(assistant_id=assistant_id)
-                ctx = self.replace_system_message(
-                    ctx, json.dumps(amended, ensure_ascii=False)
-                )
+                ctx = self.replace_system_message(ctx, json.dumps(amended, ensure_ascii=False))
 
             payload = {
                 "model": model,
@@ -113,10 +124,6 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             raw_stream = client.chat.completions.create(**payload)
             # -----------------------------------------------------------
 
-            # State for History Reconstruction
-            assistant_reply, accumulated, reasoning_reply = "", "", ""
-            current_block = None
-
             # 2. Process deltas via Normalizer
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
@@ -124,7 +131,7 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
                 ctype, ccontent = chunk["type"], chunk["content"]
 
-                # --- HISTORY RECONSTRUCTION (Tag Injection) ---
+                # --- HISTORY RECONSTRUCTION (Tag Injection for DeepSeek) ---
                 if ctype == "content":
                     if current_block == "fc":
                         accumulated += "</fc>"
@@ -151,11 +158,11 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                 # Accumulate raw stream for persistence
                 accumulated += ccontent
 
-                # Yield immediately (No Hot Code Snooping)
+                # Yield immediately
                 yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
 
-            # 3. Final Close-out
+            # 3. Final Close-out of tags
             if current_block == "fc":
                 accumulated += "</fc>"
             elif current_block == "think":
@@ -163,37 +170,42 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
             yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
-            # --- SMART HISTORY PRESERVATION ---
+            # ------------------------------------------------------------------
+            # 💉 TIMEOUT FIX: Keep-Alive Heartbeat
+            # ------------------------------------------------------------------
+            # Send a 'processing' signal to reset the client's timeout timer
+            # while the server performs the blocking database save.
+            yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
+
+            # ------------------------------------------------------------------
+            # 🔒 SIMPLIFIED PERSISTENCE
+            # ------------------------------------------------------------------
             has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
             message_to_save = assistant_reply
 
             if has_fc:
                 try:
-                    # Clean tags for JSON parsing
-                    raw_json = (
-                        accumulated.replace("<fc>", "").replace("</fc>", "").strip()
-                    )
+                    # Strip tags to get raw JSON string
+                    raw_json = accumulated.replace("<fc>", "").replace("</fc>", "").strip()
 
+                    # Validate JSON integrity
                     payload_dict = json.loads(raw_json)
 
+                    # Save the clean, flat JSON object directly
                     message_to_save = json.dumps(payload_dict)
                 except Exception as e:
-                    LOG.error(f"Error structuring tool calls: {e}")
+                    LOG.error(f"Error parsing raw tool JSON: {e}")
                     message_to_save = accumulated
 
             if message_to_save:
-                self.finalize_conversation(
-                    message_to_save, thread_id, assistant_id, run_id
-                )
+                self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
 
             if has_fc:
                 self.project_david_client.runs.update_run_status(
                     run_id, StatusEnum.pending_action.value
                 )
             else:
-                self.project_david_client.runs.update_run_status(
-                    run_id, StatusEnum.completed.value
-                )
+                self.project_david_client.runs.update_run_status(run_id, StatusEnum.completed.value)
 
         except Exception as exc:
             err = {"type": "error", "content": str(exc)}
