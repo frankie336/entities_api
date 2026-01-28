@@ -40,8 +40,9 @@ class ToolRoutingMixin:
         """
         Robustly locate a function call payload.
         """
-        from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
-            JsonUtilsMixin
+        from src.api.entities_api.orchestration.mixins.json_utils_mixin import (
+            JsonUtilsMixin,
+        )
 
         if not isinstance(self, JsonUtilsMixin):
             raise TypeError("ToolRoutingMixin must be mixed with JsonUtilsMixin")
@@ -185,13 +186,18 @@ class ToolRoutingMixin:
 
         if name in PLATFORM_TOOLS:
             if name in SPECIAL_CASE_TOOL_HANDLING:
-                self._process_tool_calls(
+                # FIX: Add yield from
+                yield from self._process_tool_calls(
                     thread_id, assistant_id, fc, run_id, api_key=api_key
                 )
             else:
-                self._process_platform_tool_calls(thread_id, assistant_id, fc, run_id)
+                # If this is also a generator, add yield from
+                yield from self._process_platform_tool_calls(
+                    thread_id, assistant_id, fc, run_id
+                )
         else:
-            self._process_tool_calls(
+            # FIX: Add yield from
+            yield from self._process_tool_calls(
                 thread_id,
                 assistant_id,
                 fc,

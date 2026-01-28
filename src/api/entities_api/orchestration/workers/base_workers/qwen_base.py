@@ -11,7 +11,9 @@ from projectdavid_common.validation import StatusEnum
 from src.api.entities_api.dependencies import get_redis
 from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
 from src.api.entities_api.orchestration.mixins.providers import _ProviderMixins
-from src.api.entities_api.orchestration.streaming.hyperbolic import HyperbolicDeltaNormalizer
+from src.api.entities_api.orchestration.streaming.hyperbolic import (
+    HyperbolicDeltaNormalizer,
+)
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -23,7 +25,9 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
     Handles QwQ-32B/Qwen2.5 specific stream parsing and history preservation.
     """
 
-    def __init__(self, *, assistant_id=None, thread_id=None, redis=None, **extra) -> None:
+    def __init__(
+        self, *, assistant_id=None, thread_id=None, redis=None, **extra
+    ) -> None:
         self._assistant_cache = extra.get("assistant_cache") or {}
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
@@ -162,7 +166,9 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             # ------------------------------------------------------------------
             # Send a 'processing' signal to reset the client's timeout timer
             # while the server performs the blocking database save.
-            yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
+            yield json.dumps(
+                {"type": "status", "status": "processing", "run_id": run_id}
+            )
 
             # ------------------------------------------------------------------
             # 🔒 FIX 3: SAFE PERSISTENCE LOGIC
@@ -173,7 +179,9 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             if has_fc:
                 try:
                     # Clean tags for JSON parsing
-                    raw_json = accumulated.replace("<fc>", "").replace("</fc>", "").strip()
+                    raw_json = (
+                        accumulated.replace("<fc>", "").replace("</fc>", "").strip()
+                    )
                     # Validate JSON structure
                     payload_dict = json.loads(raw_json)
 
@@ -185,14 +193,18 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                     message_to_save = accumulated
 
             if message_to_save:
-                self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
+                self.finalize_conversation(
+                    message_to_save, thread_id, assistant_id, run_id
+                )
 
             if has_fc:
                 self.project_david_client.runs.update_run_status(
                     run_id, StatusEnum.pending_action.value
                 )
             else:
-                self.project_david_client.runs.update_run_status(run_id, StatusEnum.completed.value)
+                self.project_david_client.runs.update_run_status(
+                    run_id, StatusEnum.completed.value
+                )
 
         except Exception as exc:
             err = {"type": "error", "content": str(exc)}

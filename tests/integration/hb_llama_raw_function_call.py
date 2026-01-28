@@ -1,9 +1,10 @@
-import sys
-import requests
 import json
 import os
 import re
+import sys
+
 import dotenv
+import requests
 
 dotenv.load_dotenv()
 
@@ -29,8 +30,8 @@ TOOLS_DEFINITION = [
         "description": "Return flight times between two airport codes.",
         "parameters": {
             "departure": "3-letter airport code (e.g. LAX)",
-            "arrival": "3-letter airport code (e.g. JFK)"
-        }
+            "arrival": "3-letter airport code (e.g. JFK)",
+        },
     }
 ]
 
@@ -50,19 +51,30 @@ SYSTEM_PROMPT_TEXT = f"""You are a helpful assistant with access to the followin
 def execute_local_tool(tool_name: str, arguments: dict) -> str:
     print(f"\n[LOCAL EXECUTION] Running '{tool_name}' with args: {arguments}")
     if tool_name == "get_flight_times":
-        return json.dumps({
-            "status": "success",
-            "flights": [
-                {"flight": "UA123", "departs": "10:00 AM PST", "arrives": "06:00 PM EST"},
-                {"flight": "AA456", "departs": "02:00 PM PST", "arrives": "10:30 PM EST"}
-            ]
-        })
+        return json.dumps(
+            {
+                "status": "success",
+                "flights": [
+                    {
+                        "flight": "UA123",
+                        "departs": "10:00 AM PST",
+                        "arrives": "06:00 PM EST",
+                    },
+                    {
+                        "flight": "AA456",
+                        "departs": "02:00 PM PST",
+                        "arrives": "10:30 PM EST",
+                    },
+                ],
+            }
+        )
     return json.dumps({"error": "Tool not found"})
 
 
 # ------------------------------------------------------------------
 # 2. Stream Handler
 # ------------------------------------------------------------------
+
 
 def run_turn(messages):
     headers = {
@@ -76,7 +88,7 @@ def run_turn(messages):
         "max_tokens": 1024,
         "temperature": 0.1,
         "stream": True,
-        "stop": ["</tool_code>"]  # Prevents model from yapping after the tag
+        "stop": ["</tool_code>"],  # Prevents model from yapping after the tag
     }
 
     print(f"\n--- STARTING STREAM TURN (Msgs: {len(messages)}) ---")
@@ -92,12 +104,15 @@ def run_turn(messages):
                 return None, []
 
             for line in response.iter_lines():
-                if not line: continue
+                if not line:
+                    continue
                 decoded = line.decode("utf-8")
-                if not decoded.startswith("data: "): continue
+                if not decoded.startswith("data: "):
+                    continue
 
                 data_str = decoded[6:].strip()
-                if data_str == "[DONE]": break
+                if data_str == "[DONE]":
+                    break
 
                 try:
                     chunk = json.loads(data_str)
@@ -135,7 +150,7 @@ def run_turn(messages):
 
     for match in matches:
         # Clean trailing semicolons and whitespace
-        clean_json_str = match.strip().rstrip(';')
+        clean_json_str = match.strip().rstrip(";")
 
         try:
             call_data = json.loads(clean_json_str)
@@ -143,9 +158,9 @@ def run_turn(messages):
         except json.JSONDecodeError:
             # Safety fallback: find the last closing brace
             try:
-                end_index = clean_json_str.rfind('}')
+                end_index = clean_json_str.rfind("}")
                 if end_index != -1:
-                    call_data = json.loads(clean_json_str[:end_index + 1])
+                    call_data = json.loads(clean_json_str[: end_index + 1])
                     extracted_tools.append(call_data)
                 else:
                     print(f"[PARSE ERROR] No valid JSON object found in: {match}")
@@ -162,7 +177,7 @@ def run_turn(messages):
 if __name__ == "__main__":
     conversation_history = [
         {"role": "system", "content": SYSTEM_PROMPT_TEXT},
-        {"role": "user", "content": TEST_PROMPT}
+        {"role": "user", "content": TEST_PROMPT},
     ]
 
     # --- TURN 1 (Assistant generates tool call) ---
@@ -184,10 +199,7 @@ if __name__ == "__main__":
             result_str = execute_local_tool(func_name, args)
             tool_feedback = f"[Tool Output for {func_name}]: {result_str}"
 
-            conversation_history.append({
-                "role": "user",
-                "content": tool_feedback
-            })
+            conversation_history.append({"role": "user", "content": tool_feedback})
 
         # --- TURN 2 (Assistant processes results) ---
         print("\n[SYSTEM] Sending results back to model...")

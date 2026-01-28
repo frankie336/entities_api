@@ -1,10 +1,9 @@
-# src/api/entities_api/orchestration/workers/hyperbolic/together_deepseek.py
 from __future__ import annotations
 
 import json
 import os
 from abc import ABC, abstractmethod
-from typing import Any, Generator, Optional
+from typing import Any, Dict, Generator, Optional
 
 from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
@@ -12,31 +11,20 @@ from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.dependencies import get_redis
 from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
-from src.api.entities_api.orchestration.mixins import (
-    AssistantCacheMixin,
-    CodeExecutionMixin,
-    ConsumerToolHandlersMixin,
-    ConversationContextMixin,
-    FileSearchMixin,
-    JsonUtilsMixin,
-    PlatformToolHandlersMixin,
-    ShellExecutionMixin,
-    ToolRoutingMixin,
-)
 from src.api.entities_api.orchestration.mixins.providers import _ProviderMixins
-from src.api.entities_api.orchestration.streaming.hyperbolic import HyperbolicDeltaNormalizer
+from src.api.entities_api.orchestration.streaming.hyperbolic import (
+    HyperbolicDeltaNormalizer,
+)
 
 load_dotenv()
 LOG = LoggingUtility()
 
 
 class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
-    """
-    Specialized DeepSeek-V3/R1 Provider.
-    Uses a custom state-machine to handle XML-tagged thinking and tool-calls.
-    """
 
-    def __init__(self, *, assistant_id=None, thread_id=None, redis=None, **extra) -> None:
+    def __init__(
+        self, *, assistant_id=None, thread_id=None, redis=None, **extra
+    ) -> None:
         self._assistant_cache = extra.get("assistant_cache") or {}
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
@@ -44,17 +32,17 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         self.base_url = os.getenv("BASE_URL")
         self.api_key = extra.get("api_key")
         self.model_name = extra.get("model_name", "deepseek-ai/DeepSeek-V3")
-
-        # Attributes required by ConversationContextMixin / Truncator logic
         self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
+
+        # [NEW] Holding variable for the parsed tool payload to pass between methods
+        self._pending_tool_payload: Optional[Dict[str, Any]] = None
 
         self.setup_services()
         LOG.debug("Hyperbolic-Ds1 provider ready (assistant=%s)", assistant_id)
 
     @abstractmethod
     def _get_client_instance(self, api_key: str):
-        """Subclasses must implement specific provider client creation."""
         pass
 
     @property
@@ -84,26 +72,26 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
-        # Reset state at start of stream
         self._current_tool_call_id = None
+        # Reset handover state
+        self._pending_tool_payload = None
 
-        # --- Variables Initialized Early (Safety) ---
         accumulated: str = ""
         assistant_reply: str = ""
         reasoning_reply: str = ""
         current_block: str | None = None
-        # --------------------------------------------
 
         try:
             if mapped := self._get_model_map(model):
                 model = mapped
 
-            # 1. Context Window Setup
             ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
 
             if model == "deepseek-ai/DeepSeek-R1":
                 amended = self._build_amended_system_message(assistant_id=assistant_id)
-                ctx = self.replace_system_message(ctx, json.dumps(amended, ensure_ascii=False))
+                ctx = self.replace_system_message(
+                    ctx, json.dumps(amended, ensure_ascii=False)
+                )
 
             payload = {
                 "model": model,
@@ -117,21 +105,16 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             yield json.dumps(start_chunk)
             self._shunt_to_redis_stream(redis, stream_key, start_chunk)
 
-            # -----------------------------------------------------------
-            # DYNAMIC CLIENT INJECTION
-            # -----------------------------------------------------------
             client = self._get_client_instance(api_key=api_key)
             raw_stream = client.chat.completions.create(**payload)
-            # -----------------------------------------------------------
 
-            # 2. Process deltas via Normalizer
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
                     break
 
                 ctype, ccontent = chunk["type"], chunk["content"]
 
-                # --- HISTORY RECONSTRUCTION (Tag Injection for DeepSeek) ---
+                # --- 1. STATE MANAGEMENT (Keep this exactly as is) ---
                 if ctype == "content":
                     if current_block == "fc":
                         accumulated += "</fc>"
@@ -155,57 +138,65 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                         current_block = "think"
                     reasoning_reply += ccontent
 
-                # Accumulate raw stream for persistence
                 accumulated += ccontent
 
-                # Yield immediately
+                # --- 2. SELECTIVE YIELDING ---
+                # We STOP yielding call_arguments directly to the client
+                if ctype == "call_arguments":
+                    continue
+
+                    # We yield everything else (content, reasoning, etc)
                 yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
 
-            # 3. Final Close-out of tags
+            # Close tags
             if current_block == "fc":
                 accumulated += "</fc>"
             elif current_block == "think":
                 accumulated += "</think>"
 
-            yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
+            yield json.dumps(
+                {"type": "status", "status": "processing", "run_id": run_id}
+            )
 
-            # ------------------------------------------------------------------
-            # 💉 TIMEOUT FIX: Keep-Alive Heartbeat
-            # ------------------------------------------------------------------
-            # Send a 'processing' signal to reset the client's timeout timer
-            # while the server performs the blocking database save.
-            yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
-
-            # ------------------------------------------------------------------
-            # 🔒 SIMPLIFIED PERSISTENCE
-            # ------------------------------------------------------------------
+            # --- 3. PERSISTENCE & HANDOVER PREP ---
             has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
             message_to_save = assistant_reply
 
             if has_fc:
                 try:
-                    # Strip tags to get raw JSON string
-                    raw_json = accumulated.replace("<fc>", "").replace("</fc>", "").strip()
-
-                    # Validate JSON integrity
+                    # Clean tags
+                    raw_json = (
+                        accumulated.replace("<fc>", "").replace("</fc>", "").strip()
+                    )
                     payload_dict = json.loads(raw_json)
-
-                    # Save the clean, flat JSON object directly
                     message_to_save = json.dumps(payload_dict)
+
+                    # [CRITICAL] Store the payload for the next step (process_conversation)
+                    self._pending_tool_payload = payload_dict
+
                 except Exception as e:
                     LOG.error(f"Error parsing raw tool JSON: {e}")
                     message_to_save = accumulated
 
             if message_to_save:
-                self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
+                self.finalize_conversation(
+                    message_to_save, thread_id, assistant_id, run_id
+                )
 
             if has_fc:
                 self.project_david_client.runs.update_run_status(
                     run_id, StatusEnum.pending_action.value
                 )
             else:
-                self.project_david_client.runs.update_run_status(run_id, StatusEnum.completed.value)
+                self.project_david_client.runs.update_run_status(
+                    run_id, StatusEnum.completed.value
+                )
+                # Only yield 'complete' if no tool call.
+                # If tool call, the tool processor will yield manifests then complete.
+                yield json.dumps(
+                    {"type": "status", "status": "complete", "run_id": run_id}
+                )
 
         except Exception as exc:
             err = {"type": "error", "content": str(exc)}
@@ -214,6 +205,9 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         finally:
             stop_event.set()
 
+    # ----------------------------------------------------------------------
+    # 3. ORCHESTRATOR
+    # ----------------------------------------------------------------------
     def process_conversation(
         self,
         thread_id,
@@ -225,6 +219,7 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         stream_reasoning=True,
         **kwargs,
     ):
+        # Phase 1: Stream Inference (Accumulates tool args internally)
         yield from self.stream(
             thread_id,
             message_id,
@@ -236,14 +231,25 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             **kwargs,
         )
 
-        if self.get_function_call_state():
-            yield from self.process_tool_calls(
-                thread_id, run_id, assistant_id, model=model, api_key=api_key
+        # Phase 2: Check State & Execute Tool Logic
+        # We check _pending_tool_payload which was set in stream()
+        if self.get_function_call_state() and self._pending_tool_payload:
+
+            # This yields the Manifest and does the Polling
+            yield from self._process_tool_calls(
+                thread_id=thread_id,
+                run_id=run_id,
+                assistant_id=assistant_id,
+                content=self._pending_tool_payload,  # Pass the accumulated payload
+                api_key=api_key,
             )
+
+            # Cleanup
             self.set_tool_response_state(False)
             self.set_function_call_state(None)
+            self._pending_tool_payload = None
 
-            # Follow-up with the tool results in context
+            # Phase 3: Follow-up Stream
             yield from self.stream(
                 thread_id,
                 None,

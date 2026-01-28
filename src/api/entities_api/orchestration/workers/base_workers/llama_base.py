@@ -11,7 +11,9 @@ from projectdavid_common.validation import StatusEnum
 from src.api.entities_api.dependencies import get_redis
 from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
 from src.api.entities_api.orchestration.mixins.providers import _ProviderMixins
-from src.api.entities_api.orchestration.streaming.hyperbolic import HyperbolicDeltaNormalizer
+from src.api.entities_api.orchestration.streaming.hyperbolic import (
+    HyperbolicDeltaNormalizer,
+)
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -22,7 +24,9 @@ class LlamaBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
     Abstract Base for Llama-3.3 Providers (Hyperbolic, Together, etc.).
     """
 
-    def __init__(self, *, assistant_id=None, thread_id=None, redis=None, **extra) -> None:
+    def __init__(
+        self, *, assistant_id=None, thread_id=None, redis=None, **extra
+    ) -> None:
         self._assistant_cache = extra.get("assistant_cache") or {}
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
@@ -241,9 +245,13 @@ class LlamaBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                                 f"<fc>{original_content}</fc>",
                                 f"<fc>{valid_payload}</fc>",
                             )
-                            LOG.debug(f"DEBUG: Sanitized tool call structure for: {func_name}")
+                            LOG.debug(
+                                f"DEBUG: Sanitized tool call structure for: {func_name}"
+                            )
                         except Exception as e:
-                            LOG.warning(f"DEBUG: Failed to sanitize potential tool call: {e}")
+                            LOG.warning(
+                                f"DEBUG: Failed to sanitize potential tool call: {e}"
+                            )
             except Exception as e:
                 LOG.error(f"DEBUG: Error during tool call sanitization: {e}")
 
@@ -252,7 +260,9 @@ class LlamaBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
         # Double check state via the Mixin getter
         mixin_state = (
-            self.get_function_call_state() if hasattr(self, "get_function_call_state") else has_fc
+            self.get_function_call_state()
+            if hasattr(self, "get_function_call_state")
+            else has_fc
         )
 
         message_to_save = assistant_reply

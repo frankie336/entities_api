@@ -6,7 +6,7 @@ import logging
 import os
 import time
 import traceback
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Generator
 
 from dotenv import load_dotenv
 from httpx import HTTPStatusError
@@ -133,28 +133,57 @@ class ConsumerToolHandlersMixin:
         api_key: Optional[str] = None,
         poll_interval: float = 1.0,
         max_wait: float = 60.0,
-    ) -> None:
-        """Handles consumer-side tool calls with dual-path error handling."""
+    ) -> Generator[str, None, None]:
+        """
+        Handles consumer-side tool calls.
+        1. Creates Action in DB.
+        2. Yields 'Manifest' (Action ID + Args) to client.
+        3. Polls DB until client submits output (Blocking).
+        """
+
+        # 1. Create the Action Record
         action = self.project_david_client.actions.create_action(
             tool_name=content["name"],
             run_id=run_id,
             tool_call_id=tool_call_id,
             function_args=content["arguments"],
         )
+
+        # 2. Construct & Yield the Manifest
+        # This tells the client "Here is the ID you need to execute".
+        manifest_chunk = {
+            "type": "tool_call_manifest",
+            "run_id": run_id,
+            "action_id": action.id,  # <--- Solves the race condition
+            "tool": content["name"],
+            "args": content["arguments"],
+        }
+        yield json.dumps(manifest_chunk)
+
         try:
-            # Signal that we are waiting for user action
+            # 3. Signal that we are waiting
             self.project_david_client.runs.update_run_status(
                 run_id, StatusEnum.pending_action.value
             )
 
-            # Start the poll
+            # 4. POLL (Blocking / Wait for Client)
+            # The worker stays alive here while the client performs the execution
+            # and POSTs the result back to the API.
             self._poll_for_completion(run_id, action.id, max_wait, poll_interval)
+
             LOG.debug("Tool %s completed/processed (run %s)", content["name"], run_id)
+
+            # Optional: Yield a status update so client knows server saw the completion
+            yield json.dumps(
+                {"type": "status", "status": "tool_output_received", "run_id": run_id}
+            )
 
         except Exception as exc:
             self._handle_tool_error(
                 exc, thread_id=thread_id, assistant_id=assistant_id, action=action
             )
+            # Ensure the client knows something went wrong during the wait
+            yield json.dumps({"type": "error", "error": str(exc), "run_id": run_id})
 
     def _poll_for_completion(
         self, run_id: str, action_id: str, max_wait: float, poll_interval: float

@@ -9,6 +9,7 @@ T = TypeVar("T")
 # Using a unique object is faster than checking tuple status on every chunk.
 _DONE = object()
 
+
 def async_to_sync_stream(agen: AsyncGenerator[T, None]) -> Generator[T, None, None]:
     """
     True Streaming Bridge: Runs the async stream in a continuous background thread.

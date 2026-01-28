@@ -4,8 +4,8 @@ import os
 
 from dotenv import load_dotenv
 from projectdavid import Entity
-from src.api.entities_api.system_message.main_assembly import assemble_instructions
 
+from src.api.entities_api.system_message.main_assembly import assemble_instructions
 
 # ------------------------------------------------------------------
 # 0.  SDK init + env
@@ -34,7 +34,7 @@ tool_instructions = assemble_instructions(
 assistant = client.assistants.create_assistant(
     name="Test Assistant",
     model="gpt-oss-120b",
-    instructions="You are a helpful AI assistant",
+    instructions=tool_instructions,
     tools=[
         {
             "type": "function",

@@ -9,10 +9,10 @@ from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from redis import Redis
 
-from entities_api.orchestration.engine.inference_arbiter import \
-    InferenceArbiter
-from entities_api.orchestration.engine.inference_provider_selector import \
-    InferenceProviderSelector
+from entities_api.orchestration.engine.inference_arbiter import InferenceArbiter
+from entities_api.orchestration.engine.inference_provider_selector import (
+    InferenceProviderSelector,
+)
 from src.api.entities_api.dependencies import get_redis
 
 router = APIRouter()
@@ -180,7 +180,9 @@ async def completions(
                 yield "data: [DONE]\n\n"
 
             # Log summary
-            logging_utility.info(f"Stream finished: {chunk_count} chunks in {elapsed:.2f}s")
+            logging_utility.info(
+                f"Stream finished: {chunk_count} chunks in {elapsed:.2f}s"
+            )
 
     return StreamingResponse(
         stream_generator(),

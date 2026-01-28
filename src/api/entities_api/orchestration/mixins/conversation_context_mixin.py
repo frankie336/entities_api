@@ -119,7 +119,9 @@ class ConversationContextMixin:
         cfg = cache.retrieve_sync(assistant_id)
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        excluded_instructions = assemble_instructions(exclude_keys=["TOOL_USAGE_PROTOCOL"])
+        excluded_instructions = assemble_instructions(
+            exclude_keys=["TOOL_USAGE_PROTOCOL"]
+        )
         return {
             "role": "system",
             "content": f"tools:\n{json.dumps(cfg['tools'])}\n{excluded_instructions}\nToday's date and time: {today}",
@@ -259,10 +261,14 @@ class ConversationContextMixin:
                     if "\n" in tools_json_str:
                         json_part, instructions_part = tools_json_str.split("\n", 1)
                         extracted_tools = json.loads(json_part)
-                        new_msg["content"] = f"{system_text}\n{instructions_part}".strip()
+                        new_msg["content"] = (
+                            f"{system_text}\n{instructions_part}".strip()
+                        )
                     else:
                         extracted_tools = json.loads(tools_json_str)
-                        new_msg["content"] = system_text or "You are a helpful assistant."
+                        new_msg["content"] = (
+                            system_text or "You are a helpful assistant."
+                        )
                 except Exception as e:
                     LOG.error(f"[CTX-MIXIN] Failed tool extraction: {e}")
 

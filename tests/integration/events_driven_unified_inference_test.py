@@ -1,10 +1,9 @@
 """
-Automated Model Benchmark: Reasoning & Tool Use
------------------------------------------------
+Automated Model Benchmark: Reasoning & Tool Use (Event-Driven Refactor)
+-----------------------------------------------------------------------
 1. Loops through specified models.
-2. Updates a persistent Markdown report.
-3. BEHAVIOR: One table per Provider.
-4. GUARANTEES ID UNIQUENESS: Merges new results into existing rows based on Endpoint ID.
+2. Uses the new SDK Event System (ContentEvent, ToolCallRequestEvent).
+3. Updates a persistent Markdown report.
 """
 
 import json
@@ -19,10 +18,19 @@ from typing import Dict, List, Optional, Tuple
 from dotenv import load_dotenv
 
 # Import definitions
-from models import HYPERBOLIC_MODELS, TOGETHER_AI_MODELS
-from projectdavid import Entity
+from models import HYPERBOLIC_MODELS
+
+# --- NEW IMPORTS: Event Classes ---
+from projectdavid import (
+    ContentEvent,
+    Entity,
+    ReasoningEvent,
+    StatusEvent,
+    ToolCallRequestEvent,
+)
 
 from src.api.entities_api.system_message.main_assembly import assemble_instructions
+from models import TOGETHER_AI_MODELS
 
 # ------------------------------------------------------------------
 # 0. Setup & Config
@@ -43,13 +51,7 @@ ENTITIES_API_KEY = os.getenv("ENTITIES_API_KEY")
 USER_ID = os.getenv("ENTITIES_USER_ID")
 REPORT_FILE = root_dir / "model_compatibility_report.md"
 
-tool_instructions = assemble_instructions(
-    include_keys=[
-        # "TOOL_USAGE_PROTOCOL",
-        # "FUNCTION_CALL_FORMATTING",
-        # "FUNCTION_CALL_WRAPPING",
-    ]
-)
+tool_instructions = assemble_instructions(include_keys=[])
 
 
 def get_api_key_for_provider(provider: str) -> str:
@@ -65,15 +67,14 @@ def get_api_key_for_provider(provider: str) -> str:
 
 
 # ------------------------------------------------------------------
-# 1. Tool Logic (Mock)
+# 1. Tool Logic (Signature matches SDK requirement: name, dict_args)
 # ------------------------------------------------------------------
-def get_flight_times(tool_name: str, arguments) -> str:
+def get_flight_times(tool_name: str, arguments: dict) -> str:
     """Mock flight-time lookup tool."""
-    if isinstance(arguments, str):
-        try:
-            arguments = json.loads(arguments)
-        except:
-            return json.dumps({"status": "error", "message": "Invalid JSON"})
+    # The SDK now automatically unwraps JSON, so arguments is a dict.
+    print(
+        f"\n{YELLOW}[LOCAL EXEC] Tool invoked: {tool_name} | Args: {arguments}{RESET}"
+    )
 
     return json.dumps(
         {
@@ -86,47 +87,31 @@ def get_flight_times(tool_name: str, arguments) -> str:
 
 
 # ------------------------------------------------------------------
-# 2. Report Manager (Simple ID-Based Deduplication)
+# 2. Report Manager (Unchanged)
 # ------------------------------------------------------------------
 class ReportManager:
     @staticmethod
     def update_report(new_results: List[Dict]):
-        """
-        Updates the MD file.
-        - Reads ALL existing rows.
-        - Deduplicates based on Endpoint ID.
-        - Groups by Provider.
-        """
+        """Updates the MD file with deduplication."""
         file_path = Path(REPORT_FILE)
-
-        # Structure: { provider_name: { endpoint_id: row_string } }
-        # Using a nested dict ensures that ID is the unique key per provider.
-        # (Technically ID should be unique globally, but grouping by provider is cleaner for display)
         rows_by_provider = defaultdict(dict)
 
-        # 1. Read Existing File
         if file_path.exists():
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     for line in f:
                         clean_line = line.strip()
-                        # Only parse data rows
                         if clean_line.startswith("| **"):
                             parts = [p.strip() for p in clean_line.split("|")]
                             if len(parts) >= 4:
-                                # Extract Provider (Column 2)
                                 provider = parts[2].strip()
-                                # Extract ID from `backticks` (Column 3)
                                 match = re.search(r"`(.*?)`", parts[3])
-
                                 if match:
                                     eid = match.group(1).strip()
-                                    # Store it. If duplicate ID exists in file, this overwrites it (last one wins).
                                     rows_by_provider[provider][eid] = clean_line
             except Exception as e:
                 print(f"{RED}[!] Error parsing report: {e}{RESET}")
 
-        # 2. Merge New Results
         for res in new_results:
             inf_icon = "✅" if res["inference_ok"] else "❌"
             reas_icon = "🧠" if res["reasoning_detected"] else "—"
@@ -142,14 +127,10 @@ class ReportManager:
                 f"| **{res['name']}** | {res['provider']} | `{res['id']}` | "
                 f"{inf_icon} | {reas_icon} | {tool_icon} | {timestamp} | {note} |"
             )
-
-            # Upsert: This guarantees we update the existing entry if the ID matches
             rows_by_provider[res["provider"]][res["id"]] = new_row
 
-        # 3. Write Report
         table_header_row = "| Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Last Run | Notes |"
         table_align_row = "| :--- | :--- | :--- | :---: | :---: | :---: | :--- | :--- |"
-
         main_title = [
             "# 🧪 Model Compatibility Report",
             f"**Last Update:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
@@ -158,29 +139,22 @@ class ReportManager:
 
         try:
             with open(file_path, "w", encoding="utf-8") as f:
-                # Write File Title
                 f.write("\n".join(main_title))
-
-                # Write Tables per Provider (Sorted Alphabetically)
                 for provider in sorted(rows_by_provider.keys()):
                     f.write(f"\n## 🟢 Provider: {provider}\n")
                     f.write(f"{table_header_row}\n{table_align_row}\n")
-
-                    # Sort rows by Name (Column 1) for readability
-                    # We sort the values (the full row strings)
                     rows = sorted(
                         rows_by_provider[provider].values(),
                         key=lambda x: x.split("|")[1].strip().lower(),
                     )
                     f.write("\n".join(rows) + "\n")
-
             print(f"{GREEN}[✓] Report updated.{RESET}")
         except Exception as e:
             print(f"{RED}[!] Write failed: {e}{RESET}")
 
 
 # ------------------------------------------------------------------
-# 3. Test Logic
+# 3. Test Logic (Refactored for Events)
 # ------------------------------------------------------------------
 class ModelTester:
     def __init__(self, model_label: str, config: Dict):
@@ -191,6 +165,12 @@ class ModelTester:
         self.assistant_id: Optional[str] = None
         self.user_id = USER_ID
         self.provider_api_key = get_api_key_for_provider(self.provider)
+
+        # Bind clients immediately to ensure ToolCallRequestEvent works
+        if hasattr(self.client, "synchronous_inference_stream"):
+            self.client.synchronous_inference_stream.bind_clients(
+                self.client.runs, self.client.actions, self.client.messages
+            )
 
     def setup(self) -> Tuple[bool, str]:
         if not self.provider_api_key:
@@ -236,11 +216,14 @@ class ModelTester:
             "error_msg": "",
         }
 
-        # Stage 1: Inference
+        # =========================================================
+        # Stage 1: Inference & Reasoning Check
+        # =========================================================
         print(f"\n{YELLOW}--- Stage 1: Inference ({self.model_label}) ---{RESET}")
         try:
+            # 1. Setup
             thread = self.client.threads.create_thread(participant_ids=[self.user_id])
-            self.client.messages.create_message(
+            message = self.client.messages.create_message(
                 thread_id=thread.id,
                 role="user",
                 content="Calculate Fibonacci recursively. Explain why iterative is better.",
@@ -249,25 +232,65 @@ class ModelTester:
             run = self.client.runs.create_run(
                 assistant_id=self.assistant_id, thread_id=thread.id
             )
-            flags = self._stream_and_analyze(thread.id, run.id, timeout=180.0)
 
-            if flags["has_error"]:
-                result["error_msg"] = "Stream Error"
-            else:
-                result["inference_ok"] = flags["has_content"] or flags["has_reasoning"]
-                result["reasoning_detected"] = flags["has_reasoning"]
+            # 2. Configure Stream
+            stream = self.client.synchronous_inference_stream
+            stream.setup(
+                user_id=self.user_id,
+                thread_id=thread.id,
+                assistant_id=self.assistant_id,
+                message_id=message.id,
+                run_id=run.id,
+                api_key=self.provider_api_key,
+            )
+
+            # 3. Process Events
+            has_reasoning = False
+            has_content = False
+
+            # Using the new high-level event loop
+            for event in stream.stream_events(
+                provider=self.provider, model=self.model_id, timeout_per_chunk=180.0
+            ):
+                if isinstance(event, ReasoningEvent):
+                    if not has_reasoning:
+                        print(f"\n{CYAN}🤔 [THOUGHT]{RESET} ", end="")
+                        has_reasoning = True
+                    print(f"{CYAN}{event.content}{RESET}", end="", flush=True)
+
+                elif isinstance(event, ContentEvent):
+                    if not has_content:
+                        if has_reasoning:
+                            print("\n")
+                        print(f"\n{GREEN}🤖 [ANSWER]{RESET} ", end="")
+                        has_content = True
+                    print(f"{GREEN}{event.content}{RESET}", end="", flush=True)
+
+                elif isinstance(event, StatusEvent):
+                    if event.status == "failed":
+                        raise Exception("Stream reported failure status")
+
+            print()  # Newline cleanup
+
+            result["inference_ok"] = has_content or has_reasoning
+            result["reasoning_detected"] = has_reasoning
+
         except Exception as e:
             result["error_msg"] = f"Inference Exception: {str(e)[:50]}"
+            print(f"{RED}[!] Inference Failed: {e}{RESET}")
             return result
 
-        # Stage 2: Tools (Only if Inference OK)
+        # =========================================================
+        # Stage 2: Tool Calling (The Event-Driven Way)
+        # =========================================================
         if result["inference_ok"]:
             print(f"\n{YELLOW}--- Stage 2: Tool Calls ({self.model_label}) ---{RESET}")
             try:
+                # 1. Setup
                 thread = self.client.threads.create_thread(
                     participant_ids=[self.user_id]
                 )
-                self.client.messages.create_message(
+                message = self.client.messages.create_message(
                     thread_id=thread.id,
                     role="user",
                     content="Fetch flight times between LAX and JFK.",
@@ -276,91 +299,80 @@ class ModelTester:
                 run = self.client.runs.create_run(
                     assistant_id=self.assistant_id, thread_id=thread.id
                 )
-                flags = self._stream_and_analyze(thread.id, run.id, timeout=60.0)
 
-                if flags["has_tool_call"]:
-                    print(f"\n{YELLOW}[*] Executing Tool Logic...{RESET}")
-                    handled = self.client.runs.poll_and_execute_action(
-                        run_id=run.id,
+                stream = self.client.synchronous_inference_stream
+                stream.setup(
+                    user_id=self.user_id,
+                    thread_id=thread.id,
+                    assistant_id=self.assistant_id,
+                    message_id=message.id,
+                    run_id=run.id,
+                    api_key=self.provider_api_key,
+                )
+
+                tool_executed = False
+
+                # 2. STREAM 1: Expecting Tool Request
+                print(f"{CYAN}[▶] Stream 1: Requesting Tool...{RESET}")
+                for event in stream.stream_events(
+                    provider=self.provider, model=self.model_id
+                ):
+
+                    if isinstance(event, ContentEvent):
+                        print(f"{GREEN}{event.content}{RESET}", end="", flush=True)
+
+                    elif isinstance(event, ReasoningEvent):
+                        print(f"{CYAN}{event.content}{RESET}", end="", flush=True)
+
+                    elif isinstance(event, ToolCallRequestEvent):
+                        print(
+                            f"\n{YELLOW}🛠  [SDK] Tool Request: '{event.tool_name}' Args: {event.args}{RESET}"
+                        )
+
+                        # --- EXECUTE IMMEDIATELY ---
+                        # The SDK handles the API calls to submit output
+                        success = event.execute(get_flight_times)
+
+                        if success:
+                            print(f"{GREEN}[✓] Tool Executed successfully.{RESET}")
+                            tool_executed = True
+                        else:
+                            print(f"{RED}[!] Tool Execution returned False.{RESET}")
+                            result["error_msg"] = "Tool Execution Failed"
+
+                # 3. STREAM 2: Final Response (Only if tool ran)
+                if tool_executed:
+                    print(f"\n{CYAN}[▶] Stream 2: Final Answer...{RESET}")
+
+                    # Re-setup stream (State is managed by run_id on backend, but we reset local cursors)
+                    stream.setup(
+                        user_id=self.user_id,
                         thread_id=thread.id,
                         assistant_id=self.assistant_id,
-                        tool_executor=get_flight_times,
-                        actions_client=self.client.actions,
-                        messages_client=self.client.messages,
-                        timeout=180.0,
+                        message_id=message.id,
+                        run_id=run.id,
+                        api_key=self.provider_api_key,
                     )
-                    if handled:
-                        print(f"{YELLOW}[*] Streaming Final Response...{RESET}")
-                        final_flags = self._stream_and_analyze(
-                            thread.id, run.id, timeout=30.0
-                        )
-                        if final_flags["has_content"]:
-                            result["tool_call_ok"] = True
+
+                    has_final_content = False
+                    for event in stream.stream_events(
+                        provider=self.provider, model=self.model_id
+                    ):
+                        if isinstance(event, ContentEvent):
+                            has_final_content = True
+                            print(f"{GREEN}{event.content}{RESET}", end="", flush=True)
+
+                    if has_final_content:
+                        result["tool_call_ok"] = True
+                    print()
                 else:
-                    print(f"{RED}[!] Tool not triggered.{RESET}")
+                    print(f"\n{RED}[!] No ToolCallRequestEvent received.{RESET}")
+
             except Exception as e:
                 result["error_msg"] = f"Tool Exception: {str(e)[:50]}"
+                print(f"{RED}Exception in Stage 2: {e}{RESET}")
 
         return result
-
-    def _stream_and_analyze(self, thread_id, run_id, timeout) -> Dict:
-        flags = {
-            "has_reasoning": False,
-            "has_content": False,
-            "has_tool_call": False,
-            "has_error": False,
-        }
-        sync_stream = self.client.synchronous_inference_stream
-        sync_stream.setup(
-            user_id=self.user_id,
-            thread_id=thread_id,
-            assistant_id=self.assistant_id,
-            message_id="",
-            run_id=run_id,
-            api_key=self.provider_api_key,
-        )
-        current_mode = None
-        try:
-            for chunk in sync_stream.stream_chunks(
-                provider=self.provider,
-                model=self.model_id,
-                timeout_per_chunk=timeout,
-                suppress_fc=False,
-            ):
-                ctype = chunk.get("type")
-                content = chunk.get("content", "")
-
-                if ctype == "reasoning":
-                    flags["has_reasoning"] = True
-                elif ctype == "content":
-                    flags["has_content"] = True
-                elif ctype in ["tool_name", "function_call", "call_arguments"]:
-                    flags["has_tool_call"] = True
-                elif ctype == "error":
-                    flags["has_error"] = True
-
-                if ctype == "reasoning":
-                    if current_mode != "reasoning":
-                        print(f"\n{CYAN}🤔 [THOUGHT PROCESS]{RESET}\n", end="")
-                        current_mode = "reasoning"
-                    print(f"{CYAN}{content}{RESET}", end="", flush=True)
-                elif ctype == "content":
-                    if current_mode != "content":
-                        if current_mode == "reasoning":
-                            print("\n")
-                        print(f"\n{GREEN}🤖 [ANSWER]{RESET}\n", end="")
-                        current_mode = "content"
-                    print(f"{GREEN}{content}{RESET}", end="", flush=True)
-                elif ctype == "tool_name":
-                    print(f"\n{YELLOW}🛠  [TOOL DETECTED]: {content}{RESET}", end="")
-                    current_mode = "tool"
-                elif ctype == "call_arguments":
-                    print(f"{YELLOW}{content}{RESET}", end="", flush=True)
-            print()
-        except Exception as e:
-            print(f"\n{RED}[!] Stream Error: {e}{RESET}")
-            flags["has_error"] = True
-        return flags
 
 
 # ------------------------------------------------------------------
@@ -372,8 +384,6 @@ def main(models_to_run):
         return
 
     print(f"Starting Benchmark for {len(models_to_run)} models...\n")
-
-    # Initialize report (Ensure title/headers exist immediately)
     ReportManager.update_report([])
 
     for label, raw_config in models_to_run.items():
