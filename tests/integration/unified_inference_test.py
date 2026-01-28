@@ -1,11 +1,10 @@
-# tests/integration/unified_inference_test.py
 """
 Automated Model Benchmark: Reasoning & Tool Use
 -----------------------------------------------
 1. Loops through specified models.
 2. Updates a persistent Markdown report.
-3. BEHAVIOR: One table per Provider, plus a global Archive for stale IDs.
-4. GUARANTEES ID UNIQUENESS: Merges new results into existing rows.
+3. BEHAVIOR: One table per Provider.
+4. GUARANTEES ID UNIQUENESS: Merges new results into existing rows based on Endpoint ID.
 """
 
 import json
@@ -20,7 +19,7 @@ from typing import Dict, List, Optional, Tuple
 from dotenv import load_dotenv
 from projectdavid import Entity
 
-# Import ALL definitions to serve as the "Master Source of Truth"
+# Import definitions
 from models import HYPERBOLIC_MODELS, TOGETHER_AI_MODELS
 
 from src.api.entities_api.system_message.main_assembly import assemble_instructions
@@ -43,9 +42,6 @@ BASE_URL = os.getenv("BASE_URL", "http://localhost:9000")
 ENTITIES_API_KEY = os.getenv("ENTITIES_API_KEY")
 USER_ID = os.getenv("ENTITIES_USER_ID")
 REPORT_FILE = root_dir / "model_compatibility_report.md"
-
-# Combine all known models for the "Source of Truth" allow-list
-ALL_KNOWN_MODELS = {**HYPERBOLIC_MODELS, **TOGETHER_AI_MODELS}
 
 tool_instructions = assemble_instructions(
     include_keys=[
@@ -90,32 +86,25 @@ def get_flight_times(tool_name: str, arguments) -> str:
 
 
 # ------------------------------------------------------------------
-# 2. Report Manager (Grouped by Provider)
+# 2. Report Manager (Simple ID-Based Deduplication)
 # ------------------------------------------------------------------
 class ReportManager:
     @staticmethod
-    def update_report(new_results: List[Dict], valid_models_config: Dict):
+    def update_report(new_results: List[Dict]):
         """
         Updates the MD file.
-        - Groups Active models by Provider.
-        - Moves unknown IDs to a single Archive section.
+        - Reads ALL existing rows.
+        - Deduplicates based on Endpoint ID.
+        - Groups by Provider.
         """
         file_path = Path(REPORT_FILE)
 
-        # 1. Build Set of Allowed IDs
-        valid_ids = set()
-        for val in valid_models_config.values():
-            if isinstance(val, dict) and "id" in val:
-                valid_ids.add(val["id"])
-            elif isinstance(val, str):
-                valid_ids.add(val)
-
-        # 2. Storage Containers
         # Structure: { provider_name: { endpoint_id: row_string } }
-        active_rows_by_provider = defaultdict(dict)
-        archive_rows = []
+        # Using a nested dict ensures that ID is the unique key per provider.
+        # (Technically ID should be unique globally, but grouping by provider is cleaner for display)
+        rows_by_provider = defaultdict(dict)
 
-        # 3. Read Existing File
+        # 1. Read Existing File
         if file_path.exists():
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
@@ -132,20 +121,12 @@ class ReportManager:
 
                                 if match:
                                     eid = match.group(1).strip()
-
-                                    if eid in valid_ids:
-                                        # Active Model: bucket by provider
-                                        active_rows_by_provider[provider][
-                                            eid
-                                        ] = clean_line
-                                    else:
-                                        # Unknown/Old: bucket to archive
-                                        if clean_line not in archive_rows:
-                                            archive_rows.append(clean_line)
+                                    # Store it. If duplicate ID exists in file, this overwrites it (last one wins).
+                                    rows_by_provider[provider][eid] = clean_line
             except Exception as e:
                 print(f"{RED}[!] Error parsing report: {e}{RESET}")
 
-        # 4. Merge New Results
+        # 2. Merge New Results
         for res in new_results:
             inf_icon = "✅" if res["inference_ok"] else "❌"
             reas_icon = "🧠" if res["reasoning_detected"] else "—"
@@ -162,11 +143,10 @@ class ReportManager:
                 f"{inf_icon} | {reas_icon} | {tool_icon} | {timestamp} | {note} |"
             )
 
-            # Insert into specific provider bucket
-            # This overwrites existing entries for that ID (Merge behavior)
-            active_rows_by_provider[res["provider"]][res["id"]] = new_row
+            # Upsert: This guarantees we update the existing entry if the ID matches
+            rows_by_provider[res["provider"]][res["id"]] = new_row
 
-        # 5. Write Report
+        # 3. Write Report
         table_header_row = "| Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Last Run | Notes |"
         table_align_row = "| :--- | :--- | :--- | :---: | :---: | :---: | :--- | :--- |"
 
@@ -182,26 +162,19 @@ class ReportManager:
                 f.write("\n".join(main_title))
 
                 # Write Tables per Provider (Sorted Alphabetically)
-                for provider in sorted(active_rows_by_provider.keys()):
+                for provider in sorted(rows_by_provider.keys()):
                     f.write(f"\n## 🟢 Provider: {provider}\n")
                     f.write(f"{table_header_row}\n{table_align_row}\n")
 
-                    # Sort rows by Name (Column 1)
-                    # We sort values of the inner dict
+                    # Sort rows by Name (Column 1) for readability
+                    # We sort the values (the full row strings)
                     rows = sorted(
-                        active_rows_by_provider[provider].values(),
+                        rows_by_provider[provider].values(),
                         key=lambda x: x.split("|")[1].strip().lower(),
                     )
                     f.write("\n".join(rows) + "\n")
 
-                # Write Archive Section
-                if archive_rows:
-                    f.write("\n## 🗄️ Archived / Legacy Models\n")
-                    f.write("> *Entries not found in the current configuration.*\n\n")
-                    f.write(f"{table_header_row}\n{table_align_row}\n")
-                    f.write("\n".join(sorted(archive_rows)) + "\n")
-
-            print(f"{GREEN}[✓] Report merged & updated by provider.{RESET}")
+            print(f"{GREEN}[✓] Report updated.{RESET}")
         except Exception as e:
             print(f"{RED}[!] Write failed: {e}{RESET}")
 
@@ -400,6 +373,9 @@ def main(models_to_run):
 
     print(f"Starting Benchmark for {len(models_to_run)} models...\n")
 
+    # Initialize report (Ensure title/headers exist immediately)
+    ReportManager.update_report([])
+
     for label, raw_config in models_to_run.items():
         if isinstance(raw_config, str):
             config = {"id": raw_config, "provider": "hyperbolic"}
@@ -422,17 +398,14 @@ def main(models_to_run):
                         "tool_call_ok": False,
                         "error_msg": f"Setup Failed: {err}",
                     }
-                ],
-                valid_models_config=ALL_KNOWN_MODELS,
+                ]
             )
             continue
 
         res = tester.run_benchmark()
-        ReportManager.update_report([res], valid_models_config=ALL_KNOWN_MODELS)
+        ReportManager.update_report([res])
         time.sleep(2)
 
 
 if __name__ == "__main__":
-    # You can change this to just HYPERBOLIC_MODELS if you only want to test those,
-    # but ReportManager will still respect Together models as "Valid" so they stay in the Main Table.
-    main(models_to_run=HYPERBOLIC_MODELS)
+    main(models_to_run=TOGETHER_AI_MODELS)
