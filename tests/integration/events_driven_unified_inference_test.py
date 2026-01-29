@@ -3,7 +3,8 @@ Automated Model Benchmark: Reasoning & Tool Use (Event-Driven Refactor)
 -----------------------------------------------------------------------
 1. Loops through specified models.
 2. Uses the new SDK Event System (ContentEvent, ToolCallRequestEvent).
-3. Updates a persistent Markdown report.
+3. BEHAVIOR: Matches original Markdown layout (One table per Provider).
+4. GUARANTEES ID UNIQUENESS: Deduplicates by Endpoint ID.
 """
 
 import json
@@ -18,9 +19,9 @@ from typing import Dict, List, Optional, Tuple
 from dotenv import load_dotenv
 
 # Import definitions
-from models import HYPERBOLIC_MODELS
+from models import HYPERBOLIC_MODELS, TOGETHER_AI_MODELS
 
-# --- NEW IMPORTS: Event Classes ---
+# --- SDK Event Imports ---
 from projectdavid import (
     ContentEvent,
     Entity,
@@ -30,7 +31,6 @@ from projectdavid import (
 )
 
 from src.api.entities_api.system_message.main_assembly import assemble_instructions
-from models import TOGETHER_AI_MODELS
 
 # ------------------------------------------------------------------
 # 0. Setup & Config
@@ -67,15 +67,11 @@ def get_api_key_for_provider(provider: str) -> str:
 
 
 # ------------------------------------------------------------------
-# 1. Tool Logic (Signature matches SDK requirement: name, dict_args)
+# 1. Tool Logic (SDK now delivers pre-parsed dict arguments)
 # ------------------------------------------------------------------
 def get_flight_times(tool_name: str, arguments: dict) -> str:
     """Mock flight-time lookup tool."""
-    # The SDK now automatically unwraps JSON, so arguments is a dict.
-    print(
-        f"\n{YELLOW}[LOCAL EXEC] Tool invoked: {tool_name} | Args: {arguments}{RESET}"
-    )
-
+    # Arguments are already a dict thanks to the SDK Event System
     return json.dumps(
         {
             "status": "success",
@@ -87,15 +83,19 @@ def get_flight_times(tool_name: str, arguments: dict) -> str:
 
 
 # ------------------------------------------------------------------
-# 2. Report Manager (Unchanged)
+# 2. Report Manager (Identical to Original Logic/Layout)
 # ------------------------------------------------------------------
 class ReportManager:
     @staticmethod
     def update_report(new_results: List[Dict]):
-        """Updates the MD file with deduplication."""
+        """
+        Updates the MD file with the exact same layout as the original script.
+        Deduplicates by ID, groups by Provider.
+        """
         file_path = Path(REPORT_FILE)
         rows_by_provider = defaultdict(dict)
 
+        # 1. Read Existing File for Deduplication
         if file_path.exists():
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
@@ -112,6 +112,7 @@ class ReportManager:
             except Exception as e:
                 print(f"{RED}[!] Error parsing report: {e}{RESET}")
 
+        # 2. Merge New Results
         for res in new_results:
             inf_icon = "✅" if res["inference_ok"] else "❌"
             reas_icon = "🧠" if res["reasoning_detected"] else "—"
@@ -129,6 +130,7 @@ class ReportManager:
             )
             rows_by_provider[res["provider"]][res["id"]] = new_row
 
+        # 3. Write Report
         table_header_row = "| Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Last Run | Notes |"
         table_align_row = "| :--- | :--- | :--- | :---: | :---: | :---: | :--- | :--- |"
         main_title = [
@@ -166,7 +168,7 @@ class ModelTester:
         self.user_id = USER_ID
         self.provider_api_key = get_api_key_for_provider(self.provider)
 
-        # Bind clients immediately to ensure ToolCallRequestEvent works
+        # Bind clients immediately for Smart Event execution capability
         if hasattr(self.client, "synchronous_inference_stream"):
             self.client.synchronous_inference_stream.bind_clients(
                 self.client.runs, self.client.actions, self.client.messages
@@ -216,12 +218,9 @@ class ModelTester:
             "error_msg": "",
         }
 
-        # =========================================================
-        # Stage 1: Inference & Reasoning Check
-        # =========================================================
+        # Stage 1: Inference & Reasoning
         print(f"\n{YELLOW}--- Stage 1: Inference ({self.model_label}) ---{RESET}")
         try:
-            # 1. Setup
             thread = self.client.threads.create_thread(participant_ids=[self.user_id])
             message = self.client.messages.create_message(
                 thread_id=thread.id,
@@ -233,60 +232,23 @@ class ModelTester:
                 assistant_id=self.assistant_id, thread_id=thread.id
             )
 
-            # 2. Configure Stream
-            stream = self.client.synchronous_inference_stream
-            stream.setup(
-                user_id=self.user_id,
-                thread_id=thread.id,
-                assistant_id=self.assistant_id,
-                message_id=message.id,
-                run_id=run.id,
-                api_key=self.provider_api_key,
+            flags = self._stream_and_analyze(
+                thread.id, message.id, run.id, timeout=180.0
             )
 
-            # 3. Process Events
-            has_reasoning = False
-            has_content = False
-
-            # Using the new high-level event loop
-            for event in stream.stream_events(
-                provider=self.provider, model=self.model_id, timeout_per_chunk=180.0
-            ):
-                if isinstance(event, ReasoningEvent):
-                    if not has_reasoning:
-                        print(f"\n{CYAN}🤔 [THOUGHT]{RESET} ", end="")
-                        has_reasoning = True
-                    print(f"{CYAN}{event.content}{RESET}", end="", flush=True)
-
-                elif isinstance(event, ContentEvent):
-                    if not has_content:
-                        if has_reasoning:
-                            print("\n")
-                        print(f"\n{GREEN}🤖 [ANSWER]{RESET} ", end="")
-                        has_content = True
-                    print(f"{GREEN}{event.content}{RESET}", end="", flush=True)
-
-                elif isinstance(event, StatusEvent):
-                    if event.status == "failed":
-                        raise Exception("Stream reported failure status")
-
-            print()  # Newline cleanup
-
-            result["inference_ok"] = has_content or has_reasoning
-            result["reasoning_detected"] = has_reasoning
+            result["inference_ok"] = flags["inference_ok"]
+            result["reasoning_detected"] = flags["reasoning_detected"]
+            if flags["error"]:
+                result["error_msg"] = "Stream Error"
 
         except Exception as e:
             result["error_msg"] = f"Inference Exception: {str(e)[:50]}"
-            print(f"{RED}[!] Inference Failed: {e}{RESET}")
             return result
 
-        # =========================================================
-        # Stage 2: Tool Calling (The Event-Driven Way)
-        # =========================================================
+        # Stage 2: Tool Calls
         if result["inference_ok"]:
             print(f"\n{YELLOW}--- Stage 2: Tool Calls ({self.model_label}) ---{RESET}")
             try:
-                # 1. Setup
                 thread = self.client.threads.create_thread(
                     participant_ids=[self.user_id]
                 )
@@ -300,79 +262,83 @@ class ModelTester:
                     assistant_id=self.assistant_id, thread_id=thread.id
                 )
 
-                stream = self.client.synchronous_inference_stream
-                stream.setup(
-                    user_id=self.user_id,
-                    thread_id=thread.id,
-                    assistant_id=self.assistant_id,
-                    message_id=message.id,
-                    run_id=run.id,
-                    api_key=self.provider_api_key,
+                # Execute Stream 1 (Detection & Execution)
+                stream_res = self._stream_and_analyze(
+                    thread.id, message.id, run.id, timeout=60.0
                 )
 
-                tool_executed = False
-
-                # 2. STREAM 1: Expecting Tool Request
-                print(f"{CYAN}[▶] Stream 1: Requesting Tool...{RESET}")
-                for event in stream.stream_events(
-                    provider=self.provider, model=self.model_id
-                ):
-
-                    if isinstance(event, ContentEvent):
-                        print(f"{GREEN}{event.content}{RESET}", end="", flush=True)
-
-                    elif isinstance(event, ReasoningEvent):
-                        print(f"{CYAN}{event.content}{RESET}", end="", flush=True)
-
-                    elif isinstance(event, ToolCallRequestEvent):
-                        print(
-                            f"\n{YELLOW}🛠  [SDK] Tool Request: '{event.tool_name}' Args: {event.args}{RESET}"
-                        )
-
-                        # --- EXECUTE IMMEDIATELY ---
-                        # The SDK handles the API calls to submit output
-                        success = event.execute(get_flight_times)
-
-                        if success:
-                            print(f"{GREEN}[✓] Tool Executed successfully.{RESET}")
-                            tool_executed = True
-                        else:
-                            print(f"{RED}[!] Tool Execution returned False.{RESET}")
-                            result["error_msg"] = "Tool Execution Failed"
-
-                # 3. STREAM 2: Final Response (Only if tool ran)
-                if tool_executed:
-                    print(f"\n{CYAN}[▶] Stream 2: Final Answer...{RESET}")
-
-                    # Re-setup stream (State is managed by run_id on backend, but we reset local cursors)
-                    stream.setup(
-                        user_id=self.user_id,
-                        thread_id=thread.id,
-                        assistant_id=self.assistant_id,
-                        message_id=message.id,
-                        run_id=run.id,
-                        api_key=self.provider_api_key,
+                if stream_res["tool_executed"]:
+                    print(f"\n{YELLOW}[*] Streaming Final Response...{RESET}")
+                    # Execute Stream 2 (Final Answer)
+                    final_res = self._stream_and_analyze(
+                        thread.id, message.id, run.id, timeout=60.0
                     )
-
-                    has_final_content = False
-                    for event in stream.stream_events(
-                        provider=self.provider, model=self.model_id
-                    ):
-                        if isinstance(event, ContentEvent):
-                            has_final_content = True
-                            print(f"{GREEN}{event.content}{RESET}", end="", flush=True)
-
-                    if has_final_content:
+                    if final_res["inference_ok"]:
                         result["tool_call_ok"] = True
-                    print()
                 else:
-                    print(f"\n{RED}[!] No ToolCallRequestEvent received.{RESET}")
+                    print(f"{RED}[!] Tool call not triggered.{RESET}")
 
             except Exception as e:
                 result["error_msg"] = f"Tool Exception: {str(e)[:50]}"
-                print(f"{RED}Exception in Stage 2: {e}{RESET}")
 
         return result
+
+    def _stream_and_analyze(self, thread_id, message_id, run_id, timeout) -> Dict:
+        """New event-driven analysis loop."""
+        stats = {
+            "inference_ok": False,
+            "reasoning_detected": False,
+            "tool_executed": False,
+            "error": False,
+        }
+
+        stream = self.client.synchronous_inference_stream
+        stream.setup(
+            user_id=self.user_id,
+            thread_id=thread_id,
+            assistant_id=self.assistant_id,
+            message_id=message_id,
+            run_id=run_id,
+            api_key=self.provider_api_key,
+        )
+
+        current_mode = None
+        try:
+            for event in stream.stream_events(
+                provider=self.provider, model=self.model_id, timeout_per_chunk=timeout
+            ):
+
+                if isinstance(event, ReasoningEvent):
+                    if current_mode != "reasoning":
+                        print(f"\n{CYAN}🤔 [THOUGHT PROCESS]{RESET}\n", end="")
+                        current_mode = "reasoning"
+                        stats["reasoning_detected"] = True
+                    print(f"{CYAN}{event.content}{RESET}", end="", flush=True)
+
+                elif isinstance(event, ContentEvent):
+                    if current_mode != "content":
+                        if current_mode == "reasoning":
+                            print("\n")
+                        print(f"\n{GREEN}🤖 [ANSWER]{RESET}\n", end="")
+                        current_mode = "content"
+                        stats["inference_ok"] = True
+                    print(f"{GREEN}{event.content}{RESET}", end="", flush=True)
+
+                elif isinstance(event, ToolCallRequestEvent):
+                    print(f"\n{YELLOW}🛠  [TOOL DETECTED]: {event.tool_name}{RESET}")
+                    # SDK handles the output submission automatically
+                    if event.execute(get_flight_times):
+                        stats["tool_executed"] = True
+
+                elif isinstance(event, StatusEvent) and event.status == "failed":
+                    stats["error"] = True
+
+            print()
+        except Exception as e:
+            print(f"\n{RED}[!] Stream Error: {e}{RESET}")
+            stats["error"] = True
+
+        return stats
 
 
 # ------------------------------------------------------------------
@@ -387,11 +353,11 @@ def main(models_to_run):
     ReportManager.update_report([])
 
     for label, raw_config in models_to_run.items():
-        if isinstance(raw_config, str):
-            config = {"id": raw_config, "provider": "hyperbolic"}
-        else:
-            config = raw_config
-
+        config = (
+            raw_config
+            if isinstance(raw_config, dict)
+            else {"id": raw_config, "provider": "hyperbolic"}
+        )
         tester = ModelTester(label, config)
 
         ok, err = tester.setup()
