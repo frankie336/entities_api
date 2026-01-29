@@ -17,12 +17,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
-
 # Import definitions
 from models import HYPERBOLIC_MODELS, TOGETHER_AI_MODELS
 from projectdavid import Entity
 
-from src.api.entities_api.system_message.main_assembly import assemble_instructions
+from src.api.entities_api.system_message.main_assembly import \
+    assemble_instructions
 
 # ------------------------------------------------------------------
 # 0. Setup & Config

@@ -1,5 +1,7 @@
 from typing import Optional
-from core_instructions import CORE_INSTRUCTIONS
+
+from src.api.entities_api.system_message.core_instructions import \
+    CORE_INSTRUCTIONS
 
 
 def assemble_instructions(

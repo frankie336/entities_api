@@ -14,7 +14,8 @@ from typing import Dict, List, Optional, Tuple
 from projectdavid import Entity
 
 from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.system_message.main_assembly import assemble_instructions
+from src.api.entities_api.system_message.main_assembly import \
+    assemble_instructions
 
 LOG = LoggingUtility()
 
@@ -30,7 +31,8 @@ class ConversationContextMixin:
         """
         if not self._message_cache:
             # Import your sync helper (adjust the import path to your project structure)
-            from src.api.entities_api.cache.message_cache import get_sync_message_cache
+            from src.api.entities_api.cache.message_cache import \
+                get_sync_message_cache
 
             self._message_cache = get_sync_message_cache()
         return self._message_cache
@@ -101,17 +103,46 @@ class ConversationContextMixin:
         return out
 
     def _build_system_message(self, assistant_id: str) -> Dict:
+        """
+        Standard System Message Builder.
+        Injects Platform Instructions dynamically at runtime.
 
-        # TODO: 1. inject core platform instructions here:
-        # 1. function calling...
-
+        Strategy: Append Platform Rules AFTER Developer Instructions to ensure
+        technical constraints (like JSON formatting) are strictly enforced.
+        """
         cache = self.get_assistant_cache()
         cfg = cache.retrieve_sync(assistant_id)
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+        # 1. Fetch Core Platform Instructions
+        # Specifically targeting function calling protocols for Open Source/Non-Native models
+        platform_instructions = assemble_instructions(
+            include_keys=[
+                "TOOL_USAGE_PROTOCOL",
+                "FUNCTION_CALL_FORMATTING",
+                "FUNCTION_CALL_WRAPPING",
+                # Add "validations" or "error_handling" here if globally required
+            ]
+        )
+
+        # 2. Get Developer Instructions
+        developer_instructions = cfg.get("instructions", "")
+
+        # 3. Assemble Payload
+        # Hierarchy: [Context] -> [Persona] -> [Platform Protocols] -> [Tools]
+        combined_content = (
+            f"Today's date and time: {today}\n\n"
+            f"### ASSISTANT INSTRUCTIONS\n"
+            f"{developer_instructions}\n\n"
+            f"### OPERATIONAL PROTOCOLS\n"
+            f"{platform_instructions}\n\n"
+            f"### AVAILABLE TOOLS\n"
+            f"tools:\n{json.dumps(cfg['tools'])}"
+        )
+
         return {
             "role": "system",
-            "content": f"tools:\n{json.dumps(cfg['tools'])}\n{cfg['instructions']}\nToday's date and time: {today}",
+            "content": combined_content,
         }
 
     def _build_amended_system_message(self, assistant_id: str) -> Dict:

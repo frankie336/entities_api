@@ -1,6 +1,7 @@
 import os
 
-from entities_api.orchestration.workers.base_workers.llama_base import LlamaBaseWorker
+from entities_api.orchestration.workers.base_workers.llama_base import \
+    LlamaBaseWorker
 from entities_api.utils.async_to_sync import async_to_sync_stream
 
 

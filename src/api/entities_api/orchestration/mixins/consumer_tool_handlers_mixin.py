@@ -6,7 +6,7 @@ import logging
 import os
 import time
 import traceback
-from typing import Any, Dict, Optional, Generator
+from typing import Any, Dict, Generator, Optional
 
 from dotenv import load_dotenv
 from httpx import HTTPStatusError

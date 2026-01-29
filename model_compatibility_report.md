@@ -1,30 +1,30 @@
 # 🧪 Model Compatibility Report
-**Last Update:** 2026-01-28 22:19:27
+**Last Update:** 2026-01-29 00:53:06
 
 ## 🟢 Provider: hyperbolic
 | Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Last Run | Notes |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- | :--- |
-| **DeepSeek-R1** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-R1` | ✅ | 🧠 | ❌ | 2026-01-28 22:13 | OK |
-| **DeepSeek-R1-0528** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-R1-0528` | ✅ | 🧠 | ❌ | 2026-01-28 22:13 | OK |
-| **DeepSeek-V3** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-V3` | ✅ | — | ✅ | 2026-01-28 22:14 | OK |
-| **DeepSeek-V3-0324** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-V3-0324` | ✅ | — | ✅ | 2026-01-28 22:17 | OK |
-| **Llama-3.2-3B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Llama-3.2-3B-Instruct` | ✅ | — | ✅ | 2026-01-28 22:17 | OK |
-| **Llama-3.3-70B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Llama-3.3-70B-Instruct` | ✅ | — | ✅ | 2026-01-28 22:18 | OK |
-| **Meta-Llama-3.1-405B** | hyperbolic | `hyperbolic/meta-llama/Meta-Llama-3.1-405B` | ❌ | — | — | 2026-01-28 22:18 | OK |
-| **Meta-Llama-3.1-405B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Meta-Llama-3.1-405B-Instruct` | ✅ | — | ✅ | 2026-01-28 22:18 | OK |
-| **Meta-Llama-3.1-70B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Meta-Llama-3.1-70B-Instruct` | ✅ | — | ✅ | 2026-01-28 22:19 | OK |
-| **Meta-Llama-3.1-8B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Meta-Llama-3.1-8B-Instruct` | ✅ | — | ❌ | 2026-01-28 22:19 | OK |
-| **Pixtral-12B-2409** | hyperbolic | `hyperbolic/mistralai/Pixtral-12B-2409` | ❌ | — | — | 2026-01-28 22:19 | OK |
-| **Qwen2.5-72B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-72B-Instruct` | ✅ | — | ✅ | 2026-01-28 22:09 | OK |
-| **Qwen2.5-Coder-32B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-Coder-32B-Instruct` | ✅ | — | ✅ | 2026-01-28 22:09 | OK |
-| **Qwen2.5-VL-72B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-VL-72B-Instruct` | ❌ | — | — | 2026-01-28 22:09 | OK |
-| **Qwen2.5-VL-7B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-VL-7B-Instruct` | ✅ | — | ✅ | 2026-01-28 22:10 | OK |
-| **Qwen3-235B-A22B** | hyperbolic | `hyperbolic/Qwen/Qwen3-235B-A22B` | ✅ | 🧠 | ✅ | 2026-01-28 22:11 | OK |
-| **Qwen3-235B-A22B-Instruct-2507** | hyperbolic | `hyperbolic/Qwen/Qwen3-235B-A22B-Instruct-2507` | ✅ | — | ✅ | 2026-01-28 22:11 | OK |
-| **Qwen3-Coder-480B-A35B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen3-Coder-480B-A35B-Instruct` | ✅ | — | ✅ | 2026-01-28 22:12 | OK |
-| **Qwen3-Next-80B-A3B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen3-Next-80B-A3B-Instruct` | ❌ | — | — | 2026-01-28 22:12 | OK |
-| **Qwen3-Next-80B-A3B-Thinking** | hyperbolic | `hyperbolic/Qwen/Qwen3-Next-80B-A3B-Thinking` | ✅ | 🧠 | ✅ | 2026-01-28 22:13 | OK |
-| **QwQ-32B** | hyperbolic | `hyperbolic/Qwen/QwQ-32B` | ✅ | 🧠 | ❌ | 2026-01-28 22:08 | OK |
+| **DeepSeek-R1** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-R1` | ✅ | 🧠 | ❌ | 2026-01-29 00:46 | OK |
+| **DeepSeek-R1-0528** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-R1-0528` | ✅ | 🧠 | ❌ | 2026-01-29 00:46 | OK |
+| **DeepSeek-V3** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-V3` | ✅ | — | ✅ | 2026-01-29 00:48 | OK |
+| **DeepSeek-V3-0324** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-V3-0324` | ✅ | — | ❌ | 2026-01-29 00:50 | OK |
+| **Llama-3.2-3B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Llama-3.2-3B-Instruct` | ✅ | — | ❌ | 2026-01-29 00:50 | OK |
+| **Llama-3.3-70B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Llama-3.3-70B-Instruct` | ✅ | — | ✅ | 2026-01-29 00:51 | OK |
+| **Meta-Llama-3.1-405B** | hyperbolic | `hyperbolic/meta-llama/Meta-Llama-3.1-405B` | ❌ | — | — | 2026-01-29 00:51 | OK |
+| **Meta-Llama-3.1-405B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Meta-Llama-3.1-405B-Instruct` | ✅ | — | ✅ | 2026-01-29 00:52 | OK |
+| **Meta-Llama-3.1-70B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Meta-Llama-3.1-70B-Instruct` | ✅ | — | ✅ | 2026-01-29 00:52 | OK |
+| **Meta-Llama-3.1-8B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Meta-Llama-3.1-8B-Instruct` | ✅ | — | ❌ | 2026-01-29 00:53 | OK |
+| **Pixtral-12B-2409** | hyperbolic | `hyperbolic/mistralai/Pixtral-12B-2409` | ❌ | — | — | 2026-01-29 00:53 | OK |
+| **Qwen2.5-72B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-72B-Instruct` | ✅ | — | ✅ | 2026-01-29 00:42 | OK |
+| **Qwen2.5-Coder-32B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-Coder-32B-Instruct` | ✅ | — | ✅ | 2026-01-29 00:43 | OK |
+| **Qwen2.5-VL-72B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-VL-72B-Instruct` | ❌ | — | — | 2026-01-29 00:43 | OK |
+| **Qwen2.5-VL-7B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-VL-7B-Instruct` | ✅ | — | ✅ | 2026-01-29 00:43 | OK |
+| **Qwen3-235B-A22B** | hyperbolic | `hyperbolic/Qwen/Qwen3-235B-A22B` | ✅ | 🧠 | ❌ | 2026-01-29 00:44 | OK |
+| **Qwen3-235B-A22B-Instruct-2507** | hyperbolic | `hyperbolic/Qwen/Qwen3-235B-A22B-Instruct-2507` | ✅ | — | ❌ | 2026-01-29 00:44 | OK |
+| **Qwen3-Coder-480B-A35B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen3-Coder-480B-A35B-Instruct` | ✅ | — | ✅ | 2026-01-29 00:45 | OK |
+| **Qwen3-Next-80B-A3B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen3-Next-80B-A3B-Instruct` | ❌ | — | — | 2026-01-29 00:45 | OK |
+| **Qwen3-Next-80B-A3B-Thinking** | hyperbolic | `hyperbolic/Qwen/Qwen3-Next-80B-A3B-Thinking` | ✅ | 🧠 | ❌ | 2026-01-29 00:45 | OK |
+| **QwQ-32B** | hyperbolic | `hyperbolic/Qwen/QwQ-32B` | ✅ | 🧠 | ❌ | 2026-01-29 00:42 | OK |
 
 ## 🟢 Provider: together-ai
 | Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Last Run | Notes |

@@ -8,18 +8,12 @@ Debug Mode: Event-Driven Round-Trip (Type Inspection)
 
 import json
 import os
-from dotenv import load_dotenv
 
+from dotenv import load_dotenv
 # Import the new Event classes
-from projectdavid import (
-    ContentEvent,
-    Entity,
-    StatusEvent,
-    ToolCallRequestEvent,
-    ReasoningEvent,
-    HotCodeEvent,
-    ComputerExecutionOutputEvent,
-)
+from projectdavid import (ComputerExecutionOutputEvent, ContentEvent, Entity,
+                          HotCodeEvent, ReasoningEvent, StatusEvent,
+                          ToolCallRequestEvent)
 
 # ------------------------------------------------------------------
 # 0.  SDK init + env
