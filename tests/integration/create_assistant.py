@@ -35,7 +35,7 @@ tool_instructions = assemble_instructions(
 assistant = client.assistants.create_assistant(
     name="Test Assistant",
     model="gpt-oss-120b",
-    instructions=tool_instructions,
+    instructions="You are a helpful AI assistant, your name is Nexa.",
     tools=[
         {
             "type": "function",

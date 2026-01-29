@@ -45,8 +45,6 @@ ENTITIES_API_KEY = os.getenv("ENTITIES_API_KEY")
 USER_ID = os.getenv("ENTITIES_USER_ID")
 REPORT_FILE = root_dir / "model_compatibility_report.md"
 
-tool_instructions = assemble_instructions(include_keys=[])
-
 
 def get_api_key_for_provider(provider: str) -> str:
     """Dynamic key resolver."""
@@ -176,7 +174,7 @@ class ModelTester:
             print(f"{YELLOW}[*] [{self.model_label}] Creating Assistant...{RESET}")
             assistant = self.client.assistants.create_assistant(
                 name=f"Bench_{self.model_label}",
-                instructions=tool_instructions,
+                instructions="You are a helpful AI assistant.",
                 model=self.model_id,
                 tools=[
                     {

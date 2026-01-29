@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 from abc import ABC, abstractmethod
-from typing import Any, Generator, Optional
+from typing import Any, Dict, Generator, Optional
 
 from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
@@ -21,8 +22,8 @@ LOG = LoggingUtility()
 
 class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
     """
-    Abstract Base for Qwen Providers (Hyperbolic, Together, etc.).
-    Handles QwQ-32B/Qwen2.5 specific stream parsing and history preservation.
+    Qwen 2.5 Provider.
+    Refactored for Event-Driven Tool Handoff (Smart Events).
     """
 
     def __init__(
@@ -32,37 +33,25 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
+        self.base_url = os.getenv("BASE_URL")
         self.api_key = extra.get("api_key")
-
-        # Default model logic
-        self.model_name = extra.get("model_name", "quen/Qwen1_5-32B-Chat")
+        self.model_name = extra.get("model_name", "Qwen/Qwen2.5-VL-7B-Instruct")
         self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
 
+        # [NEW] State Handover for Tools
+        self._pending_tool_payload: Optional[Dict[str, Any]] = None
+
         self.setup_services()
-        LOG.debug(f"{self.__class__.__name__} ready (assistant={assistant_id})")
+        LOG.debug("Qwen provider ready (assistant=%s)", assistant_id)
 
     @abstractmethod
     def _get_client_instance(self, api_key: str):
-        """Return the specific provider client."""
         pass
 
-    @abstractmethod
-    def _execute_stream_request(self, client, payload: dict) -> Any:
-        """Execute the stream request (Sync or Async-to-Sync)."""
-        pass
-
-    @property
-    def assistant_cache(self) -> dict:
-        return self._assistant_cache
-
-    @assistant_cache.setter
-    def assistant_cache(self, value: dict) -> None:
-        self._assistant_cache = value
-
-    def get_assistant_cache(self) -> dict:
-        return self._assistant_cache
-
+    # --------------------------------------------------------------------------
+    # 1. STREAM PHASE: Suppress Raw Tools, Accumulate, Prepare Handover
+    # --------------------------------------------------------------------------
     def stream(
         self,
         thread_id: str,
@@ -79,21 +68,20 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
-        # Use instance key if not provided
+        # Reset state
+        self._pending_tool_payload = None
         api_key = api_key or self.api_key
 
-        # --- FIX 1: Early Variable Initialization (Safety) ---
-        assistant_reply = ""
-        accumulated = ""
-        reasoning_reply = ""
-        current_block = None
-        # -----------------------------------------------------
+        accumulated_content: str = ""
+        # Buffers for Qwen JSON parts
+        tool_args_buffer: str = ""
+        tool_name_buffer: str = ""
+        is_tool_call = False
 
         try:
             if mapped := self._get_model_map(model):
                 model = mapped
 
-            # 1. Context Window Setup
             ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
 
             payload = {
@@ -104,106 +92,95 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                 "stream": True,
             }
 
+            # Start Status
             start_chunk = {"type": "status", "status": "started", "run_id": run_id}
             yield json.dumps(start_chunk)
             self._shunt_to_redis_stream(redis, stream_key, start_chunk)
 
-            # -----------------------------------------------------------
-            # DYNAMIC CLIENT EXECUTION
-            # -----------------------------------------------------------
             client = self._get_client_instance(api_key=api_key)
+            # Using your existing execution wrapper
             raw_stream = self._execute_stream_request(client, payload)
-            # -----------------------------------------------------------
 
-            # 2. Process deltas via Shared Normalizer
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
                     break
 
                 ctype, ccontent = chunk["type"], chunk["content"]
 
-                # --- HISTORY RECONSTRUCTION (Tag Injection) ---
+                # --- 1. ACCUMULATION & SUPPRESSION ---
+                # We accumulate arguments but DO NOT yield them to client
+                # This prevents the legacy SDK logic from firing prematurely
+                if ctype == "call_arguments":
+                    tool_args_buffer += ccontent
+                    is_tool_call = True
+                    continue
+
+                if ctype == "tool_name":
+                    tool_name_buffer += ccontent
+                    is_tool_call = True
+                    continue
+
                 if ctype == "content":
-                    if current_block == "fc":
-                        accumulated += "</fc>"
-                    elif current_block == "think":
-                        accumulated += "</think>"
-                    current_block = None
-                    assistant_reply += ccontent
+                    accumulated_content += ccontent
 
-                elif ctype == "call_arguments":
-                    if current_block != "fc":
-                        if current_block == "think":
-                            accumulated += "</think>"
-                        accumulated += "<fc>"
-                        current_block = "fc"
-
-                elif ctype == "reasoning":
-                    if current_block != "think":
-                        if current_block == "fc":
-                            accumulated += "</fc>"
-                        accumulated += "<think>"
-                        current_block = "think"
-                    reasoning_reply += ccontent
-
-                # Accumulate raw stream for persistence
-                accumulated += ccontent
-
-                # Yield immediately
+                # Yield standard content
                 yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
 
-            # 3. Final Close-out
-            if current_block == "fc":
-                accumulated += "</fc>"
-            elif current_block == "think":
-                accumulated += "</think>"
+            # --- 2. PERSISTENCE PREP ---
+            message_to_save = accumulated_content
 
-            yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
-
-            # ------------------------------------------------------------------
-            # 💉 FIX 2: TIMEOUT PREVENTION (Keep-Alive Heartbeat)
-            # ------------------------------------------------------------------
-            # Send a 'processing' signal to reset the client's timeout timer
-            # while the server performs the blocking database save.
-            yield json.dumps(
-                {"type": "status", "status": "processing", "run_id": run_id}
-            )
-
-            # ------------------------------------------------------------------
-            # 🔒 FIX 3: SAFE PERSISTENCE LOGIC
-            # ------------------------------------------------------------------
-            has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
-            message_to_save = assistant_reply
-
-            if has_fc:
+            # Check if we captured a tool call
+            if is_tool_call:
                 try:
-                    # Clean tags for JSON parsing
-                    raw_json = (
-                        accumulated.replace("<fc>", "").replace("</fc>", "").strip()
+                    # Parse the accumulated buffers
+                    # Handle case where name might be in the args or separate
+                    final_tool_name = (
+                        tool_name_buffer if tool_name_buffer else "unknown_tool"
                     )
-                    # Validate JSON structure
-                    payload_dict = json.loads(raw_json)
 
-                    # Store as clean JSON
+                    if tool_args_buffer:
+                        final_args = json.loads(tool_args_buffer)
+                    else:
+                        final_args = {}
+
+                    payload_dict = {"name": final_tool_name, "arguments": final_args}
+
+                    # Save clean JSON for history
                     message_to_save = json.dumps(payload_dict)
+
+                    # [CRITICAL] Store payload for Handover
+                    self._pending_tool_payload = payload_dict
+
                 except Exception as e:
-                    LOG.error(f"Error structuring tool calls: {e}")
-                    # Fallback to accumulated string so no data is lost
-                    message_to_save = accumulated
+                    LOG.error(f"Error parsing Qwen tool args: {e}")
+                    # Fallback to save raw data so we don't lose it
+                    message_to_save = (
+                        f"Tool: {tool_name_buffer} Args: {tool_args_buffer}"
+                    )
+
+            # Set the Function Call State on the Base Worker (Important!)
+            self.parse_and_set_function_calls(message_to_save, accumulated_content)
 
             if message_to_save:
                 self.finalize_conversation(
                     message_to_save, thread_id, assistant_id, run_id
                 )
 
-            if has_fc:
+            # --- 3. STATUS SIGNAL ---
+            if self._pending_tool_payload:
                 self.project_david_client.runs.update_run_status(
                     run_id, StatusEnum.pending_action.value
+                )
+                yield json.dumps(
+                    {"type": "status", "status": "processing", "run_id": run_id}
                 )
             else:
                 self.project_david_client.runs.update_run_status(
                     run_id, StatusEnum.completed.value
+                )
+                yield json.dumps(
+                    {"type": "status", "status": "complete", "run_id": run_id}
                 )
 
         except Exception as exc:
@@ -213,6 +190,63 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         finally:
             stop_event.set()
 
+    # --------------------------------------------------------------------------
+    # 2. TOOL PROCESSOR (Yields Manifest -> Polls)
+    # --------------------------------------------------------------------------
+    def _process_tool_calls(
+        self,
+        thread_id: str,
+        assistant_id: str,
+        content: Dict[str, Any],
+        run_id: str,
+        *,
+        tool_call_id: Optional[str] = None,
+        api_key: Optional[str] = None,
+        poll_interval: float = 1.0,
+        max_wait: float = 60.0,
+    ) -> Generator[str, None, None]:
+
+        # A. Create Action
+        action = self.project_david_client.actions.create_action(
+            tool_name=content["name"],
+            run_id=run_id,
+            tool_call_id=tool_call_id,
+            function_args=content["arguments"],
+        )
+
+        # B. Yield Manifest (The Fix for your Error)
+        # This gives the SDK the Action ID immediately.
+        manifest = {
+            "type": "tool_call_manifest",
+            "run_id": run_id,
+            "action_id": action.id,
+            "tool": content["name"],
+            "args": content["arguments"],
+        }
+        yield json.dumps(manifest)
+
+        try:
+            # C. Update & Poll
+            self.project_david_client.runs.update_run_status(
+                run_id, StatusEnum.pending_action.value
+            )
+
+            self._poll_for_completion(run_id, action.id, max_wait, poll_interval)
+
+            LOG.debug("Tool %s processed (run %s)", content["name"], run_id)
+            yield json.dumps(
+                {"type": "status", "status": "tool_output_received", "run_id": run_id}
+            )
+
+        except Exception as exc:
+            self._handle_tool_error(
+                exc, thread_id=thread_id, assistant_id=assistant_id, action=action
+            )
+            yield json.dumps({"type": "error", "error": str(exc), "run_id": run_id})
+
+    # --------------------------------------------------------------------------
+    # 3. ORCHESTRATOR
+    # --------------------------------------------------------------------------
     def process_conversation(
         self,
         thread_id,
@@ -221,10 +255,10 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         assistant_id,
         model,
         api_key=None,
-        stream_reasoning=True,
+        stream_reasoning=False,
         **kwargs,
     ):
-        """Standard Qwen process loop."""
+        # Phase 1: Inference & Accumulation
         yield from self.stream(
             thread_id,
             message_id,
@@ -232,24 +266,24 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             assistant_id,
             model,
             api_key=api_key,
-            stream_reasoning=stream_reasoning,
             **kwargs,
         )
 
-        if self.get_function_call_state():
-            yield from self.process_tool_calls(
-                thread_id, run_id, assistant_id, model=model, api_key=api_key
+        # Phase 2: Check Handover & Execute
+        if self.get_function_call_state() and self._pending_tool_payload:
+            yield from self._process_tool_calls(
+                thread_id=thread_id,
+                run_id=run_id,
+                assistant_id=assistant_id,
+                content=self._pending_tool_payload,
+                api_key=api_key,
             )
+
             self.set_tool_response_state(False)
             self.set_function_call_state(None)
+            self._pending_tool_payload = None
 
+            # Phase 3: Final Response
             yield from self.stream(
-                thread_id,
-                None,
-                run_id,
-                assistant_id,
-                model,
-                api_key=api_key,
-                stream_reasoning=stream_reasoning,
-                **kwargs,
+                thread_id, None, run_id, assistant_id, model, api_key=api_key, **kwargs
             )

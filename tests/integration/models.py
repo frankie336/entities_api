@@ -359,16 +359,16 @@ HYPERBOLIC_MODELS = {
         "provider": "hyperbolic",
     },
     # --- openai ---
-    # "gpt-oss-120b": {
-    #    "id": "hyperbolic/openai/gpt-oss-120b",
-    #    "provider": "hyperbolic",
-    ##},
-    ##"gpt-oss-120b-turbo": {
-    ##    "id": "hyperbolic/openai/gpt-oss-120b-turbo",
-    ##    "provider": "hyperbolic",
-    ##},
-    ##"gpt-oss-20b": {
-    #    "id": "hyperbolic/openai/gpt-oss-20b",
-    #    "provider": "hyperbolic",
-    # },
+    "gpt-oss-120b": {
+        "id": "hyperbolic/openai/gpt-oss-120b",
+        "provider": "hyperbolic",
+    },
+    "gpt-oss-120b-turbo": {
+        "id": "hyperbolic/openai/gpt-oss-120b-turbo",
+        "provider": "hyperbolic",
+    },
+    "gpt-oss-20b": {
+        "id": "hyperbolic/openai/gpt-oss-20b",
+        "provider": "hyperbolic",
+    },
 }
