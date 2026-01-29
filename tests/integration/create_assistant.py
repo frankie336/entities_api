@@ -5,7 +5,7 @@ import os
 from dotenv import load_dotenv
 from projectdavid import Entity
 
-from src.api.entities_api.system_message.main_assembly import \
+from entities_api.orchestration.instructions.assembler import \
     assemble_instructions
 
 # ------------------------------------------------------------------

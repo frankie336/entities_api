@@ -17,9 +17,10 @@ try:
     from projectdavid_common.constants.tools import TOOLS_ID_MAP
 
     from entities_api.constants.assistant import BASE_TOOLS, DEFAULT_MODEL
+    from entities_api.orchestration.instructions.assembler import \
+        assemble_instructions
     from entities_api.platform_tools.definitions import assemble_tools
     from entities_api.services.logging_service import LoggingUtility
-    from entities_api.system_message.main_assembly import assemble_instructions
 except ImportError as e:
     print(f"Error importing required modules: {e}")
     print(

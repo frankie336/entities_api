@@ -18,12 +18,12 @@ from typing import Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 # Import definitions
-from models import HYPERBOLIC_MODELS, TOGETHER_AI_MODELS
+from models import HYPERBOLIC_MODELS
 # --- SDK Event Imports ---
 from projectdavid import (ContentEvent, Entity, ReasoningEvent, StatusEvent,
                           ToolCallRequestEvent)
 
-from src.api.entities_api.system_message.main_assembly import \
+from entities_api.orchestration.instructions.assembler import \
     assemble_instructions
 
 # ------------------------------------------------------------------

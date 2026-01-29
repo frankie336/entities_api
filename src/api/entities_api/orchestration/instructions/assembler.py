@@ -1,6 +1,6 @@
 from typing import Optional
 
-from src.api.entities_api.system_message.core_instructions import \
+from entities_api.orchestration.instructions.definitions import \
     CORE_INSTRUCTIONS
 
 

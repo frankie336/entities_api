@@ -1,10 +1,13 @@
-from src.api.entities_api.system_message.main_assembly import \
+from entities_api.orchestration.instructions.assembler import \
     assemble_instructions
 
-instructions = assemble_instructions()
+instructions = assemble_instructions(
+    include_keys=[
+        # "TOOL_USAGE_PROTOCOL",
+        # "FUNCTION_CALL_FORMATTING",
+        # "FUNCTION_CALL_WRAPPING",
+        "DEVELOPER_INSTRUCTIONS"
+        # Add "validations" or "error_handling" here if globally required
+    ]
+)
 print(instructions)
-
-from typing import Optional
-
-from src.api.entities_api.system_message.core_instructions import \
-    CORE_INSTRUCTIONS
