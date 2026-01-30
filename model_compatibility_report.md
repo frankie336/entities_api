@@ -1,12 +1,12 @@
 # 🧪 Model Compatibility Report
-**Last Update:** 2026-01-30 00:04:49
+**Last Update:** 2026-01-30 00:38:16
 
 ## 🟢 Provider: hyperbolic
 | Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Last Run | Notes |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- | :--- |
-| **DeepSeek-R1** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-R1` | ✅ | 🧠 | ❌ | 2026-01-29 19:00 | OK |
-| **DeepSeek-R1-0528** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-R1-0528` | ✅ | 🧠 | ❌ | 2026-01-29 19:01 | OK |
-| **DeepSeek-V3** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-V3` | ✅ | — | ✅ | 2026-01-29 19:02 | OK |
+| **DeepSeek-R1** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-R1` | ❌ | — | — | 2026-01-30 00:32 | Error: Stream Status: Failed... |
+| **DeepSeek-R1-0528** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-R1-0528` | ❌ | — | — | 2026-01-30 00:32 | Error: Stream Status: Failed... |
+| **DeepSeek-V3** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-V3` | ❌ | — | — | 2026-01-30 00:32 | Error: Stream Status: Failed... |
 | **DeepSeek-V3-0324** | hyperbolic | `hyperbolic/deepseek-ai/DeepSeek-V3-0324` | ✅ | — | ✅ | 2026-01-29 19:05 | OK |
 | **gpt-oss-120b** | hyperbolic | `hyperbolic/openai/gpt-oss-120b` | ✅ | — | ❌ | 2026-01-29 19:07 | OK |
 | **gpt-oss-120b-turbo** | hyperbolic | `hyperbolic/openai/gpt-oss-120b-turbo` | ✅ | — | ✅ | 2026-01-29 19:08 | OK |
@@ -18,16 +18,16 @@
 | **Meta-Llama-3.1-70B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Meta-Llama-3.1-70B-Instruct` | ✅ | — | ✅ | 2026-01-29 19:07 | OK |
 | **Meta-Llama-3.1-8B-Instruct** | hyperbolic | `hyperbolic/meta-llama/Meta-Llama-3.1-8B-Instruct` | ✅ | — | ✅ | 2026-01-29 19:07 | OK |
 | **Pixtral-12B-2409** | hyperbolic | `hyperbolic/mistralai/Pixtral-12B-2409` | ❌ | — | — | 2026-01-29 19:07 | OK |
-| **Qwen2.5-72B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-72B-Instruct` | ✅ | — | ✅ | 2026-01-29 18:55 | OK |
-| **Qwen2.5-Coder-32B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-Coder-32B-Instruct` | ✅ | — | ❌ | 2026-01-29 18:55 | OK |
-| **Qwen2.5-VL-72B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-VL-72B-Instruct` | ❌ | — | — | 2026-01-29 18:55 | OK |
-| **Qwen2.5-VL-7B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-VL-7B-Instruct` | ✅ | — | ✅ | 2026-01-29 18:55 | OK |
-| **Qwen3-235B-A22B** | hyperbolic | `hyperbolic/Qwen/Qwen3-235B-A22B` | ✅ | 🧠 | ✅ | 2026-01-29 18:56 | OK |
-| **Qwen3-235B-A22B-Instruct-2507** | hyperbolic | `hyperbolic/Qwen/Qwen3-235B-A22B-Instruct-2507` | ✅ | — | ✅ | 2026-01-29 18:57 | OK |
-| **Qwen3-Coder-480B-A35B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen3-Coder-480B-A35B-Instruct` | ✅ | — | ✅ | 2026-01-29 18:57 | OK |
-| **Qwen3-Next-80B-A3B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen3-Next-80B-A3B-Instruct` | ❌ | — | — | 2026-01-29 18:57 | OK |
-| **Qwen3-Next-80B-A3B-Thinking** | hyperbolic | `hyperbolic/Qwen/Qwen3-Next-80B-A3B-Thinking` | ✅ | 🧠 | ✅ | 2026-01-29 18:58 | OK |
-| **QwQ-32B** | hyperbolic | `hyperbolic/Qwen/QwQ-32B` | ✅ | 🧠 | ❌ | 2026-01-29 18:54 | Error: Stream Status: Failed... |
+| **Qwen2.5-72B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-72B-Instruct` | ✅ | — | ✅ | 2026-01-30 00:37 | OK |
+| **Qwen2.5-Coder-32B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-Coder-32B-Instruct` | ✅ | — | ✅ | 2026-01-30 00:37 | OK |
+| **Qwen2.5-VL-72B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-VL-72B-Instruct` | ❌ | — | — | 2026-01-30 00:37 | OK |
+| **Qwen2.5-VL-7B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen2.5-VL-7B-Instruct` | ✅ | — | ✅ | 2026-01-30 00:38 | OK |
+| **Qwen3-235B-A22B** | hyperbolic | `hyperbolic/Qwen/Qwen3-235B-A22B` | ❌ | — | — | 2026-01-30 00:31 | Error: Stream Status: Failed... |
+| **Qwen3-235B-A22B-Instruct-2507** | hyperbolic | `hyperbolic/Qwen/Qwen3-235B-A22B-Instruct-2507` | ❌ | — | — | 2026-01-30 00:31 | Error: Stream Status: Failed... |
+| **Qwen3-Coder-480B-A35B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen3-Coder-480B-A35B-Instruct` | ❌ | — | — | 2026-01-30 00:32 | Error: Stream Status: Failed... |
+| **Qwen3-Next-80B-A3B-Instruct** | hyperbolic | `hyperbolic/Qwen/Qwen3-Next-80B-A3B-Instruct` | ❌ | — | — | 2026-01-30 00:32 | OK |
+| **Qwen3-Next-80B-A3B-Thinking** | hyperbolic | `hyperbolic/Qwen/Qwen3-Next-80B-A3B-Thinking` | ❌ | — | — | 2026-01-30 00:32 | Error: Stream Status: Failed... |
+| **QwQ-32B** | hyperbolic | `hyperbolic/Qwen/QwQ-32B` | ❌ | — | — | 2026-01-30 00:37 | Error: Stream Status: Failed... |
 
 ## 🟢 Provider: together-ai
 | Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Last Run | Notes |

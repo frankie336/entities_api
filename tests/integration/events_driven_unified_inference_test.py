@@ -15,11 +15,18 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
+
 # Import definitions
 from models import HYPERBOLIC_MODELS, TOGETHER_AI_MODELS
+
 # --- SDK Event Imports ---
-from projectdavid import (ContentEvent, Entity, ReasoningEvent, StatusEvent,
-                          ToolCallRequestEvent)
+from projectdavid import (
+    ContentEvent,
+    Entity,
+    ReasoningEvent,
+    StatusEvent,
+    ToolCallRequestEvent,
+)
 
 # ------------------------------------------------------------------
 # 0. Setup & Config
@@ -427,4 +434,4 @@ def main(models_to_run):
 
 
 if __name__ == "__main__":
-    main(models_to_run=TOGETHER_AI_MODELS)
+    main(models_to_run=HYPERBOLIC_MODELS)
