@@ -1,9 +1,10 @@
-# src/api/entities_api/orchestration/workers/hyperbolic/together_handler.py
+# src/api/entities_api/orchestration/workers/hyperbolic/hb_handler.py
 from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.orchestration.engine.inference_arbiter import \
+# Worker Imports
+from src.api.entities_api.orchestration.engine.inference_arbiter import \
     InferenceArbiter
 from src.api.entities_api.orchestration.workers.hyperbolic.hb_deepseek import \
     HyperbolicDs1
@@ -14,50 +15,66 @@ from src.api.entities_api.orchestration.workers.hyperbolic.hb_llama import \
 from src.api.entities_api.orchestration.workers.hyperbolic.hb_quen import \
     HyperbolicQuenQwq32B
 
-logging_utility = LoggingUtility()
+LOG = LoggingUtility()
 
 
 class HyperbolicHandler:
     """
     Pure synchronous dispatcher for Hyperbolic model requests.
-    Delegates to concrete handler classes based on model ID.
+    Consolidated to use family prefixes for DeepSeek, Llama, and Qwen.
     """
 
     SUBMODEL_CLASS_MAP: dict[str, Type[Any]] = {
-        "deepseek-v3": HyperbolicDs1,
-        "deepseek-ai/DeepSeek-V3-0324": HyperbolicDs1,
-        "deepseek-r1": HyperbolicDs1,
+        # --- DeepSeek Family (covers V3, R1, and distilled versions) ---
+        "deepseek": HyperbolicDs1,
+        # --- Llama Family ---
         "meta-llama/": HyperbolicLlamaWorker,
-        "Qwen/": HyperbolicQuenQwq32B,
-        "openai/gpt-oss-": HyperbolicGptOssWorker,
+        # --- Qwen Family (covers Coder, QwQ, etc.) ---
+        "qwen/": HyperbolicQuenQwq32B,
+        # --- Specialized Handlers ---
+        "gpt-oss": HyperbolicGptOssWorker,
     }
 
     def __init__(self, arbiter: InferenceArbiter):
         self.arbiter = arbiter
-        logging_utility.info("HyperbolicHandler dispatcher initialized.")
+        # Sort by length descending to match most specific key first
+        self._sorted_sub_routes = sorted(
+            self.SUBMODEL_CLASS_MAP.keys(), key=len, reverse=True
+        )
+        LOG.info("HyperbolicHandler consolidated dispatcher initialized.")
 
     def _get_specific_handler_instance(self, unified_model_id: str) -> Any:
+        """
+        Resolves the concrete Hyperbolic worker based on model ID prefix or substring.
+        """
         prefix = "hyperbolic/"
+        lower_id = unified_model_id.lower()
+
+        # Strip platform prefix
         sub_model_id = (
-            unified_model_id[len(prefix) :].lower()
-            if unified_model_id.lower().startswith(prefix)
-            else unified_model_id.lower()
+            lower_id[len(prefix) :] if lower_id.startswith(prefix) else lower_id
         )
 
-        SpecificHandlerClass = None
-        for route_key, handler_cls in self.SUBMODEL_CLASS_MAP.items():
-            route_key_lc = route_key.lower()
-            if route_key_lc.endswith("/") and sub_model_id.startswith(route_key_lc):
-                SpecificHandlerClass = handler_cls
-                break
-            elif route_key_lc in sub_model_id:
-                SpecificHandlerClass = handler_cls
+        specific_cls: Optional[Type[Any]] = None
+        for route_key in self._sorted_sub_routes:
+            key_lc = route_key.lower()
+
+            # Match 1: Folder/Prefix style (e.g., "meta-llama/")
+            if key_lc.endswith("/") and sub_model_id.startswith(key_lc):
+                specific_cls = self.SUBMODEL_CLASS_MAP[route_key]
                 break
 
-        if not SpecificHandlerClass:
+            # Match 2: Substring style (e.g., "deepseek" or "gpt-oss")
+            if not key_lc.endswith("/") and key_lc in sub_model_id:
+                specific_cls = self.SUBMODEL_CLASS_MAP[route_key]
+                break
+
+        if specific_cls is None:
+            LOG.error(f"No handler found for Hyperbolic sub-model: '{sub_model_id}'")
             raise ValueError(f"Unsupported Hyperbolic model: {unified_model_id}")
 
-        return self.arbiter.get_provider_instance(SpecificHandlerClass)
+        LOG.debug(f"Routing '{sub_model_id}' to: {specific_cls.__name__}")
+        return self.arbiter.get_provider_instance(specific_cls)
 
     def process_conversation(
         self,
@@ -70,12 +87,7 @@ class HyperbolicHandler:
         api_key: Optional[str] = None,
         **kwargs,
     ) -> Generator[str, None, None]:
-        """
-        Routes the conversation process.
-        Named arguments are automatically filtered from **kwargs.
-        """
         worker = self._get_specific_handler_instance(model)
-
         yield from worker.process_conversation(
             thread_id=thread_id,
             message_id=message_id,
@@ -99,7 +111,6 @@ class HyperbolicHandler:
         **kwargs,
     ) -> Generator[str, None, None]:
         worker = self._get_specific_handler_instance(model)
-
         yield from worker.stream(
             thread_id=thread_id,
             message_id=message_id,
@@ -121,7 +132,7 @@ class HyperbolicHandler:
         **kwargs,
     ) -> Generator[str, None, None]:
         worker = self._get_specific_handler_instance(model)
-
+        # Internal workers typically use 'process_tool_calls'
         yield from worker.process_tool_calls(
             thread_id=thread_id,
             run_id=run_id,
