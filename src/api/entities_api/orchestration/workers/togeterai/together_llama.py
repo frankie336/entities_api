@@ -1,8 +1,7 @@
 import os
 
-from entities_api.utils.async_to_sync import async_to_sync_stream
-from src.api.entities_api.orchestration.workers.base_workers.llama_base import \
-    LlamaBaseWorker
+from entities_api.clients.async_to_sync import async_to_sync_stream
+from src.api.entities_api.orchestration.workers.base_workers.llama_base import LlamaBaseWorker
 
 
 class TogetherLlamaWorker(LlamaBaseWorker):
@@ -12,9 +11,7 @@ class TogetherLlamaWorker(LlamaBaseWorker):
     """
 
     def _get_client_instance(self, api_key: str):
-        return self._get_unified_client(
-            base_url=os.getenv("TOGETHER_BASE_URL"), api_key=api_key
-        )
+        return self._get_unified_client(base_url=os.getenv("TOGETHER_BASE_URL"), api_key=api_key)
 
     def _execute_stream_request(self, client, payload: dict):
         # Hyperbolic SDK in this project uses async methods

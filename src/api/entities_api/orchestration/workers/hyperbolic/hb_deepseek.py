@@ -1,17 +1,14 @@
 import os
 
-from entities_api.utils.async_to_sync import async_to_sync_stream
-from src.api.entities_api.orchestration.workers.base_workers.deepseek_base import \
-    DeepSeekBaseWorker
+from entities_api.clients.async_to_sync import async_to_sync_stream
+from src.api.entities_api.orchestration.workers.base_workers.deepseek_base import DeepSeekBaseWorker
 
 
 class HyperbolicDs1(DeepSeekBaseWorker):
     """Hyperbolic-specific implementation of DeepSeek."""
 
     def _get_client_instance(self, api_key: str):
-        return self._get_openai_client(
-            api_key=api_key, base_url=os.getenv("HYPERBOLIC_BASE_URL")
-        )
+        return self._get_openai_client(api_key=api_key, base_url=os.getenv("HYPERBOLIC_BASE_URL"))
 
     def _execute_stream_request(self, client, payload: dict):
         # Hyperbolic SDK in this project uses async methods

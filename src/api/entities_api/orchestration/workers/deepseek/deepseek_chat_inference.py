@@ -11,17 +11,25 @@ from dotenv import load_dotenv
 from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
 from src.api.entities_api.dependencies import get_redis
 from src.api.entities_api.orchestration.mixins import (
-    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
-    ConversationContextMixin, FileSearchMixin, JsonUtilsMixin,
-    PlatformToolHandlersMixin, ShellExecutionMixin, ToolRoutingMixin)
+    AssistantCacheMixin,
+    CodeExecutionMixin,
+    ConsumerToolHandlersMixin,
+    ConversationContextMixin,
+    FileSearchMixin,
+    JsonUtilsMixin,
+    PlatformToolHandlersMixin,
+    ShellExecutionMixin,
+    ToolRoutingMixin,
+)
+
 # TODO: Move this to the clients cache
-from src.api.entities_api.orchestration.workers.deepseek.deepseek_async_client import \
-    AsyncDeepSeekClient
-from src.api.entities_api.utils.async_to_sync import async_to_sync_stream
+from src.api.entities_api.orchestration.workers.deepseek.deepseek_async_client import (
+    AsyncDeepSeekClient,
+)
+from entities_api.clients.async_to_sync import async_to_sync_stream
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -68,9 +76,7 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):
         self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
         self.setup_services()
-        LOG.debug(
-            "DeepSeekChatInference ready (assistant=%s)", assistant_id or "<lazy>"
-        )
+        LOG.debug("DeepSeekChatInference ready (assistant=%s)", assistant_id or "<lazy>")
 
     @property
     def assistant_cache(self) -> dict:
@@ -163,9 +169,7 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):
                     continue
                 raw = token
                 cleaned = (
-                    raw.replace("[content]", "")
-                    .replace("<fc ", "<fc>")
-                    .replace("</ fc>", "</fc>")
+                    raw.replace("[content]", "").replace("<fc ", "<fc>").replace("</ fc>", "</fc>")
                 )
                 cleaned = re.sub("<fc\\s*>", "<fc>", cleaned, flags=re.I)
                 cleaned = re.sub("</fc\\s*>", "</fc>", cleaned, flags=re.I)
@@ -224,9 +228,7 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):
                     assistant_reply += seg
                     accumulated += seg
                     partial_ci = (
-                        self.parse_code_interpreter_partial(accumulated)
-                        if not code_mode
-                        else None
+                        self.parse_code_interpreter_partial(accumulated) if not code_mode else None
                     )
                     if partial_ci:
                         code_mode = True
@@ -235,29 +237,19 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):
                         if p := self._filter_fc(json.dumps(start_hot)):
                             yield p
                         self._shunt_to_redis_stream(redis, stream_key, start_hot)
-                        if code_buf and hasattr(
-                            self, "_process_code_interpreter_chunks"
-                        ):
-                            res, code_buf = self._process_code_interpreter_chunks(
-                                "", code_buf
-                            )
+                        if code_buf and hasattr(self, "_process_code_interpreter_chunks"):
+                            res, code_buf = self._process_code_interpreter_chunks("", code_buf)
                             for r in res:
                                 if p := self._filter_fc(r):
                                     yield p
-                                self._shunt_to_redis_stream(
-                                    redis, stream_key, json.loads(r)
-                                )
+                                self._shunt_to_redis_stream(redis, stream_key, json.loads(r))
                         continue
                     if code_mode:
-                        res, code_buf = self._process_code_interpreter_chunks(
-                            seg, code_buf
-                        )
+                        res, code_buf = self._process_code_interpreter_chunks(seg, code_buf)
                         for r in res:
                             if p := self._filter_fc(r):
                                 yield p
-                            self._shunt_to_redis_stream(
-                                redis, stream_key, json.loads(r)
-                            )
+                            self._shunt_to_redis_stream(redis, stream_key, json.loads(r))
                         continue
                     msg = {"type": "content", "content": seg}
                     if p := self._filter_fc(json.dumps(msg)):
@@ -282,9 +274,7 @@ class DeepSeekChatInference(_ProviderMixins, OrchestratorCore):
             self.finalize_conversation(
                 reasoning_buf + assistant_reply, thread_id, assistant_id, run_id
             )
-        if accumulated and self.parse_and_set_function_calls(
-            accumulated, assistant_reply
-        ):
+        if accumulated and self.parse_and_set_function_calls(accumulated, assistant_reply):
             self.project_david_client.runs.update_run_status(
                 run_id, ValidationInterface.StatusEnum.pending_action
             )
