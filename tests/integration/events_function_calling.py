@@ -40,8 +40,8 @@ if hasattr(client, "synchronous_inference_stream"):
     )
 
 USER_ID = os.getenv("ENTITIES_USER_ID")
-ASSISTANT_ID = "asst_xctd2oI6rHcfqudogaTcdo"
-MODEL_ID = "hyperbolic/deepseek-ai/DeepSeek-V3"
+ASSISTANT_ID = "asst_13HyDgBnZxVwh5XexYu74F"
+MODEL_ID = "hyperbolic/Qwen/Qwen2.5-72B-Instruct"
 PROVIDER_KW = "Hyperbolic"
 HYPERBOLIC_API_KEY = os.getenv("HYPERBOLIC_API_KEY")
 

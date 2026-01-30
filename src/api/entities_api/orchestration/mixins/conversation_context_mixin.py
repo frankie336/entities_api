@@ -9,10 +9,11 @@ All logic that builds the message list passed to the LLM:
 import json
 import os
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from projectdavid import Entity
 
+from entities_api.constants.tools import PLATFORM_TOOL_MAP
 from entities_api.orchestration.instructions.assembler import \
     assemble_instructions
 from src.api.entities_api.services.logging_service import LoggingUtility
@@ -102,6 +103,54 @@ class ConversationContextMixin:
 
         return out
 
+    @staticmethod
+    def _resolve_and_prioritize_platform_tools(
+        tools: Optional[List[Dict[str, Any]]],
+    ) -> List[Dict[str, Any]]:
+        """
+        Resolves placeholder tool definitions into concrete platform tools
+        and reorders them so Platform tools appear before User tools.
+
+        Robustness:
+        - Handles None or empty lists safely.
+        - If no placeholders are found, returns the original array structure.
+        - Preserves user tool order relative to other user tools.
+        """
+
+        # 1. Safety Check: Handle None or empty input
+        if not tools:
+            return []
+
+        resolved_platform_tools = []
+        resolved_user_tools = []
+
+        # 2. Iterate through the inbound tools array
+        for tool in tools:
+            # Skip invalid entries if the list contains non-dicts
+            if not isinstance(tool, dict):
+                continue
+
+            tool_type = tool.get("type")
+
+            # Check if it is a placeholder for a platform tool:
+            # 1. It exists in our map
+            # 2. It isn't explicitly defined as a "function" (user tool)
+            # 3. It doesn't have a "function" key (already resolved/defined)
+            if (
+                tool_type in PLATFORM_TOOL_MAP
+                and tool_type != "function"
+                and "function" not in tool
+            ):
+                # It is a placeholder -> Resolve it and bucket as Platform
+                resolved_platform_tools.append(PLATFORM_TOOL_MAP[tool_type])
+            else:
+                # It is a user tool, a custom tool, or a regular function
+                # -> Bucket as User (Preserves original object)
+                resolved_user_tools.append(tool)
+
+        # 3. MERGE: Platform Tools FIRST, User Tools LAST
+        return resolved_platform_tools + resolved_user_tools
+
     def _build_system_message(self, assistant_id: str) -> Dict:
         """
         Standard System Message Builder.
@@ -128,7 +177,11 @@ class ConversationContextMixin:
         # 2. Get Developer Instructions
         developer_instructions = cfg.get("instructions", "")
 
-        # 3. Assemble Payload
+        # 3. Resolve and prepend selected platform tools
+
+        final_tools = self._resolve_and_prioritize_platform_tools(tools=cfg["tools"])
+
+        # 4. Assemble Payload
         # Hierarchy: [Context] -> [Persona] -> [Platform Protocols] -> [Tools]
         combined_content = (
             f"Today's date and time: {today}\n\n"
@@ -137,7 +190,7 @@ class ConversationContextMixin:
             f"### OPERATIONAL PROTOCOLS\n"
             f"{platform_instructions}\n\n"
             f"### AVAILABLE TOOLS\n"
-            f"tools:\n{json.dumps(cfg['tools'])}"
+            f"tools:\n{json.dumps(final_tools)}"
         )
 
         return {
@@ -145,6 +198,7 @@ class ConversationContextMixin:
             "content": combined_content,
         }
 
+    # TODO: To be decommissioned
     def _build_amended_system_message(self, assistant_id: str) -> Dict:
         cache = self.get_assistant_cache()
         cfg = cache.retrieve_sync(assistant_id)
@@ -185,7 +239,11 @@ class ConversationContextMixin:
         # 2. Get Developer Instructions
         developer_instructions = cfg.get("instructions", "")
 
-        # 3. Assemble Payload
+        # 3. Resolve and prepend selected platform tools
+
+        final_tools = self._resolve_and_prioritize_platform_tools(tools=cfg["tools"])
+
+        # 4. Assemble Payload
         # Hierarchy: [Context] -> [Persona] -> [Platform Protocols] -> [Tools]
         combined_content = (
             f"Today's date and time: {today}\n\n"
@@ -194,7 +252,7 @@ class ConversationContextMixin:
             f"### OPERATIONAL PROTOCOLS\n"
             f"{platform_instructions}\n\n"
             f"### AVAILABLE TOOLS\n"
-            f"tools:\n{json.dumps(cfg['tools'])}"
+            f"tools:\n{json.dumps(final_tools)}"
         )
 
         return {

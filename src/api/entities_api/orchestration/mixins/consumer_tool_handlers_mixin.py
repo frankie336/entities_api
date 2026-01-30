@@ -151,14 +151,16 @@ class ConsumerToolHandlersMixin:
 
         # 2. Construct & Yield the Manifest
         # This tells the client "Here is the ID you need to execute".
-        manifest_chunk = {
-            "type": "tool_call_manifest",
-            "run_id": run_id,
-            "action_id": action.id,  # <--- Solves the race condition
-            "tool": content["name"],
-            "args": content["arguments"],
-        }
-        yield json.dumps(manifest_chunk)
+
+        if action.id:
+            manifest_chunk = {
+                "type": "tool_call_manifest",
+                "run_id": run_id,
+                "action_id": action.id,  # <--- Solves the race condition
+                "tool": content["name"],
+                "args": content["arguments"],
+            }
+            yield json.dumps(manifest_chunk)
 
         try:
             # 3. Signal that we are waiting

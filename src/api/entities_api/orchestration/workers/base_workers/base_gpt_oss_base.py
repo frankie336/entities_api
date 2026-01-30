@@ -170,6 +170,7 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         **kwargs,
     ) -> Generator[str, None, None]:
         import re  # Ensure re is available for the sanitization logic
+        import uuid
 
         redis = get_redis()
         stream_key = f"stream:{run_id}"
@@ -263,7 +264,11 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                 # Accumulate content (filtered)
                 accumulated += safe_content
 
-                yield json.dumps(chunk)
+                # --- REFACTOR: Prevent yielding call_arguments ---
+                if ctype != "call_arguments":
+                    yield json.dumps(chunk)
+                # -------------------------------------------------
+
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
 
             # Close dangling tags at end of stream

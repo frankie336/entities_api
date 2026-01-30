@@ -3,14 +3,14 @@ from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from src.api.entities_api.orchestration.engine.inference_arbiter import \
-    InferenceArbiter
-from src.api.entities_api.orchestration.workers.togeterai.together_deepseek import \
-    TogetherDs1
-from src.api.entities_api.orchestration.workers.togeterai.together_llama import \
-    TogetherLlamaWorker
-from src.api.entities_api.orchestration.workers.togeterai.together_quen import \
-    TogetherQwenWorker
+from entities_api.orchestration.workers.togeterai.together_nvidia import TogetherNvidiaWorker
+from src.api.entities_api.orchestration.engine.inference_arbiter import InferenceArbiter
+from src.api.entities_api.orchestration.workers.togeterai.together_deepseek import TogetherDs1
+from src.api.entities_api.orchestration.workers.togeterai.together_llama import TogetherLlamaWorker
+from src.api.entities_api.orchestration.workers.togeterai.together_quen import TogetherQwenWorker
+from src.api.entities_api.orchestration.workers.togeterai.together_service_now import (
+    TogetherServiceNowWorker,
+)
 
 LOG = LoggingUtility()
 
@@ -65,13 +65,15 @@ class TogetherAIHandler:
         "Qwen/Qwen2.5-1.5B": TogetherQwenWorker,
         "Qwen/Qwen-Image": TogetherQwenWorker,
         "Qwen/Qwen2-7B": TogetherQwenWorker,
+        # --- ServiceNow  ---
+        "ServiceNow-AI": TogetherServiceNowWorker,
+        # --- Nvidia  ---
+        "nvidia": TogetherNvidiaWorker,
     }
 
     def __init__(self, arbiter: InferenceArbiter):
         self.arbiter = arbiter
-        self._sorted_sub_routes = sorted(
-            self.SUBMODEL_CLASS_MAP.keys(), key=len, reverse=True
-        )
+        self._sorted_sub_routes = sorted(self.SUBMODEL_CLASS_MAP.keys(), key=len, reverse=True)
         LOG.info("TogetherAIHandler dispatcher initialized.")
 
     def _get_specific_handler_instance(self, unified_model_id: str) -> Any:

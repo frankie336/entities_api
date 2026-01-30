@@ -1,10 +1,8 @@
+# tests/integration/events_driven_unified_inference_test.py
 """
 Automated Model Benchmark: Reasoning & Tool Use (Event-Driven Refactor)
 -----------------------------------------------------------------------
-1. Loops through specified models.
-2. Uses the new SDK Event System (ContentEvent, ToolCallRequestEvent).
-3. BEHAVIOR: Matches original Markdown layout (One table per Provider).
-4. GUARANTEES ID UNIQUENESS: Deduplicates by Endpoint ID.
+Refactored to catch and classify DEAD/UNAVAILABLE endpoints (404s).
 """
 
 import json
@@ -17,14 +15,18 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
-# Import definitions
-from models import HYPERBOLIC_MODELS
-# --- SDK Event Imports ---
-from projectdavid import (ContentEvent, Entity, ReasoningEvent, StatusEvent,
-                          ToolCallRequestEvent)
 
-from entities_api.orchestration.instructions.assembler import \
-    assemble_instructions
+# Import definitions
+from models import HYPERBOLIC_MODELS, TOGETHER_AI_MODELS
+
+# --- SDK Event Imports ---
+from projectdavid import (
+    ContentEvent,
+    Entity,
+    ReasoningEvent,
+    StatusEvent,
+    ToolCallRequestEvent,
+)
 
 # ------------------------------------------------------------------
 # 0. Setup & Config
@@ -59,11 +61,10 @@ def get_api_key_for_provider(provider: str) -> str:
 
 
 # ------------------------------------------------------------------
-# 1. Tool Logic (SDK now delivers pre-parsed dict arguments)
+# 1. Tool Logic
 # ------------------------------------------------------------------
 def get_flight_times(tool_name: str, arguments: dict) -> str:
     """Mock flight-time lookup tool."""
-    # Arguments are already a dict thanks to the SDK Event System
     return json.dumps(
         {
             "status": "success",
@@ -75,14 +76,13 @@ def get_flight_times(tool_name: str, arguments: dict) -> str:
 
 
 # ------------------------------------------------------------------
-# 2. Report Manager (Identical to Original Logic/Layout)
+# 2. Report Manager
 # ------------------------------------------------------------------
 class ReportManager:
     @staticmethod
     def update_report(new_results: List[Dict]):
         """
-        Updates the MD file with the exact same layout as the original script.
-        Deduplicates by ID, groups by Provider.
+        Updates the MD file with the exact same layout.
         """
         file_path = Path(REPORT_FILE)
         rows_by_provider = defaultdict(dict)
@@ -114,6 +114,7 @@ class ReportManager:
                 tool_icon = "—"
 
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+            # Use the specific error message if present, otherwise OK
             note = res["error_msg"] if res["error_msg"] else "OK"
 
             new_row = (
@@ -148,7 +149,7 @@ class ReportManager:
 
 
 # ------------------------------------------------------------------
-# 3. Test Logic (Refactored for Events)
+# 3. Test Logic (Refactored for Error Classification)
 # ------------------------------------------------------------------
 class ModelTester:
     def __init__(self, model_label: str, config: Dict):
@@ -160,11 +161,50 @@ class ModelTester:
         self.user_id = USER_ID
         self.provider_api_key = get_api_key_for_provider(self.provider)
 
-        # Bind clients immediately for Smart Event execution capability
         if hasattr(self.client, "synchronous_inference_stream"):
             self.client.synchronous_inference_stream.bind_clients(
                 self.client.runs, self.client.actions, self.client.messages
             )
+
+    def _classify_error(self, error_text: str) -> str:
+        """
+        Parses raw exception strings to return clean Notes for the CSV/MD.
+        """
+        text = str(error_text).lower()
+
+        # Dead / 404
+        if (
+            "404" in text
+            or "model_not_available" in text
+            or "does not exist" in text
+            or "not found" in text
+        ):
+            return "💀 DEAD / UNAVAILABLE"
+
+        # Auth / 401
+        if "401" in text or "unauthorized" in text or "invalid api key" in text:
+            return "⛔ AUTH ERROR"
+
+        # Rate Limit / 429
+        if "429" in text or "rate limit" in text or "quota" in text:
+            return "⏳ RATE LIMIT"
+
+        # Server Error / 5xx
+        if (
+            "500" in text
+            or "502" in text
+            or "503" in text
+            or "internal server error" in text
+        ):
+            return "🔥 SERVER ERROR"
+
+        # Context Length
+        if "context_length_exceeded" in text:
+            return "📏 CONTEXT LIMIT"
+
+        # Fallback: Truncate generic error
+        clean_err = str(error_text).replace("\n", " ")
+        return f"Error: {clean_err[:30]}..."
 
     def setup(self) -> Tuple[bool, str]:
         if not self.provider_api_key:
@@ -197,7 +237,8 @@ class ModelTester:
             self.assistant_id = assistant.id
             return True, None
         except Exception as e:
-            return False, str(e)
+            # Also classify setup errors (e.g., if model is invalid at creation time)
+            return False, self._classify_error(str(e))
 
     def run_benchmark(self) -> Dict:
         result = {
@@ -230,11 +271,14 @@ class ModelTester:
 
             result["inference_ok"] = flags["inference_ok"]
             result["reasoning_detected"] = flags["reasoning_detected"]
+
+            # Use the classified detailed error if present
             if flags["error"]:
-                result["error_msg"] = "Stream Error"
+                result["error_msg"] = self._classify_error(flags["detailed_error"])
 
         except Exception as e:
-            result["error_msg"] = f"Inference Exception: {str(e)[:50]}"
+            # Catch errors that happen outside the stream (e.g. create_run fails)
+            result["error_msg"] = self._classify_error(str(e))
             return result
 
         # Stage 2: Tool Calls
@@ -267,11 +311,21 @@ class ModelTester:
                     )
                     if final_res["inference_ok"]:
                         result["tool_call_ok"] = True
+                    elif final_res["error"]:
+                        # If it fails during final response
+                        result["error_msg"] = self._classify_error(
+                            final_res["detailed_error"]
+                        )
                 else:
-                    print(f"{RED}[!] Tool call not triggered.{RESET}")
+                    if stream_res["error"]:
+                        result["error_msg"] = self._classify_error(
+                            stream_res["detailed_error"]
+                        )
+                    else:
+                        print(f"{RED}[!] Tool call not triggered.{RESET}")
 
             except Exception as e:
-                result["error_msg"] = f"Tool Exception: {str(e)[:50]}"
+                result["error_msg"] = self._classify_error(str(e))
 
         return result
 
@@ -282,6 +336,7 @@ class ModelTester:
             "reasoning_detected": False,
             "tool_executed": False,
             "error": False,
+            "detailed_error": None,  # Added to capture raw exception string
         }
 
         stream = self.client.synchronous_inference_stream
@@ -324,11 +379,14 @@ class ModelTester:
 
                 elif isinstance(event, StatusEvent) and event.status == "failed":
                     stats["error"] = True
+                    stats["detailed_error"] = "Stream Status: Failed"
 
             print()
         except Exception as e:
+            # Capture the full exception string here
             print(f"\n{RED}[!] Stream Error: {e}{RESET}")
             stats["error"] = True
+            stats["detailed_error"] = str(e)
 
         return stats
 
@@ -364,7 +422,7 @@ def main(models_to_run):
                         "inference_ok": False,
                         "reasoning_detected": False,
                         "tool_call_ok": False,
-                        "error_msg": f"Setup Failed: {err}",
+                        "error_msg": err,  # setup() already classifies the error
                     }
                 ]
             )
@@ -376,4 +434,4 @@ def main(models_to_run):
 
 
 if __name__ == "__main__":
-    main(models_to_run=HYPERBOLIC_MODELS)
+    main(models_to_run=TOGETHER_AI_MODELS)

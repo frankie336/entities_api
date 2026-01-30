@@ -185,7 +185,11 @@ class LlamaBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                 # Accumulate content (with correct flow)
                 accumulated += safe_content
 
-                yield json.dumps(chunk)
+                # --- REFACTOR: Prevent yielding call_arguments ---
+                if ctype != "call_arguments":
+                    yield json.dumps(chunk)
+                # -------------------------------------------------
+
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
 
             # Close dangling tags at end of stream

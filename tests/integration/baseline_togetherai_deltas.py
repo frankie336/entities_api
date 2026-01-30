@@ -12,7 +12,7 @@ client = Together(
 
 
 response_stream = client.chat.completions.create(
-    model="Qwen/Qwen3-Next-80B-A3B-Thinking",
+    model="meta-llama/Llama-3.1-405B-Instruct",
     messages=[{"role": "user", "content": "Explain black holes in PhD terms"}],
     stream=True,  # 1. Enable Streaming
 )
