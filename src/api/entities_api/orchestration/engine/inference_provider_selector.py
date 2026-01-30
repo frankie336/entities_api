@@ -13,9 +13,8 @@ from entities_api.orchestration.engine.inference_arbiter import \
 # from src.api.entities_api.inference.local.local_handler import LocalHandler
 # from src.api.entities_api.orchestration.workers.deepseek.deep_seek_handler import \
 #    DeepseekHandler
-from src.api.entities_api.orchestration.workers.hyperbolic.hb_handler import \
-    HyperbolicHandler
-from src.api.entities_api.orchestration.workers.togeterai.together_handler import \
+from entities_api.orchestration.handlers.hb_handler import HyperbolicHandler
+from entities_api.orchestration.handlers.together_handler import \
     TogetherAIHandler
 
 # Cut over from old architecture
