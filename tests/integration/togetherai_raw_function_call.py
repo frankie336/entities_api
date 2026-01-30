@@ -1,8 +1,9 @@
-import sys
-import requests
 import json
 import os
+import sys
+
 import dotenv
+import requests
 
 # Load environment variables
 dotenv.load_dotenv()

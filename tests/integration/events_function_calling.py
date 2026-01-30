@@ -10,17 +10,10 @@ import json
 import os
 
 from dotenv import load_dotenv
-
 # Import the new Event classes
-from projectdavid import (
-    ComputerExecutionOutputEvent,
-    ContentEvent,
-    Entity,
-    HotCodeEvent,
-    ReasoningEvent,
-    StatusEvent,
-    ToolCallRequestEvent,
-)
+from projectdavid import (ComputerExecutionOutputEvent, ContentEvent, Entity,
+                          HotCodeEvent, ReasoningEvent, StatusEvent,
+                          ToolCallRequestEvent)
 
 # ------------------------------------------------------------------
 # 0.  SDK init + env

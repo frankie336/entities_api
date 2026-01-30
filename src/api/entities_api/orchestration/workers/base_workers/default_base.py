@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import \
+    OrchestratorCore
 from src.api.entities_api.orchestration.mixins.providers import _ProviderMixins
 
 load_dotenv()
@@ -17,7 +18,9 @@ LOG = LoggingUtility()
 
 class DefaultBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
-    def __init__(self, *, assistant_id=None, thread_id=None, redis=None, **extra) -> None:
+    def __init__(
+        self, *, assistant_id=None, thread_id=None, redis=None, **extra
+    ) -> None:
         self._assistant_cache = extra.get("assistant_cache") or {}
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id

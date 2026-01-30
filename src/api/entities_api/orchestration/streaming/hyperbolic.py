@@ -1,6 +1,7 @@
 import json
 from collections import defaultdict
 
+
 class HyperbolicDeltaNormalizer:
     # Standard XML tags
     FC_START, FC_END = "<fc>", "</fc>"
@@ -93,8 +94,8 @@ class HyperbolicDeltaNormalizer:
 
             # --- 3. Handle Standard Content ---
             seg = (
-                      delta.get("content", "") if is_dict else getattr(delta, "content", "")
-                  ) or ""
+                delta.get("content", "") if is_dict else getattr(delta, "content", "")
+            ) or ""
 
             # --- 4. Tool Completion Trigger (Explicit) ---
             if finish_reason == "tool_calls":
