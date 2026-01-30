@@ -9,6 +9,6 @@ class HyperbolicDs1(DeepSeekBaseWorker):
 
     def _get_client_instance(self, api_key: str):
         # Hyperbolic uses OpenAI-compatible client with a custom Base URL
-        return self._get_openai_client(
+        return self._get_hyperbolic_client(
             base_url=os.getenv("HYPERBOLIC_BASE_URL"), api_key=api_key
         )
