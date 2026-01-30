@@ -1,4 +1,5 @@
-from src.api.entities_api.orchestration.workers.base_workers.nvidia_base import NvidiaBaseWorker
+from src.api.entities_api.orchestration.workers.base_workers.nvidia_base import \
+    NvidiaBaseWorker
 
 
 class TogetherNvidiaWorker(NvidiaBaseWorker):

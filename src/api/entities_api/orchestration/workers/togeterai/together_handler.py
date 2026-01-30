@@ -1,16 +1,22 @@
 # src/api/entities_api/orchestration/workers/togeterai/together_handler.py
+
 from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.orchestration.workers.togeterai.together_nvidia import TogetherNvidiaWorker
-from src.api.entities_api.orchestration.engine.inference_arbiter import InferenceArbiter
-from src.api.entities_api.orchestration.workers.togeterai.together_deepseek import TogetherDs1
-from src.api.entities_api.orchestration.workers.togeterai.together_llama import TogetherLlamaWorker
-from src.api.entities_api.orchestration.workers.togeterai.together_quen import TogetherQwenWorker
-from src.api.entities_api.orchestration.workers.togeterai.together_service_now import (
-    TogetherServiceNowWorker,
-)
+from src.api.entities_api.orchestration.engine.inference_arbiter import \
+    InferenceArbiter
+from src.api.entities_api.orchestration.workers.togeterai.together_deepseek import \
+    TogetherDs1
+from src.api.entities_api.orchestration.workers.togeterai.together_llama import \
+    TogetherLlamaWorker
+# Worker Imports
+from src.api.entities_api.orchestration.workers.togeterai.together_nvidia import \
+    TogetherNvidiaWorker
+from src.api.entities_api.orchestration.workers.togeterai.together_quen import \
+    TogetherQwenWorker
+from src.api.entities_api.orchestration.workers.togeterai.together_service_now import \
+    TogetherServiceNowWorker
 
 LOG = LoggingUtility()
 
@@ -18,102 +24,79 @@ LOG = LoggingUtility()
 class TogetherAIHandler:
     """
     Pure synchronous dispatcher for **TogetherAI** model requests.
-    It decides which concrete inference class to use based on the
-    canonical model id and then streams / processes via that class.
+    Consolidated to use provider/family prefixes for better maintainability.
     """
 
+    # We map by prefix. The logic handles both folder-style "qwen/"
+    # and substring-style "nvidia" matches.
     SUBMODEL_CLASS_MAP: dict[str, Type[Any]] = {
-        # --- DeepSeek ---
-        "deepseek-ai/DeepSeek-R1": TogetherDs1,
-        "deepseek-ai/DeepSeek-V3": TogetherDs1,
-        "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B": TogetherDs1,  # <--unable to access no serverless
-        "deepseek-ai/DeepSeek-R1-Distill-Qwen-14B": TogetherDs1,  # <--unable to access no serverless
-        "deepseek-ai/DeepSeek-R1-Distill-Llama-70B-free": TogetherDs1,
-        # --- Meta Llama / Mistral / Google ---
-        "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": TogetherLlamaWorker,
-        "meta-llama/Llama-4-Scout-17B-16E-Instruct": TogetherLlamaWorker,
-        "meta-llama/Llama-3.3-70B-Instruct-Turbo": TogetherLlamaWorker,
-        "meta-llama/Llama-3.2-11B-Vision-Instruct-Turbo": TogetherLlamaWorker,  # <--- unable to reach
-        "meta-llama/Llama-3.2-90B-Vision-Instruct-Turbo": TogetherLlamaWorker,  # <--- unable to reach
-        "meta-llama/Llama-Vision-Free": TogetherLlamaWorker,  # <--- unable to reach
-        "meta-llama/LlamaGuard-2-8b": TogetherLlamaWorker,
-        "google/gemma-2-9b-it": TogetherLlamaWorker,
-        "mistralai/Mistral-7B-Instruct-v0.2": TogetherLlamaWorker,
-        "mistralai/Mistral-7B-Instruct-v0.3": TogetherLlamaWorker,
-        # --- Qwen (Legacy/Existing) ---
-        "Qwen/QwQ-32B": TogetherQwenWorker,
-        "Qwen/Qwen2.5-Coder-32B-Instruct": TogetherQwenWorker,
-        "Qwen/Qwen2-VL-72B-Instruct": TogetherQwenWorker,
-        # --- Qwen (New Additions - Qwen 3) ---
-        "Qwen/Qwen3-Next-80B-A3B-Instruct": TogetherQwenWorker,
-        "Qwen/Qwen3-Next-80B-A3B-Thinking": TogetherQwenWorker,
-        "Qwen/Qwen3-Next-80B-A3B-Instruct-FP8": TogetherQwenWorker,
-        "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8": TogetherQwenWorker,
-        "Qwen/Qwen3-235B-A22B-Instruct-2507-tput": TogetherQwenWorker,
-        "Qwen/Qwen3-235B-A22B-fp8-tput": TogetherQwenWorker,
-        "Qwen/Qwen3-235B-A22B-Thinking-2507": TogetherQwenWorker,
-        "Qwen/Qwen3-VL-8B-Instruct": TogetherQwenWorker,
-        "Qwen/Qwen3-VL-32B-Instruct": TogetherQwenWorker,
-        "Qwen/Qwen3-VL-235B-A22B-Instruct-FP": TogetherQwenWorker,
-        "Qwen/Qwen3-8B": TogetherQwenWorker,
-        "Qwen/Qwen3-14B-Base": TogetherQwenWorker,
-        # --- Qwen (New Additions - Qwen 2.5/Misc) ---
-        "Qwen/Qwen2.5-72B-Instruct": TogetherQwenWorker,
-        "Qwen/Qwen2.5-72B-Instruct-Turbo": TogetherQwenWorker,
-        "Qwen/Qwen2.5-VL-72B-Instruct": TogetherQwenWorker,
-        "Qwen/Qwen2.5-7B-Instruct-Turbo": TogetherQwenWorker,
-        "Qwen/Qwen2.5-1.5B": TogetherQwenWorker,
-        "Qwen/Qwen-Image": TogetherQwenWorker,
-        "Qwen/Qwen2-7B": TogetherQwenWorker,
-        # --- ServiceNow  ---
-        "ServiceNow-AI": TogetherServiceNowWorker,
-        # --- Nvidia  ---
+        # --- DeepSeek Family ---
+        "deepseek-ai/": TogetherDs1,
+        # --- Llama / Mistral / Google Family (Standard OpenAI-compatible API) ---
+        "meta-llama/": TogetherLlamaWorker,
+        "mistralai/": TogetherLlamaWorker,
+        "google/": TogetherLlamaWorker,
+        # --- Qwen Family (All versions: 2, 2.5, 3, Coder, VL) ---
+        "Qwen/": TogetherQwenWorker,
+        # --- Specialized Providers ---
+        "ServiceNow": TogetherServiceNowWorker,
         "nvidia": TogetherNvidiaWorker,
     }
 
     def __init__(self, arbiter: InferenceArbiter):
         self.arbiter = arbiter
-        self._sorted_sub_routes = sorted(self.SUBMODEL_CLASS_MAP.keys(), key=len, reverse=True)
-        LOG.info("TogetherAIHandler dispatcher initialized.")
+        # Sort keys by length descending. This ensures that if we ever add a specific
+        # long-form override, it matches before the generic family prefix.
+        self._sorted_sub_routes = sorted(
+            self.SUBMODEL_CLASS_MAP.keys(), key=len, reverse=True
+        )
+        LOG.info("TogetherAIHandler consolidated dispatcher initialized.")
 
     def _get_specific_handler_instance(self, unified_model_id: str) -> Any:
         """
-        Returns the correct concrete inference class instance
-        for a given TogetherAI model id.
+        Resolves the concrete worker instance based on the unified model ID.
         """
         prefix = "together-ai/"
         lower_id = unified_model_id.lower()
+
+        # Strip the platform prefix if present
         if lower_id.startswith(prefix):
             sub_model_id = lower_id[len(prefix) :]
         else:
             sub_model_id = lower_id
             LOG.warning(
-                f"Model ID '{unified_model_id}' did not start with expected prefix '{prefix}'."
+                f"Model ID '{unified_model_id}' missing expected prefix '{prefix}'."
             )
+
         specific_cls: Optional[Type[Any]] = None
+
         for route_key in self._sorted_sub_routes:
             key_lc = route_key.lower()
+
+            # Match 1: Folder-style prefix (e.g., "meta-llama/")
             if key_lc.endswith("/") and sub_model_id.startswith(key_lc):
                 specific_cls = self.SUBMODEL_CLASS_MAP[route_key]
                 break
+
+            # Match 2: Substring/Identifier match (e.g., "nvidia")
             if not key_lc.endswith("/") and key_lc in sub_model_id:
                 specific_cls = self.SUBMODEL_CLASS_MAP[route_key]
                 break
+
         if specific_cls is None:
-            LOG.error(
-                f"No handler found for model ID '{sub_model_id}' (original: '{unified_model_id}')"
-            )
+            LOG.error(f"No handler found for TogetherAI sub-model: '{sub_model_id}'")
             raise ValueError(f"Unsupported TogetherAI model: {unified_model_id}")
-        LOG.debug(f"Dispatching to: {specific_cls.__name__}")
+
+        LOG.debug(f"Routing '{sub_model_id}' to: {specific_cls.__name__}")
         return self.arbiter.get_provider_instance(specific_cls)
 
     def process_conversation(
         self,
-        thread_id,
-        message_id,
-        run_id,
-        assistant_id,
-        model,
+        thread_id: str,
+        message_id: str,
+        run_id: str,
+        assistant_id: str,
+        model: str,
         stream_reasoning: bool = False,
         api_key: Optional[str] = None,
         **kwargs,
@@ -154,7 +137,12 @@ class TogetherAIHandler:
         )
 
     def process_function_calls(
-        self, thread_id, run_id, assistant_id, model=None, api_key: Optional[str] = None
+        self,
+        thread_id: str,
+        run_id: str,
+        assistant_id: str,
+        model: str = None,
+        api_key: Optional[str] = None,
     ) -> Generator[str, None, None]:
         handler = self._get_specific_handler_instance(model)
         yield from handler.process_tool_calls(

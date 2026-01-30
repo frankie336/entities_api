@@ -1,6 +1,5 @@
 from projectdavid_common.constants.ai_model_map import TOGETHER_AI_MODELS
 
-
 """
 The dictionary I have imported from our shared module looks like this:
 
