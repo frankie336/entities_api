@@ -19,28 +19,23 @@ from projectdavid_common.schemas.enums import StatusEnum
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from entities_api.dependencies import get_redis
-from entities_api.orchestration.streaming.hyperbolic import \
-    HyperbolicDeltaNormalizer
-from src.api.entities_api.orchestration.mixins.client_factory_mixin import \
-    ClientFactoryMixin
-from src.api.entities_api.orchestration.mixins.code_execution_mixin import \
-    CodeExecutionMixin
-from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import \
-    ConsumerToolHandlersMixin
-from src.api.entities_api.orchestration.mixins.conversation_context_mixin import \
-    ConversationContextMixin
-from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
-    JsonUtilsMixin
-from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import \
-    PlatformToolHandlersMixin
-from src.api.entities_api.orchestration.mixins.service_registry_mixin import \
-    ServiceRegistryMixin
-from src.api.entities_api.orchestration.mixins.shell_execution_mixin import \
-    ShellExecutionMixin
-from src.api.entities_api.orchestration.mixins.streaming_mixin import \
-    StreamingMixin
-from src.api.entities_api.orchestration.mixins.tool_routing_mixin import \
-    ToolRoutingMixin
+from entities_api.orchestration.streaming.hyperbolic import HyperbolicDeltaNormalizer
+from src.api.entities_api.orchestration.mixins.client_factory_mixin import ClientFactoryMixin
+from src.api.entities_api.orchestration.mixins.code_execution_mixin import CodeExecutionMixin
+from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import (
+    ConsumerToolHandlersMixin,
+)
+from src.api.entities_api.orchestration.mixins.conversation_context_mixin import (
+    ConversationContextMixin,
+)
+from src.api.entities_api.orchestration.mixins.json_utils_mixin import JsonUtilsMixin
+from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import (
+    PlatformToolHandlersMixin,
+)
+from src.api.entities_api.orchestration.mixins.service_registry_mixin import ServiceRegistryMixin
+from src.api.entities_api.orchestration.mixins.shell_execution_mixin import ShellExecutionMixin
+from src.api.entities_api.orchestration.mixins.streaming_mixin import StreamingMixin
+from src.api.entities_api.orchestration.mixins.tool_routing_mixin import ToolRoutingMixin
 
 LOG = LoggingUtility()
 
@@ -73,8 +68,17 @@ class OrchestratorCore(
     _cancelled: bool = False
     code_mode: bool = False
 
+    def __init__(self):
+        self.api_key = None
+
     @abstractmethod
     def _get_client_instance(self, api_key: str):
+        """Return the specific provider client."""
+        pass
+
+    @abstractmethod
+    def _execute_stream_request(self, client, payload: dict) -> Any:
+        """Execute the stream request (Sync or Async-to-Sync)."""
         pass
 
     @property
@@ -96,7 +100,7 @@ class OrchestratorCore(
         assistant_id: str,
         model: Any,
         *,
-        stream_reasoning: bool = True,
+        stream_reasoning: bool = False,
         api_key: Optional[str] = None,
         **kwargs,
     ) -> Generator[str, None, None]:
@@ -104,19 +108,21 @@ class OrchestratorCore(
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
-        self._current_tool_call_id = None
-        # Reset handover state
-        self._pending_tool_payload = None
+        # Use instance key if not provided
+        api_key = api_key or self.api_key
 
-        accumulated: str = ""
-        assistant_reply: str = ""
-        reasoning_reply: str = ""
-        current_block: str | None = None
+        # --- FIX 1: Early Variable Initialization (Safety) ---
+        assistant_reply = ""
+        accumulated = ""
+        reasoning_reply = ""
+        current_block = None
+        # -----------------------------------------------------
 
         try:
             if mapped := self._get_model_map(model):
                 model = mapped
 
+            # 1. Context Window Setup
             ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
 
             payload = {
@@ -131,16 +137,21 @@ class OrchestratorCore(
             yield json.dumps(start_chunk)
             self._shunt_to_redis_stream(redis, stream_key, start_chunk)
 
+            # -----------------------------------------------------------
+            # DYNAMIC CLIENT EXECUTION
+            # -----------------------------------------------------------
             client = self._get_client_instance(api_key=api_key)
-            raw_stream = client.chat.completions.create(**payload)
+            raw_stream = self._execute_stream_request(client, payload)
+            # -----------------------------------------------------------
 
+            # 2. Process deltas via Shared Normalizer
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
                     break
 
                 ctype, ccontent = chunk["type"], chunk["content"]
 
-                # --- 1. STATE MANAGEMENT (Keep this exactly as is) ---
+                # --- HISTORY RECONSTRUCTION (Tag Injection) ---
                 if ctype == "content":
                     if current_block == "fc":
                         accumulated += "</fc>"
@@ -164,65 +175,62 @@ class OrchestratorCore(
                         current_block = "think"
                     reasoning_reply += ccontent
 
+                # Accumulate raw stream for persistence
                 accumulated += ccontent
 
-                # --- 2. SELECTIVE YIELDING ---
-                # We STOP yielding call_arguments directly to the client
-                if ctype == "call_arguments":
-                    continue
+                # --- REFACTOR: Prevent yielding ANY tool artifacts ---
+                # We block both 'tool_name' and 'call_arguments' to prevent
+                # the client SDK from auto-creating a ghost event with no ID.
+                if ctype not in ("tool_name", "call_arguments"):
+                    yield json.dumps(chunk)
+                # -------------------------------------------------
 
-                    # We yield everything else (content, reasoning, etc)
-                yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
 
-            # Close tags
+            # 3. Final Close-out
             if current_block == "fc":
                 accumulated += "</fc>"
             elif current_block == "think":
                 accumulated += "</think>"
 
-            yield json.dumps(
-                {"type": "status", "status": "processing", "run_id": run_id}
-            )
+            yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
-            # --- 3. PERSISTENCE & HANDOVER PREP ---
+            # ------------------------------------------------------------------
+            # 💉 FIX 2: TIMEOUT PREVENTION (Keep-Alive Heartbeat)
+            # ------------------------------------------------------------------
+            # Send a 'processing' signal to reset the client's timeout timer
+            # while the server performs the blocking database save.
+            yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
+
+            # ------------------------------------------------------------------
+            # 🔒 FIX 3: SAFE PERSISTENCE LOGIC
+            # ------------------------------------------------------------------
             has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
             message_to_save = assistant_reply
 
             if has_fc:
                 try:
-                    # Clean tags
-                    raw_json = (
-                        accumulated.replace("<fc>", "").replace("</fc>", "").strip()
-                    )
+                    # Clean tags for JSON parsing
+                    raw_json = accumulated.replace("<fc>", "").replace("</fc>", "").strip()
+                    # Validate JSON structure
                     payload_dict = json.loads(raw_json)
+
+                    # Store as clean JSON
                     message_to_save = json.dumps(payload_dict)
-
-                    # [CRITICAL] Store the payload for the next step (process_conversation)
-                    self._pending_tool_payload = payload_dict
-
                 except Exception as e:
-                    LOG.error(f"Error parsing raw tool JSON: {e}")
+                    LOG.error(f"Error structuring tool calls: {e}")
+                    # Fallback to accumulated string so no data is lost
                     message_to_save = accumulated
 
             if message_to_save:
-                self.finalize_conversation(
-                    message_to_save, thread_id, assistant_id, run_id
-                )
+                self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
 
             if has_fc:
                 self.project_david_client.runs.update_run_status(
                     run_id, StatusEnum.pending_action.value
                 )
             else:
-                self.project_david_client.runs.update_run_status(
-                    run_id, StatusEnum.completed.value
-                )
-                # Only yield 'complete' if no tool call.
-                # If tool call, the tool processor will yield manifests then complete.
-                yield json.dumps(
-                    {"type": "status", "status": "complete", "run_id": run_id}
-                )
+                self.project_david_client.runs.update_run_status(run_id, StatusEnum.completed.value)
 
         except Exception as exc:
             err = {"type": "error", "content": str(exc)}

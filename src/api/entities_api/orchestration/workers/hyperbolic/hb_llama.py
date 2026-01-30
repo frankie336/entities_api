@@ -14,3 +14,8 @@ class HyperbolicLlamaWorker(LlamaBaseWorker):
         return self._get_hyperbolic_client(
             api_key=api_key, base_url=os.getenv("HYPERBOLIC_BASE_URL")
         )
+
+    def _execute_stream_request(self, client, payload: dict):
+        # Hyperbolic SDK in this project uses async methods
+        async_stream = client.stream_chat_completion(**payload)
+        return async_to_sync_stream(async_stream)
