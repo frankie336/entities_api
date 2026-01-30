@@ -10,10 +10,17 @@ import json
 import os
 
 from dotenv import load_dotenv
+
 # Import the new Event classes
-from projectdavid import (ComputerExecutionOutputEvent, ContentEvent, Entity,
-                          HotCodeEvent, ReasoningEvent, StatusEvent,
-                          ToolCallRequestEvent)
+from projectdavid import (
+    ComputerExecutionOutputEvent,
+    ContentEvent,
+    Entity,
+    HotCodeEvent,
+    ReasoningEvent,
+    StatusEvent,
+    ToolCallRequestEvent,
+)
 
 # ------------------------------------------------------------------
 # 0.  SDK init + env
@@ -41,9 +48,9 @@ if hasattr(client, "synchronous_inference_stream"):
 
 USER_ID = os.getenv("ENTITIES_USER_ID")
 ASSISTANT_ID = "asst_13HyDgBnZxVwh5XexYu74F"
-MODEL_ID = "hyperbolic/deepseek-ai/DeepSeek-V3"
+MODEL_ID = "together-ai/deepcogito/cogito-v2-preview-llama-405B"
 PROVIDER_KW = "Hyperbolic"
-HYPERBOLIC_API_KEY = os.getenv("HYPERBOLIC_API_KEY")
+TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
 
 
 # ------------------------------------------------------------------
@@ -84,7 +91,7 @@ stream.setup(
     assistant_id=ASSISTANT_ID,
     message_id=message.id,
     run_id=run.id,
-    api_key=HYPERBOLIC_API_KEY,
+    api_key=TOGETHER_API_KEY,
 )
 
 print(f"\n{CYAN}[▶] STREAM 1: Event Instance Inspection{RESET}")
@@ -138,7 +145,7 @@ if tool_event:
             assistant_id=ASSISTANT_ID,
             message_id=message.id,
             run_id=run.id,
-            api_key=HYPERBOLIC_API_KEY,
+            api_key=TOGETHER_API_KEY,
         )
 
         for event in stream.stream_events(provider=PROVIDER_KW, model=MODEL_ID):

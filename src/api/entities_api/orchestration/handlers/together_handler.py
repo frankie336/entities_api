@@ -4,21 +4,27 @@ from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from src.api.entities_api.orchestration.engine.inference_arbiter import \
-    InferenceArbiter
-from src.api.entities_api.orchestration.workers.togeterai.together_deepseek import \
-    TogetherDs1
-from src.api.entities_api.orchestration.workers.togeterai.together_gpt_oss import \
-    TogetherGptOssWorker
-from src.api.entities_api.orchestration.workers.togeterai.together_llama import \
-    TogetherLlamaWorker
+from src.api.entities_api.orchestration.engine.inference_arbiter import InferenceArbiter
+from src.api.entities_api.orchestration.workers.togeterai.together_deepseek import TogetherDs1
+from src.api.entities_api.orchestration.workers.togeterai.together_gpt_oss import (
+    TogetherGptOssWorker,
+)
+from src.api.entities_api.orchestration.workers.togeterai.together_llama import TogetherLlamaWorker
+
 # Worker Imports
-from src.api.entities_api.orchestration.workers.togeterai.together_nvidia import \
-    TogetherNvidiaWorker
-from src.api.entities_api.orchestration.workers.togeterai.together_quen import \
-    TogetherQwenWorker
-from src.api.entities_api.orchestration.workers.togeterai.together_service_now import \
-    TogetherServiceNowWorker
+from src.api.entities_api.orchestration.workers.togeterai.together_nvidia import (
+    TogetherNvidiaWorker,
+)
+from src.api.entities_api.orchestration.workers.togeterai.together_quen import TogetherQwenWorker
+from src.api.entities_api.orchestration.workers.togeterai.together_service_now import (
+    TogetherServiceNowWorker,
+)
+from src.api.entities_api.orchestration.workers.togeterai.together_default import (
+    TogetherDefaultWorker,
+)
+from src.api.entities_api.orchestration.workers.togeterai.together_deep_cogito import (
+    TogetherDeepCogitoWorker,
+)
 
 LOG = LoggingUtility()
 
@@ -44,15 +50,16 @@ class TogetherAIHandler:
         "ServiceNow": TogetherServiceNowWorker,
         "nvidia": TogetherNvidiaWorker,
         "gpt-oss": TogetherGptOssWorker,
+        "deepcogito": TogetherDeepCogitoWorker,
+        # --- Default route  ---
+        "": TogetherDefaultWorker,
     }
 
     def __init__(self, arbiter: InferenceArbiter):
         self.arbiter = arbiter
         # Sort keys by length descending. This ensures that if we ever add a specific
         # long-form override, it matches before the generic family prefix.
-        self._sorted_sub_routes = sorted(
-            self.SUBMODEL_CLASS_MAP.keys(), key=len, reverse=True
-        )
+        self._sorted_sub_routes = sorted(self.SUBMODEL_CLASS_MAP.keys(), key=len, reverse=True)
         LOG.info("TogetherAIHandler consolidated dispatcher initialized.")
 
     def _get_specific_handler_instance(self, unified_model_id: str) -> Any:
@@ -67,9 +74,7 @@ class TogetherAIHandler:
             sub_model_id = lower_id[len(prefix) :]
         else:
             sub_model_id = lower_id
-            LOG.warning(
-                f"Model ID '{unified_model_id}' missing expected prefix '{prefix}'."
-            )
+            LOG.warning(f"Model ID '{unified_model_id}' missing expected prefix '{prefix}'.")
 
         specific_cls: Optional[Type[Any]] = None
 

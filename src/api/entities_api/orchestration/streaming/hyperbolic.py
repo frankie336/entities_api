@@ -1,7 +1,6 @@
 import json
 from collections import defaultdict
 
-
 class HyperbolicDeltaNormalizer:
     # Standard XML tags
     FC_START, FC_END = "<fc>", "</fc>"
@@ -20,7 +19,6 @@ class HyperbolicDeltaNormalizer:
         state = "content"
 
         # State for Native Tool Accumulation
-        # We use a dict to handle parallel tool calls (though usually serial in OSS)
         pending_tool_calls = defaultdict(
             lambda: {"index": 0, "function": {"name": "", "arguments": ""}}
         )
@@ -43,7 +41,7 @@ class HyperbolicDeltaNormalizer:
             else:
                 continue
 
-            # --- 1. Handle Native Reasoning (Yields Instantly) ---
+            # --- 1. Handle Native Reasoning ---
             r_content = (
                 delta.get("reasoning_content")
                 if is_dict
@@ -73,11 +71,13 @@ class HyperbolicDeltaNormalizer:
 
                     tool_data = pending_tool_calls[t_index]
 
-                    # Accumulate Name (Some providers stream name chunks)
+                    # Accumulate Name
                     if fn_name:
                         tool_data["function"]["name"] += fn_name
+                        # FIX: Set type to 'call_arguments' so the worker filters it out.
+                        # This prevents the downstream consumer from crashing on partial strings.
                         yield {
-                            "type": "tool_name",
+                            "type": "call_arguments",
                             "content": fn_name,
                             "run_id": run_id,
                         }
@@ -93,11 +93,10 @@ class HyperbolicDeltaNormalizer:
 
             # --- 3. Handle Standard Content ---
             seg = (
-                delta.get("content", "") if is_dict else getattr(delta, "content", "")
-            ) or ""
+                      delta.get("content", "") if is_dict else getattr(delta, "content", "")
+                  ) or ""
 
             # --- 4. Tool Completion Trigger (Explicit) ---
-            # We yield the full object here as a safety net if the stream provides it
             if finish_reason == "tool_calls":
                 for idx, data in list(pending_tool_calls.items()):
                     name = data["function"]["name"]
@@ -125,13 +124,11 @@ class HyperbolicDeltaNormalizer:
                 # STATE: CONTENT
                 # -----------------------------------------------------------
                 if state == "content":
-                    # 1. NO TAG? FLUSH ALL.
                     if "<" not in buffer:
                         yield {"type": "content", "content": buffer, "run_id": run_id}
                         buffer = ""
                         break
 
-                    # 2. TAG EXISTS? FLUSH BEFORE IT.
                     lt_idx = buffer.find("<")
                     if lt_idx > 0:
                         yield {
@@ -141,7 +138,6 @@ class HyperbolicDeltaNormalizer:
                         }
                         buffer = buffer[lt_idx:]
 
-                    # 3. CHECK KNOWN TAGS
                     all_tags = [
                         (cls.CH_ANALYSIS, "channel_reasoning"),
                         (cls.CH_COMMENTARY, "channel_tool_meta"),
@@ -151,7 +147,6 @@ class HyperbolicDeltaNormalizer:
                         (cls.TH_START, "think"),
                     ]
 
-                    # A. Exact Match
                     match_found = False
                     for tag, new_state in all_tags:
                         if buffer.startswith(tag):
@@ -164,11 +159,10 @@ class HyperbolicDeltaNormalizer:
                     if match_found:
                         continue
 
-                    # B. Partial Match
                     is_partial = any(tag.startswith(buffer) for tag, _ in all_tags)
 
                     if is_partial:
-                        break  # Wait for next token
+                        break
                     else:
                         yield {
                             "type": "content",
@@ -203,7 +197,7 @@ class HyperbolicDeltaNormalizer:
                         continue
 
                     if cls.TH_END.startswith(buffer):
-                        break  # Wait
+                        break
 
                     yield {"type": "reasoning", "content": buffer[0], "run_id": run_id}
                     buffer = buffer[1:]
@@ -307,7 +301,6 @@ class HyperbolicDeltaNormalizer:
                     break
 
         # --- FINALIZATION: Flush Pending Tools ---
-        # FIX: Ensure tools are yielded even if finish_reason="stop" or stream cuts off
         if pending_tool_calls:
             for idx, data in list(pending_tool_calls.items()):
                 name = data["function"]["name"]
