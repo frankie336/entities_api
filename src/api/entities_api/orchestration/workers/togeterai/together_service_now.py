@@ -1,20 +1,19 @@
-from src.api.entities_api.orchestration.workers.base_workers.service_now_base import (
-    ServiceNowBaseWorker,
-)
+import os
+
+from entities_api.utils.async_to_sync import async_to_sync_stream
+from src.api.entities_api.orchestration.workers.base_workers.service_now_base import \
+    ServiceNowBaseWorker
 
 
 class TogetherServiceNowWorker(ServiceNowBaseWorker):
     """TogetherAI-specific implementation of ServiceNowBaseWorker."""
 
     def _get_client_instance(self, api_key: str):
-        # Together uses its native client (or OpenAI compat)
-        return self._get_together_client(api_key=api_key)
+        return self._get_unified_client(
+            base_url=os.getenv("TOGETHER_BASE_URL"), api_key=api_key
+        )
 
     def _execute_stream_request(self, client, payload: dict):
-        """
-        Executes the synchronous stream request using the Together/OpenAI client.
-        Required by OrchestratorCore.
-        """
-        # Ensure payload has 'stream': True if required by the client,
-        # though usually OrchestratorCore sets this in the payload.
-        return client.chat.completions.create(**payload)
+        # Hyperbolic SDK in this project uses async methods
+        async_stream = client.stream_chat_completion(**payload)
+        return async_to_sync_stream(async_stream)

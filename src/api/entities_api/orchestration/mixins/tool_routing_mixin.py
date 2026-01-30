@@ -40,9 +40,8 @@ class ToolRoutingMixin:
         """
         Robustly locate a function call payload.
         """
-        from src.api.entities_api.orchestration.mixins.json_utils_mixin import (
-            JsonUtilsMixin,
-        )
+        from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
+            JsonUtilsMixin
 
         if not isinstance(self, JsonUtilsMixin):
             raise TypeError("ToolRoutingMixin must be mixed with JsonUtilsMixin")

@@ -3,9 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Generator, List, Optional
 
-from entities_api.platform_tools.handlers.computer.shell_command_interface import (
-    run_shell_commands,
-)
+from entities_api.platform_tools.handlers.computer.shell_command_interface import \
+    run_shell_commands
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 LOG = LoggingUtility()

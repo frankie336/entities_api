@@ -4,27 +4,21 @@ from typing import Any, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from src.api.entities_api.orchestration.engine.inference_arbiter import InferenceArbiter
-from src.api.entities_api.orchestration.workers.togeterai.together_deepseek import (
-    TogetherDs1,
-)
-from src.api.entities_api.orchestration.workers.togeterai.together_gpt_oss import (
-    TogetherGptOssWorker,
-)
-from src.api.entities_api.orchestration.workers.togeterai.together_llama import (
-    TogetherLlamaWorker,
-)
-
+from src.api.entities_api.orchestration.engine.inference_arbiter import \
+    InferenceArbiter
+from src.api.entities_api.orchestration.workers.togeterai.together_deepseek import \
+    TogetherDs1
+from src.api.entities_api.orchestration.workers.togeterai.together_gpt_oss import \
+    TogetherGptOssWorker
+from src.api.entities_api.orchestration.workers.togeterai.together_llama import \
+    TogetherLlamaWorker
 # Worker Imports
-from src.api.entities_api.orchestration.workers.togeterai.together_nvidia import (
-    TogetherNvidiaWorker,
-)
-from src.api.entities_api.orchestration.workers.togeterai.together_quen import (
-    TogetherQwenWorker,
-)
-from src.api.entities_api.orchestration.workers.togeterai.together_service_now import (
-    TogetherServiceNowWorker,
-)
+from src.api.entities_api.orchestration.workers.togeterai.together_nvidia import \
+    TogetherNvidiaWorker
+from src.api.entities_api.orchestration.workers.togeterai.together_quen import \
+    TogetherQwenWorker
+from src.api.entities_api.orchestration.workers.togeterai.together_service_now import \
+    TogetherServiceNowWorker
 
 LOG = LoggingUtility()
 

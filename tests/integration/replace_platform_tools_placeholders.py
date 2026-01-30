@@ -3,12 +3,13 @@ import os
 
 from dotenv import load_dotenv
 
-from src.api.entities_api.platform_tools.definitions.code_interpreter import (
-    code_interpreter,
-)
+from src.api.entities_api.platform_tools.definitions.code_interpreter import \
+    code_interpreter
 from src.api.entities_api.platform_tools.definitions.computer import computer
-from src.api.entities_api.platform_tools.definitions.file_search import file_search
-from src.api.entities_api.platform_tools.definitions.web_search import web_search
+from src.api.entities_api.platform_tools.definitions.file_search import \
+    file_search
+from src.api.entities_api.platform_tools.definitions.web_search import \
+    web_search
 
 # ------------------------------------------------------------------
 # 1. Concrete Tool Definitions (As provided in your prompt)

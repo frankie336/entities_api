@@ -12,9 +12,8 @@ from projectdavid import Entity
 from together import Together
 
 # Import your AsyncHyperbolicClient definition
-from src.api.entities_api.orchestration.streaming.hyperbolic_async_client import (
-    AsyncHyperbolicClient,
-)
+from src.api.entities_api.orchestration.streaming.unified_async_client import \
+    AsyncUnifiedInferenceClient
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 load_dotenv()
@@ -129,9 +128,9 @@ class ClientFactoryMixin:
             raise
 
     @lru_cache(maxsize=32)
-    def _get_hyperbolic_client(
+    def _get_unified_client(
         self, *, api_key: Optional[str], base_url: Optional[str]
-    ) -> AsyncHyperbolicClient:
+    ) -> AsyncUnifiedInferenceClient:
         """
         Returns a cached AsyncHyperbolicClient.
         NOTE: This caches the CONNECTION POOL, which improves performance.
@@ -139,7 +138,7 @@ class ClientFactoryMixin:
         if not api_key or not base_url:
             raise RuntimeError("api_key + base_url required for Hyperbolic client")
         try:
-            return AsyncHyperbolicClient(api_key=api_key, base_url=base_url)
+            return AsyncUnifiedInferenceClient(api_key=api_key, base_url=base_url)
         except Exception as exc:
             LOG.error("Hyperbolic client init failed: %s", exc, exc_info=True)
             raise

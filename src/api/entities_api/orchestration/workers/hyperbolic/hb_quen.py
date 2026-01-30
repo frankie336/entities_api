@@ -1,9 +1,8 @@
 import os
 
 from entities_api.utils.async_to_sync import async_to_sync_stream
-from src.api.entities_api.orchestration.workers.base_workers.qwen_base import (
-    QwenBaseWorker,
-)
+from src.api.entities_api.orchestration.workers.base_workers.qwen_base import \
+    QwenBaseWorker
 
 
 class HyperbolicQwenWorker(QwenBaseWorker):
@@ -12,7 +11,7 @@ class HyperbolicQwenWorker(QwenBaseWorker):
     """
 
     def _get_client_instance(self, api_key: str):
-        return self._get_hyperbolic_client(
+        return self._get_unified_client(
             api_key=api_key, base_url=os.getenv("HYPERBOLIC_BASE_URL")
         )
 

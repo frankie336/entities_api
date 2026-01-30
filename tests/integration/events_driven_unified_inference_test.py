@@ -15,18 +15,11 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
-
 # Import definitions
 from models import HYPERBOLIC_MODELS, TOGETHER_AI_MODELS
-
 # --- SDK Event Imports ---
-from projectdavid import (
-    ContentEvent,
-    Entity,
-    ReasoningEvent,
-    StatusEvent,
-    ToolCallRequestEvent,
-)
+from projectdavid import (ContentEvent, Entity, ReasoningEvent, StatusEvent,
+                          ToolCallRequestEvent)
 
 # ------------------------------------------------------------------
 # 0. Setup & Config
