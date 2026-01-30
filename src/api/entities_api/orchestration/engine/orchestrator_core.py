@@ -20,8 +20,12 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from entities_api.dependencies import get_redis
 from entities_api.orchestration.streaming.hyperbolic import HyperbolicDeltaNormalizer
-from src.api.entities_api.orchestration.mixins.client_factory_mixin import ClientFactoryMixin
-from src.api.entities_api.orchestration.mixins.code_execution_mixin import CodeExecutionMixin
+from src.api.entities_api.orchestration.mixins.client_factory_mixin import (
+    ClientFactoryMixin,
+)
+from src.api.entities_api.orchestration.mixins.code_execution_mixin import (
+    CodeExecutionMixin,
+)
 from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import (
     ConsumerToolHandlersMixin,
 )
@@ -32,10 +36,16 @@ from src.api.entities_api.orchestration.mixins.json_utils_mixin import JsonUtils
 from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import (
     PlatformToolHandlersMixin,
 )
-from src.api.entities_api.orchestration.mixins.service_registry_mixin import ServiceRegistryMixin
-from src.api.entities_api.orchestration.mixins.shell_execution_mixin import ShellExecutionMixin
+from src.api.entities_api.orchestration.mixins.service_registry_mixin import (
+    ServiceRegistryMixin,
+)
+from src.api.entities_api.orchestration.mixins.shell_execution_mixin import (
+    ShellExecutionMixin,
+)
 from src.api.entities_api.orchestration.mixins.streaming_mixin import StreamingMixin
-from src.api.entities_api.orchestration.mixins.tool_routing_mixin import ToolRoutingMixin
+from src.api.entities_api.orchestration.mixins.tool_routing_mixin import (
+    ToolRoutingMixin,
+)
 
 LOG = LoggingUtility()
 
@@ -119,6 +129,7 @@ class OrchestratorCore(
         # -----------------------------------------------------
 
         try:
+
             if mapped := self._get_model_map(model):
                 model = mapped
 
@@ -200,7 +211,9 @@ class OrchestratorCore(
             # ------------------------------------------------------------------
             # Send a 'processing' signal to reset the client's timeout timer
             # while the server performs the blocking database save.
-            yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
+            yield json.dumps(
+                {"type": "status", "status": "processing", "run_id": run_id}
+            )
 
             # ------------------------------------------------------------------
             # 🔒 FIX 3: SAFE PERSISTENCE LOGIC
@@ -211,7 +224,9 @@ class OrchestratorCore(
             if has_fc:
                 try:
                     # Clean tags for JSON parsing
-                    raw_json = accumulated.replace("<fc>", "").replace("</fc>", "").strip()
+                    raw_json = (
+                        accumulated.replace("<fc>", "").replace("</fc>", "").strip()
+                    )
                     # Validate JSON structure
                     payload_dict = json.loads(raw_json)
 
@@ -223,14 +238,18 @@ class OrchestratorCore(
                     message_to_save = accumulated
 
             if message_to_save:
-                self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
+                self.finalize_conversation(
+                    message_to_save, thread_id, assistant_id, run_id
+                )
 
             if has_fc:
                 self.project_david_client.runs.update_run_status(
                     run_id, StatusEnum.pending_action.value
                 )
             else:
-                self.project_david_client.runs.update_run_status(run_id, StatusEnum.completed.value)
+                self.project_david_client.runs.update_run_status(
+                    run_id, StatusEnum.completed.value
+                )
 
         except Exception as exc:
             err = {"type": "error", "content": str(exc)}

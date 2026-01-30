@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import os
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
 from src.api.entities_api.orchestration.mixins.providers import _ProviderMixins
 
 load_dotenv()
@@ -42,6 +41,7 @@ class ServiceNowBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
     # ----------------------------------------------------------------------
     # 3. ORCHESTRATOR
     # ----------------------------------------------------------------------
+
     def process_conversation(
         self,
         thread_id,

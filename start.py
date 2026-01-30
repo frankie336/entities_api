@@ -103,6 +103,7 @@ class DockerManager:
         "SANDBOX_SERVER_URL": "http://localhost:9000",
         "DOWNLOAD_BASE_URL": "http://localhost:9000/v1/files/download",
         "HYPERBOLIC_BASE_URL": "https://api.hyperbolic.xyz/v1",
+        "TOGETHER_BASE_URL=https": "//api.together.xyz/v1",
         # --- Database Components Fallbacks (passwords are generated) ---
         "MYSQL_HOST": DEFAULT_DB_SERVICE_NAME,
         "MYSQL_PORT": DEFAULT_DB_CONTAINER_PORT,

@@ -1,5 +1,6 @@
 import os
 
+from projectdavid_common.constants.ai_model_map import T
 from together import Together
 
 # Ideally, set this in your environment variables: export TOGETHER_API_KEY="your_key"
@@ -12,7 +13,7 @@ client = Together(
 
 
 response_stream = client.chat.completions.create(
-    model="meta-llama/Llama-3.1-405B-Instruct",
+    model="openai/gpt-oss-120b",
     messages=[{"role": "user", "content": "Explain black holes in PhD terms"}],
     stream=True,  # 1. Enable Streaming
 )

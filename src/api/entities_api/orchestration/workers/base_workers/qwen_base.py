@@ -19,7 +19,9 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
     Handles QwQ-32B/Qwen2.5 specific stream parsing and history preservation.
     """
 
-    def __init__(self, *, assistant_id=None, thread_id=None, redis=None, **extra) -> None:
+    def __init__(
+        self, *, assistant_id=None, thread_id=None, redis=None, **extra
+    ) -> None:
         self._assistant_cache = extra.get("assistant_cache") or {}
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id

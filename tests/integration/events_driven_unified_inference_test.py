@@ -434,4 +434,4 @@ def main(models_to_run):
 
 
 if __name__ == "__main__":
-    main(models_to_run=HYPERBOLIC_MODELS)
+    main(models_to_run=TOGETHER_AI_MODELS)
