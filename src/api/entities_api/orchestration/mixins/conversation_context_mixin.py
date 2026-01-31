@@ -16,6 +16,8 @@ from projectdavid import Entity
 from entities_api.constants.tools import PLATFORM_TOOL_MAP
 from entities_api.orchestration.instructions.assembler import \
     assemble_instructions
+from src.api.entities_api.platform_tools.definitions.record_tool_decision import \
+    record_tool_decision
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 LOG = LoggingUtility()
@@ -107,49 +109,51 @@ class ConversationContextMixin:
     def _resolve_and_prioritize_platform_tools(
         tools: Optional[List[Dict[str, Any]]],
     ) -> List[Dict[str, Any]]:
-        """
-        Resolves placeholder tool definitions into concrete platform tools
-        and reorders them so Platform tools appear before User tools.
 
-        Robustness:
-        - Handles None or empty lists safely.
-        - If no placeholders are found, returns the original array structure.
-        - Preserves user tool order relative to other user tools.
-        """
+        # --- Mandatory Always-On Platform Tools ---
+        mandatory_platform_tools = [record_tool_decision]
 
-        # 1. Safety Check: Handle None or empty input
         if not tools:
-            return []
+            tools = []
 
         resolved_platform_tools = []
         resolved_user_tools = []
 
-        # 2. Iterate through the inbound tools array
         for tool in tools:
-            # Skip invalid entries if the list contains non-dicts
+
             if not isinstance(tool, dict):
                 continue
 
             tool_type = tool.get("type")
 
-            # Check if it is a placeholder for a platform tool:
-            # 1. It exists in our map
-            # 2. It isn't explicitly defined as a "function" (user tool)
-            # 3. It doesn't have a "function" key (already resolved/defined)
             if (
                 tool_type in PLATFORM_TOOL_MAP
                 and tool_type != "function"
                 and "function" not in tool
             ):
-                # It is a placeholder -> Resolve it and bucket as Platform
                 resolved_platform_tools.append(PLATFORM_TOOL_MAP[tool_type])
             else:
-                # It is a user tool, a custom tool, or a regular function
-                # -> Bucket as User (Preserves original object)
                 resolved_user_tools.append(tool)
 
-        # 3. MERGE: Platform Tools FIRST, User Tools LAST
-        return resolved_platform_tools + resolved_user_tools
+        # --- Merge All Platform Tools ---
+        platform_tools_all = mandatory_platform_tools + resolved_platform_tools
+
+        # --- Deduplicate by function name ---
+        seen_names = set()
+        deduped_platform_tools = []
+
+        for tool in platform_tools_all:
+            try:
+                name = tool["function"]["name"]
+            except KeyError:
+                continue
+
+            if name not in seen_names:
+                seen_names.add(name)
+                deduped_platform_tools.append(tool)
+
+        # --- Final Merge Order ---
+        return deduped_platform_tools + resolved_user_tools
 
     def _build_system_message(self, assistant_id: str) -> Dict:
         """
@@ -229,10 +233,8 @@ class ConversationContextMixin:
         # Specifically targeting function calling protocols for Open Source/Non-Native models
         platform_instructions = assemble_instructions(
             include_keys=[
-                # "TOOL_USAGE_PROTOCOL",
-                # "FUNCTION_CALL_FORMATTING",
-                # "FUNCTION_CALL_WRAPPING",
-                "DEVELOPER_INSTRUCTIONS"  # <- In reality is an empty dummy instruction
+                "TOOL_DECISION_PROTOCOL",
+                "DEVELOPER_INSTRUCTIONS",  # <- In reality is an empty dummy instruction
             ]
         )
 
