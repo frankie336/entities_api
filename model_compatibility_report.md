@@ -1,5 +1,5 @@
 # 🧪 Model Compatibility Report
-**Last Update:** 2026-01-31 00:04:32
+**Last Update:** 2026-01-31 00:06:49
 
 ## 🟢 Provider: hyperbolic
 | Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Last Run | Notes |
@@ -32,8 +32,8 @@
 ## 🟢 Provider: together-ai
 | Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Last Run | Notes |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- | :--- |
-| **Apriel-1.5-15b-Thinker** | together-ai | `together-ai/ServiceNow-AI/Apriel-1.5-15b-Thinker` | ❌ | — | — | 2026-01-30 21:25 | Error: Stream Status: Failed... |
-| **Apriel-1.6-15b-Thinker** | together-ai | `together-ai/ServiceNow-AI/Apriel-1.6-15b-Thinker` | ❌ | — | — | 2026-01-30 21:25 | Error: Stream Status: Failed... |
+| **Apriel-1.5-15b-Thinker** | together-ai | `together-ai/ServiceNow-AI/Apriel-1.5-15b-Thinker` | ❌ | — | — | 2026-01-31 00:06 | Error: Stream Status: Failed... |
+| **Apriel-1.6-15b-Thinker** | together-ai | `together-ai/ServiceNow-AI/Apriel-1.6-15b-Thinker` | ❌ | — | — | 2026-01-31 00:06 | Error: Stream Status: Failed... |
 | **cogito-v2-1-671b** | together-ai | `together-ai/deepcogito/cogito-v2-1-671b` | ❌ | — | — | 2026-01-30 21:26 | Error: Stream Status: Failed... |
 | **cogito-v2-preview-llama-109B-MoE** | together-ai | `together-ai/deepcogito/cogito-v2-preview-llama-109B-MoE` | ✅ | — | ❌ | 2026-01-30 21:26 | OK |
 | **cogito-v2-preview-llama-405B** | together-ai | `together-ai/deepcogito/cogito-v2-preview-llama-405B` | ✅ | — | ✅ | 2026-01-30 21:27 | OK |
@@ -85,9 +85,9 @@
 | **Qwen3-235B-A22B-Thinking-2507** | together-ai | `together-ai/Qwen/Qwen3-235B-A22B-Thinking-2507` | ✅ | — | ✅ | 2026-01-31 00:02 | OK |
 | **Qwen3-Coder-480B-A35B-Instruct-FP8** | together-ai | `together-ai/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8` | ✅ | — | ✅ | 2026-01-31 00:04 | OK |
 | **Qwen3-Next-80B-A3B-Instruct** | together-ai | `together-ai/Qwen/Qwen3-Next-80B-A3B-Instruct` | ✅ | — | ✅ | 2026-01-31 00:04 | OK |
-| **Qwen3-Next-80B-A3B-Thinking** | together-ai | `together-ai/Qwen/Qwen3-Next-80B-A3B-Thinking` | ❌ | — | — | 2026-01-30 21:25 | Error: Stream Status: Failed... |
-| **Qwen3-VL-32B-Instruct** | together-ai | `together-ai/Qwen/Qwen3-VL-32B-Instruct` | ❌ | — | — | 2026-01-30 21:25 | Error: Stream Status: Failed... |
-| **Qwen3-VL-8B-Instruct** | together-ai | `together-ai/Qwen/Qwen3-VL-8B-Instruct` | ❌ | — | — | 2026-01-30 21:25 | Error: Stream Status: Failed... |
+| **Qwen3-Next-80B-A3B-Thinking** | together-ai | `together-ai/Qwen/Qwen3-Next-80B-A3B-Thinking` | ❌ | — | — | 2026-01-31 00:06 | Error: Stream Status: Failed... |
+| **Qwen3-VL-32B-Instruct** | together-ai | `together-ai/Qwen/Qwen3-VL-32B-Instruct` | ✅ | — | ✅ | 2026-01-31 00:06 | OK |
+| **Qwen3-VL-8B-Instruct** | together-ai | `together-ai/Qwen/Qwen3-VL-8B-Instruct` | ❌ | — | — | 2026-01-31 00:06 | Error: Stream Status: Failed... |
 | **Refuel-Llm-V2** | together-ai | `together-ai/togethercomputer/Refuel-Llm-V2` | ❌ | — | — | 2026-01-30 21:37 | Error: Stream Status: Failed... |
 | **Refuel-Llm-V2-Small** | together-ai | `together-ai/togethercomputer/Refuel-Llm-V2-Small` | ❌ | — | — | 2026-01-30 21:37 | Error: Stream Status: Failed... |
 | **rnj-1-instruct** | together-ai | `together-ai/essentialai/rnj-1-instruct` | ✅ | — | ❌ | 2026-01-30 21:33 | OK |

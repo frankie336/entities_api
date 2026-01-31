@@ -41,21 +41,6 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         self.setup_services()
         LOG.debug("Hyperbolic-Ds1 provider ready (assistant=%s)", assistant_id)
 
-    @abstractmethod
-    def _get_client_instance(self, api_key: str):
-        pass
-
-    @property
-    def assistant_cache(self) -> dict:
-        return self._assistant_cache
-
-    @assistant_cache.setter
-    def assistant_cache(self, value: dict) -> None:
-        self._assistant_cache = value
-
-    def get_assistant_cache(self) -> dict:
-        return self._assistant_cache
-
     def stream(
         self,
         thread_id: str,
@@ -105,8 +90,12 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             yield json.dumps(start_chunk)
             self._shunt_to_redis_stream(redis, stream_key, start_chunk)
 
+            # -----------------------------------------------------------
+            # DYNAMIC CLIENT EXECUTION
+            # -----------------------------------------------------------
             client = self._get_client_instance(api_key=api_key)
-            raw_stream = client.chat.completions.create(**payload)
+            raw_stream = self._execute_stream_request(client, payload)
+            # -----------------------------------------------------------
 
             for chunk in HyperbolicDeltaNormalizer.iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
