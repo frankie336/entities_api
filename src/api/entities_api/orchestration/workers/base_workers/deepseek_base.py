@@ -41,6 +41,21 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         self.setup_services()
         LOG.debug("Hyperbolic-Ds1 provider ready (assistant=%s)", assistant_id)
 
+    @abstractmethod
+    def _get_client_instance(self, api_key: str):
+        pass
+
+    @property
+    def assistant_cache(self) -> dict:
+        return self._assistant_cache
+
+    @assistant_cache.setter
+    def assistant_cache(self, value: dict) -> None:
+        self._assistant_cache = value
+
+    def get_assistant_cache(self) -> dict:
+        return self._assistant_cache
+
     def stream(
         self,
         thread_id: str,

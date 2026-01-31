@@ -18,7 +18,7 @@ TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY", "YOUR_TOGETHER_API_KEY_HERE")
 # Together AI Endpoint
 URL = "https://api.together.xyz/v1/chat/completions"
 
-MODEL = "deepcogito/cogito-v2-preview-llama-405B"
+MODEL = "ServiceNow-AI/Apriel-1.6-15b-Thinker"
 
 TEST_PROMPT = "Please fetch me the flight times between LAX and JFK. Use the get_flight_times tool."
 

@@ -4,7 +4,7 @@ import json
 import os
 import re
 import uuid
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import Any, Generator, Optional
 
 from dotenv import load_dotenv
@@ -94,6 +94,21 @@ class HermesDefaultBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
         self.setup_services()
         LOG.debug("DeepCogito worker initialized (assistant=%s)", assistant_id)
+
+    @abstractmethod
+    def _get_client_instance(self, api_key: str):
+        pass
+
+    @property
+    def assistant_cache(self) -> dict:
+        return self._assistant_cache
+
+    @assistant_cache.setter
+    def assistant_cache(self, value: dict) -> None:
+        self._assistant_cache = value
+
+    def get_assistant_cache(self) -> dict:
+        return self._assistant_cache
 
     def stream(
         self,

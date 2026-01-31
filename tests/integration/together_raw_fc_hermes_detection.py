@@ -13,8 +13,8 @@ import requests
 # 1. Load .env (for security, environment variables are preferred for keys)
 dotenv.load_dotenv()
 
-# 2. Load config.json (for ease of changing models/prompts)
-CONFIG_FILE = "config.json"
+# 2. Load function_call_test_config.json (for ease of changing models/prompts)
+CONFIG_FILE = "function_call_test_config.json"
 try:
     with open(CONFIG_FILE, "r") as f:
         config = json.load(f)
@@ -30,7 +30,9 @@ except json.JSONDecodeError:
 TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY") or config.get("together_api_key")
 
 if not TOGETHER_API_KEY or TOGETHER_API_KEY == "YOUR_TOGETHER_API_KEY_HERE":
-    print("❌ [ERROR] Missing TOGETHER_API_KEY. Set it in .env or config.json")
+    print(
+        "❌ [ERROR] Missing TOGETHER_API_KEY. Set it in .env or function_call_test_config.json"
+    )
     sys.exit(1)
 
 URL = config.get("url", "https://api.together.xyz/v1/chat/completions")

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import json
 import os
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Generator, Optional
 
 from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
+from entities_api.models.models import StatusEnum
+from entities_api.orchestration.streaming.hyperbolic import \
+    HyperbolicDeltaNormalizer
 from src.api.entities_api.dependencies import get_redis
 from src.api.entities_api.orchestration.engine.orchestrator_core import \
     OrchestratorCore
@@ -42,6 +46,177 @@ class ServiceNowBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
     # ----------------------------------------------------------------------
     # 3. ORCHESTRATOR
     # ----------------------------------------------------------------------
+
+    @abstractmethod
+    def _get_client_instance(self, api_key: str):
+        pass
+
+    @property
+    def assistant_cache(self) -> dict:
+        return self._assistant_cache
+
+    @assistant_cache.setter
+    def assistant_cache(self, value: dict) -> None:
+        self._assistant_cache = value
+
+    def get_assistant_cache(self) -> dict:
+        return self._assistant_cache
+
+    def stream(
+        self,
+        thread_id: str,
+        message_id: Optional[str],
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        *,
+        stream_reasoning: bool = False,
+        api_key: Optional[str] = None,
+        **kwargs,
+    ) -> Generator[str, None, None]:
+        redis = get_redis()
+        stream_key = f"stream:{run_id}"
+        stop_event = self.start_cancellation_monitor(run_id)
+
+        # Use instance key if not provided
+        api_key = api_key or self.api_key
+
+        # --- FIX 1: Early Variable Initialization (Safety) ---
+        assistant_reply = ""
+        accumulated = ""
+        reasoning_reply = ""
+        current_block = None
+        # -----------------------------------------------------
+
+        try:
+
+            if mapped := self._get_model_map(model):
+                model = mapped
+
+            # 1. Context Window Setup
+            ctx = self._set_up_context_window(assistant_id, thread_id, trunk=True)
+
+            payload = {
+                "model": model,
+                "messages": ctx,
+                "max_tokens": 10000,
+                "temperature": kwargs.get("temperature", 0.6),
+                "stream": True,
+            }
+
+            start_chunk = {"type": "status", "status": "started", "run_id": run_id}
+            yield json.dumps(start_chunk)
+            self._shunt_to_redis_stream(redis, stream_key, start_chunk)
+
+            # -----------------------------------------------------------
+            # DYNAMIC CLIENT EXECUTION
+            # -----------------------------------------------------------
+            client = self._get_client_instance(api_key=api_key)
+            raw_stream = self._execute_stream_request(client, payload)
+            # -----------------------------------------------------------
+
+            # 2. Process deltas via Shared Normalizer
+            for chunk in HyperbolicDeltaNormalizer.iter_deltas(raw_stream, run_id):
+                if stop_event.is_set():
+                    break
+
+                ctype, ccontent = chunk["type"], chunk["content"]
+
+                # --- HISTORY RECONSTRUCTION (Tag Injection) ---
+                if ctype == "content":
+                    if current_block == "fc":
+                        accumulated += "</fc>"
+                    elif current_block == "think":
+                        accumulated += "</think>"
+                    current_block = None
+                    assistant_reply += ccontent
+
+                elif ctype == "call_arguments":
+                    if current_block != "fc":
+                        if current_block == "think":
+                            accumulated += "</think>"
+                        accumulated += "<fc>"
+                        current_block = "fc"
+
+                elif ctype == "reasoning":
+                    if current_block != "think":
+                        if current_block == "fc":
+                            accumulated += "</fc>"
+                        accumulated += "<think>"
+                        current_block = "think"
+                    reasoning_reply += ccontent
+
+                # Accumulate raw stream for persistence
+                accumulated += ccontent
+
+                # --- REFACTOR: Prevent yielding ANY tool artifacts ---
+                # We block both 'tool_name' and 'call_arguments' to prevent
+                # the client SDK from auto-creating a ghost event with no ID.
+                if ctype not in ("tool_name", "call_arguments"):
+                    yield json.dumps(chunk)
+                # -------------------------------------------------
+
+                self._shunt_to_redis_stream(redis, stream_key, chunk)
+
+            # 3. Final Close-out
+            if current_block == "fc":
+                accumulated += "</fc>"
+            elif current_block == "think":
+                accumulated += "</think>"
+
+            yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
+
+            # ------------------------------------------------------------------
+            # 💉 FIX 2: TIMEOUT PREVENTION (Keep-Alive Heartbeat)
+            # ------------------------------------------------------------------
+            # Send a 'processing' signal to reset the client's timeout timer
+            # while the server performs the blocking database save.
+            yield json.dumps(
+                {"type": "status", "status": "processing", "run_id": run_id}
+            )
+
+            # ------------------------------------------------------------------
+            # 🔒 FIX 3: SAFE PERSISTENCE LOGIC
+            # ------------------------------------------------------------------
+            has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
+            message_to_save = assistant_reply
+
+            if has_fc:
+                try:
+                    # Clean tags for JSON parsing
+                    raw_json = (
+                        accumulated.replace("<fc>", "").replace("</fc>", "").strip()
+                    )
+                    # Validate JSON structure
+                    payload_dict = json.loads(raw_json)
+
+                    # Store as clean JSON
+                    message_to_save = json.dumps(payload_dict)
+                except Exception as e:
+                    LOG.error(f"Error structuring tool calls: {e}")
+                    # Fallback to accumulated string so no data is lost
+                    message_to_save = accumulated
+
+            if message_to_save:
+                self.finalize_conversation(
+                    message_to_save, thread_id, assistant_id, run_id
+                )
+
+            if has_fc:
+                self.project_david_client.runs.update_run_status(
+                    run_id, StatusEnum.pending_action.value
+                )
+            else:
+                self.project_david_client.runs.update_run_status(
+                    run_id, StatusEnum.completed.value
+                )
+
+        except Exception as exc:
+            err = {"type": "error", "content": str(exc)}
+            yield json.dumps(err)
+            self._shunt_to_redis_stream(redis, stream_key, err)
+        finally:
+            stop_event.set()
 
     def process_conversation(
         self,

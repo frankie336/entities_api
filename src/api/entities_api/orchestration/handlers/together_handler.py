@@ -40,8 +40,8 @@ class TogetherAIHandler:
         "deepseek-ai/": TogetherDs1,
         # --- Llama / Mistral / Google Family (Standard OpenAI-compatible API) ---
         "meta-llama/": TogetherLlamaWorker,
-        "mistralai/": TogetherLlamaWorker,
-        "google/": TogetherLlamaWorker,
+        # "mistralai/": TogetherLlamaWorker,
+        # "google/": TogetherLlamaWorker,
         # --- Qwen Family (All versions: 2, 2.5, 3, Coder, VL) ---
         "Qwen/": TogetherQwenWorker,
         # --- Specialized Providers ---
