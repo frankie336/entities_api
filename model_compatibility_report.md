@@ -1,5 +1,5 @@
 # 🧪 Model Compatibility Report
-**Last Update:** 2026-01-30 23:58:32
+**Last Update:** 2026-01-31 00:04:32
 
 ## 🟢 Provider: hyperbolic
 | Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Last Run | Notes |
@@ -78,13 +78,13 @@
 | **Qwen2.5-14B-Instruct** | together-ai | `together-ai/Qwen/Qwen2.5-14B-Instruct` | ❌ | — | — | 2026-01-30 23:57 | OK |
 | **Qwen2.5-72B-Instruct** | together-ai | `together-ai/Qwen/Qwen2.5-72B-Instruct` | ❌ | — | — | 2026-01-30 23:57 | OK |
 | **Qwen2.5-72B-Instruct-Turbo** | together-ai | `together-ai/Qwen/Qwen2.5-72B-Instruct-Turbo` | ✅ | — | ✅ | 2026-01-30 23:58 | OK |
-| **Qwen2.5-7B-Instruct-Turbo** | together-ai | `together-ai/Qwen/Qwen2.5-7B-Instruct-Turbo` | ❌ | — | — | 2026-01-30 21:24 | Error: Stream Status: Failed... |
-| **Qwen2.5-VL-72B-Instruct** | together-ai | `together-ai/Qwen/Qwen2.5-VL-72B-Instruct` | ❌ | — | — | 2026-01-30 21:24 | Error: Stream Status: Failed... |
-| **Qwen3-235B-A22B-fp8-tput** | together-ai | `together-ai/Qwen/Qwen3-235B-A22B-fp8-tput` | ❌ | — | — | 2026-01-30 21:24 | Error: Stream Status: Failed... |
-| **Qwen3-235B-A22B-Instruct-2507-tput** | together-ai | `together-ai/Qwen/Qwen3-235B-A22B-Instruct-2507-tput` | ❌ | — | — | 2026-01-30 21:24 | Error: Stream Status: Failed... |
-| **Qwen3-235B-A22B-Thinking-2507** | together-ai | `together-ai/Qwen/Qwen3-235B-A22B-Thinking-2507` | ❌ | — | — | 2026-01-30 21:24 | Error: Stream Status: Failed... |
-| **Qwen3-Coder-480B-A35B-Instruct-FP8** | together-ai | `together-ai/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8` | ❌ | — | — | 2026-01-30 21:24 | Error: Stream Status: Failed... |
-| **Qwen3-Next-80B-A3B-Instruct** | together-ai | `together-ai/Qwen/Qwen3-Next-80B-A3B-Instruct` | ❌ | — | — | 2026-01-30 21:24 | Error: Stream Status: Failed... |
+| **Qwen2.5-7B-Instruct-Turbo** | together-ai | `together-ai/Qwen/Qwen2.5-7B-Instruct-Turbo` | ❌ | — | — | 2026-01-31 00:00 | Error: Stream Status: Failed... |
+| **Qwen2.5-VL-72B-Instruct** | together-ai | `together-ai/Qwen/Qwen2.5-VL-72B-Instruct` | ❌ | — | — | 2026-01-31 00:00 | Error: Stream Status: Failed... |
+| **Qwen3-235B-A22B-fp8-tput** | together-ai | `together-ai/Qwen/Qwen3-235B-A22B-fp8-tput` | ✅ | 🧠 | ✅ | 2026-01-31 00:03 | OK |
+| **Qwen3-235B-A22B-Instruct-2507-tput** | together-ai | `together-ai/Qwen/Qwen3-235B-A22B-Instruct-2507-tput` | ✅ | — | ✅ | 2026-01-31 00:01 | OK |
+| **Qwen3-235B-A22B-Thinking-2507** | together-ai | `together-ai/Qwen/Qwen3-235B-A22B-Thinking-2507` | ✅ | — | ✅ | 2026-01-31 00:02 | OK |
+| **Qwen3-Coder-480B-A35B-Instruct-FP8** | together-ai | `together-ai/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8` | ✅ | — | ✅ | 2026-01-31 00:04 | OK |
+| **Qwen3-Next-80B-A3B-Instruct** | together-ai | `together-ai/Qwen/Qwen3-Next-80B-A3B-Instruct` | ✅ | — | ✅ | 2026-01-31 00:04 | OK |
 | **Qwen3-Next-80B-A3B-Thinking** | together-ai | `together-ai/Qwen/Qwen3-Next-80B-A3B-Thinking` | ❌ | — | — | 2026-01-30 21:25 | Error: Stream Status: Failed... |
 | **Qwen3-VL-32B-Instruct** | together-ai | `together-ai/Qwen/Qwen3-VL-32B-Instruct` | ❌ | — | — | 2026-01-30 21:25 | Error: Stream Status: Failed... |
 | **Qwen3-VL-8B-Instruct** | together-ai | `together-ai/Qwen/Qwen3-VL-8B-Instruct` | ❌ | — | — | 2026-01-30 21:25 | Error: Stream Status: Failed... |
