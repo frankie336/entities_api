@@ -18,8 +18,6 @@ TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY", "YOUR_TOGETHER_API_KEY_HERE")
 # Together AI Endpoint
 URL = "https://api.together.xyz/v1/chat/completions"
 
-# FIX: The model "deepcogito/cogito-v2-1-671b" does not exist.
-# The 671B model is DeepSeek-V3.
 MODEL = "deepcogito/cogito-v2-preview-llama-405B"
 
 TEST_PROMPT = "Please fetch me the flight times between LAX and JFK. Use the get_flight_times tool."

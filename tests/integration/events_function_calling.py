@@ -41,7 +41,7 @@ if hasattr(client, "synchronous_inference_stream"):
 
 USER_ID = os.getenv("ENTITIES_USER_ID")
 ASSISTANT_ID = "asst_13HyDgBnZxVwh5XexYu74F"
-MODEL_ID = "together-ai/deepcogito/cogito-v2-preview-llama-405B"
+MODEL_ID = "together-ai/moonshotai/Kimi-K2-Thinking"
 PROVIDER_KW = "Hyperbolic"
 TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
 

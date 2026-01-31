@@ -4,6 +4,7 @@ import json
 import os
 import re
 import uuid
+from abc import ABC
 from typing import Any, Generator, Optional
 
 from dotenv import load_dotenv
@@ -12,27 +13,30 @@ from projectdavid_common.validation import StatusEnum
 
 from entities_api.clients.async_to_sync import async_to_sync_stream
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
-
+from src.api.entities_api.orchestration.engine.orchestrator_core import \
+    OrchestratorCore
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.assistant_cache_mixin import AssistantCacheMixin
-from src.api.entities_api.orchestration.mixins.code_execution_mixin import CodeExecutionMixin
-from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import (
-    ConsumerToolHandlersMixin,
-)
-from src.api.entities_api.orchestration.mixins.conversation_context_mixin import (
-    ConversationContextMixin,
-)
-from src.api.entities_api.orchestration.mixins.file_search_mixin import FileSearchMixin
-from src.api.entities_api.orchestration.mixins.json_utils_mixin import JsonUtilsMixin
-from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import (
-    PlatformToolHandlersMixin,
-)
-from src.api.entities_api.orchestration.mixins.shell_execution_mixin import ShellExecutionMixin
-from src.api.entities_api.orchestration.mixins.tool_routing_mixin import ToolRoutingMixin
-
+from src.api.entities_api.orchestration.mixins.assistant_cache_mixin import \
+    AssistantCacheMixin
+from src.api.entities_api.orchestration.mixins.code_execution_mixin import \
+    CodeExecutionMixin
+from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import \
+    ConsumerToolHandlersMixin
+from src.api.entities_api.orchestration.mixins.conversation_context_mixin import \
+    ConversationContextMixin
+from src.api.entities_api.orchestration.mixins.file_search_mixin import \
+    FileSearchMixin
+from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
+    JsonUtilsMixin
+from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import \
+    PlatformToolHandlersMixin
+from src.api.entities_api.orchestration.mixins.shell_execution_mixin import \
+    ShellExecutionMixin
+from src.api.entities_api.orchestration.mixins.tool_routing_mixin import \
+    ToolRoutingMixin
 # --- STREAMING & NORMALIZATION ---
-from src.api.entities_api.orchestration.streaming.hyperbolic import HyperbolicDeltaNormalizer
+from src.api.entities_api.orchestration.streaming.hyperbolic import \
+    HyperbolicDeltaNormalizer
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -52,7 +56,7 @@ class _ProviderMixins(
     """Mixins bundle for DeepCogito Worker."""
 
 
-class DeepCogitoBaseWorker(_ProviderMixins, OrchestratorCore):
+class HermesDefaultBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
     """
     Dedicated worker for 'deepcogito/cogito-v2-preview-llama-405B'.
     """
@@ -68,7 +72,9 @@ class DeepCogitoBaseWorker(_ProviderMixins, OrchestratorCore):
         assistant_cache: dict | None = None,
         **extra,
     ) -> None:
-        self._assistant_cache: dict = assistant_cache or extra.get("assistant_cache") or {}
+        self._assistant_cache: dict = (
+            assistant_cache or extra.get("assistant_cache") or {}
+        )
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
@@ -76,7 +82,9 @@ class DeepCogitoBaseWorker(_ProviderMixins, OrchestratorCore):
         self.api_key = api_key
 
         # Model Defaults
-        self.model_name = extra.get("model_name", "deepcogito/cogito-v2-preview-llama-405B")
+        self.model_name = extra.get(
+            "model_name", "deepcogito/cogito-v2-preview-llama-405B"
+        )
 
         # Define Max Context Window (Required by ConversationTruncator)
         self.max_context_window = extra.get("max_context_window", 128000)
@@ -86,10 +94,6 @@ class DeepCogitoBaseWorker(_ProviderMixins, OrchestratorCore):
 
         self.setup_services()
         LOG.debug("DeepCogito worker initialized (assistant=%s)", assistant_id)
-
-    def _get_client_instance(self, api_key: str):
-        """Returns the Together AI client instance."""
-        return self.get_together_client(api_key=api_key)
 
     def stream(
         self,
@@ -133,7 +137,9 @@ class DeepCogitoBaseWorker(_ProviderMixins, OrchestratorCore):
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
             if not api_key:
-                yield json.dumps({"type": "error", "content": "Missing Hyperbolic API key."})
+                yield json.dumps(
+                    {"type": "error", "content": "Missing Hyperbolic API key."}
+                )
                 return
 
             client = self._get_client_instance(api_key=api_key)
@@ -264,9 +270,13 @@ class DeepCogitoBaseWorker(_ProviderMixins, OrchestratorCore):
                                 f"<fc>{original_content}</fc>",
                                 f"<fc>{valid_payload}</fc>",
                             )
-                            LOG.debug(f"DEBUG: Sanitized tool call structure for: {func_name}")
+                            LOG.debug(
+                                f"DEBUG: Sanitized tool call structure for: {func_name}"
+                            )
                         except Exception as e:
-                            LOG.warning(f"DEBUG: Failed to sanitize potential tool call: {e}")
+                            LOG.warning(
+                                f"DEBUG: Failed to sanitize potential tool call: {e}"
+                            )
             except Exception as e:
                 LOG.error(f"DEBUG: Error during tool call sanitization: {e}")
 
@@ -275,9 +285,13 @@ class DeepCogitoBaseWorker(_ProviderMixins, OrchestratorCore):
 
         # Double check state via the Mixin getter
         mixin_state = (
-            self.get_function_call_state() if hasattr(self, "get_function_call_state") else has_fc
+            self.get_function_call_state()
+            if hasattr(self, "get_function_call_state")
+            else has_fc
         )
-        LOG.debug(f"DEBUG: Detection Summary -> parse_result: {has_fc}, mixin_state: {mixin_state}")
+        LOG.debug(
+            f"DEBUG: Detection Summary -> parse_result: {has_fc}, mixin_state: {mixin_state}"
+        )
 
         message_to_save = assistant_reply
 
@@ -328,7 +342,9 @@ class DeepCogitoBaseWorker(_ProviderMixins, OrchestratorCore):
         LOG.info(f"DEBUG: Final Run Status determined as: {final_status}")
         self.project_david_client.runs.update_run_status(run_id, final_status)
 
-    def _persist_conversation(self, accumulated, assistant_reply, thread_id, assistant_id, run_id):
+    def _persist_conversation(
+        self, accumulated, assistant_reply, thread_id, assistant_id, run_id
+    ):
         """Handles parsing of the accumulated string and saving to DB."""
         has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
         message_to_save = assistant_reply
@@ -369,7 +385,9 @@ class DeepCogitoBaseWorker(_ProviderMixins, OrchestratorCore):
             self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
 
         # Update Run Status
-        final_status = StatusEnum.pending_action.value if has_fc else StatusEnum.completed.value
+        final_status = (
+            StatusEnum.pending_action.value if has_fc else StatusEnum.completed.value
+        )
         self.project_david_client.runs.update_run_status(run_id, final_status)
 
     def process_conversation(
