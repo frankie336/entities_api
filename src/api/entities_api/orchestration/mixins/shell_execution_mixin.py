@@ -20,6 +20,8 @@ class ShellExecutionMixin:
         assistant_id: str,
         arguments_dict: Dict[str, Any],
         tool_call_id: Optional[str] = None,
+        # [NEW] Accept decision payload
+        decision: Optional[Dict] = None,
     ) -> Generator[str, None, None]:
         LOG.info("ShellExecutionMixin: started for run_id=%s", run_id)
         yield json.dumps(
@@ -29,12 +31,16 @@ class ShellExecutionMixin:
             }
         )
         action_tool_name = "computer"
+
         action = self.project_david_client.actions.create_action(
             tool_name=action_tool_name,
             run_id=run_id,
             tool_call_id=tool_call_id,
             function_args=arguments_dict,
+            # [NEW] Pass to API/Service
+            decision_payload=decision,
         )
+
         commands: List[str] = arguments_dict.get("commands", [])
         if not commands:
             no_cmd_msg = "[No shell commands provided to execute.]"

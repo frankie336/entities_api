@@ -267,28 +267,34 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             **kwargs,
         )
 
-        # [NEW] Decision Logic Injection Point
-        # If we have a valid decision payload, we can act on it here before tools
-        if self._decision_payload:
-            # Example: Log or set a specific flag based on decision
-            # You mentioned "dealing with DB later", so for now, the data is available
-            # in self._decision_payload for any logic you want to insert here.
-            pass
-
         # Phase 2: Check State & Execute Tool Logic
-        if self.get_function_call_state() and self._pending_tool_payload:
-            yield from self._process_tool_calls(
+        # FIX: We only check if a function call state exists.
+        # We removed 'and self._pending_tool_payload' so standard tools
+        # work even if there is no special decision payload.
+        if self.get_function_call_state():
+
+            # Safely retrieve decision payload (it might be None)
+            current_decision = getattr(self, "_decision_payload", None)
+
+            # [NEW] We pass the decision payload if it exists, otherwise None.
+            # The Router (process_tool_calls) is now equipped to handle decision=None.
+            yield from self.process_tool_calls(
                 thread_id=thread_id,
                 run_id=run_id,
                 assistant_id=assistant_id,
-                content=self._pending_tool_payload,
+                decision=current_decision,
                 api_key=api_key,
             )
 
             # Cleanup
             self.set_tool_response_state(False)
             self.set_function_call_state(None)
-            self._pending_tool_payload = None
+
+            # Clear specific payloads if they exist
+            if hasattr(self, "_pending_tool_payload"):
+                self._pending_tool_payload = None
+            if hasattr(self, "_decision_payload"):
+                self._decision_payload = None
 
             # Phase 3: Follow-up Stream
             yield from self.stream(

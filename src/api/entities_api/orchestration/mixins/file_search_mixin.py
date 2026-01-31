@@ -37,6 +37,8 @@ class FileSearchMixin:
         assistant_id: str,
         arguments_dict: Dict[str, Any],
         tool_call_id: Optional[str] = None,
+        # [NEW] Accept decision payload
+        decision: Optional[Dict] = None,
     ) -> None:
         ts_start = time.perf_counter()
 
@@ -45,7 +47,10 @@ class FileSearchMixin:
             run_id=run_id,
             tool_call_id=tool_call_id,
             function_args=arguments_dict,
+            # [NEW] Pass to API/Service
+            decision_payload=decision,
         )
+
         LOG.debug(
             "[%s] Created action id=%s args=%s",
             run_id,

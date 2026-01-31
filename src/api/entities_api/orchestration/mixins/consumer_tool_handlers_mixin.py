@@ -133,6 +133,8 @@ class ConsumerToolHandlersMixin:
         api_key: Optional[str] = None,
         poll_interval: float = 1.0,
         max_wait: float = 60.0,
+        # [NEW]
+        decision: Optional[Dict] = None,
     ) -> Generator[str, None, None]:
         """
         Handles consumer-side tool calls.
@@ -141,12 +143,14 @@ class ConsumerToolHandlersMixin:
         3. Polls DB until client submits output (Blocking).
         """
 
-        # 1. Create the Action Record
+        # 1. Create the Action Record with Decision Data
         action = self.project_david_client.actions.create_action(
             tool_name=content["name"],
             run_id=run_id,
             tool_call_id=tool_call_id,
             function_args=content["arguments"],
+            # [NEW] Pass to API/Service
+            decision_payload=decision,
         )
 
         # 2. Construct & Yield the Manifest

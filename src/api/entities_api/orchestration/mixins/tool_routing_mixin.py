@@ -137,6 +137,8 @@ class ToolRoutingMixin:
         *,
         model: str | None = None,
         api_key: str | None = None,
+        # [NEW] Accept decision payload
+        decision: Optional[Dict] = None,
     ):
         fc = self.get_function_call_state()
         if not fc:
@@ -154,6 +156,8 @@ class ToolRoutingMixin:
         # --------------------------------------------------
         # Handles code code_interpreter calls, and returns
         # --------------------------------------------------
+        # Note: You will need to update handle_code_interpreter_action signature
+        # if you want decision data there too. For now, we focus on general platform/consumer tools.
         if name == "code_interpreter":
             yield from self.handle_code_interpreter_action(
                 thread_id=thread_id,
@@ -173,6 +177,7 @@ class ToolRoutingMixin:
                 arguments_dict=args,
             )
             return
+
         if name == "file_search":
             self.handle_file_search(
                 thread_id=thread_id,
@@ -187,12 +192,21 @@ class ToolRoutingMixin:
             if name in SPECIAL_CASE_TOOL_HANDLING:
                 # FIX: Add yield from
                 yield from self._process_tool_calls(
-                    thread_id, assistant_id, fc, run_id, api_key=api_key
+                    thread_id,
+                    assistant_id,
+                    fc,
+                    run_id,
+                    api_key=api_key,
+                    decision=decision,  # [NEW] Pass it down
                 )
             else:
                 # If this is also a generator, add yield from
                 yield from self._process_platform_tool_calls(
-                    thread_id, assistant_id, fc, run_id
+                    thread_id,
+                    assistant_id,
+                    fc,
+                    run_id,
+                    decision=decision,  # [NEW] Pass it down
                 )
         else:
             # FIX: Add yield from
@@ -203,4 +217,5 @@ class ToolRoutingMixin:
                 run_id,
                 tool_call_id=tool_call_id,
                 api_key=api_key,
+                decision=decision,  # [NEW] Pass it down
             )

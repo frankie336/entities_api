@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import pprint
-from typing import Any, Generator, List, Optional
+from typing import Any, Dict, Generator, List, Optional
 
 from src.api.entities_api.services.logging_service import LoggingUtility
 
@@ -24,6 +24,8 @@ class CodeExecutionMixin:
         assistant_id: str,
         arguments_dict: dict,
         tool_call_id: Optional[str] = None,
+        # [NEW] Accept decision payload
+        decision: Optional[Dict] = None,
     ) -> Generator[str, None, None]:
         """
         Streams sandbox output **live** while accumulating a plain-text
@@ -37,12 +39,14 @@ class CodeExecutionMixin:
             }
         )
 
-        # 2. Persist Action
+        # 1. Create the Action Record with Decision Data
         action = self.project_david_client.actions.create_action(
             tool_name="code_interpreter",
             run_id=run_id,
             tool_call_id=tool_call_id,
             function_args=arguments_dict,
+            # [NEW] Pass to API/Service
+            decision_payload=decision,
         )
 
         code: str = arguments_dict.get("code", "")

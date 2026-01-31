@@ -156,6 +156,8 @@ class PlatformToolHandlersMixin:
         tool_call_id: Optional[str] = None,
         content: Dict[str, Any],
         run_id: str,
+        # [NEW]
+        decision: Optional[Dict] = None,
     ):
         """
         • creates an *Action* row
@@ -163,17 +165,24 @@ class PlatformToolHandlersMixin:
         • calls the real platform service via `PlatformToolService`
         • routes the result to one of _handle_* helpers above
         """
+
         self.set_assistant_id(assistant_id)
         self.set_thread_id(thread_id)
         tool_name = content["name"]
         arguments = content["arguments"]
+
+        # 1. Create Action with Telemetry
         action = self.project_david_client.actions.create_action(
-            tool_name="code_interpreter",
+            tool_name=tool_name,  # Fixed: was hardcoded "code_interpreter" in your snippet
             run_id=run_id,
             tool_call_id=tool_call_id,
             function_args=arguments,
+            # [NEW] Pass to API/Service
+            decision_payload=decision,
         )
+
         LOG.debug("Action %s created for %s", action.id, tool_name)
+
         self.run_service.update_run_status(
             run_id, ValidationInterface.StatusEnum.pending_action
         )

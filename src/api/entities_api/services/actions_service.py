@@ -20,6 +20,38 @@ class ActionService:
     def __init__(self):
         logging_utility.info("ActionService initialized.")
 
+    @staticmethod
+    def _normalize_confidence(payload: Optional[Dict[str, Any]]) -> Optional[float]:
+        """
+        Extracts and sanitizes confidence score from decision payload.
+        Handles: 0.95, 95, "0.95", "95%", None.
+        Returns a float between 0.0 and 1.0.
+        """
+        if not payload:
+            return None
+
+        raw = payload.get("confidence")
+        if raw is None:
+            return None
+
+        try:
+            # Convert string to float if necessary (stripping % if present)
+            if isinstance(raw, str):
+                raw = float(raw.replace("%", "").strip())
+
+            val = float(raw)
+
+            # Heuristic: If > 1.0, assume it's a percentage (e.g. 95 -> 0.95)
+            if val > 1.0:
+                val = val / 100.0
+
+            # Clamp to 0.0 - 1.0 range just to be safe
+            return max(0.0, min(1.0, val))
+
+        except (ValueError, TypeError):
+            # Log this mismatch if needed, but return None or 0.0 to prevent crashing
+            return 0.0
+
     def update_action_stream_state(self, action_id: str, state: dict):
         with SessionLocal() as db:
             action = db.query(Action).get(action_id)
@@ -75,13 +107,17 @@ class ActionService:
     ) -> validator.ActionRead:
         """
         Creates a new action.
-        COMPATIBILITY FIX: Now persists tool_name to the database.
+        COMPATIBILITY FIX: Now persists tool_name, decision_payload, and confidence_score.
         """
         logging_utility.info(
             "Creating action for tool: %s, run_id: %s",
             action_data.tool_name,
             action_data.run_id,
         )
+
+        # [NEW] Calculate the indexed confidence score before saving
+        calculated_confidence = normalize_confidence(action_data.decision_payload)
+
         with SessionLocal() as db:
             try:
                 new_action_id = UtilsInterface.IdentifierService.generate_action_id()
@@ -94,8 +130,12 @@ class ActionService:
                     function_args=action_data.function_args,
                     status=action_data.status or "pending",
                     tool_call_id=action_data.tool_call_id,
-                    tool_name=action_data.tool_name,  # SAVED TO DB
+                    tool_name=action_data.tool_name,
                     turn_index=action_data.turn_index or 0,
+                    # --- [NEW] TELEMETRY FIELDS ---
+                    decision_payload=action_data.decision_payload,  # The full JSON (Why)
+                    confidence_score=calculated_confidence,  # The Index (How sure)
+                    # ------------------------------
                 )
 
                 db.add(new_action)
@@ -106,11 +146,13 @@ class ActionService:
                     id=new_action.id,
                     run_id=new_action.run_id,
                     tool_call_id=new_action.tool_call_id,
-                    tool_name=new_action.tool_name,  # RETURNED FROM DB
+                    tool_name=new_action.tool_name,
                     status=new_action.status,
                     result=new_action.result,
                     triggered_at=datetime_to_iso(new_action.triggered_at),
                     turn_index=new_action.turn_index,
+                    # Note: We usually don't return the full decision payload in the lightweight
+                    # ActionRead unless explicitly requested, but it is now safely in the DB.
                 )
             except IntegrityError as e:
                 db.rollback()

@@ -8,7 +8,8 @@ from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy import JSON, BigInteger, Boolean, Column, DateTime
 from sqlalchemy import Enum as SAEnum
-from sqlalchemy import Float, ForeignKey, Index, Integer, String, Table, Text, UniqueConstraint
+from sqlalchemy import (Float, ForeignKey, Index, Integer, String, Table, Text,
+                        UniqueConstraint)
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import declarative_base, joinedload, relationship
 
@@ -35,7 +36,9 @@ user_assistants = Table(
 vector_store_assistants = Table(
     "vector_store_assistants",
     Base.metadata,
-    Column("vector_store_id", String(64), ForeignKey("vector_stores.id"), primary_key=True),
+    Column(
+        "vector_store_id", String(64), ForeignKey("vector_stores.id"), primary_key=True
+    ),
     Column("assistant_id", String(64), ForeignKey("assistants.id"), primary_key=True),
 )
 
@@ -43,7 +46,9 @@ thread_vector_stores = Table(
     "thread_vector_stores",
     Base.metadata,
     Column("thread_id", String(64), ForeignKey("threads.id"), primary_key=True),
-    Column("vector_store_id", String(64), ForeignKey("vector_stores.id"), primary_key=True),
+    Column(
+        "vector_store_id", String(64), ForeignKey("vector_stores.id"), primary_key=True
+    ),
 )
 
 
@@ -112,7 +117,9 @@ class User(Base):
         comment="Internal unique identifier for the user (e.g., user_...)",
     )
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
     is_admin = Column(
         Boolean,
         default=False,
@@ -137,7 +144,9 @@ class User(Base):
     full_name = Column(String(255), nullable=True, comment="User's full display name")
     given_name = Column(String(128), nullable=True, comment="First name")
     family_name = Column(String(128), nullable=True, comment="Last name")
-    picture_url = Column(Text, nullable=True, comment="URL to the user's profile picture")
+    picture_url = Column(
+        Text, nullable=True, comment="URL to the user's profile picture"
+    )
 
     oauth_provider = Column(
         String(50),
@@ -167,9 +176,13 @@ class User(Base):
         "Sandbox", back_populates="user", cascade="all, delete-orphan", lazy="select"
     )
     vector_stores = relationship("VectorStore", back_populates="user", lazy="select")
-    files = relationship("File", back_populates="user", cascade="all, delete-orphan", lazy="select")
+    files = relationship(
+        "File", back_populates="user", cascade="all, delete-orphan", lazy="select"
+    )
     __table_args__ = (
-        UniqueConstraint("oauth_provider", "provider_user_id", name="uq_user_oauth_provider_id"),
+        UniqueConstraint(
+            "oauth_provider", "provider_user_id", name="uq_user_oauth_provider_id"
+        ),
         Index("idx_user_email", "email"),
         Index("idx_user_is_admin", "is_admin"),
     )
@@ -183,7 +196,9 @@ class Thread(Base):
     meta_data = Column(JSON, nullable=False, default={})
     object = Column(String(64), nullable=False)
     tool_resources = Column(JSON, nullable=False, default={})
-    participants = relationship("User", secondary=thread_participants, back_populates="threads")
+    participants = relationship(
+        "User", secondary=thread_participants, back_populates="threads"
+    )
     vector_stores = relationship(
         "VectorStore",
         secondary=thread_vector_stores,
@@ -457,7 +472,9 @@ class File(Base):
 class FileStorage(Base):
     __tablename__ = "file_storage"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    file_id = Column(String(64), ForeignKey("files.id", ondelete="CASCADE"), nullable=False)
+    file_id = Column(
+        String(64), ForeignKey("files.id", ondelete="CASCADE"), nullable=False
+    )
     storage_system = Column(
         String(64),
         nullable=False,
