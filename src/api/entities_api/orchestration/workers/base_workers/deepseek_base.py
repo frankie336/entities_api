@@ -35,8 +35,10 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
 
-        # [NEW] Holding variable for the parsed tool payload to pass between methods
+        # Holding variable for the parsed tool payload
         self._pending_tool_payload: Optional[Dict[str, Any]] = None
+        # [NEW] Holding variable for the parsed decision payload
+        self._decision_payload: Optional[Dict[str, Any]] = None
 
         self.setup_services()
         LOG.debug("Hyperbolic-Ds1 provider ready (assistant=%s)", assistant_id)
@@ -73,12 +75,13 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         stop_event = self.start_cancellation_monitor(run_id)
 
         self._current_tool_call_id = None
-        # Reset handover state
         self._pending_tool_payload = None
+        self._decision_payload = None  # Reset decision state
 
         accumulated: str = ""
         assistant_reply: str = ""
         reasoning_reply: str = ""
+        decision_buffer: str = ""  # [NEW] Buffer for raw decision JSON string
         current_block: str | None = None
 
         try:
@@ -118,14 +121,17 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
                 ctype, ccontent = chunk["type"], chunk["content"]
 
-                # --- 1. STATE MANAGEMENT (Keep this exactly as is) ---
+                # --- 1. STATE MANAGEMENT ---
                 if ctype == "content":
                     if current_block == "fc":
                         accumulated += "</fc>"
                     elif current_block == "think":
                         accumulated += "</think>"
+                    # Note: We don't add </decision> to 'accumulated' because
+                    # we want to filter it out of the visible history.
                     current_block = None
                     assistant_reply += ccontent
+                    accumulated += ccontent
 
                 elif ctype == "call_arguments":
                     if current_block != "fc":
@@ -133,6 +139,7 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                             accumulated += "</think>"
                         accumulated += "<fc>"
                         current_block = "fc"
+                    accumulated += ccontent
 
                 elif ctype == "reasoning":
                     if current_block != "think":
@@ -142,28 +149,57 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                         current_block = "think"
                     reasoning_reply += ccontent
 
-                accumulated += ccontent
+                # [NEW] Decision Handling
+                elif ctype == "decision":
+                    # We are in decision mode. We DO NOT add this to 'accumulated'
+                    # or 'assistant_reply' so the user doesn't see it in the chat bubble
+                    # (unless the UI specifically renders 'decision' type events).
+
+                    # Accumulate for validation/saving
+                    decision_buffer += ccontent
+
+                    # Reset other blocks if we jumped straight here
+                    if current_block == "fc":
+                        accumulated += "</fc>"
+                    elif current_block == "think":
+                        accumulated += "</think>"
+                    current_block = "decision"
 
                 # --- 2. SELECTIVE YIELDING ---
-                # We STOP yielding call_arguments directly to the client
                 if ctype == "call_arguments":
                     continue
 
-                    # We yield everything else (content, reasoning, etc)
+                # Yield all events, including the new "decision" type, to the UI/Consumer
                 yield json.dumps(chunk)
                 self._shunt_to_redis_stream(redis, stream_key, chunk)
 
-            # Close tags
+            # Close blocks
             if current_block == "fc":
                 accumulated += "</fc>"
             elif current_block == "think":
                 accumulated += "</think>"
+            # No need to close 'decision' in 'accumulated' as it wasn't added
+
+            # --- 3. [NEW] Validate and Save Decision Payload ---
+            if decision_buffer:
+                try:
+                    # Clean up any potential leftover newlines or whitespace
+                    cleaned_decision = decision_buffer.strip()
+                    self._decision_payload = json.loads(cleaned_decision)
+                    LOG.info(
+                        f"Decision payload validated and saved: {self._decision_payload}"
+                    )
+                except json.JSONDecodeError as e:
+                    LOG.error(
+                        f"Failed to parse decision payload: {e}. Raw: {decision_buffer}"
+                    )
+                    # Optionally handle partial failures or save raw string
 
             yield json.dumps(
                 {"type": "status", "status": "processing", "run_id": run_id}
             )
 
-            # --- 3. PERSISTENCE & HANDOVER PREP ---
+            # --- 4. PERSISTENCE & HANDOVER PREP ---
             has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
             message_to_save = assistant_reply
 
@@ -175,8 +211,6 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                     )
                     payload_dict = json.loads(raw_json)
                     message_to_save = json.dumps(payload_dict)
-
-                    # [CRITICAL] Store the payload for the next step (process_conversation)
                     self._pending_tool_payload = payload_dict
 
                 except Exception as e:
@@ -196,8 +230,6 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                 self.project_david_client.runs.update_run_status(
                     run_id, StatusEnum.completed.value
                 )
-                # Only yield 'complete' if no tool call.
-                # If tool call, the tool processor will yield manifests then complete.
                 yield json.dumps(
                     {"type": "status", "status": "complete", "run_id": run_id}
                 )
@@ -223,7 +255,7 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         stream_reasoning=True,
         **kwargs,
     ):
-        # Phase 1: Stream Inference (Accumulates tool args internally)
+        # Phase 1: Stream Inference
         yield from self.stream(
             thread_id,
             message_id,
@@ -235,16 +267,21 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             **kwargs,
         )
 
-        # Phase 2: Check State & Execute Tool Logic
-        # We check _pending_tool_payload which was set in stream()
-        if self.get_function_call_state() and self._pending_tool_payload:
+        # [NEW] Decision Logic Injection Point
+        # If we have a valid decision payload, we can act on it here before tools
+        if self._decision_payload:
+            # Example: Log or set a specific flag based on decision
+            # You mentioned "dealing with DB later", so for now, the data is available
+            # in self._decision_payload for any logic you want to insert here.
+            pass
 
-            # This yields the Manifest and does the Polling
+        # Phase 2: Check State & Execute Tool Logic
+        if self.get_function_call_state() and self._pending_tool_payload:
             yield from self._process_tool_calls(
                 thread_id=thread_id,
                 run_id=run_id,
                 assistant_id=assistant_id,
-                content=self._pending_tool_payload,  # Pass the accumulated payload
+                content=self._pending_tool_payload,
                 api_key=api_key,
             )
 

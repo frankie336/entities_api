@@ -3,7 +3,7 @@ record_tool_decision = {
     "description": "Record the structured decision basis for selecting a tool before calling it.",
     "parameters": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": False,
         "required": ["selected_tool", "selection_basis", "confidence"],
         "properties": {
             "selected_tool": {

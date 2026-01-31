@@ -171,6 +171,7 @@ class ConversationContextMixin:
         # Specifically targeting function calling protocols for Open Source/Non-Native models
         platform_instructions = assemble_instructions(
             include_keys=[
+                "TOOL_DECISION_PROTOCOL",
                 "TOOL_USAGE_PROTOCOL",
                 "FUNCTION_CALL_FORMATTING",
                 "FUNCTION_CALL_WRAPPING",

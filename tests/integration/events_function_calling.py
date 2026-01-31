@@ -4,7 +4,7 @@ Debug Mode: Event-Driven Round-Trip (Type Inspection)
 1. Streams high-level Event Instances (ContentEvent, ToolCallRequestEvent, etc.).
 2. Prints the Python Class Type and the underlying Payload for every event.
 3. Uses event.execute() for the tool execution.
-4. Loads configuration from function_call_test_config.json.
+4. Loads configuration from config.json.
 """
 
 import json
@@ -13,6 +13,7 @@ import sys
 
 from dotenv import load_dotenv
 # Import the new Event classes
+from projectdavid import DecisionEvent  # [NEW] Added here
 from projectdavid import (ComputerExecutionOutputEvent, ContentEvent, Entity,
                           HotCodeEvent, ReasoningEvent, StatusEvent,
                           ToolCallRequestEvent)
@@ -28,10 +29,11 @@ GREEN = "\033[92m"
 YELLOW = "\033[93m"
 RED = "\033[91m"
 GREY = "\033[90m"
+MAGENTA = "\033[95m"  # [NEW] Color for Decision Events
 RESET = "\033[0m"
 
 # Load Config
-CONFIG_FILE = "function_call_test_config.json"
+CONFIG_FILE = "orchestrated_function_call_config.json"
 try:
     with open(CONFIG_FILE, "r") as f:
         config = json.load(f)
@@ -45,7 +47,9 @@ ENTITIES_API_KEY = os.getenv("ENTITIES_API_KEY") or config.get("entities_api_key
 ENTITIES_USER_ID = os.getenv("ENTITIES_USER_ID") or config.get("entities_user_id")
 
 # Inference Params
-TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY") or config.get("together_api_key")
+# TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
+HYPERBOLIC_API_KEY = os.getenv("HYPERBOLIC_API_KEY")
+
 MODEL_ID = config.get("model", "together-ai/mistralai/Ministral-3-14B-Instruct-2512")
 PROVIDER_KW = config.get("provider", "Hyperbolic")
 ASSISTANT_ID = config.get("assistant_id", "asst_13HyDgBnZxVwh5XexYu74F")
@@ -55,6 +59,7 @@ TEST_PROMPT = config.get(
 
 print(f"{GREY}[CONFIG] Model: {MODEL_ID} | Provider: {PROVIDER_KW}{RESET}")
 print(f"{GREY}[CONFIG] Assistant: {ASSISTANT_ID}{RESET}")
+
 
 # Initialize Client
 client = Entity(base_url=BASE_URL, api_key=ENTITIES_API_KEY)
@@ -107,7 +112,7 @@ stream.setup(
     assistant_id=ASSISTANT_ID,
     message_id=message.id,
     run_id=run.id,
-    api_key=TOGETHER_API_KEY,
+    api_key=HYPERBOLIC_API_KEY,
 )
 
 print(f"\n{CYAN}[▶] STREAM 1: Event Instance Inspection{RESET}")
@@ -132,6 +137,8 @@ try:
             color = YELLOW
         elif isinstance(event, ReasoningEvent):
             color = CYAN
+        elif isinstance(event, DecisionEvent):  # [NEW] Decision Handling
+            color = MAGENTA
         elif isinstance(event, StatusEvent):
             color = GREY
 
@@ -167,13 +174,21 @@ if tool_event:
             assistant_id=ASSISTANT_ID,
             message_id=message.id,
             run_id=run.id,
-            api_key=TOGETHER_API_KEY,
+            api_key=HYPERBOLIC_API_KEY,
         )
 
         for event in stream.stream_events(provider=PROVIDER_KW, model=MODEL_ID):
             class_name = event.__class__.__name__
             payload = event.to_dict()
-            color = GREEN if isinstance(event, ContentEvent) else GREY
+            color = RESET
+
+            if isinstance(event, ContentEvent):
+                color = GREEN
+            elif isinstance(event, DecisionEvent):
+                color = MAGENTA
+            elif isinstance(event, StatusEvent):
+                color = GREY
+
             print(f"{color}{class_name:<25}{RESET} | {json.dumps(payload)}")
 
     else:

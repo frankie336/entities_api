@@ -1,11 +1,19 @@
-import json
+from __future__ import annotations
+
 from collections import defaultdict
+
+from dotenv import load_dotenv
+from projectdavid_common.utilities.logging_service import LoggingUtility
+
+load_dotenv()
+LOG = LoggingUtility()
 
 
 class HyperbolicDeltaNormalizer:
     # Standard XML tags
     FC_START, FC_END = "<fc>", "</fc>"
     TH_START, TH_END = "<think>", "</think>"
+    DEC_START, DEC_END = "<decision>", "</decision>"  # [NEW] Decision Tags
 
     # GPT-OSS / Hermes Channel tags
     CH_ANALYSIS = "<|channel|>analysis"
@@ -75,8 +83,6 @@ class HyperbolicDeltaNormalizer:
                     # Accumulate Name
                     if fn_name:
                         tool_data["function"]["name"] += fn_name
-                        # FIX: Set type to 'call_arguments' so the worker filters it out.
-                        # This prevents the downstream consumer from crashing on partial strings.
                         yield {
                             "type": "call_arguments",
                             "content": fn_name,
@@ -146,6 +152,7 @@ class HyperbolicDeltaNormalizer:
                         (cls.MSG_TAG, None),
                         (cls.FC_START, "fc"),
                         (cls.TH_START, "think"),
+                        (cls.DEC_START, "decision"),  # [NEW] Check for <decision>
                     ]
 
                     match_found = False
@@ -205,11 +212,45 @@ class HyperbolicDeltaNormalizer:
                     yielded_something = True
 
                 # -----------------------------------------------------------
+                # [NEW] STATE: DECISION
+                # -----------------------------------------------------------
+                elif state == "decision":
+                    # If </decision> is not imminent, dump buffer to 'decision' type
+                    if "<" not in buffer:
+                        yield {"type": "decision", "content": buffer, "run_id": run_id}
+                        buffer = ""
+                        break
+
+                    lt_idx = buffer.find("<")
+                    if lt_idx > 0:
+                        yield {
+                            "type": "decision",
+                            "content": buffer[:lt_idx],
+                            "run_id": run_id,
+                        }
+                        buffer = buffer[lt_idx:]
+
+                    # Check for exit tag
+                    if buffer.startswith(cls.DEC_END):
+                        buffer = buffer[len(cls.DEC_END) :]
+                        state = "content"
+                        yielded_something = True
+                        continue
+
+                    # Handle partial tag (wait for more data)
+                    if cls.DEC_END.startswith(buffer):
+                        break
+
+                    # Not a tag, yield character
+                    yield {"type": "decision", "content": buffer[0], "run_id": run_id}
+                    buffer = buffer[1:]
+                    yielded_something = True
+
+                # -----------------------------------------------------------
                 # STATE: CHANNEL REASONING
                 # -----------------------------------------------------------
                 elif state == "channel_reasoning":
                     special_markers = [cls.CH_FINAL, cls.CH_COMMENTARY, cls.MSG_TAG]
-
                     potential_match = False
                     for m in special_markers:
                         if m.startswith(buffer):
@@ -241,7 +282,7 @@ class HyperbolicDeltaNormalizer:
                     yielded_something = True
 
                 # -----------------------------------------------------------
-                # OTHER STATES
+                # STATE: TOOL HANDLING
                 # -----------------------------------------------------------
                 elif state == "channel_tool_meta":
                     if cls.MSG_TAG in buffer:
@@ -301,7 +342,7 @@ class HyperbolicDeltaNormalizer:
                 if not yielded_something:
                     break
 
-        # --- FINALIZATION: Flush Pending Tools ---
+        # --- FINALIZATION ---
         if pending_tool_calls:
             for idx, data in list(pending_tool_calls.items()):
                 name = data["function"]["name"]
@@ -314,11 +355,12 @@ class HyperbolicDeltaNormalizer:
                     }
             pending_tool_calls.clear()
 
-        # Flush remaining buffer at end of stream
         if buffer:
             if state in ["channel_reasoning", "think"]:
                 yield {"type": "reasoning", "content": buffer, "run_id": run_id}
             elif state in ["channel_tool_payload", "fc"]:
                 yield {"type": "call_arguments", "content": buffer, "run_id": run_id}
+            elif state == "decision":
+                yield {"type": "decision", "content": buffer, "run_id": run_id}
             elif state == "content":
                 yield {"type": "content", "content": buffer, "run_id": run_id}
