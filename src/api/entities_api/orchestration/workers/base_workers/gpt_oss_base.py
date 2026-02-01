@@ -201,6 +201,7 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                 trunk=True,
                 structured_tool_call=True,
                 force_refresh=force_refresh,
+                decision_telemetry=False,
             )
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 

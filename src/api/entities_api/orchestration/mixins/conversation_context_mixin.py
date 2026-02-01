@@ -108,10 +108,15 @@ class ConversationContextMixin:
     @staticmethod
     def _resolve_and_prioritize_platform_tools(
         tools: Optional[List[Dict[str, Any]]],
+        *,
+        decision_telemetry: bool = True,
     ) -> List[Dict[str, Any]]:
 
         # --- Mandatory Always-On Platform Tools ---
-        mandatory_platform_tools = [record_tool_decision]
+        mandatory_platform_tools = []
+
+        if decision_telemetry:
+            mandatory_platform_tools.append(record_tool_decision)
 
         if not tools:
             tools = []
@@ -155,7 +160,11 @@ class ConversationContextMixin:
         # --- Final Merge Order ---
         return deduped_platform_tools + resolved_user_tools
 
-    def _build_system_message(self, assistant_id: str) -> Dict:
+    def _build_system_message(
+        self,
+        assistant_id: str,
+        decision_telemetry: bool = True,
+    ) -> Dict:
         """
         Standard System Message Builder.
         Injects Platform Instructions dynamically at runtime.
@@ -163,31 +172,46 @@ class ConversationContextMixin:
         Strategy: Append Platform Rules AFTER Developer Instructions to ensure
         technical constraints (like JSON formatting) are strictly enforced.
         """
+
         cache = self.get_assistant_cache()
         cfg = cache.retrieve_sync(assistant_id)
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # 1. Fetch Core Platform Instructions
-        # Specifically targeting function calling protocols for Open Source/Non-Native models
-        platform_instructions = assemble_instructions(
-            include_keys=[
-                "TOOL_DECISION_PROTOCOL",
-                "TOOL_USAGE_PROTOCOL",
-                "FUNCTION_CALL_FORMATTING",
-                "FUNCTION_CALL_WRAPPING",
-                # Add "validations" or "error_handling" here if globally required
-            ]
-        )
+        # --------------------------------------------------
+        # 1. Build Platform Instruction Key List (dynamic)
+        # --------------------------------------------------
 
-        # 2. Get Developer Instructions
+        include_keys = [
+            "TOOL_USAGE_PROTOCOL",
+            "FUNCTION_CALL_FORMATTING",
+            "FUNCTION_CALL_WRAPPING",
+            # add global validation/error keys here if needed
+        ]
+
+        if decision_telemetry:
+            include_keys.insert(0, "TOOL_DECISION_PROTOCOL")
+
+        platform_instructions = assemble_instructions(include_keys=include_keys)
+
+        # --------------------------------------------------
+        # 2. Developer Instructions
+        # --------------------------------------------------
+
         developer_instructions = cfg.get("instructions", "")
 
-        # 3. Resolve and prepend selected platform tools
+        # --------------------------------------------------
+        # 3. Resolve Platform Tools (flag propagated)
+        # --------------------------------------------------
 
-        final_tools = self._resolve_and_prioritize_platform_tools(tools=cfg["tools"])
+        final_tools = self._resolve_and_prioritize_platform_tools(
+            tools=cfg["tools"],
+            enable_decision_telemetry=decision_telemetry,
+        )
 
+        # --------------------------------------------------
         # 4. Assemble Payload
-        # Hierarchy: [Context] -> [Persona] -> [Platform Protocols] -> [Tools]
+        # --------------------------------------------------
+
         combined_content = (
             f"Today's date and time: {today}\n\n"
             f"### ASSISTANT INSTRUCTIONS\n"
@@ -217,37 +241,56 @@ class ConversationContextMixin:
             "content": f"tools:\n{json.dumps(cfg['tools'])}\n{excluded_instructions}\nToday's date and time: {today}",
         }
 
-    def _build_native_function_calls_system_message(self, assistant_id: str) -> Dict:
+    def _build_native_function_calls_system_message(
+        self,
+        assistant_id: str,
+        decision_telemetry: bool = True,
+    ) -> Dict:
         """
         Amended for models that have native function call format.
         Standard System Message Builder.
         Injects Platform Instructions dynamically at runtime.
 
         Strategy: Append Platform Rules AFTER Developer Instructions to ensure
-        echnical constraints (like JSON formatting) are strictly enforced.
+        technical constraints (like JSON formatting) are strictly enforced.
         """
+
         cache = self.get_assistant_cache()
         cfg = cache.retrieve_sync(assistant_id)
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # 1. Fetch Core Platform Instructions
-        # Specifically targeting function calling protocols for Open Source/Non-Native models
-        platform_instructions = assemble_instructions(
-            include_keys=[
-                "TOOL_DECISION_PROTOCOL",
-                "DEVELOPER_INSTRUCTIONS",  # <- In reality is an empty dummy instruction
-            ]
-        )
+        # --------------------------------------------------
+        # 1. Build Platform Instruction Key List (dynamic)
+        # --------------------------------------------------
 
-        # 2. Get Developer Instructions
+        include_keys = [
+            "DEVELOPER_INSTRUCTIONS",  # dummy spacer — intentional
+        ]
+
+        if decision_telemetry:
+            include_keys.append("TOOL_DECISION_PROTOCOL")
+
+        platform_instructions = assemble_instructions(include_keys=include_keys)
+
+        # --------------------------------------------------
+        # 2. Developer Instructions
+        # --------------------------------------------------
+
         developer_instructions = cfg.get("instructions", "")
 
-        # 3. Resolve and prepend selected platform tools
+        # --------------------------------------------------
+        # 3. Resolve Platform Tools (flag propagated)
+        # --------------------------------------------------
 
-        final_tools = self._resolve_and_prioritize_platform_tools(tools=cfg["tools"])
+        final_tools = self._resolve_and_prioritize_platform_tools(
+            tools=cfg["tools"],
+            decision_telemetry=decision_telemetry,
+        )
 
-        # 4. Assemble Payload
-        # Hierarchy: [Context] -> [Persona] -> [Platform Protocols] -> [Tools]
+        # --------------------------------------------------
+        # 4. Assemble System Message
+        # --------------------------------------------------
+
         combined_content = (
             f"Today's date and time: {today}\n\n"
             f"### ASSISTANT INSTRUCTIONS\n"
@@ -270,15 +313,20 @@ class ConversationContextMixin:
         trunk: Optional[bool] = True,
         structured_tool_call: Optional[bool] = False,
         force_refresh: Optional[bool] = False,
+        decision_telemetry: bool = True,
     ) -> List[Dict]:
         """
         Synchronous context window setup with integrated Refresh & Cache debugging.
         """
         # 1. Build System Message
         if structured_tool_call:
-            system_msg = self._build_native_function_calls_system_message(assistant_id)
+            system_msg = self._build_native_function_calls_system_message(
+                assistant_id=assistant_id, decision_telemetry=decision_telemetry
+            )
         else:
-            system_msg = self._build_system_message(assistant_id)
+            system_msg = self._build_system_message(
+                assistant_id=assistant_id, decision_telemetry=decision_telemetry
+            )
 
         # 2. Get history using the SYNC helper
         if force_refresh:
