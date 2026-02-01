@@ -12,5 +12,5 @@ config = {
     "hyperbolic_api_key": os.getenv("HYPERBOLIC_API_KEY"),
     "entities_user_id": os.getenv("ENTITIES_USER_ID"),
     "report_file_name": "model_compatibility_report.md",
-    "models_to_run": HYPERBOLIC_MODELS,
+    "models_to_run": TOGETHER_AI_MODELS,
 }
