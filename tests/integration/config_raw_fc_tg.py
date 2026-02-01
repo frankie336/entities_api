@@ -1,0 +1,11 @@
+import dotenv
+
+dotenv.load_dotenv()
+import os
+
+config = {
+    "together_api_key": os.getenv("TOGETHER_API_KEY"),
+    "url": "https://api.together.xyz/v1/chat/completions",
+    "model": "mistralai/Mistral-7B-Instruct-v0.3",
+    "test_prompt": "Please fetch me the flight times between LAX and JFK. Use the get_flight_times tool.",
+}

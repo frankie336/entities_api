@@ -3,53 +3,63 @@
 Automated Model Benchmark: Reasoning & Tool Use (Event-Driven Refactor)
 -----------------------------------------------------------------------
 Refactored to catch and classify DEAD/UNAVAILABLE endpoints (404s).
+Now supports DecisionEvent logging and External Configuration.
+Includes 'Telemetry' column to track DecisionEvents before Tool Calls.
 """
 
 import json
 import os
 import re
+import sys
 import time
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from config_benchmark import config
 from dotenv import load_dotenv
-# Import definitions
-from models import HYPERBOLIC_MODELS, TOGETHER_AI_MODELS
 # --- SDK Event Imports ---
-from projectdavid import (ContentEvent, Entity, ReasoningEvent, StatusEvent,
-                          ToolCallRequestEvent)
+from projectdavid import (ContentEvent, DecisionEvent, Entity, ReasoningEvent,
+                          StatusEvent, ToolCallRequestEvent)
 
 # ------------------------------------------------------------------
 # 0. Setup & Config
 # ------------------------------------------------------------------
+# Define Root (Up 2 levels from tests/integration)
 root_dir = Path(__file__).resolve().parents[2]
-load_dotenv()
+load_dotenv()  # Load .env as fallback
 
 # ANSI Colors
 CYAN = "\033[96m"
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
 RED = "\033[91m"
+MAGENTA = "\033[95m"
 RESET = "\033[0m"
 
-# Global Config
-BASE_URL = os.getenv("BASE_URL", "http://localhost:9000")
-ENTITIES_API_KEY = os.getenv("ENTITIES_API_KEY")
-USER_ID = os.getenv("ENTITIES_USER_ID")
-REPORT_FILE = root_dir / "model_compatibility_report.md"
+# --- Load External Config ---
+CONFIG_FILE_NAME = "benchmark_config.json"
+CONFIG_PATH = root_dir / CONFIG_FILE_NAME
+
+
+# --- Global Constants (Priority: Config File -> Env Var -> Default) ---
+BASE_URL = config.get("base_url") or os.getenv("BASE_URL", "http://localhost:9000")
+ENTITIES_API_KEY = config.get("entities_api_key") or os.getenv("ENTITIES_API_KEY")
+USER_ID = config.get("entities_user_id") or os.getenv("ENTITIES_USER_ID")
+report_name = config.get("report_file_name", "model_compatibility_report.md")
+REPORT_FILE = root_dir / report_name
 
 
 def get_api_key_for_provider(provider: str) -> str:
     """Dynamic key resolver."""
     p = provider.lower()
     if "together" in p:
-        return os.getenv("TOGETHER_API_KEY", "")
+        return config.get("together_api_key") or os.getenv("TOGETHER_API_KEY", "")
     elif "hyperbolic" in p:
-        return os.getenv("HYPERBOLIC_API_KEY", "")
+        return config.get("hyperbolic_api_key") or os.getenv("HYPERBOLIC_API_KEY", "")
     elif "openai" in p:
-        return os.getenv("OPENAI_API_KEY", "")
+        return config.get("openai_api_key") or os.getenv("OPENAI_API_KEY", "")
     return ""
 
 
@@ -88,8 +98,10 @@ class ReportManager:
                         clean_line = line.strip()
                         if clean_line.startswith("| **"):
                             parts = [p.strip() for p in clean_line.split("|")]
+                            # We check for provider index (usually index 2)
                             if len(parts) >= 4:
                                 provider = parts[2].strip()
+                                # Extract endpoint ID
                                 match = re.search(r"`(.*?)`", parts[3])
                                 if match:
                                     eid = match.group(1).strip()
@@ -103,22 +115,31 @@ class ReportManager:
             reas_icon = "🧠" if res["reasoning_detected"] else "—"
             tool_icon = "✅" if res["tool_call_ok"] else "❌"
 
+            # [NEW] Telemetry Icon
+            # 📡 = Telemetry Received, — = No Telemetry
+            telem_icon = "📡" if res["call_telemetry"] else "—"
+
             if not res["inference_ok"]:
                 tool_icon = "—"
+                telem_icon = "—"
 
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
             # Use the specific error message if present, otherwise OK
             note = res["error_msg"] if res["error_msg"] else "OK"
 
+            # Added {telem_icon} column
             new_row = (
                 f"| **{res['name']}** | {res['provider']} | `{res['id']}` | "
-                f"{inf_icon} | {reas_icon} | {tool_icon} | {timestamp} | {note} |"
+                f"{inf_icon} | {reas_icon} | {tool_icon} | {telem_icon} | {timestamp} | {note} |"
             )
             rows_by_provider[res["provider"]][res["id"]] = new_row
 
         # 3. Write Report
-        table_header_row = "| Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Last Run | Notes |"
-        table_align_row = "| :--- | :--- | :--- | :---: | :---: | :---: | :--- | :--- |"
+        # [NEW] Added 'Telemetry' to header
+        table_header_row = "| Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Telemetry | Last Run | Notes |"
+        table_align_row = (
+            "| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- |"
+        )
         main_title = [
             "# 🧪 Model Compatibility Report",
             f"**Last Update:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
@@ -136,7 +157,7 @@ class ReportManager:
                         key=lambda x: x.split("|")[1].strip().lower(),
                     )
                     f.write("\n".join(rows) + "\n")
-            print(f"{GREEN}[✓] Report updated.{RESET}")
+            print(f"{GREEN}[✓] Report updated: {file_path.name}{RESET}")
         except Exception as e:
             print(f"{RED}[!] Write failed: {e}{RESET}")
 
@@ -241,6 +262,7 @@ class ModelTester:
             "inference_ok": False,
             "reasoning_detected": False,
             "tool_call_ok": False,
+            "call_telemetry": False,  # [NEW] Track telemetry stats
             "error_msg": "",
         }
 
@@ -296,6 +318,10 @@ class ModelTester:
                     thread.id, message.id, run.id, timeout=60.0
                 )
 
+                # [NEW] Capture Telemetry status from the Tool Call stream
+                if stream_res["decision_detected"]:
+                    result["call_telemetry"] = True
+
                 if stream_res["tool_executed"]:
                     print(f"\n{YELLOW}[*] Streaming Final Response...{RESET}")
                     # Execute Stream 2 (Final Answer)
@@ -328,8 +354,9 @@ class ModelTester:
             "inference_ok": False,
             "reasoning_detected": False,
             "tool_executed": False,
+            "decision_detected": False,  # [NEW] Local flag for this stream
             "error": False,
-            "detailed_error": None,  # Added to capture raw exception string
+            "detailed_error": None,
         }
 
         stream = self.client.synchronous_inference_stream
@@ -364,6 +391,16 @@ class ModelTester:
                         stats["inference_ok"] = True
                     print(f"{GREEN}{event.content}{RESET}", end="", flush=True)
 
+                # [NEW] Decision Event Handling & Stats Update
+                elif isinstance(event, DecisionEvent):
+                    # Mark that we received telemetry
+                    stats["decision_detected"] = True
+                    print(
+                        f"\n{MAGENTA}⚡ [DECISION]: {event.to_dict()}{RESET}",
+                        end="",
+                        flush=True,
+                    )
+
                 elif isinstance(event, ToolCallRequestEvent):
                     print(f"\n{YELLOW}🛠  [TOOL DETECTED]: {event.tool_name}{RESET}")
                     # SDK handles the output submission automatically
@@ -389,7 +426,7 @@ class ModelTester:
 # ------------------------------------------------------------------
 def main(models_to_run):
     if not USER_ID:
-        print(f"{RED}CRITICAL: Missing USER_ID in .env{RESET}")
+        print(f"{RED}CRITICAL: Missing USER_ID in {CONFIG_FILE_NAME} or .env{RESET}")
         return
 
     print(f"Starting Benchmark for {len(models_to_run)} models...\n")
@@ -415,6 +452,7 @@ def main(models_to_run):
                         "inference_ok": False,
                         "reasoning_detected": False,
                         "tool_call_ok": False,
+                        "call_telemetry": False,
                         "error_msg": err,  # setup() already classifies the error
                     }
                 ]
@@ -427,4 +465,4 @@ def main(models_to_run):
 
 
 if __name__ == "__main__":
-    main(models_to_run=TOGETHER_AI_MODELS)
+    main(models_to_run=config.get("models_to_run"))

@@ -37,6 +37,8 @@ class DefaultBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
         # [NEW] Holding variable for the parsed tool payload to pass between methods
         self._pending_tool_payload: Optional[Dict[str, Any]] = None
+        # [NEW] Holding variable for the parsed decision payload
+        self._decision_payload: Optional[Dict[str, Any]] = None
 
         self.setup_services()
         LOG.debug("DefaultBaseWorker provider ready (assistant=%s)", assistant_id)
@@ -76,9 +78,13 @@ class DefaultBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         api_key = api_key or self.api_key
 
         # --- FIX 1: Early Variable Initialization (Safety) ---
+        self._pending_tool_payload = None
+        self._decision_payload = None  # Reset decision state
+
         assistant_reply = ""
         accumulated = ""
         reasoning_reply = ""
+        decision_buffer = ""  # [NEW] Buffer for raw decision JSON string
         current_block = None
         # -----------------------------------------------------
 
@@ -124,6 +130,7 @@ class DefaultBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                         accumulated += "</think>"
                     current_block = None
                     assistant_reply += ccontent
+                    accumulated += ccontent
 
                 elif ctype == "call_arguments":
                     if current_block != "fc":
@@ -131,6 +138,7 @@ class DefaultBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                             accumulated += "</think>"
                         accumulated += "<fc>"
                         current_block = "fc"
+                    accumulated += ccontent
 
                 elif ctype == "reasoning":
                     if current_block != "think":
@@ -140,12 +148,18 @@ class DefaultBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                         current_block = "think"
                     reasoning_reply += ccontent
 
-                # Accumulate raw stream for persistence
-                accumulated += ccontent
+                # [NEW] Decision Handling
+                elif ctype == "decision":
+                    decision_buffer += ccontent
+                    if current_block == "fc":
+                        accumulated += "</fc>"
+                    elif current_block == "think":
+                        accumulated += "</think>"
+                    current_block = "decision"
 
                 # --- REFACTOR: Prevent yielding ANY tool artifacts ---
-                # We block both 'tool_name' and 'call_arguments' to prevent
-                # the client SDK from auto-creating a ghost event with no ID.
+                # We block 'tool_name' and 'call_arguments', but allow 'decision'
+                # to pass through if the UI is configured to handle it.
                 if ctype not in ("tool_name", "call_arguments"):
                     yield json.dumps(chunk)
                 # -------------------------------------------------
@@ -157,6 +171,14 @@ class DefaultBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                 accumulated += "</fc>"
             elif current_block == "think":
                 accumulated += "</think>"
+
+            # --- [NEW] Validate and Save Decision Payload ---
+            if decision_buffer:
+                try:
+                    self._decision_payload = json.loads(decision_buffer.strip())
+                    LOG.info(f"Decision payload validated: {self._decision_payload}")
+                except json.JSONDecodeError as e:
+                    LOG.error(f"Failed to parse decision payload: {e}")
 
             yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
@@ -186,6 +208,10 @@ class DefaultBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
                     # Store as clean JSON
                     message_to_save = json.dumps(payload_dict)
+
+                    # [NEW] Ensure this is set for process_conversation to pick up
+                    self._pending_tool_payload = payload_dict
+
                 except Exception as e:
                     LOG.error(f"Error structuring tool calls: {e}")
                     # Fallback to accumulated string so no data is lost
@@ -242,12 +268,16 @@ class DefaultBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         # We check _pending_tool_payload which was set in stream()
         if self.get_function_call_state() and self._pending_tool_payload:
 
+            # [NEW] Retrieve decision payload
+            current_decision = getattr(self, "_decision_payload", None)
+
             # This yields the Manifest and does the Polling
             yield from self._process_tool_calls(
                 thread_id=thread_id,
                 run_id=run_id,
                 assistant_id=assistant_id,
                 content=self._pending_tool_payload,  # Pass the accumulated payload
+                decision=current_decision,  # [NEW] Pass telemetry
                 api_key=api_key,
             )
 
@@ -255,6 +285,7 @@ class DefaultBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             self.set_tool_response_state(False)
             self.set_function_call_state(None)
             self._pending_tool_payload = None
+            self._decision_payload = None  # [NEW] Cleanup
 
             # Phase 3: Follow-up Stream
             yield from self.stream(

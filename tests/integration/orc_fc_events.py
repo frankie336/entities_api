@@ -11,6 +11,7 @@ import json
 import os
 import sys
 
+from config_orc_fc import config
 from dotenv import load_dotenv
 # Import the new Event classes
 from projectdavid import DecisionEvent  # [NEW] Added here
@@ -32,14 +33,6 @@ GREY = "\033[90m"
 MAGENTA = "\033[95m"  # [NEW] Color for Decision Events
 RESET = "\033[0m"
 
-# Load Config
-CONFIG_FILE = "orchestrated_function_call_config.json"
-try:
-    with open(CONFIG_FILE, "r") as f:
-        config = json.load(f)
-except FileNotFoundError:
-    print(f"{RED}❌ [ERROR] Could not find {CONFIG_FILE}.{RESET}")
-    sys.exit(1)
 
 # Resolve Constants (Config > Env > Default)
 BASE_URL = config.get("base_url") or os.getenv("BASE_URL", "http://localhost:9000")

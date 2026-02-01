@@ -115,13 +115,18 @@ class ActionService:
             action_data.run_id,
         )
 
-        # [NEW] Calculate the indexed confidence score before saving
-        calculated_confidence = normalize_confidence(action_data.decision_payload)
-
         with SessionLocal() as db:
             try:
-                new_action_id = UtilsInterface.IdentifierService.generate_action_id()
+                # [FIX 1] Move Logic Inside Try Block
+                # If this fails (e.g. AttributeError), it will now be caught by the generic Exception handler below
+                # instead of returning a raw 500.
 
+                # [FIX 2] Correct Attribute Name
+                # Changed 'action_data.decision_payload' to 'action_data.decision' to match the Pydantic model
+                # field used in the Action constructor below.
+                calculated_confidence = self._normalize_confidence(action_data.decision)
+
+                new_action_id = UtilsInterface.IdentifierService.generate_action_id()
                 new_action = Action(
                     id=new_action_id,
                     run_id=action_data.run_id,
@@ -133,7 +138,7 @@ class ActionService:
                     tool_name=action_data.tool_name,
                     turn_index=action_data.turn_index or 0,
                     # --- [NEW] TELEMETRY FIELDS ---
-                    decision_payload=action_data.decision_payload,  # The full JSON (Why)
+                    decision_payload=action_data.decision,  # The full JSON (Why)
                     confidence_score=calculated_confidence,  # The Index (How sure)
                     # ------------------------------
                 )
@@ -151,8 +156,6 @@ class ActionService:
                     result=new_action.result,
                     triggered_at=datetime_to_iso(new_action.triggered_at),
                     turn_index=new_action.turn_index,
-                    # Note: We usually don't return the full decision payload in the lightweight
-                    # ActionRead unless explicitly requested, but it is now safely in the DB.
                 )
             except IntegrityError as e:
                 db.rollback()
@@ -162,8 +165,18 @@ class ActionService:
                 raise HTTPException(status_code=400, detail="Invalid action data")
             except Exception as e:
                 db.rollback()
-                logging_utility.error("Unexpected error: %s", str(e))
-                raise HTTPException(status_code=500, detail=str(e))
+                # Use traceback to make future debugging easier
+                import traceback
+
+                logging_utility.error(
+                    "Unexpected error in CreateAction: %s\n%s",
+                    str(e),
+                    traceback.format_exc(),
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Server Error during action creation: {str(e)}",
+                )
 
     def get_action(self, action_id: str) -> validator.ActionRead:
         """Retrieve an action by its ID with the new tool_name field."""

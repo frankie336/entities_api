@@ -5,6 +5,7 @@ import sys
 
 import dotenv
 import requests
+from config_raw_fc_tg import config
 
 # ------------------------------------------------------------------
 # CONFIGURATION LOAD
@@ -12,18 +13,6 @@ import requests
 
 # 1. Load .env (for security, environment variables are preferred for keys)
 dotenv.load_dotenv()
-
-# 2. Load raw_function_call_test_config.json (for ease of changing models/prompts)
-CONFIG_FILE = "raw_function_call_test_config.json"
-try:
-    with open(CONFIG_FILE, "r") as f:
-        config = json.load(f)
-except FileNotFoundError:
-    print(f"❌ [ERROR] Could not find {CONFIG_FILE}. Please create it.")
-    sys.exit(1)
-except json.JSONDecodeError:
-    print(f"❌ [ERROR] {CONFIG_FILE} is not valid JSON.")
-    sys.exit(1)
 
 # 3. Resolve Constants
 # Logic: Try Environment Variable first -> Then Config File -> Then Error

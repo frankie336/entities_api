@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from abc import ABC, abstractmethod
-from typing import Any, Generator, Optional
+from typing import Any, Dict, Generator, Optional
 
 from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
@@ -86,6 +86,10 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
         # State for Dialogue Binding
         self._current_tool_call_id: str | None = None
+        # [NEW] Holding variable for the parsed tool payload to pass between methods
+        self._pending_tool_payload: Optional[Dict[str, Any]] = None
+        # [NEW] Holding variable for the parsed decision payload
+        self._decision_payload: Optional[Dict[str, Any]] = None
 
         self.setup_services()
 
@@ -176,9 +180,13 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
         # --- FIX 1: Early Variable Initialization (Safety) ---
         self._current_tool_call_id = None
+        self._pending_tool_payload = None
+        self._decision_payload = None  # Reset decision state
+
         assistant_reply = ""
         accumulated = ""
         reasoning_reply = ""
+        decision_buffer = ""  # [NEW] Buffer for raw decision JSON string
         current_block = None
         # -----------------------------------------------------
 
@@ -258,11 +266,23 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                         current_block = "think"
                     reasoning_reply += safe_content
 
+                # [NEW] Decision Handling
+                elif ctype == "decision":
+                    decision_buffer += safe_content
+                    if current_block == "fc":
+                        accumulated += "</fc>"
+                    elif current_block == "think":
+                        accumulated += "</think>"
+                    current_block = "decision"
+
                 # Accumulate content (filtered)
                 accumulated += safe_content
 
                 # --- REFACTOR: Prevent yielding call_arguments ---
-                if ctype != "call_arguments":
+                # This prevents the "KeyError: name" in the consumer by holding back
+                # partial tool chunks while still accumulating them in 'accumulated'
+                # Note: We allow 'decision' to pass through.
+                if ctype not in ("tool_name", "call_arguments"):
                     yield json.dumps(chunk)
                 # -------------------------------------------------
 
@@ -283,6 +303,14 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             stop_event.set()
 
         yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
+
+        # --- [NEW] Validate and Save Decision Payload ---
+        if decision_buffer:
+            try:
+                self._decision_payload = json.loads(decision_buffer.strip())
+                LOG.info(f"Decision payload validated: {self._decision_payload}")
+            except json.JSONDecodeError as e:
+                LOG.error(f"Failed to parse decision payload: {e}")
 
         # ------------------------------------------------------------------
         # 💉 FIX 2: TIMEOUT PREVENTION (Keep-Alive Heartbeat)
@@ -380,6 +408,10 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                         }
                     ]
                     message_to_save = json.dumps(tool_calls_structure)
+
+                    # [NEW] Ensure this is set for process_conversation to pick up
+                    self._pending_tool_payload = payload_dict
+
                     LOG.info(f"DEBUG: Successfully structured tool call: {call_id}")
             except Exception as e:
                 LOG.error(f"DEBUG: Failed to structure tool calls from tags: {e}")
@@ -432,6 +464,9 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             tool_call_id = getattr(self, "_current_tool_call_id", None)
             LOG.info(f"DEBUG: Triggering tool logic for ID: {tool_call_id}")
 
+            # [NEW] Retrieve decision payload
+            current_decision = getattr(self, "_decision_payload", None)
+
             yield from self.process_tool_calls(
                 thread_id,
                 run_id,
@@ -439,6 +474,7 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                 tool_call_id=tool_call_id,
                 model=model,
                 api_key=api_key,
+                decision=current_decision,  # [NEW] Pass telemetry
             )
 
             # Cleanup State
@@ -448,6 +484,7 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                 self.set_function_call_state(None)
 
             self._current_tool_call_id = None
+            self._decision_payload = None  # [NEW] Cleanup
             self._force_refresh = True
 
             LOG.info(

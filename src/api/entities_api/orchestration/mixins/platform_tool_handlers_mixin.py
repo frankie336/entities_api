@@ -178,7 +178,7 @@ class PlatformToolHandlersMixin:
             tool_call_id=tool_call_id,
             function_args=arguments,
             # [NEW] Pass to API/Service
-            decision_payload=decision,
+            decision=decision,
         )
 
         LOG.debug("Action %s created for %s", action.id, tool_name)

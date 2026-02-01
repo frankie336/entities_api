@@ -150,7 +150,7 @@ class ConsumerToolHandlersMixin:
             tool_call_id=tool_call_id,
             function_args=content["arguments"],
             # [NEW] Pass to API/Service
-            decision_payload=decision,
+            decision=decision,
         )
 
         # 2. Construct & Yield the Manifest

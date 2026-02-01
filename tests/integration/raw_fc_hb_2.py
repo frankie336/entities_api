@@ -3,6 +3,7 @@ import os
 import sys
 
 import requests
+from config_raw_fc_hb import config
 from dotenv import load_dotenv
 
 # ------------------------------------------------------------------
@@ -12,19 +13,7 @@ from dotenv import load_dotenv
 # 1. Load .env
 load_dotenv()
 
-# 2. Load config.json
-CONFIG_FILE = "hb_raw_function_call_test_config.json"
-config = {}
-try:
-    with open(CONFIG_FILE, "r") as f:
-        config = json.load(f)
-except FileNotFoundError:
-    print(f"⚠️ [WARN] Could not find {CONFIG_FILE}. Using defaults/env.")
-except json.JSONDecodeError:
-    print(f"❌ [ERROR] {CONFIG_FILE} is not valid JSON.")
-    sys.exit(1)
 
-# 3. Resolve Constants
 # Logic: Env -> Config -> Default (Hyperbolic settings from your snippet)
 
 # Try to find a key in this order: HYPERBOLIC_API_KEY (env) -> generic 'api_key' (config) -> TOGETHER_API_KEY (env)

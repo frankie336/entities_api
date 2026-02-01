@@ -1,8 +1,0 @@
-{
-  "together_api_key": "",
-  "url": "https://api.hyperbolic.xyz/v1/chat/completions",
-  "model": "openai/gpt-oss-120b",
-  "test_prompt": "Please fetch me the flight times between LAX and JFK. Use the get_flight_times tool."
-}
-
-

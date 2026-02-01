@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from abc import ABC, abstractmethod
-from typing import Any, Generator, Optional
+from typing import Any, Dict, Generator, Optional
 
 from dotenv import load_dotenv
 from projectdavid_common.schemas.enums import StatusEnum
@@ -38,6 +38,11 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         self.model_name = extra.get("model_name", "quen/Qwen1_5-32B-Chat")
         self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
+
+        # [NEW] Holding variable for the parsed tool payload to pass between methods
+        self._pending_tool_payload: Optional[Dict[str, Any]] = None
+        # [NEW] Holding variable for the parsed decision payload
+        self._decision_payload: Optional[Dict[str, Any]] = None
 
         self.setup_services()
         LOG.debug(f"{self.__class__.__name__} ready (assistant={assistant_id})")
@@ -77,9 +82,13 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         api_key = api_key or self.api_key
 
         # --- FIX 1: Early Variable Initialization (Safety) ---
+        self._pending_tool_payload = None
+        self._decision_payload = None  # Reset decision state
+
         assistant_reply = ""
         accumulated = ""
         reasoning_reply = ""
+        decision_buffer = ""  # [NEW] Buffer for raw decision JSON string
         current_block = None
         # -----------------------------------------------------
 
@@ -125,6 +134,7 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                         accumulated += "</think>"
                     current_block = None
                     assistant_reply += ccontent
+                    accumulated += ccontent
 
                 elif ctype == "call_arguments":
                     if current_block != "fc":
@@ -132,6 +142,7 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                             accumulated += "</think>"
                         accumulated += "<fc>"
                         current_block = "fc"
+                    accumulated += ccontent
 
                 elif ctype == "reasoning":
                     if current_block != "think":
@@ -141,12 +152,18 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                         current_block = "think"
                     reasoning_reply += ccontent
 
-                # Accumulate raw stream for persistence
-                accumulated += ccontent
+                # [NEW] Decision Handling
+                elif ctype == "decision":
+                    decision_buffer += ccontent
+                    if current_block == "fc":
+                        accumulated += "</fc>"
+                    elif current_block == "think":
+                        accumulated += "</think>"
+                    current_block = "decision"
 
                 # --- REFACTOR: Prevent yielding ANY tool artifacts ---
-                # We block both 'tool_name' and 'call_arguments' to prevent
-                # the client SDK from auto-creating a ghost event with no ID.
+                # We block 'tool_name' and 'call_arguments', but allow 'decision'
+                # to pass through if the UI is configured to handle it.
                 if ctype not in ("tool_name", "call_arguments"):
                     yield json.dumps(chunk)
                 # -------------------------------------------------
@@ -159,13 +176,19 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             elif current_block == "think":
                 accumulated += "</think>"
 
+            # --- [NEW] Validate and Save Decision Payload ---
+            if decision_buffer:
+                try:
+                    self._decision_payload = json.loads(decision_buffer.strip())
+                    LOG.info(f"Decision payload validated: {self._decision_payload}")
+                except json.JSONDecodeError as e:
+                    LOG.error(f"Failed to parse decision payload: {e}")
+
             yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
             # ------------------------------------------------------------------
             # 💉 FIX 2: TIMEOUT PREVENTION (Keep-Alive Heartbeat)
             # ------------------------------------------------------------------
-            # Send a 'processing' signal to reset the client's timeout timer
-            # while the server performs the blocking database save.
             yield json.dumps(
                 {"type": "status", "status": "processing", "run_id": run_id}
             )
@@ -187,6 +210,10 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
                     # Store as clean JSON
                     message_to_save = json.dumps(payload_dict)
+
+                    # [NEW] Ensure this is set for process_conversation to pick up
+                    self._pending_tool_payload = payload_dict
+
                 except Exception as e:
                     LOG.error(f"Error structuring tool calls: {e}")
                     # Fallback to accumulated string so no data is lost
@@ -236,13 +263,29 @@ class QwenBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             **kwargs,
         )
 
-        if self.get_function_call_state():
-            yield from self.process_tool_calls(
-                thread_id, run_id, assistant_id, model=model, api_key=api_key
+        # Phase 2: Check State & Execute Tool Logic
+        if self.get_function_call_state() and self._pending_tool_payload:
+            # [NEW] Retrieve decision payload
+            current_decision = getattr(self, "_decision_payload", None)
+
+            # This yields the Manifest and does the Polling
+            # Note: Qwen inherits _ProviderMixins which usually contains _process_tool_calls
+            yield from self._process_tool_calls(
+                thread_id=thread_id,
+                run_id=run_id,
+                assistant_id=assistant_id,
+                content=self._pending_tool_payload,  # Pass the accumulated payload
+                decision=current_decision,  # [NEW] Pass telemetry
+                api_key=api_key,
             )
+
+            # Cleanup
             self.set_tool_response_state(False)
             self.set_function_call_state(None)
+            self._pending_tool_payload = None
+            self._decision_payload = None  # [NEW] Cleanup
 
+            # Phase 3: Follow-up Stream
             yield from self.stream(
                 thread_id,
                 None,
