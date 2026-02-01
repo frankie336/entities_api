@@ -48,7 +48,7 @@ class FileSearchMixin:
             tool_call_id=tool_call_id,
             function_args=arguments_dict,
             # [NEW] Pass to API/Service
-            decision_payload=decision,
+            decision=decision,
         )
 
         LOG.debug(
