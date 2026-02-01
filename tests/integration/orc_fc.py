@@ -3,10 +3,12 @@ Debug Mode: Function-Call Round-Trip (Hyperbolic/GPT-OSS)
 ---------------------------------------------------------
 This version prints EVERY chunk received from the stream raw,
 allowing you to inspect exactly what the `DeltaNormalizer` is yielding.
+INCLUDES TIMING METRICS.
 """
 
 import json
 import os
+import time  # <--- Added for timing
 
 from dotenv import load_dotenv
 from projectdavid import Entity
@@ -31,15 +33,12 @@ client = Entity(
 
 USER_ID = os.getenv("ENTITIES_USER_ID")
 
-
 NORMAL_ASSISTANT_ID = "asst_bToQ4dQQnuhJuhlU5M6COG"
 GPT_OSS_ASSISTANT_ID = "asst_kaK6ZNRxhERIjKqxpHmrVf"
 
 ASSISTANT_ID = NORMAL_ASSISTANT_ID
-
 MODEL_ID = "hyperbolic/Qwen/Qwen2.5-Coder-32B-Instruct"
 PROVIDER_KW = "Hyperbolic"
-
 HYPERBOLIC_API_KEY = os.getenv("HYPERBOLIC_API_KEY")
 
 
@@ -67,9 +66,18 @@ def get_flight_times(tool_name: str, arguments) -> str:
     )
 
 
+# ==================================================================
+# TIMER START
+# ==================================================================
+print(f"\n{YELLOW}[TIMER] Starting Round-Trip Timer...{RESET}")
+global_start = time.perf_counter()
+
+
 # ------------------------------------------------------------------
 # 2.  Thread + message + run
 # ------------------------------------------------------------------
+t_setup_start = time.perf_counter()
+
 print(f"{GREY}[1/4] Creating Thread & Message...{RESET}")
 thread = client.threads.create_thread()
 
@@ -82,6 +90,9 @@ message = client.messages.create_message(
 
 print(f"{GREY}[2/4] Creating Run...{RESET}")
 run = client.runs.create_run(assistant_id=ASSISTANT_ID, thread_id=thread.id)
+
+t_setup_end = time.perf_counter()
+
 
 # ------------------------------------------------------------------
 # 3.  Stream initial LLM response (RAW DEBUG MODE)
@@ -99,6 +110,8 @@ stream.setup(
 print(f"\n{CYAN}[▶] STREAM 1: Initial Generation (Raw Inspection){RESET}")
 print(f"{'TYPE':<20} | {'PAYLOAD'}")
 print("-" * 80)
+
+t_stream1_start = time.perf_counter()
 
 for chunk in stream.stream_chunks(
     provider=PROVIDER_KW, model=MODEL_ID, suppress_fc=False, timeout_per_chunk=10.0
@@ -121,10 +134,16 @@ for chunk in stream.stream_chunks(
     # Print the full dictionary
     print(f"{row_color}{c_type:<20} | {json.dumps(chunk, default=str)}{RESET}")
 
+t_stream1_end = time.perf_counter()
+
+
 # ------------------------------------------------------------------
 # 4.  Poll run → execute tool → send tool result
 # ------------------------------------------------------------------
 print(f"\n{GREY}[3/4] Polling for Tool Execution...{RESET}")
+
+t_tool_start = time.perf_counter()
+
 handled = client.runs.poll_and_execute_action(
     run_id=run.id,
     thread_id=thread.id,
@@ -136,9 +155,15 @@ handled = client.runs.poll_and_execute_action(
     interval=0.1,
 )
 
+t_tool_end = time.perf_counter()
+
+
 # ------------------------------------------------------------------
 # 5.  Stream final assistant response (RAW DEBUG MODE)
 # ------------------------------------------------------------------
+t_stream2_start = 0
+t_stream2_end = 0
+
 if handled:
     print(f"\n{CYAN}[▶] STREAM 2: Final Response (Raw Inspection){RESET}")
     print(f"{'TYPE':<20} | {'PAYLOAD'}")
@@ -152,6 +177,8 @@ if handled:
         run_id=run.id,
         api_key=HYPERBOLIC_API_KEY,
     )
+
+    t_stream2_start = time.perf_counter()
 
     for chunk in stream.stream_chunks(
         provider=PROVIDER_KW, model=MODEL_ID, timeout_per_chunk=180.0
@@ -168,6 +195,29 @@ if handled:
 
         print(f"{row_color}{c_type:<20} | {json.dumps(chunk, default=str)}{RESET}")
 
+    t_stream2_end = time.perf_counter()
     print(f"\n{GREY}--- End of Stream ---{RESET}")
 else:
     print(f"\n{RED}[!] No function call detected or execution failed.{RESET}")
+
+# ==================================================================
+# TIMER RESULTS
+# ==================================================================
+global_end = time.perf_counter()
+
+setup_time = t_setup_end - t_setup_start
+stream1_time = t_stream1_end - t_stream1_start
+tool_time = t_tool_end - t_tool_start
+stream2_time = t_stream2_end - t_stream2_start if handled else 0
+total_time = global_end - global_start
+
+print(f"\n{YELLOW}" + "=" * 60)
+print(f" PERFORMANCE REPORT ({PROVIDER_KW})")
+print("=" * 60 + f"{RESET}")
+print(f"1. Setup (Thread/Msg/Run) : {setup_time:.4f}s")
+print(f"2. Stream 1 (Gen ToolCall): {stream1_time:.4f}s")
+print(f"3. Tool Exec & Submit     : {tool_time:.4f}s")
+print(f"4. Stream 2 (Final Answer): {stream2_time:.4f}s")
+print("-" * 60)
+print(f"{GREEN}TOTAL ROUND TRIP TIME     : {total_time:.4f}s{RESET}")
+print(f"{YELLOW}" + "=" * 60 + f"{RESET}\n")
