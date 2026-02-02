@@ -1,26 +1,26 @@
 import os
-
-from entities_api.clients.async_to_sync import async_to_sync_stream
 from entities_api.clients.unified_async_client import get_cached_client
-from src.api.entities_api.orchestration.workers.base_workers.gpt_oss_base import \
-    GptOssBaseWorker
+from src.api.entities_api.orchestration.workers.base_workers.gpt_oss_base import GptOssBaseWorker
 
 
 class HyperbolicGptOssWorker(GptOssBaseWorker):
     """
     HyperbolicAI Provider for GPT-OSS models.
-    Uses standard sync execution.
+    Inherits Async functionality from GptOssBaseWorker.
     """
 
     def _get_client_instance(self, api_key: str):
-
-        return self.cached_unified_client(
+        """
+        Returns an async-ready Hyperbolic client.
+        """
+        return get_cached_client(
             api_key=api_key,
             base_url=os.getenv("HYPERBOLIC_BASE_URL"),
             enable_logging=False,
         )
 
-    def _execute_stream_request(self, client, payload: dict):
-        # Hyperbolic SDK in this project uses async methods
-        async_stream = client.stream_chat_completion(**payload)
-        return async_to_sync_stream(async_stream)
+    # Note: the base class calls client.stream_chat_completion directly.
+    # _execute_stream_request is likely not needed anymore, but keeping it
+    # for signature compatibility if other parts of your stack call it.
+    async def _execute_stream_request(self, client, payload: dict):
+        return client.stream_chat_completion(**payload)

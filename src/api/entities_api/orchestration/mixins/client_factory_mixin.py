@@ -1,9 +1,6 @@
-import asyncio
 import os
-import queue
-import threading
 from functools import lru_cache
-from typing import AsyncGenerator, Generator, Optional, TypeVar
+from typing import Optional, TypeVar
 
 import httpx
 from dotenv import load_dotenv
@@ -12,8 +9,7 @@ from projectdavid import Entity
 from together import Together
 
 # Import your AsyncHyperbolicClient definition
-from entities_api.clients.unified_async_client import (
-    _ACTIVE_CLIENTS, AsyncUnifiedInferenceClient)
+from entities_api.clients.unified_async_client import _ACTIVE_CLIENTS, AsyncUnifiedInferenceClient
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 load_dotenv()

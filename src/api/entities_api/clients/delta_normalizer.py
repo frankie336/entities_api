@@ -10,7 +10,7 @@ load_dotenv()
 LOG = LoggingUtility()
 
 
-class HyperbolicDeltaNormalizer:
+class DeltaNormalizer:
     # Standard XML tags
     FC_START, FC_END = "<fc>", "</fc>"
     TH_START, TH_END = "<think>", "</think>"
@@ -70,11 +70,7 @@ class HyperbolicDeltaNormalizer:
                 yield {"type": "reasoning", "content": r_content, "run_id": run_id}
 
             # --- 2. Handle Native Tool Calls ---
-            t_calls = (
-                delta.get("tool_calls")
-                if is_dict
-                else getattr(delta, "tool_calls", None)
-            )
+            t_calls = delta.get("tool_calls") if is_dict else getattr(delta, "tool_calls", None)
             if t_calls:
                 for tc in t_calls:
                     if is_dict:
@@ -109,9 +105,7 @@ class HyperbolicDeltaNormalizer:
                         }
 
             # --- 3. Handle Standard Content ---
-            seg = (
-                delta.get("content", "") if is_dict else getattr(delta, "content", "")
-            ) or ""
+            seg = (delta.get("content", "") if is_dict else getattr(delta, "content", "")) or ""
 
             # --- 4. Tool Completion Trigger (Explicit) ---
             if finish_reason == "tool_calls":
@@ -263,9 +257,7 @@ class HyperbolicDeltaNormalizer:
                             potential_match = True
                             break
 
-                    if potential_match and len(buffer) < max(
-                        len(m) for m in special_markers
-                    ):
+                    if potential_match and len(buffer) < max(len(m) for m in special_markers):
                         break
 
                     if buffer.startswith(cls.CH_FINAL):
@@ -308,11 +300,7 @@ class HyperbolicDeltaNormalizer:
 
                     if any(buffer.startswith(t) for t in exit_tags):
                         matched = next(t for t in exit_tags if buffer.startswith(t))
-                        state = (
-                            "channel_reasoning"
-                            if matched == cls.CH_ANALYSIS
-                            else "content"
-                        )
+                        state = "channel_reasoning" if matched == cls.CH_ANALYSIS else "content"
                         buffer = buffer[len(matched) :]
                         yielded_something = True
                         continue

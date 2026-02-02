@@ -29,7 +29,7 @@
    * Inherit from `_ProviderMixins` and `OrchestratorCore`.
    * Define `max_context_window` and `threshold_percentage` for the `Truncator`.
    * Implement or override the `stream` generator.
-   * Ensure the `HyperbolicDeltaNormalizer` (or equivalent) correctly yields standardized chunks (`content`, `reasoning`, `call_arguments`).
+   * Ensure the `DeltaNormalizer` (or equivalent) correctly yields standardized chunks (`content`, `reasoning`, `call_arguments`).
 
 ---
 

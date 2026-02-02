@@ -14,12 +14,11 @@ from projectdavid_common.validation import StatusEnum
 
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
+
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.providers import _ProviderMixins
-from src.api.entities_api.orchestration.streaming.hyperbolic import \
-    HyperbolicDeltaNormalizer
+from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
+from entities_api.clients.delta_normalizer import DeltaNormalizer
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -27,8 +26,8 @@ LOG = LoggingUtility()
 
 class GptOssBaseWorker(
     _ProviderMixins,
-    OrchestratorCore,  # Base logic comes last
-    ABC,  # ABC can remain if needed, usually redundant if Core has it
+    OrchestratorCore,
+    ABC,
 ):
     """
     Async Base for openai/gpt-oss-120b Providers.
@@ -46,9 +45,7 @@ class GptOssBaseWorker(
         assistant_cache: dict | None = None,
         **extra,
     ) -> None:
-        self._assistant_cache: dict = (
-            assistant_cache or extra.get("assistant_cache") or {}
-        )
+        self._assistant_cache: dict = assistant_cache or extra.get("assistant_cache") or {}
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
@@ -65,6 +62,7 @@ class GptOssBaseWorker(
         self._pending_tool_payload: Optional[Dict[str, Any]] = None
         self._decision_payload: Optional[Dict[str, Any]] = None
 
+        # This method initializes internal services (creating self._david_client)
         self.setup_services()
 
         # Ensure Runtime Safety for Mixins
@@ -110,17 +108,12 @@ class GptOssBaseWorker(
         self._pending_tool_payload = None
         self._decision_payload = None
 
-        assistant_reply = ""
-        accumulated = ""
-        reasoning_reply = ""
-        decision_buffer = ""
+        assistant_reply, accumulated, reasoning_reply, decision_buffer = "", "", "", ""
         current_block = None
 
         try:
             # Map model if necessary
-            if hasattr(self, "_get_model_map") and (
-                mapped := self._get_model_map(model)
-            ):
+            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
                 model = mapped
 
             # Prepare context
@@ -135,10 +128,7 @@ class GptOssBaseWorker(
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
             if not api_key:
-                err_msg = json.dumps(
-                    {"type": "error", "content": "Missing Hyperbolic API key."}
-                )
-                yield err_msg
+                yield json.dumps({"type": "error", "content": "Missing Hyperbolic API key."})
                 return
 
             client = self._get_client_instance(api_key=api_key)
@@ -153,12 +143,8 @@ class GptOssBaseWorker(
 
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
-            # -------------------------------
             # 1. Process deltas asynchronously
-            # -------------------------------
-            async for chunk in HyperbolicDeltaNormalizer.async_iter_deltas(
-                raw_stream, run_id
-            ):
+            async for chunk in DeltaNormalizer.async_iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
                     break
 
@@ -166,7 +152,6 @@ class GptOssBaseWorker(
                 ccontent = chunk.get("content") or ""
                 safe_content = ccontent if isinstance(ccontent, str) else ""
 
-                # Manage internal accumulation blocks
                 if ctype == "content":
                     if current_block == "fc":
                         accumulated += "</fc>"
@@ -174,14 +159,12 @@ class GptOssBaseWorker(
                         accumulated += "</think>"
                     current_block = None
                     assistant_reply += safe_content
-
                 elif ctype in ("tool_name", "call_arguments"):
                     if current_block != "fc":
                         if current_block == "think":
                             accumulated += "</think>"
                         accumulated += "<fc>"
                         current_block = "fc"
-
                 elif ctype == "reasoning":
                     if current_block != "think":
                         if current_block == "fc":
@@ -189,7 +172,6 @@ class GptOssBaseWorker(
                         accumulated += "<think>"
                         current_block = "think"
                     reasoning_reply += safe_content
-
                 elif ctype == "decision":
                     decision_buffer += safe_content
                     if current_block == "fc":
@@ -199,7 +181,6 @@ class GptOssBaseWorker(
                     current_block = "decision"
 
                 accumulated += safe_content
-
                 if ctype not in ("tool_name", "call_arguments"):
                     yield json.dumps(chunk)
 
@@ -220,21 +201,16 @@ class GptOssBaseWorker(
 
         yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
-        # -------------------------------
         # 2. Parse decision payload
-        # -------------------------------
         if decision_buffer:
             try:
                 self._decision_payload = json.loads(decision_buffer.strip())
-                LOG.info(f"Decision payload validated: {self._decision_payload}")
-            except json.JSONDecodeError:
-                LOG.warning(f"Failed to parse decision payload: {decision_buffer}")
+            except:
+                pass
 
         yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
-        # -------------------------------
-        # 3. Detect and sanitize <fc> blocks
-        # -------------------------------
+        # 3. Sanitize <fc> blocks
         if "<fc>" in accumulated:
             try:
                 fc_pattern = r"<fc>(.*?)</fc>"
@@ -247,23 +223,21 @@ class GptOssBaseWorker(
                         continue
                     except json.JSONDecodeError:
                         pass
+
                     fix_match = re.match(
                         r"^\s*([a-zA-Z0-9_]+)\s*(\{.*)", original_content, re.DOTALL
                     )
                     if fix_match:
-                        func_name = fix_match.group(1)
-                        func_args = fix_match.group(2)
+                        func_name, func_args = fix_match.group(1), fix_match.group(2)
                         try:
                             parsed_args, _ = json.JSONDecoder().raw_decode(func_args)
                             valid_payload = json.dumps(
                                 {"name": func_name, "arguments": parsed_args}
                             )
-                            # REFACTOR: Replace the tagged block with the sanitized tagged block
                             accumulated = accumulated.replace(
-                                f"<fc>{original_content}</fc>",
-                                f"<fc>{valid_payload}</fc>",
+                                f"<fc>{original_content}</fc>", f"<fc>{valid_payload}</fc>"
                             )
-                        except Exception:
+                        except:
                             pass
             except Exception as e:
                 LOG.warning(f"Sanitization warning: {e}")
@@ -279,53 +253,41 @@ class GptOssBaseWorker(
                 call_id = f"call_{uuid.uuid4().hex[:8]}"
                 self._current_tool_call_id = call_id
                 self._pending_tool_payload = has_fc_dict
-
-                tool_calls_structure = [
-                    {
-                        "id": call_id,
-                        "type": "function",
-                        "function": {
-                            "name": has_fc_dict.get("name"),
-                            "arguments": json.dumps(has_fc_dict.get("arguments", {})),
-                        },
-                    }
-                ]
-                message_to_save = json.dumps(tool_calls_structure)
+                message_to_save = json.dumps(
+                    [
+                        {
+                            "id": call_id,
+                            "type": "function",
+                            "function": {
+                                "name": has_fc_dict.get("name"),
+                                "arguments": json.dumps(has_fc_dict.get("arguments", {})),
+                            },
+                        }
+                    ]
+                )
             except Exception:
                 message_to_save = accumulated
 
-        # -------------------------------
         # 4. Save assistant message (Async)
-        # -------------------------------
         if message_to_save:
             try:
-                # We await the now-asynchronous finalize_conversation
                 await asyncio.wait_for(
-                    self.finalize_conversation(
-                        message_to_save, thread_id, assistant_id, run_id
-                    ),
+                    self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id),
                     timeout=20,
                 )
             except Exception as e:
                 LOG.error(f"finalize_conversation failed for run {run_id}: {e}")
 
-        # -------------------------------
         # 5. Safely update run status (Offloaded to Thread)
-        # -------------------------------
         if self.project_david_client:
             try:
-                # Since project_david_client is sync, we use to_thread to keep the loop free
                 await asyncio.to_thread(
-                    self.project_david_client.runs.update_run_status,
-                    run_id,
-                    final_status,
+                    self.project_david_client.runs.update_run_status, run_id, final_status
                 )
             except Exception as e:
                 LOG.error(f"update_run_status failed for run {run_id}: {e}")
         else:
-            LOG.warning(
-                f"project_david_client is None. Skipping run status update for run {run_id}"
-            )
+            LOG.warning(f"project_david_client is None. Skipping update for run {run_id}")
 
     async def process_conversation(
         self,
@@ -339,21 +301,11 @@ class GptOssBaseWorker(
     ) -> AsyncGenerator[str, None]:
 
         async for chunk in self.stream(
-            thread_id,
-            message_id,
-            run_id,
-            assistant_id,
-            model,
-            api_key=api_key,
-            **kwargs,
+            thread_id, message_id, run_id, assistant_id, model, api_key=api_key, **kwargs
         ):
             yield chunk
 
-        has_tools = False
-        if hasattr(self, "get_function_call_state"):
-            has_tools = self.get_function_call_state()
-
-        if has_tools:
+        if self.get_function_call_state():
             tool_call_id = getattr(self, "_current_tool_call_id", None)
             current_decision = getattr(self, "_decision_payload", None)
 

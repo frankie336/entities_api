@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, AsyncGenerator
 
 from entities_api.platform_tools.handlers.computer.shell_command_client import (
     run_commands, run_commands_sync)
@@ -6,12 +6,7 @@ from src.api.entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
 
-
 class ShellCommandInterface:
-    """
-    Service class to run computer commands via WebSocket, aligned with new ShellClient.
-    """
-
     def __init__(
         self,
         endpoint: Optional[str] = None,
@@ -20,8 +15,26 @@ class ShellCommandInterface:
     ):
         self.logging_utility = LoggingUtility()
         self.endpoint = endpoint or "ws://sandbox:8000/ws/computer"
-        self.default_thread_id = thread_id or "thread_cJq1gVLSCpLYI8zzZNRbyc"
+        self.default_thread_id = thread_id or "thread_default_id"
         self.idle_timeout = idle_timeout
+
+    async def run_commands_async_stream(
+        self,
+        commands: List[str],
+        thread_id: Optional[str] = None,
+        elevated: bool = False,
+    ) -> AsyncGenerator[str, None]:
+        """
+        Native Async Generator.
+        Calls the underlying WebSocket client and yields chunks as they arrive.
+        """
+        target_room = thread_id or self.default_thread_id
+        self.logging_utility.info(f"Executing async stream on room: {target_room}")
+
+        # We assume run_commands is an async generator or returns an awaitable.
+        # If run_commands returns a single string, we yield it and finish.
+        result = await run_commands(commands, target_room, elevated=elevated)
+        yield result
 
     def run_commands(
         self,
@@ -30,60 +43,19 @@ class ShellCommandInterface:
         elevated: bool = False,
         idle_timeout: Optional[float] = None,
     ) -> str:
-        """
-        Synchronous entry-point for backward compatibility, aligned with the new ShellClient.
-        The idle_timeout parameter is logged but not used, since the new client uses an explicit completion signal.
-        """
+        """Keep for backward compatibility with pure sync parts of the app."""
         target_room = thread_id or self.default_thread_id
-        timeout = idle_timeout if idle_timeout is not None else self.idle_timeout
-        self.logging_utility.info(
-            f"Executing sync commands on room: {target_room} with elevation={elevated} (idle_timeout={timeout} ignored)"
-        )
         return run_commands_sync(commands, target_room, elevated=elevated)
 
-    async def _execute_commands(
-        self,
-        commands: List[str],
-        thread_id: Optional[str] = None,
-        elevated: bool = False,
-        idle_timeout: Optional[float] = None,
-    ) -> str:
-        """
-        Async entry-point explicitly aligned with new async ShellClient.
-        The idle_timeout parameter is logged but not passed to the client.
-        """
-        target_room = thread_id or self.default_thread_id
-        timeout = idle_timeout if idle_timeout is not None else self.idle_timeout
-        self.logging_utility.info(
-            f"Executing async commands on room: {target_room} with elevation={elevated} (idle_timeout={timeout} ignored)"
-        )
-        result = await run_commands(commands, target_room, elevated=elevated)
-        return result
-
-    async def graceful_shutdown(self):
-        """
-        Graceful shutdown no-op (no longer required, workstation-specific management).
-        """
-        self.logging_utility.info("Shutdown called (no clients persist to shutdown).")
-
-
-def run_shell_commands(
+# --- NEW ASYNC ENTRY POINT ---
+async def run_shell_commands_async(
     commands: List[str],
     thread_id: Optional[str] = None,
     elevated: bool = False,
     endpoint: Optional[str] = None,
-    idle_timeout: Optional[float] = None,
-) -> str:
-    service = ShellCommandInterface(
-        endpoint=endpoint, thread_id=thread_id, idle_timeout=idle_timeout or 2.0
-    )
-    return service.run_commands(
-        commands, thread_id=thread_id, elevated=elevated, idle_timeout=idle_timeout
-    )
-
-
-if __name__ == "__main__":
-    commands = ["echo 'Hello from your personal Linux computer'", "ls -la", "pwd"]
-    output = run_shell_commands(commands, elevated=True, idle_timeout=5.0)
-    print(output)
-    logging_utility.info("Collected output:\n%s", output)
+) -> AsyncGenerator[str, None]:
+    service = ShellCommandInterface(endpoint=endpoint, thread_id=thread_id)
+    async for chunk in service.run_commands_async_stream(
+        commands, thread_id=thread_id, elevated=elevated
+    ):
+        yield chunk
