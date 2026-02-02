@@ -89,9 +89,7 @@ class ConsumerToolHandlersMixin:
                 status=StatusEnum.failed.value,
             )
 
-    def _format_error_payload(
-        self, exc: Exception, include_traceback: bool = False
-    ) -> str:
+    def _format_error_payload(self, exc: Exception, include_traceback: bool = False) -> str:
         """Structures errors for user-facing output."""
         error_data = {"error_type": exc.__class__.__name__, "message": str(exc)}
         if isinstance(exc, HTTPStatusError):
@@ -133,9 +131,8 @@ class ConsumerToolHandlersMixin:
         )
 
     # ------------------------------------------------------------------
-    # 🔧 ASYNC TOOL CALL PROCESSOR
+    # ASYNC TOOL CALL PROCESSOR (Reactive Mode - No Polling)
     # ------------------------------------------------------------------
-
     async def _process_tool_calls(
         self,
         thread_id: str,
@@ -144,63 +141,25 @@ class ConsumerToolHandlersMixin:
         run_id: str,
         *,
         tool_call_id: Optional[str] = None,
-        api_key: Optional[str] = None,
-        poll_interval: float = 1.5,
-        max_wait: float = 120.0,
         decision: Optional[Dict] = None,
+        **kwargs,
     ) -> AsyncGenerator[str, None]:
         """
-        Async Generator for consumer-side tools.
-        1. Creates Action in DB (via Thread).
-        2. Yields manifest.
-        3. Polls DB non-blockingly.
+        Reactive Mode: Yield manifest and RETURN.
+        Client will execute and initiate Turn 2 in a NEW request.
         """
-        content = content or {}
-        tool_name = (
-            content.get("name")
-            or content.get("tool_name")
-            or content.get("function", {}).get("name")
+        tool_name = content.get("name") or content.get("tool_name")
+        tool_args = content.get("arguments") or content.get("args") or {}
+
+        # 1. Create Action
+        action = await asyncio.to_thread(
+            self.project_david_client.actions.create_action,
+            tool_name=tool_name,
+            run_id=run_id,
+            tool_call_id=tool_call_id,
+            function_args=tool_args,
+            decision=decision,
         )
-        tool_args = (
-            content.get("arguments")
-            or content.get("args")
-            or content.get("function", {}).get("arguments")
-            or {}
-        )
-
-        if not tool_name:
-            LOG.error("TOOL-HANDLER ▸ missing tool name")
-            yield json.dumps(
-                {"type": "error", "error": "Missing tool name", "run_id": run_id}
-            )
-            return
-
-        if isinstance(tool_args, str):
-            try:
-                tool_args = json.loads(tool_args)
-            except:
-                pass
-
-        # 1. Create Action record in background thread
-        try:
-            action = await asyncio.to_thread(
-                self.project_david_client.actions.create_action,
-                tool_name=tool_name,
-                run_id=run_id,
-                tool_call_id=tool_call_id,
-                function_args=tool_args,
-                decision=decision,
-            )
-        except Exception as e:
-            LOG.error(f"Critical failure creating action: {e}")
-            yield json.dumps(
-                {
-                    "type": "error",
-                    "error": f"Action creation failed: {e}",
-                    "run_id": run_id,
-                }
-            )
-            return
 
         # 2. Yield manifest
         if action and action.id:
@@ -214,73 +173,34 @@ class ConsumerToolHandlersMixin:
                 }
             )
 
-        try:
-            # 3. Update Run Status to Pending
-            await asyncio.to_thread(
-                self.project_david_client.runs.update_run_status,
-                run_id,
-                StatusEnum.pending_action.value,
-            )
+        # 3. Set status to pending
+        await asyncio.to_thread(
+            self.project_david_client.runs.update_run_status,
+            run_id,
+            StatusEnum.pending_action.value,
+        )
+        return  # Terminate stream
 
-            # 4. Non-blocking Poll
-            await self._poll_for_completion(run_id, action.id, max_wait, poll_interval)
-
-            LOG.debug("Tool %s completed (run %s)", tool_name, run_id)
-
-            yield json.dumps(
-                {
-                    "type": "status",
-                    "status": "tool_output_received",
-                    "run_id": run_id,
-                }
-            )
-
-        except Exception as exc:
-            await self._handle_tool_error(
-                exc,
-                thread_id=thread_id,
-                assistant_id=assistant_id,
-                action=action,
-            )
-            yield json.dumps({"type": "error", "error": str(exc), "run_id": run_id})
-
-    async def _poll_for_completion(
-        self, run_id: str, action_id: str, max_wait: float, poll_interval: float
+    async def finalize_conversation(
+        self,
+        assistant_reply: str,
+        thread_id: str,
+        assistant_id: str,
+        run_id: str,
+        final_status: Optional[str] = None,  # NEW: Allow overriding the auto-complete
     ) -> None:
-        """Async polling loop."""
-        start_time = asyncio.get_event_loop().time()
-        terminal_statuses = {
-            s.value
-            for s in [StatusEnum.completed, StatusEnum.failed, StatusEnum.cancelled]
-        }
+        if not assistant_reply:
+            return
 
-        while True:
-            # Check Actions (Threaded)
-            pending = await asyncio.to_thread(
-                self.project_david_client.actions.get_pending_actions, run_id=run_id
-            )
-            if not pending:
-                break
-
-            # Check Run Status (Threaded)
-            run = await asyncio.to_thread(
-                self.project_david_client.runs.retrieve_run, run_id
-            )
-            status_val = (
-                run.status.value if hasattr(run.status, "value") else str(run.status)
-            )
-
-            if status_val in terminal_statuses:
-                LOG.warning(f"Poll aborted. Run {run_id} is terminal: {status_val}")
-                break
-
-            if (asyncio.get_event_loop().time() - start_time) > max_wait:
-                raise TimeoutError(f"Action {action_id} timed out after {max_wait}s")
-
-            # CRITICAL: Non-blocking sleep
-            await asyncio.sleep(poll_interval)
-
-    # ------------------------------------------------------------------
+        await asyncio.to_thread(
+            self._save_assistant_message,
+            thread_id,
+            assistant_id,
+            run_id,
+            assistant_reply,
+            is_error=False,
+            forced_status=final_status,  # Pass the status through
+        )
 
     async def finalize_conversation(
         self, assistant_reply: str, thread_id: str, assistant_id: str, run_id: str
@@ -319,8 +239,8 @@ class ConsumerToolHandlersMixin:
         content: str = "",
         *,
         is_error: bool,
+        forced_status: Optional[str] = None # NEW parameter
     ) -> None:
-        """Internal sync method called via to_thread."""
         self.project_david_client.messages.save_assistant_message_chunk(
             thread_id=thread_id,
             content=content,
@@ -329,9 +249,7 @@ class ConsumerToolHandlersMixin:
             sender_id=assistant_id,
             is_last_chunk=True,
         )
-        self.project_david_client.runs.update_run_status(
-            run_id=run_id,
-            new_status=(
-                StatusEnum.failed.value if is_error else StatusEnum.completed.value
-            ),
-        )
+
+        # FIX: Only update status if not explicitly overridden
+        status = forced_status or (StatusEnum.failed.value if is_error else StatusEnum.completed.value)
+        self.project_david_client.runs.update_run_status(run_id=run_id, new_status=status)
