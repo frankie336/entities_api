@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import traceback
-from typing import Any, Dict, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Dict, Optional
 
 from dotenv import load_dotenv
 from httpx import HTTPStatusError

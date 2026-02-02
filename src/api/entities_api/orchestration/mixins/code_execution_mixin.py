@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
-from typing import Any, Dict, List, Optional, AsyncGenerator
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from src.api.entities_api.services.logging_service import LoggingUtility
 
@@ -48,7 +48,10 @@ class CodeExecutionMixin:
         except Exception as e:
             LOG.error(f"CodeInterpreter ▸ Action creation failed: {e}")
             yield json.dumps(
-                {"type": "error", "chunk": {"type": "error", "content": f"Creation failed: {e}"}}
+                {
+                    "type": "error",
+                    "chunk": {"type": "error", "content": f"Creation failed: {e}"},
+                }
             )
             return
 
@@ -132,7 +135,10 @@ class CodeExecutionMixin:
                             yield json.dumps(
                                 {
                                     "stream_type": "code_execution",
-                                    "chunk": {"type": "hot_code_output", "content": clean_content},
+                                    "chunk": {
+                                        "type": "hot_code_output",
+                                        "content": clean_content,
+                                    },
                                 }
                             )
 
@@ -141,7 +147,9 @@ class CodeExecutionMixin:
                             payload.get("uploaded_files"), list
                         ):
                             uploaded_files.extend(payload["uploaded_files"])
-                        yield json.dumps({"stream_type": "code_execution", "chunk": payload})
+                        yield json.dumps(
+                            {"stream_type": "code_execution", "chunk": payload}
+                        )
 
                     elif ctype == "error":
                         LOG.error(f"CodeInterpreter ▸ Error: {content}")
@@ -156,11 +164,16 @@ class CodeExecutionMixin:
         except Exception as stream_err:
             LOG.error(f"CodeInterpreter ▸ Stream error: {stream_err}")
             yield json.dumps(
-                {"type": "error", "chunk": {"type": "error", "content": str(stream_err)}}
+                {
+                    "type": "error",
+                    "chunk": {"type": "error", "content": str(stream_err)},
+                }
             )
 
         # 4. Final Summary Construction
-        final_content = "\n".join(hot_code_buffer).strip() or "[Code executed successfully.]"
+        final_content = (
+            "\n".join(hot_code_buffer).strip() or "[Code executed successfully.]"
+        )
 
         # 5. Process Files
         for file_meta in uploaded_files:
@@ -273,7 +286,9 @@ class CodeExecutionMixin:
 
             # Visual De-escaping
             clean_segment = (
-                unsent_buffer.replace("\\n", "\n").replace('\\"', '"').replace("\\'", "'")
+                unsent_buffer.replace("\\n", "\n")
+                .replace('\\"', '"')
+                .replace("\\'", "'")
             )
 
             # Squelch structural closers at the tail end (visual only)

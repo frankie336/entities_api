@@ -1,4 +1,5 @@
-from entities_api.platform_tools.definitions.code_interpreter import code_interpreter
+from entities_api.platform_tools.definitions.code_interpreter import \
+    code_interpreter
 from entities_api.platform_tools.definitions.computer import computer
 from entities_api.platform_tools.definitions.file_search import file_search
 from entities_api.platform_tools.definitions.web_search import web_search

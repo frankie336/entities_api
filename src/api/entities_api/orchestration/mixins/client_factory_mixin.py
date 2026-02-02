@@ -12,70 +12,14 @@ from projectdavid import Entity
 from together import Together
 
 # Import your AsyncHyperbolicClient definition
-from entities_api.clients.unified_async_client import AsyncUnifiedInferenceClient
+from entities_api.clients.unified_async_client import (
+    _ACTIVE_CLIENTS, AsyncUnifiedInferenceClient)
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 load_dotenv()
 LOG = LoggingUtility()
 
 T = TypeVar("T")
-
-
-# -----------------------------------------------------------------------------
-# HIGH-PERFORMANCE STREAMING BRIDGE (Module Level)
-# -----------------------------------------------------------------------------
-def async_to_sync_stream(agen: AsyncGenerator[T, None]) -> Generator[T, None, None]:
-    """
-    True Streaming Bridge: Runs the async stream in a continuous background thread.
-    This prevents 'Stop-and-Go' latency during the SSL Handshake and generation.
-    """
-    # Use a thread-safe queue to bridge the async worker and sync consumer
-    # maxsize=100 provides a healthy buffer if the consumer is slower than the network
-    q = queue.Queue(maxsize=100)
-
-    # Sentinel objects to mark stream events
-    NEXT_ITEM = object()
-    DONE = object()
-
-    def _producer():
-        """
-        Runs in a separate thread.
-        Maintains a healthy, continuous event loop for the connection.
-        """
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        async def consume_stream():
-            try:
-                # The connection is established and maintained continuously here
-                async for item in agen:
-                    q.put((NEXT_ITEM, item))
-            except Exception as e:
-                # Pass exceptions (like connection errors) to the main thread
-                q.put((NEXT_ITEM, e))
-            finally:
-                q.put((DONE, None))
-
-        try:
-            loop.run_until_complete(consume_stream())
-        finally:
-            loop.close()
-
-    # 1. Start the connection in the background immediately
-    t = threading.Thread(target=_producer, daemon=True)
-    t.start()
-
-    # 2. Consume items the moment they hit the queue
-    while True:
-        status, item = q.get()
-
-        if status is DONE:
-            break
-
-        if isinstance(item, Exception):
-            raise item
-
-        yield item
 
 
 # -----------------------------------------------------------------------------
@@ -141,3 +85,29 @@ class ClientFactoryMixin:
         except Exception as exc:
             LOG.error("Hyperbolic client init failed: %s", exc, exc_info=True)
             raise
+
+    def _get_cached_unified_client(
+        self, api_key: str, base_url: str, enable_logging: bool = False
+    ) -> AsyncUnifiedInferenceClient:
+        """
+        Returns a cached client instance for the given API key/Base URL combo.
+        This prevents SSL Handshake overhead on every request.
+        """
+        cache_key = f"{api_key[-6:]}@{base_url}"  # Simple hash key
+
+        if cache_key not in _ACTIVE_CLIENTS:
+            client = AsyncUnifiedInferenceClient(
+                api_key=api_key, base_url=base_url, enable_chunk_logging=enable_logging
+            )
+            _ACTIVE_CLIENTS[cache_key] = client
+
+        # Check if the event loop is closed (rare edge case in some runners)
+        client = _ACTIVE_CLIENTS[cache_key]
+        if client.client.is_closed:
+            # Re-create if closed
+            client = AsyncUnifiedInferenceClient(
+                api_key=api_key, base_url=base_url, enable_chunk_logging=enable_logging
+            )
+            _ACTIVE_CLIENTS[cache_key] = client
+
+        return client

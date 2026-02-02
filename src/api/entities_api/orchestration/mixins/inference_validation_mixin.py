@@ -2,8 +2,9 @@
 
 import json
 import re
-from typing import List, Dict, Any, Union
-from jsonschema import validate, ValidationError
+from typing import Any, Dict, List, Union
+
+from jsonschema import ValidationError, validate
 
 
 class InferenceValidationMixin:

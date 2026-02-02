@@ -19,10 +19,12 @@ from projectdavid.clients.users_client import UsersClient
 from projectdavid.clients.vectors import VectorStoreClient
 
 from entities_api.cache.assistant_cache import AssistantCache
-from entities_api.platform_tools.handlers.code_interpreter.code_execution_client import (
-    StreamOutput,
-)
-from src.api.entities_api.services.conversation_truncator import ConversationTruncator
+from entities_api.clients.unified_async_client import \
+    AsyncUnifiedInferenceClient
+from entities_api.platform_tools.handlers.code_interpreter.code_execution_client import \
+    StreamOutput
+from src.api.entities_api.services.conversation_truncator import \
+    ConversationTruncator
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 load_dotenv()
@@ -86,6 +88,11 @@ class ServiceRegistryMixin:
             api_key=os.getenv("ADMIN_API_KEY"),
             base_url=os.getenv("ASSISTANTS_BASE_URL"),
         )
+
+    @property
+    def cached_unified_client(self, api_key, base_url):
+
+        return (self._get_cached_unified_client(api_key=api_key, base_url=base_url),)
 
     @property
     def conversation_truncator(self) -> ConversationTruncator:

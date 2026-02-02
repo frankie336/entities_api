@@ -3,9 +3,9 @@ import ast
 import asyncio
 import os
 import re
+import shutil  # Added for robust cleanup
 import tempfile
 import time
-import shutil  # Added for robust cleanup
 import traceback
 from typing import Tuple
 
@@ -26,7 +26,9 @@ class StreamingCodeExecutionHandler:
         # ───────────────────────── DIRS ──────────────────────────
         # FIX: Move mpl_cache OUTSIDE of generated_files to prevent recursive upload errors
         self.root_dir = os.getcwd()
-        self.generated_files_dir = os.path.abspath(os.path.join(self.root_dir, "generated_files"))
+        self.generated_files_dir = os.path.abspath(
+            os.path.join(self.root_dir, "generated_files")
+        )
         self.mpl_cache_dir = os.path.abspath(os.path.join(self.root_dir, "mpl_cache"))
 
         os.makedirs(self.generated_files_dir, exist_ok=True)
@@ -126,12 +128,16 @@ class StreamingCodeExecutionHandler:
                         len(line) - len(stripped)
                     ) and next_stripped:
                         final_lines.append(line)
-                        final_lines.append(" " * (len(line) - len(stripped) + indent_size) + "pass")
+                        final_lines.append(
+                            " " * (len(line) - len(stripped) + indent_size) + "pass"
+                        )
                     else:
                         final_lines.append(line)
                 else:
                     final_lines.append(line)
-                    final_lines.append(" " * (len(line) - len(stripped) + indent_size) + "pass")
+                    final_lines.append(
+                        " " * (len(line) - len(stripped) + indent_size) + "pass"
+                    )
             else:
                 final_lines.append(line)
             i += 1
@@ -148,7 +154,9 @@ class StreamingCodeExecutionHandler:
             fixed_code, success = self._fix_common_syntax_errors(code, e)
             return fixed_code if success else code
 
-    def _fix_common_syntax_errors(self, code: str, error: SyntaxError) -> Tuple[str, bool]:
+    def _fix_common_syntax_errors(
+        self, code: str, error: SyntaxError
+    ) -> Tuple[str, bool]:
         lines = code.split("\n")
         line_number = error.lineno - 1
         if line_number >= len(lines) or line_number < 0:
@@ -157,13 +165,15 @@ class StreamingCodeExecutionHandler:
         if "indentation" in error_msg:
             if "expected an indented block" in error_msg:
                 lines[line_number] = (
-                    " " * (len(prob_line) - len(prob_line.lstrip()) + 4) + prob_line.lstrip()
+                    " " * (len(prob_line) - len(prob_line.lstrip()) + 4)
+                    + prob_line.lstrip()
                 )
                 return "\n".join(lines), True
             elif "unexpected indent" in error_msg:
                 prev_line = lines[line_number - 1] if line_number > 0 else ""
                 lines[line_number] = (
-                    " " * (len(prev_line) - len(prev_line.lstrip())) + prob_line.lstrip()
+                    " " * (len(prev_line) - len(prev_line.lstrip()))
+                    + prob_line.lstrip()
                 )
                 return "\n".join(lines), True
         elif "parentheses" in error_msg and "(" in prob_line:
@@ -249,7 +259,9 @@ class StreamingCodeExecutionHandler:
             except:
                 pass
 
-    async def _stream_process_output(self, proc, websocket: WebSocket, execution_id: str) -> None:
+    async def _stream_process_output(
+        self, proc, websocket: WebSocket, execution_id: str
+    ) -> None:
         try:
             while True:
                 line = await asyncio.wait_for(proc.stdout.readline(), timeout=30)
@@ -281,7 +293,8 @@ class StreamingCodeExecutionHandler:
     async def _upload_generated_files(self, user_id: str) -> list:
         uploaded_files = []
         client = Entity(
-            api_key=os.getenv("ADMIN_API_KEY"), base_url="http://fastapi_cosmic_catalyst:9000"
+            api_key=os.getenv("ADMIN_API_KEY"),
+            base_url="http://fastapi_cosmic_catalyst:9000",
         )
 
         async def upload_single_file(filename, file_path):
@@ -289,11 +302,15 @@ class StreamingCodeExecutionHandler:
             if os.path.isdir(file_path):
                 return None
             try:
-                upload = client.files.upload_file(file_path=file_path, purpose="assistants")
+                upload = client.files.upload_file(
+                    file_path=file_path, purpose="assistants"
+                )
                 return {
                     "filename": filename,
                     "id": upload.id,
-                    "url": client.files.get_signed_url(upload.id, use_real_filename=True),
+                    "url": client.files.get_signed_url(
+                        upload.id, use_real_filename=True
+                    ),
                 }
             except Exception as e:
                 self.logging_utility.error("Upload failed for %s: %s", filename, str(e))
@@ -303,7 +320,9 @@ class StreamingCodeExecutionHandler:
         tasks = []
         for fname in os.listdir(self.generated_files_dir):
             fpath = os.path.join(self.generated_files_dir, fname)
-            if self.last_executed_script_path and os.path.exists(self.last_executed_script_path):
+            if self.last_executed_script_path and os.path.exists(
+                self.last_executed_script_path
+            ):
                 if os.path.samefile(fpath, self.last_executed_script_path):
                     continue
             if os.path.isfile(fpath):

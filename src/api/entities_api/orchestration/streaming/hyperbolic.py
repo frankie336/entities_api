@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import AsyncGenerator, Any
+from typing import Any, AsyncGenerator
 
 from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility

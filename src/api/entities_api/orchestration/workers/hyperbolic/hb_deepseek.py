@@ -1,9 +1,8 @@
 import os
 
 from entities_api.clients.async_to_sync import async_to_sync_stream
-from src.api.entities_api.orchestration.workers.base_workers.deepseek_base import (
-    DeepSeekBaseWorker,
-)
+from src.api.entities_api.orchestration.workers.base_workers.deepseek_base import \
+    DeepSeekBaseWorker
 
 
 class HyperbolicDs1(DeepSeekBaseWorker):
