@@ -3,12 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import re
-import uuid
 from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Dict, Optional
 
 from dotenv import load_dotenv
+from projectdavid_common.constants import PLATFORM_TOOLS
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
@@ -339,8 +338,12 @@ class GptOssBaseWorker(
             ):
                 yield chunk
 
+            # -------------------------------------------------------------
+            #
             # 2. Strategy Split
-            PLATFORM_TOOLS = {"code_interpreter", "computer", "file_search"}
+            #
+            # Some platform tools interleave their own streamed responses
+            # ---------------------------------------------------------------
             if fc_name in PLATFORM_TOOLS:
                 self.set_tool_response_state(False)
                 self.set_function_call_state(None)

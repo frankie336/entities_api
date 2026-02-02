@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 PLATFORM_TOOLS = ["code_interpreter", "web_search", "vector_store_search", "computer"]
+
 TOOLS_ID_MAP = {
     "code_interpreter": "tool_79YkQEz5cDwpJjnR7oJ80D",
     "web_search": "tool_BiIwycpLo1n5Dh6BHN01v8",
