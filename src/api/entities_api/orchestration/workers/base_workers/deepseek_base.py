@@ -9,10 +9,12 @@ from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
-from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
-from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
 from entities_api.clients.delta_normalizer import DeltaNormalizer
+from src.api.entities_api.dependencies import get_redis
+from src.api.entities_api.orchestration.engine.orchestrator_core import \
+    OrchestratorCore
+from src.api.entities_api.orchestration.mixins.provider_mixins import \
+    _ProviderMixins
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -20,7 +22,9 @@ LOG = LoggingUtility()
 
 class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
-    def __init__(self, *, assistant_id=None, thread_id=None, redis=None, **extra) -> None:
+    def __init__(
+        self, *, assistant_id=None, thread_id=None, redis=None, **extra
+    ) -> None:
         self._assistant_cache = extra.get("assistant_cache") or {}
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
@@ -88,7 +92,9 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
             if model == "deepseek-ai/DeepSeek-R1":
                 amended = self._build_amended_system_message(assistant_id=assistant_id)
-                ctx = self.replace_system_message(ctx, json.dumps(amended, ensure_ascii=False))
+                ctx = self.replace_system_message(
+                    ctx, json.dumps(amended, ensure_ascii=False)
+                )
 
             payload = {
                 "model": model,
@@ -180,12 +186,18 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                     # Clean up any potential leftover newlines or whitespace
                     cleaned_decision = decision_buffer.strip()
                     self._decision_payload = json.loads(cleaned_decision)
-                    LOG.info(f"Decision payload validated and saved: {self._decision_payload}")
+                    LOG.info(
+                        f"Decision payload validated and saved: {self._decision_payload}"
+                    )
                 except json.JSONDecodeError as e:
-                    LOG.error(f"Failed to parse decision payload: {e}. Raw: {decision_buffer}")
+                    LOG.error(
+                        f"Failed to parse decision payload: {e}. Raw: {decision_buffer}"
+                    )
                     # Optionally handle partial failures or save raw string
 
-            yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
+            yield json.dumps(
+                {"type": "status", "status": "processing", "run_id": run_id}
+            )
 
             # --- 4. PERSISTENCE & HANDOVER PREP ---
             has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
@@ -194,7 +206,9 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             if has_fc:
                 try:
                     # Clean tags
-                    raw_json = accumulated.replace("<fc>", "").replace("</fc>", "").strip()
+                    raw_json = (
+                        accumulated.replace("<fc>", "").replace("</fc>", "").strip()
+                    )
                     payload_dict = json.loads(raw_json)
                     message_to_save = json.dumps(payload_dict)
                     self._pending_tool_payload = payload_dict
@@ -204,15 +218,21 @@ class DeepSeekBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                     message_to_save = accumulated
 
             if message_to_save:
-                self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
+                self.finalize_conversation(
+                    message_to_save, thread_id, assistant_id, run_id
+                )
 
             if has_fc:
                 self.project_david_client.runs.update_run_status(
                     run_id, StatusEnum.pending_action.value
                 )
             else:
-                self.project_david_client.runs.update_run_status(run_id, StatusEnum.completed.value)
-                yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
+                self.project_david_client.runs.update_run_status(
+                    run_id, StatusEnum.completed.value
+                )
+                yield json.dumps(
+                    {"type": "status", "status": "complete", "run_id": run_id}
+                )
 
         except Exception as exc:
             err = {"type": "error", "content": str(exc)}

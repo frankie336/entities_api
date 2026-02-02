@@ -50,7 +50,8 @@ class ToolRoutingMixin:
         Scans text for tool call payloads, supporting both <fc> tags and raw JSON.
         Returns the parsed dictionary and sets internal state.
         """
-        from src.api.entities_api.orchestration.mixins.json_utils_mixin import JsonUtilsMixin
+        from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
+            JsonUtilsMixin
 
         if not isinstance(self, JsonUtilsMixin):
             raise TypeError("ToolRoutingMixin must be mixed with JsonUtilsMixin")
@@ -94,7 +95,9 @@ class ToolRoutingMixin:
             return None
 
         # Check accumulated content (streaming buffer) or final reply
-        parsed_fc = _extract_json_block(accumulated_content) or _extract_json_block(assistant_reply)
+        parsed_fc = _extract_json_block(accumulated_content) or _extract_json_block(
+            assistant_reply
+        )
 
         if parsed_fc:
             self.set_tool_response_state(True)
@@ -158,7 +161,9 @@ class ToolRoutingMixin:
 
         # --- HEALING LOGIC (Recovery for flat payloads) ---
         if not name and decision:
-            inferred_name = decision.get("tool") or decision.get("function") or decision.get("name")
+            inferred_name = (
+                decision.get("tool") or decision.get("function") or decision.get("name")
+            )
             if inferred_name:
                 LOG.info(
                     "TOOL-ROUTER ▸ Healing flat payload using decision tool='%s'",

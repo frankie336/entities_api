@@ -12,6 +12,7 @@ from src.api.entities_api.services.logging_service import LoggingUtility
 
 LOG = LoggingUtility()
 
+
 class ShellExecutionMixin:
     """Executes POSIX‑style shell commands inside the Project‑David sandbox asynchronously."""
 
@@ -30,10 +31,12 @@ class ShellExecutionMixin:
         """
         LOG.info("ShellExecutionMixin: started for run_id=%s", run_id)
 
-        yield json.dumps({
-            "stream_type": "computer_execution",
-            "chunk": {"type": "status", "status": "started", "run_id": run_id},
-        })
+        yield json.dumps(
+            {
+                "stream_type": "computer_execution",
+                "chunk": {"type": "status", "status": "started", "run_id": run_id},
+            }
+        )
 
         # 1. Create Action Record
         try:
@@ -43,20 +46,33 @@ class ShellExecutionMixin:
                 run_id=run_id,
                 tool_call_id=tool_call_id,
                 function_args=arguments_dict,
-                decision=decision, # Corrected to 'decision'
+                decision=decision,  # Corrected to 'decision'
             )
         except Exception as e:
             LOG.error(f"ShellExecution ▸ Action creation failed: {e}")
-            yield json.dumps({
-                "stream_type": "computer_execution",
-                "chunk": {"type": "error", "content": f"Creation failed: {e}"},
-            })
+            yield json.dumps(
+                {
+                    "stream_type": "computer_execution",
+                    "chunk": {"type": "error", "content": f"Creation failed: {e}"},
+                }
+            )
             return
 
         commands: List[str] = arguments_dict.get("commands", [])
         if not commands:
-            await self.submit_tool_output(thread_id=thread_id, assistant_id=assistant_id, tool_call_id=tool_call_id, content="No commands provided.", action=action)
-            yield json.dumps({"stream_type": "computer_execution", "chunk": {"type": "status", "status": "complete", "run_id": run_id}})
+            await self.submit_tool_output(
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                tool_call_id=tool_call_id,
+                content="No commands provided.",
+                action=action,
+            )
+            yield json.dumps(
+                {
+                    "stream_type": "computer_execution",
+                    "chunk": {"type": "status", "status": "complete", "run_id": run_id},
+                }
+            )
             return
 
         accumulated_content = ""
@@ -68,16 +84,30 @@ class ShellExecutionMixin:
                 accumulated_content += chunk
 
                 # Wrap output for the normalizer
-                yield json.dumps({
-                    "stream_type": "computer_execution",
-                    "chunk": {"type": "computer_output", "content": chunk},
-                })
+                yield json.dumps(
+                    {
+                        "stream_type": "computer_execution",
+                        "chunk": {"type": "computer_output", "content": chunk},
+                    }
+                )
 
         except Exception as e:
             err_msg = f"Error during shell execution: {e}"
             LOG.error(f"ShellExecution ▸ {err_msg}")
-            yield json.dumps({"stream_type": "computer_execution", "chunk": {"type": "error", "content": err_msg}})
-            await self.submit_tool_output(thread_id=thread_id, assistant_id=assistant_id, tool_call_id=tool_call_id, content=err_msg, action=action, is_error=True)
+            yield json.dumps(
+                {
+                    "stream_type": "computer_execution",
+                    "chunk": {"type": "error", "content": err_msg},
+                }
+            )
+            await self.submit_tool_output(
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                tool_call_id=tool_call_id,
+                content=err_msg,
+                action=action,
+                is_error=True,
+            )
             return
 
         # 3. Final Submission (Awaiting async submit)
@@ -89,7 +119,9 @@ class ShellExecutionMixin:
             action=action,
         )
 
-        yield json.dumps({
-            "stream_type": "computer_execution",
-            "chunk": {"type": "status", "status": "complete", "run_id": run_id},
-        })
+        yield json.dumps(
+            {
+                "stream_type": "computer_execution",
+                "chunk": {"type": "status", "status": "complete", "run_id": run_id},
+            }
+        )

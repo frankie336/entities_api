@@ -19,12 +19,13 @@ from projectdavid.clients.users_client import UsersClient
 from projectdavid.clients.vectors import VectorStoreClient
 
 from entities_api.cache.assistant_cache import AssistantCache
-from entities_api.platform_tools.handlers.code_interpreter.code_execution_client import (
-    StreamOutput,
-)
-from src.api.entities_api.services.conversation_truncator import ConversationTruncator
+from entities_api.platform_tools.handlers.code_interpreter.code_execution_client import \
+    StreamOutput
+from src.api.entities_api.orchestration.mixins.client_factory_mixin import \
+    ClientFactoryMixin
+from src.api.entities_api.services.conversation_truncator import \
+    ConversationTruncator
 from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.orchestration.mixins.client_factory_mixin import ClientFactoryMixin
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -49,7 +50,9 @@ class ServiceRegistryMixin(ClientFactoryMixin):
                 self._services[service_cls] = obj
                 LOG.debug("Instantiated %s", service_cls.__name__)
             except Exception as exc:
-                LOG.error("Init failed for %s: %s", service_cls.__name__, exc, exc_info=True)
+                LOG.error(
+                    "Init failed for %s: %s", service_cls.__name__, exc, exc_info=True
+                )
                 raise
         return self._services[service_cls]
 
@@ -69,7 +72,9 @@ class ServiceRegistryMixin(ClientFactoryMixin):
             elif param.default is not inspect.Parameter.empty:
                 resolved.append(param.default)
             else:
-                raise MissingParameterError(f"{service_cls.__name__}: '{name}' not found")
+                raise MissingParameterError(
+                    f"{service_cls.__name__}: '{name}' not found"
+                )
         return tuple(resolved)
 
     @property

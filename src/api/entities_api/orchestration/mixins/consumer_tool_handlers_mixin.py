@@ -89,7 +89,9 @@ class ConsumerToolHandlersMixin:
                 status=StatusEnum.failed.value,
             )
 
-    def _format_error_payload(self, exc: Exception, include_traceback: bool = False) -> str:
+    def _format_error_payload(
+        self, exc: Exception, include_traceback: bool = False
+    ) -> str:
         """Structures errors for user-facing output."""
         error_data = {"error_type": exc.__class__.__name__, "message": str(exc)}
         if isinstance(exc, HTTPStatusError):
@@ -239,7 +241,7 @@ class ConsumerToolHandlersMixin:
         content: str = "",
         *,
         is_error: bool,
-        forced_status: Optional[str] = None # NEW parameter
+        forced_status: Optional[str] = None,  # NEW parameter
     ) -> None:
         self.project_david_client.messages.save_assistant_message_chunk(
             thread_id=thread_id,
@@ -251,5 +253,9 @@ class ConsumerToolHandlersMixin:
         )
 
         # FIX: Only update status if not explicitly overridden
-        status = forced_status or (StatusEnum.failed.value if is_error else StatusEnum.completed.value)
-        self.project_david_client.runs.update_run_status(run_id=run_id, new_status=status)
+        status = forced_status or (
+            StatusEnum.failed.value if is_error else StatusEnum.completed.value
+        )
+        self.project_david_client.runs.update_run_status(
+            run_id=run_id, new_status=status
+        )

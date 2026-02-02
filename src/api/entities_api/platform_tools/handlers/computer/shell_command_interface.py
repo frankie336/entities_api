@@ -1,10 +1,11 @@
-from typing import List, Optional, AsyncGenerator
+from typing import AsyncGenerator, List, Optional
 
 from entities_api.platform_tools.handlers.computer.shell_command_client import (
     run_commands, run_commands_sync)
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 logging_utility = LoggingUtility()
+
 
 class ShellCommandInterface:
     def __init__(
@@ -46,6 +47,7 @@ class ShellCommandInterface:
         """Keep for backward compatibility with pure sync parts of the app."""
         target_room = thread_id or self.default_thread_id
         return run_commands_sync(commands, target_room, elevated=elevated)
+
 
 # --- NEW ASYNC ENTRY POINT ---
 async def run_shell_commands_async(

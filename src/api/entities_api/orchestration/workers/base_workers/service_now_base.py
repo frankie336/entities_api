@@ -8,11 +8,13 @@ from typing import Any, Dict, Generator, Optional
 from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from entities_api.models.models import StatusEnum
 from entities_api.clients.delta_normalizer import DeltaNormalizer
+from entities_api.models.models import StatusEnum
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
-from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
+from src.api.entities_api.orchestration.engine.orchestrator_core import \
+    OrchestratorCore
+from src.api.entities_api.orchestration.mixins.provider_mixins import \
+    _ProviderMixins
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -20,14 +22,18 @@ LOG = LoggingUtility()
 
 class ServiceNowBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
-    def __init__(self, *, assistant_id=None, thread_id=None, redis=None, **extra) -> None:
+    def __init__(
+        self, *, assistant_id=None, thread_id=None, redis=None, **extra
+    ) -> None:
         self._assistant_cache = extra.get("assistant_cache") or {}
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
         self.base_url = os.getenv("BASE_URL")
         self.api_key = extra.get("api_key")
-        self.model_name = extra.get("model_name", "ServiceNow-AI/Apriel-1.6-15b-Thinker")
+        self.model_name = extra.get(
+            "model_name", "ServiceNow-AI/Apriel-1.6-15b-Thinker"
+        )
         self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
 
@@ -165,7 +171,9 @@ class ServiceNowBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             # ------------------------------------------------------------------
             # Send a 'processing' signal to reset the client's timeout timer
             # while the server performs the blocking database save.
-            yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
+            yield json.dumps(
+                {"type": "status", "status": "processing", "run_id": run_id}
+            )
 
             # ------------------------------------------------------------------
             # 🔒 FIX 3: SAFE PERSISTENCE LOGIC
@@ -176,7 +184,9 @@ class ServiceNowBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             if has_fc:
                 try:
                     # Clean tags for JSON parsing
-                    raw_json = accumulated.replace("<fc>", "").replace("</fc>", "").strip()
+                    raw_json = (
+                        accumulated.replace("<fc>", "").replace("</fc>", "").strip()
+                    )
                     # Validate JSON structure
                     payload_dict = json.loads(raw_json)
 
@@ -188,14 +198,18 @@ class ServiceNowBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                     message_to_save = accumulated
 
             if message_to_save:
-                self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
+                self.finalize_conversation(
+                    message_to_save, thread_id, assistant_id, run_id
+                )
 
             if has_fc:
                 self.project_david_client.runs.update_run_status(
                     run_id, StatusEnum.pending_action.value
                 )
             else:
-                self.project_david_client.runs.update_run_status(run_id, StatusEnum.completed.value)
+                self.project_david_client.runs.update_run_status(
+                    run_id, StatusEnum.completed.value
+                )
 
         except Exception as exc:
             err = {"type": "error", "content": str(exc)}

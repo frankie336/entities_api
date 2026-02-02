@@ -12,13 +12,14 @@ from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
+from entities_api.clients.delta_normalizer import DeltaNormalizer
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
-
+from src.api.entities_api.orchestration.engine.orchestrator_core import \
+    OrchestratorCore
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
-from entities_api.clients.delta_normalizer import DeltaNormalizer
+from src.api.entities_api.orchestration.mixins.provider_mixins import \
+    _ProviderMixins
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -46,7 +47,9 @@ class GptOssBaseWorker(
         **extra,
     ) -> None:
         self._david_client: Any = None
-        self._assistant_cache: dict = assistant_cache or extra.get("assistant_cache") or {}
+        self._assistant_cache: dict = (
+            assistant_cache or extra.get("assistant_cache") or {}
+        )
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
@@ -110,7 +113,9 @@ class GptOssBaseWorker(
         current_block = None
 
         try:
-            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
+            if hasattr(self, "_get_model_map") and (
+                mapped := self._get_model_map(model)
+            ):
                 model = mapped
 
             raw_ctx = await self._set_up_context_window(
@@ -186,7 +191,11 @@ class GptOssBaseWorker(
 
         except Exception as exc:
             LOG.error(f"DEBUG: Stream Exception: {exc}")
-            err = {"type": "error", "content": f"GPT-OSS stream error: {exc}", "run_id": run_id}
+            err = {
+                "type": "error",
+                "content": f"GPT-OSS stream error: {exc}",
+                "run_id": run_id,
+            }
             yield json.dumps(err)
             await self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
@@ -228,7 +237,8 @@ class GptOssBaseWorker(
                                 {"name": func_name, "arguments": parsed_args}
                             )
                             accumulated = accumulated.replace(
-                                f"<fc>{original_content}</fc>", f"<fc>{valid_payload}</fc>"
+                                f"<fc>{original_content}</fc>",
+                                f"<fc>{valid_payload}</fc>",
                             )
                         except:
                             pass
@@ -238,7 +248,9 @@ class GptOssBaseWorker(
         # --- SYNC-REPLICA 4: Detection & Mixin State Sync ---
         has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
         mixin_state = (
-            self.get_function_call_state() if hasattr(self, "get_function_call_state") else has_fc
+            self.get_function_call_state()
+            if hasattr(self, "get_function_call_state")
+            else has_fc
         )
 
         message_to_save = assistant_reply
@@ -279,7 +291,9 @@ class GptOssBaseWorker(
 
         # --- SYNC-REPLICA 6: Persistence ---
         if message_to_save:
-            await self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
+            await self.finalize_conversation(
+                message_to_save, thread_id, assistant_id, run_id
+            )
 
         if self.project_david_client:
             await asyncio.to_thread(
@@ -298,7 +312,13 @@ class GptOssBaseWorker(
     ) -> AsyncGenerator[str, None]:
         # Turn 1
         async for chunk in self.stream(
-            thread_id, message_id, run_id, assistant_id, model, api_key=api_key, **kwargs
+            thread_id,
+            message_id,
+            run_id,
+            assistant_id,
+            model,
+            api_key=api_key,
+            **kwargs,
         ):
             yield chunk
 
