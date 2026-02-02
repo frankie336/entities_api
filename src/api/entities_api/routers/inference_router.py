@@ -1,7 +1,6 @@
-import asyncio
 import json
 import time
-from typing import Any, AsyncGenerator
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -19,90 +18,19 @@ router = APIRouter()
 logging_utility = LoggingUtility()
 
 
-async def run_sync_generator_in_thread(
-    sync_gen_func, *args, **kwargs
-) -> AsyncGenerator[Any, None]:
-    """
-    Runs a synchronous generator in a separate thread with NON-BLOCKING buffering.
-    Optimized for high-throughput streaming.
-    """
-    loop = asyncio.get_running_loop()
-    # Increased buffer size to handle bursts without blocking the producer thread
-    queue = asyncio.Queue(maxsize=1024)
-    finished_sentinel = object()
-
-    def run_generator():
-        try:
-            # Cache scheduling functions to avoid attribute lookup cost in tight loop
-            schedule = asyncio.run_coroutine_threadsafe
-            put = queue.put
-
-            for item in sync_gen_func(*args, **kwargs):
-                if loop.is_closed():
-                    break
-
-                # OPTIMIZATION 1: Fire and Forget.
-                # We do NOT call .result(). This allows the generator to sprint ahead
-                # filling the buffer without waiting for the Event Loop to wake up.
-                # Backpressure is handled naturally by queue.put (it will block if full).
-                schedule(put(item), loop)
-
-        except Exception as e:
-            logging_utility.error(f"Error in sync generator thread: {e}", exc_info=True)
-            if not loop.is_closed():
-                asyncio.run_coroutine_threadsafe(queue.put(e), loop)
-        finally:
-            if not loop.is_closed():
-                asyncio.run_coroutine_threadsafe(queue.put(finished_sentinel), loop)
-
-    # Start the thread
-    thread_task = loop.run_in_executor(None, run_generator)
-
-    try:
-        while True:
-            # Wait for at least one item
-            item = await queue.get()
-
-            if item is finished_sentinel:
-                break
-            if isinstance(item, Exception):
-                raise item
-
-            yield item
-
-            # OPTIMIZATION 3: Burst Flushing (Micro-Batching)
-            # If the thread has produced more items while we were awaiting/processing,
-            # grab them ALL now to send in one network packet.
-            # This reduces Event Loop context switching overhead significantly.
-            while not queue.empty():
-                try:
-                    next_item = queue.get_nowait()
-                    if next_item is finished_sentinel:
-                        # Put it back to ensure cleaner exit logic on next outer loop iteration
-                        await queue.put(finished_sentinel)
-                        break
-                    yield next_item
-                except asyncio.QueueEmpty:
-                    break
-
-    except Exception:
-        # If the consumer (client) disconnects, we cancel the producer
-        thread_task.cancel()
-        raise
-    finally:
-        if not thread_task.done():
-            thread_task.cancel()
-
-
 @router.post(
     "/completions",
     summary="Asynchronous completions streaming endpoint (Unified Orchestration)",
     response_description="A stream of JSON-formatted completions chunks",
 )
 async def completions(
-    stream_request: ValidationInterface.StreamRequest, redis: Redis = Depends(get_redis)
+    stream_request: ValidationInterface.StreamRequest,
+    redis: Redis = Depends(get_redis)
 ):
-    """Handles streaming completion requests using the appropriate inference provider."""
+    """
+    Handles streaming completion requests using the appropriate inference provider.
+    NOW FULLY ASYNC-NATIVE (No Threading Wrappers).
+    """
 
     logging_utility.info(
         "Completions endpoint called for model: %s, run: %s",
@@ -113,6 +41,7 @@ async def completions(
     try:
         arbiter = InferenceArbiter(redis=redis)
         selector = InferenceProviderSelector(arbiter)
+        # Assuming select_provider returns the initialized Async Worker
         general_handler_instance, api_model_name = selector.select_provider(
             model_id=stream_request.model
         )
@@ -130,45 +59,44 @@ async def completions(
         error_occurred = False
 
         try:
-            sync_gen_args = {
-                "thread_id": stream_request.thread_id,
-                "message_id": stream_request.message_id,
-                "run_id": run_id,
-                "assistant_id": stream_request.assistant_id,
-                "model": stream_request.model,
-                "stream_reasoning": False,
-                "api_key": stream_request.api_key,
-            }
-
-            async for chunk in run_sync_generator_in_thread(
-                general_handler_instance.process_conversation, **sync_gen_args
+            # -------------------------------------------------------
+            # DIRECT ASYNC ITERATION
+            # Removed: run_sync_generator_in_thread(...)
+            # -------------------------------------------------------
+            async for chunk in general_handler_instance.process_conversation(
+                thread_id=stream_request.thread_id,
+                message_id=stream_request.message_id,
+                run_id=run_id,
+                assistant_id=stream_request.assistant_id,
+                model=stream_request.model,
+                stream_reasoning=False,
+                api_key=stream_request.api_key,
             ):
                 chunk_count += 1
-                if chunk is None:
-                    continue
 
-                # OPTIMIZATION 2: Pass-Through Mode
-                # We assume the Worker has already formatted valid JSON with run_id.
-                # This avoids expensive json.loads() -> modify -> json.dumps().
-
+                # --- FORMATTING LOGIC ---
                 final_str = ""
 
                 if isinstance(chunk, str):
-                    # FAST PATH: It's a string. Trust it. Send it.
+                    # Fast path: It's already a JSON string from the worker
                     final_str = chunk
                 elif isinstance(chunk, dict):
-                    # SLOW PATH: Logic fallback if worker yields dicts
+                    # Ensure run_id exists
                     if "run_id" not in chunk:
                         chunk["run_id"] = run_id
                     final_str = json.dumps(chunk)
                 else:
-                    # Fallback for unknown types
-                    final_json_str = json.dumps(
+                    # Fallback
+                    final_str = json.dumps(
                         {"type": "content", "content": str(chunk), "run_id": run_id}
                     )
-                    final_str = final_json_str
 
+                # Yield SSE format
                 yield f"{prefix}{final_str}{suffix}"
+
+            # End of Stream
+            if not error_occurred:
+                yield "data: [DONE]\n\n"
 
         except Exception as e:
             error_occurred = True
@@ -176,10 +104,6 @@ async def completions(
             yield f"data: {json.dumps({'type': 'error', 'run_id': run_id, 'message': str(e)})}\n\n"
         finally:
             elapsed = time.time() - start_time
-            if not error_occurred:
-                yield "data: [DONE]\n\n"
-
-            # Log summary
             logging_utility.info(
                 f"Stream finished: {chunk_count} chunks in {elapsed:.2f}s"
             )
@@ -188,11 +112,10 @@ async def completions(
         stream_generator(),
         media_type="text/event-stream",
         headers={
-            "X-Accel-Buffering": "no",
+            "X-Accel-Buffering": "no",  # Critical for Nginx/Proxies
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            # Standard SSE headers
             "Content-Type": "text/event-stream",
-            "Transfer-Encoding": "chunked",
+            # "Transfer-Encoding": "chunked", # FastAPI handles this automatically
         },
     )

@@ -1,6 +1,7 @@
 # src/api/entities_api/orchestration/mixins/consumer_tool_handlers_mixin.py
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -46,7 +47,6 @@ class ConsumerToolHandlersMixin:
                 tool_id=getattr(action, "id", "dummy"),
             )
 
-            # Map bool to Enum
             final_status = StatusEnum.failed if is_error else StatusEnum.completed
 
             self.project_david_client.actions.update_action(
@@ -56,7 +56,7 @@ class ConsumerToolHandlersMixin:
         except Exception as exc:
             LOG.error("submit_tool_output failed: %s", exc, exc_info=True)
             self._submit_fallback_error(
-                thread_id, assistant_id, f"ERROR: {exc}", action
+                thread_id, assistant_id, error_msg=f"ERROR: {exc}", action=action
             )
 
     def _submit_fallback_error(
@@ -83,9 +83,7 @@ class ConsumerToolHandlersMixin:
                 action_id=action.id, status=StatusEnum.failed.value
             )
 
-    def _format_error_payload(
-        self, exc: Exception, include_traceback: bool = False
-    ) -> str:
+    def _format_error_payload(self, exc: Exception, include_traceback: bool = False) -> str:
         """Structures errors for user-facing output."""
         error_data = {"error_type": exc.__class__.__name__, "message": str(exc)}
         if isinstance(exc, HTTPStatusError):
@@ -122,6 +120,10 @@ class ConsumerToolHandlersMixin:
         )
         raise exc
 
+    # ------------------------------------------------------------------
+    # 🔧 ROBUST TOOL CALL PROCESSOR (merged fix)
+    # ------------------------------------------------------------------
+
     def _process_tool_calls(
         self,
         thread_id: str,
@@ -133,73 +135,110 @@ class ConsumerToolHandlersMixin:
         api_key: Optional[str] = None,
         poll_interval: float = 1.0,
         max_wait: float = 60.0,
-        # [NEW]
         decision: Optional[Dict] = None,
     ) -> Generator[str, None, None]:
         """
         Handles consumer-side tool calls.
         1. Creates Action in DB.
-        2. Yields 'Manifest' (Action ID + Args) to client.
-        3. Polls DB until client submits output (Blocking).
+        2. Yields manifest (Action ID + args).
+        3. Polls DB until client submits output.
         """
 
-        # 1. Create the Action Record with Decision Data
+        # -----------------------------
+        # Robust payload normalization
+        # -----------------------------
+        content = content or {}
+
+        tool_name = (
+            content.get("name")
+            or content.get("tool_name")
+            or content.get("function", {}).get("name")
+        )
+
+        tool_args = (
+            content.get("arguments")
+            or content.get("args")
+            or content.get("function", {}).get("arguments")
+            or {}
+        )
+
+        if not tool_name:
+            LOG.error("TOOL-HANDLER ▸ missing tool name in payload: %s", content)
+            yield json.dumps(
+                {
+                    "type": "error",
+                    "error": "Missing tool name in tool payload",
+                    "run_id": run_id,
+                }
+            )
+            return
+
+        if isinstance(tool_args, str):
+            try:
+                tool_args = json.loads(tool_args)
+            except Exception:
+                LOG.warning("TOOL-HANDLER ▸ arguments not JSON — passing raw string")
+
+        # -----------------------------
+        # Create Action record
+        # -----------------------------
         action = self.project_david_client.actions.create_action(
-            tool_name=content["name"],
+            tool_name=tool_name,
             run_id=run_id,
             tool_call_id=tool_call_id,
-            function_args=content["arguments"],
-            # [NEW] Pass to API/Service
+            function_args=tool_args,
             decision=decision,
         )
 
-        # 2. Construct & Yield the Manifest
-        # This tells the client "Here is the ID you need to execute".
-
+        # -----------------------------
+        # Yield manifest to client
+        # -----------------------------
         if action.id:
             manifest_chunk = {
                 "type": "tool_call_manifest",
                 "run_id": run_id,
-                "action_id": action.id,  # <--- Solves the race condition
-                "tool": content["name"],
-                "args": content["arguments"],
+                "action_id": action.id,
+                "tool": tool_name,
+                "args": tool_args,
             }
             yield json.dumps(manifest_chunk)
 
         try:
-            # 3. Signal that we are waiting
+            # Signal pending action
             self.project_david_client.runs.update_run_status(
                 run_id, StatusEnum.pending_action.value
             )
 
-            # 4. POLL (Blocking / Wait for Client)
-            # The worker stays alive here while the client performs the execution
-            # and POSTs the result back to the API.
+            # Blocking wait for client submission
             self._poll_for_completion(run_id, action.id, max_wait, poll_interval)
 
-            LOG.debug("Tool %s completed/processed (run %s)", content["name"], run_id)
+            LOG.debug("Tool %s completed/processed (run %s)", tool_name, run_id)
 
-            # Optional: Yield a status update so client knows server saw the completion
             yield json.dumps(
-                {"type": "status", "status": "tool_output_received", "run_id": run_id}
+                {
+                    "type": "status",
+                    "status": "tool_output_received",
+                    "run_id": run_id,
+                }
             )
 
         except Exception as exc:
             self._handle_tool_error(
-                exc, thread_id=thread_id, assistant_id=assistant_id, action=action
+                exc,
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                action=action,
             )
-            # Ensure the client knows something went wrong during the wait
             yield json.dumps({"type": "error", "error": str(exc), "run_id": run_id})
+
+    # ------------------------------------------------------------------
 
     def _poll_for_completion(
         self, run_id: str, action_id: str, max_wait: float, poll_interval: float
     ) -> None:
-        """
-        Polls until the Action is completed OR the Run reaches a terminal state.
-        """
+        """Polls until Action completes or Run reaches terminal state."""
         start = time.time()
 
-        # Define terminal statuses that should break the polling loop
         terminal_run_statuses = {
             StatusEnum.completed.value,
             StatusEnum.failed.value,
@@ -209,21 +248,13 @@ class ConsumerToolHandlersMixin:
         }
 
         while True:
-            # 1. Success condition: Are there no pending actions left?
-            # (If empty, it means the consumer submitted and we marked it completed)
-            pending = self.project_david_client.actions.get_pending_actions(
-                run_id=run_id
-            )
+            pending = self.project_david_client.actions.get_pending_actions(run_id=run_id)
             if not pending:
                 LOG.debug("Action %s resolved for run %s.", action_id, run_id)
                 break
 
-            # 2. Safety condition: Has the Run itself died/finished elsewhere?
-            # (Prevents infinite loops if the user cancels the run while we wait)
             run = self.project_david_client.runs.retrieve_run(run_id)
-            status_val = (
-                run.status.value if hasattr(run.status, "value") else str(run.status)
-            )
+            status_val = run.status.value if hasattr(run.status, "value") else str(run.status)
 
             if status_val in terminal_run_statuses:
                 LOG.warning(
@@ -233,13 +264,12 @@ class ConsumerToolHandlersMixin:
                 )
                 break
 
-            # 3. Timeout condition
             if time.time() - start > max_wait:
-                raise TimeoutError(
-                    f"Timeout waiting for action {action_id} (run {run_id})"
-                )
+                raise TimeoutError(f"Timeout waiting for action {action_id} (run {run_id})")
 
             time.sleep(poll_interval)
+
+    # ------------------------------------------------------------------
 
     def handle_error(
         self, assistant_reply: str, thread_id: str, assistant_id: str, run_id: str
@@ -251,14 +281,27 @@ class ConsumerToolHandlersMixin:
             thread_id, assistant_id, run_id, assistant_reply, is_error=True
         )
 
-    def finalize_conversation(
+    async def finalize_conversation(
         self, assistant_reply: str, thread_id: str, assistant_id: str, run_id: str
     ) -> None:
-        """Saves final assistant output and marks run as completed."""
+        """
+        Saves final assistant output and marks run as completed.
+        Async version offloads blocking sync I/O to a background thread.
+        """
         if not assistant_reply:
             return
-        self._save_assistant_message(
-            thread_id, assistant_id, run_id, assistant_reply, is_error=False
+
+        LOG.info("TOOL-ROUTER ▸ Finalizing conversation for run %s", run_id)
+
+        # We use asyncio.to_thread because _save_assistant_message performs
+        # synchronous httpx/database operations that would block the event loop.
+        await asyncio.to_thread(
+            self._save_assistant_message,
+            thread_id,
+            assistant_id,
+            run_id,
+            assistant_reply,
+            is_error=False,
         )
 
     def _save_assistant_message(
@@ -281,7 +324,5 @@ class ConsumerToolHandlersMixin:
         )
         self.project_david_client.runs.update_run_status(
             run_id=run_id,
-            new_status=(
-                StatusEnum.failed.value if is_error else StatusEnum.completed.value
-            ),
+            new_status=(StatusEnum.failed.value if is_error else StatusEnum.completed.value),
         )

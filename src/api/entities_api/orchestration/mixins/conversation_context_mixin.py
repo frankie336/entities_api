@@ -1,11 +1,3 @@
-"""
-All logic that builds the message list passed to the LLM:
-
-• fetch Redis-cached history (or cold-load from DB once)
-• inject current assistant tools / instructions
-• role-normalisation + truncation
-"""
-
 import json
 import os
 from datetime import datetime
@@ -14,10 +6,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from projectdavid import Entity
 
 from entities_api.constants.tools import PLATFORM_TOOL_MAP
-from entities_api.orchestration.instructions.assembler import \
-    assemble_instructions
-from src.api.entities_api.platform_tools.definitions.record_tool_decision import \
-    record_tool_decision
+from entities_api.orchestration.instructions.assembler import assemble_instructions
+from src.api.entities_api.platform_tools.definitions.record_tool_decision import (
+    record_tool_decision,
+)
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 LOG = LoggingUtility()
@@ -28,27 +20,21 @@ class ConversationContextMixin:
 
     @property
     def message_cache(self):
-        """
-        Fixed: Avoid using Depends() manually.
-        Use the sync factory helper instead.
-        """
         if not self._message_cache:
-            # Import your sync helper (adjust the import path to your project structure)
-            from src.api.entities_api.cache.message_cache import \
-                get_sync_message_cache
+            from src.api.entities_api.cache.message_cache import get_sync_message_cache
 
             self._message_cache = get_sync_message_cache()
         return self._message_cache
 
+    # -----------------------------------------------------
+    # PURE HELPERS (SYNC — unchanged)
+    # -----------------------------------------------------
+
     @staticmethod
     def _normalize_roles(msgs: List[Dict]) -> List[Dict]:
-        """
-        Normalizes roles while preserving tool-call metadata.
-        """
         out: List[Dict] = []
 
         for m in msgs:
-            # 1. Standardize Role
             raw_role = str(m.get("role", "user")).lower()
             role = (
                 raw_role
@@ -56,21 +42,16 @@ class ConversationContextMixin:
                 else "user"
             )
 
-            # 2. Extract Content
             raw_content = m.get("content")
             content = str(raw_content).strip() if raw_content is not None else None
 
-            # 3. Build Base Message
             normalized_msg = {"role": role, "content": content}
-
             has_tool_calls = False
 
-            # Case A: Tool calls exist as a proper List
             if "tool_calls" in m and m["tool_calls"]:
                 normalized_msg["tool_calls"] = m["tool_calls"]
                 has_tool_calls = True
 
-            # Case B: Tool calls got flattened into 'content' string (Redis/DB Serialization Bug)
             elif (
                 role == "assistant"
                 and content
@@ -82,7 +63,7 @@ class ConversationContextMixin:
                     parsed_tools = json.loads(content)
                     if (
                         isinstance(parsed_tools, list)
-                        and len(parsed_tools) > 0
+                        and parsed_tools
                         and "function" in parsed_tools[0]
                     ):
                         normalized_msg["tool_calls"] = parsed_tools
@@ -90,15 +71,13 @@ class ConversationContextMixin:
                 except (json.JSONDecodeError, TypeError):
                     pass
 
-            # 4. SAFETY LOCK: If tool calls exist, Content MUST be "", NOT None.
             if has_tool_calls:
                 normalized_msg["content"] = ""
 
-            # 5. Preserve Tool Response Metadata
             if role == "tool":
-                if "tool_call_id" in m and m["tool_call_id"] is not None:
+                if m.get("tool_call_id") is not None:
                     normalized_msg["tool_call_id"] = m["tool_call_id"]
-                if "name" in m and m["name"]:
+                if m.get("name"):
                     normalized_msg["name"] = m["name"]
 
             out.append(normalized_msg)
@@ -112,20 +91,16 @@ class ConversationContextMixin:
         decision_telemetry: bool = True,
     ) -> List[Dict[str, Any]]:
 
-        # --- Mandatory Always-On Platform Tools ---
         mandatory_platform_tools = []
-
         if decision_telemetry:
             mandatory_platform_tools.append(record_tool_decision)
 
-        if not tools:
-            tools = []
+        tools = tools or []
 
         resolved_platform_tools = []
         resolved_user_tools = []
 
         for tool in tools:
-
             if not isinstance(tool, dict):
                 continue
 
@@ -140,10 +115,8 @@ class ConversationContextMixin:
             else:
                 resolved_user_tools.append(tool)
 
-        # --- Merge All Platform Tools ---
         platform_tools_all = mandatory_platform_tools + resolved_platform_tools
 
-        # --- Deduplicate by function name ---
         seen_names = set()
         deduped_platform_tools = []
 
@@ -157,60 +130,39 @@ class ConversationContextMixin:
                 seen_names.add(name)
                 deduped_platform_tools.append(tool)
 
-        # --- Final Merge Order ---
         return deduped_platform_tools + resolved_user_tools
 
-    def _build_system_message(
+    # -----------------------------------------------------
+    # ASYNC BUILDERS (FIXED)
+    # -----------------------------------------------------
+
+    async def _build_system_message(
         self,
         assistant_id: str,
         decision_telemetry: bool = True,
     ) -> Dict:
-        """
-        Standard System Message Builder.
-        Injects Platform Instructions dynamically at runtime.
-
-        Strategy: Append Platform Rules AFTER Developer Instructions to ensure
-        technical constraints (like JSON formatting) are strictly enforced.
-        """
 
         cache = self.get_assistant_cache()
-        cfg = cache.retrieve_sync(assistant_id)
-        today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cfg = await cache.retrieve(assistant_id)
 
-        # --------------------------------------------------
-        # 1. Build Platform Instruction Key List (dynamic)
-        # --------------------------------------------------
+        today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         include_keys = [
             "TOOL_USAGE_PROTOCOL",
             "FUNCTION_CALL_FORMATTING",
             "FUNCTION_CALL_WRAPPING",
-            # add global validation/error keys here if needed
         ]
 
         if decision_telemetry:
             include_keys.insert(0, "TOOL_DECISION_PROTOCOL")
 
         platform_instructions = assemble_instructions(include_keys=include_keys)
-
-        # --------------------------------------------------
-        # 2. Developer Instructions
-        # --------------------------------------------------
-
         developer_instructions = cfg.get("instructions", "")
-
-        # --------------------------------------------------
-        # 3. Resolve Platform Tools (flag propagated)
-        # --------------------------------------------------
 
         final_tools = self._resolve_and_prioritize_platform_tools(
             tools=cfg["tools"],
             decision_telemetry=decision_telemetry,
         )
-
-        # --------------------------------------------------
-        # 4. Assemble Payload
-        # --------------------------------------------------
 
         combined_content = (
             f"Today's date and time: {today}\n\n"
@@ -222,74 +174,43 @@ class ConversationContextMixin:
             f"tools:\n{json.dumps(final_tools)}"
         )
 
-        return {
-            "role": "system",
-            "content": combined_content,
-        }
+        return {"role": "system", "content": combined_content}
 
-    # TODO: To be decommissioned
-    def _build_amended_system_message(self, assistant_id: str) -> Dict:
+    async def _build_amended_system_message(self, assistant_id: str) -> Dict:
         cache = self.get_assistant_cache()
-        cfg = cache.retrieve_sync(assistant_id)
+        cfg = await cache.retrieve(assistant_id)
+
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        excluded_instructions = assemble_instructions(
-            exclude_keys=["TOOL_USAGE_PROTOCOL"]
-        )
+        excluded_instructions = assemble_instructions(exclude_keys=["TOOL_USAGE_PROTOCOL"])
+
         return {
             "role": "system",
             "content": f"tools:\n{json.dumps(cfg['tools'])}\n{excluded_instructions}\nToday's date and time: {today}",
         }
 
-    def _build_native_function_calls_system_message(
+    async def _build_native_function_calls_system_message(
         self,
         assistant_id: str,
         decision_telemetry: bool = True,
     ) -> Dict:
-        """
-        Amended for models that have native function call format.
-        Standard System Message Builder.
-        Injects Platform Instructions dynamically at runtime.
-
-        Strategy: Append Platform Rules AFTER Developer Instructions to ensure
-        technical constraints (like JSON formatting) are strictly enforced.
-        """
 
         cache = self.get_assistant_cache()
-        cfg = cache.retrieve_sync(assistant_id)
+        cfg = await cache.retrieve(assistant_id)
+
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # --------------------------------------------------
-        # 1. Build Platform Instruction Key List (dynamic)
-        # --------------------------------------------------
-
-        include_keys = [
-            "DEVELOPER_INSTRUCTIONS",  # dummy spacer — intentional
-        ]
-
+        include_keys = ["DEVELOPER_INSTRUCTIONS"]
         if decision_telemetry:
             include_keys.append("TOOL_DECISION_PROTOCOL")
 
         platform_instructions = assemble_instructions(include_keys=include_keys)
-
-        # --------------------------------------------------
-        # 2. Developer Instructions
-        # --------------------------------------------------
-
         developer_instructions = cfg.get("instructions", "")
-
-        # --------------------------------------------------
-        # 3. Resolve Platform Tools (flag propagated)
-        # --------------------------------------------------
 
         final_tools = self._resolve_and_prioritize_platform_tools(
             tools=cfg["tools"],
             decision_telemetry=decision_telemetry,
         )
-
-        # --------------------------------------------------
-        # 4. Assemble System Message
-        # --------------------------------------------------
 
         combined_content = (
             f"Today's date and time: {today}\n\n"
@@ -301,12 +222,13 @@ class ConversationContextMixin:
             f"tools:\n{json.dumps(final_tools)}"
         )
 
-        return {
-            "role": "system",
-            "content": combined_content,
-        }
+        return {"role": "system", "content": combined_content}
 
-    def _set_up_context_window(
+    # -----------------------------------------------------
+    # ASYNC CONTEXT WINDOW (FIXED)
+    # -----------------------------------------------------
+
+    async def _set_up_context_window(
         self,
         assistant_id: str,
         thread_id: str,
@@ -315,62 +237,49 @@ class ConversationContextMixin:
         force_refresh: Optional[bool] = False,
         decision_telemetry: bool = True,
     ) -> List[Dict]:
-        """
-        Synchronous context window setup with integrated Refresh & Cache debugging.
-        """
-        # 1. Build System Message
+
         if structured_tool_call:
-            system_msg = self._build_native_function_calls_system_message(
-                assistant_id=assistant_id, decision_telemetry=decision_telemetry
+            system_msg = await self._build_native_function_calls_system_message(
+                assistant_id=assistant_id,
+                decision_telemetry=decision_telemetry,
             )
         else:
-            system_msg = self._build_system_message(
-                assistant_id=assistant_id, decision_telemetry=decision_telemetry
+            system_msg = await self._build_system_message(
+                assistant_id=assistant_id,
+                decision_telemetry=decision_telemetry,
             )
 
-        # 2. Get history using the SYNC helper
         if force_refresh:
             LOG.debug(f"[CTX-REFRESH] 🔄 Force Refresh Active for {thread_id}")
+
             client = Entity(
                 base_url=os.getenv("ASSISTANTS_BASE_URL"),
                 api_key=os.getenv("ADMIN_API_KEY"),
             )
 
-            # Fetch fresh list from DB
             full_hist = client.messages.get_formatted_messages(
                 thread_id,
                 system_message=None,
             )
 
-            # --- DEBUG: DB VERIFICATION ---
-            import json
-
             last_role = full_hist[-1].get("role") if full_hist else "N/A"
             LOG.info(
                 f"[CTX-REFRESH] Fresh DB Fetch: {len(full_hist)} msgs | Last Role: {last_role}"
             )
-            LOG.debug(f"[CTX-REFRESH] DB Content: {json.dumps(full_hist, indent=2)}")
 
-            # Sync the cache
             self.message_cache.set_history_sync(thread_id, full_hist)
             msgs = full_hist
         else:
-            # Standard path: hit Redis first
             msgs = self.message_cache.get_history_sync(thread_id)
             LOG.debug(f"[CTX-CACHE] Redis Hit for {thread_id}: {len(msgs)} msgs found.")
 
-        # 3. Process Context: Filter system messages and prepend current one
         msgs = [m for m in msgs if m.get("role") != "system"]
         full_context = [system_msg] + msgs
 
-        # 4. Normalization
         normalized = self._normalize_roles(full_context)
 
-        # --- DEBUG: FINAL OUTBOUND PAYLOAD ---
-        import json
-
         LOG.info(
-            f"\n=== 🚀 OUTBOUND CONTEXT (Size: {len(normalized)}) ===\n{json.dumps(normalized, indent=2)}\n======================================"
+            f"\n=== 🚀 OUTBOUND CONTEXT (Size: {len(normalized)}) ===\n{json.dumps(normalized, indent=2)}"
         )
 
         if trunk:
@@ -378,18 +287,22 @@ class ConversationContextMixin:
 
         return normalized
 
+    # -----------------------------------------------------
+    # REMAINING SYNC UTILITIES
+    # -----------------------------------------------------
+
     def replace_system_message(
         self, context_window: list[dict], new_system_message: str | None = None
     ) -> list[dict]:
-        filtered_messages = [msg for msg in context_window if msg["role"] != "system"]
+        filtered = [msg for msg in context_window if msg["role"] != "system"]
         if new_system_message is not None:
-            new_system_msg = {"role": "system", "content": new_system_message}
-            filtered_messages.insert(0, new_system_msg)
-        return filtered_messages
+            filtered.insert(0, {"role": "system", "content": new_system_message})
+        return filtered
 
     def prepare_native_tool_context(
         self, context_window: List[Dict]
     ) -> Tuple[List[Dict], Optional[List[Dict]]]:
+
         cleaned_ctx = []
         extracted_tools = None
 
@@ -407,14 +320,10 @@ class ConversationContextMixin:
                     if "\n" in tools_json_str:
                         json_part, instructions_part = tools_json_str.split("\n", 1)
                         extracted_tools = json.loads(json_part)
-                        new_msg["content"] = (
-                            f"{system_text}\n{instructions_part}".strip()
-                        )
+                        new_msg["content"] = f"{system_text}\n{instructions_part}".strip()
                     else:
                         extracted_tools = json.loads(tools_json_str)
-                        new_msg["content"] = (
-                            system_text or "You are a helpful assistant."
-                        )
+                        new_msg["content"] = system_text or "You are a helpful assistant."
                 except Exception as e:
                     LOG.error(f"[CTX-MIXIN] Failed tool extraction: {e}")
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from typing import AsyncGenerator, Any
 
 from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
@@ -13,7 +14,7 @@ class HyperbolicDeltaNormalizer:
     # Standard XML tags
     FC_START, FC_END = "<fc>", "</fc>"
     TH_START, TH_END = "<think>", "</think>"
-    DEC_START, DEC_END = "<decision>", "</decision>"  # [NEW] Decision Tags
+    DEC_START, DEC_END = "<decision>", "</decision>"
 
     # GPT-OSS / Hermes Channel tags
     CH_ANALYSIS = "<|channel|>analysis"
@@ -23,7 +24,13 @@ class HyperbolicDeltaNormalizer:
     CALL_TAG = "<|call|>"
 
     @classmethod
-    def iter_deltas(cls, raw_stream, run_id):
+    async def async_iter_deltas(
+        cls, raw_stream: AsyncGenerator[Any, None], run_id: str
+    ) -> AsyncGenerator[str, None]:
+        """
+        Async version of the Delta Normalizer.
+        Consumes an async generator (raw_stream) and yields normalized JSON strings.
+        """
         buffer = ""
         state = "content"
 
@@ -32,7 +39,10 @@ class HyperbolicDeltaNormalizer:
             lambda: {"index": 0, "function": {"name": "", "arguments": ""}}
         )
 
-        for token in raw_stream:
+        # ------------------------------------------------------------------
+        # [CHANGE] Use 'async for' to consume the network stream non-blocking
+        # ------------------------------------------------------------------
+        async for token in raw_stream:
             # --- Normalize Input (Universal Adapter) ---
             choices = []
             is_dict = isinstance(token, dict)
@@ -60,11 +70,7 @@ class HyperbolicDeltaNormalizer:
                 yield {"type": "reasoning", "content": r_content, "run_id": run_id}
 
             # --- 2. Handle Native Tool Calls ---
-            t_calls = (
-                delta.get("tool_calls")
-                if is_dict
-                else getattr(delta, "tool_calls", None)
-            )
+            t_calls = delta.get("tool_calls") if is_dict else getattr(delta, "tool_calls", None)
             if t_calls:
                 for tc in t_calls:
                     if is_dict:
@@ -99,9 +105,7 @@ class HyperbolicDeltaNormalizer:
                         }
 
             # --- 3. Handle Standard Content ---
-            seg = (
-                delta.get("content", "") if is_dict else getattr(delta, "content", "")
-            ) or ""
+            seg = (delta.get("content", "") if is_dict else getattr(delta, "content", "")) or ""
 
             # --- 4. Tool Completion Trigger (Explicit) ---
             if finish_reason == "tool_calls":
@@ -152,7 +156,7 @@ class HyperbolicDeltaNormalizer:
                         (cls.MSG_TAG, None),
                         (cls.FC_START, "fc"),
                         (cls.TH_START, "think"),
-                        (cls.DEC_START, "decision"),  # [NEW] Check for <decision>
+                        (cls.DEC_START, "decision"),
                     ]
 
                     match_found = False
@@ -212,10 +216,9 @@ class HyperbolicDeltaNormalizer:
                     yielded_something = True
 
                 # -----------------------------------------------------------
-                # [NEW] STATE: DECISION
+                # STATE: DECISION
                 # -----------------------------------------------------------
                 elif state == "decision":
-                    # If </decision> is not imminent, dump buffer to 'decision' type
                     if "<" not in buffer:
                         yield {"type": "decision", "content": buffer, "run_id": run_id}
                         buffer = ""
@@ -230,18 +233,15 @@ class HyperbolicDeltaNormalizer:
                         }
                         buffer = buffer[lt_idx:]
 
-                    # Check for exit tag
                     if buffer.startswith(cls.DEC_END):
                         buffer = buffer[len(cls.DEC_END) :]
                         state = "content"
                         yielded_something = True
                         continue
 
-                    # Handle partial tag (wait for more data)
                     if cls.DEC_END.startswith(buffer):
                         break
 
-                    # Not a tag, yield character
                     yield {"type": "decision", "content": buffer[0], "run_id": run_id}
                     buffer = buffer[1:]
                     yielded_something = True
@@ -257,9 +257,7 @@ class HyperbolicDeltaNormalizer:
                             potential_match = True
                             break
 
-                    if potential_match and len(buffer) < max(
-                        len(m) for m in special_markers
-                    ):
+                    if potential_match and len(buffer) < max(len(m) for m in special_markers):
                         break
 
                     if buffer.startswith(cls.CH_FINAL):
@@ -302,11 +300,7 @@ class HyperbolicDeltaNormalizer:
 
                     if any(buffer.startswith(t) for t in exit_tags):
                         matched = next(t for t in exit_tags if buffer.startswith(t))
-                        state = (
-                            "channel_reasoning"
-                            if matched == cls.CH_ANALYSIS
-                            else "content"
-                        )
+                        state = "channel_reasoning" if matched == cls.CH_ANALYSIS else "content"
                         buffer = buffer[len(matched) :]
                         yielded_something = True
                         continue

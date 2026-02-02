@@ -1,62 +1,37 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import re
+import uuid
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Generator, Optional
+from typing import Any, Dict, AsyncGenerator, Optional
 
 from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
-from entities_api.clients.async_to_sync import async_to_sync_stream
+# --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
-# --- DIRECT IMPORTS ---
-from src.api.entities_api.orchestration.mixins.assistant_cache_mixin import \
-    AssistantCacheMixin
-from src.api.entities_api.orchestration.mixins.code_execution_mixin import \
-    CodeExecutionMixin
-from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import \
-    ConsumerToolHandlersMixin
-from src.api.entities_api.orchestration.mixins.conversation_context_mixin import \
-    ConversationContextMixin
-from src.api.entities_api.orchestration.mixins.file_search_mixin import \
-    FileSearchMixin
-from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
-    JsonUtilsMixin
-from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import \
-    PlatformToolHandlersMixin
-from src.api.entities_api.orchestration.mixins.shell_execution_mixin import \
-    ShellExecutionMixin
-from src.api.entities_api.orchestration.mixins.tool_routing_mixin import \
-    ToolRoutingMixin
-from src.api.entities_api.orchestration.streaming.hyperbolic import \
-    HyperbolicDeltaNormalizer
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
+
+# --- MIXINS ---
+from src.api.entities_api.orchestration.mixins.providers import _ProviderMixins
+from src.api.entities_api.orchestration.streaming.hyperbolic import HyperbolicDeltaNormalizer
 
 load_dotenv()
 LOG = LoggingUtility()
 
 
-class _ProviderMixins(
-    AssistantCacheMixin,
-    JsonUtilsMixin,
-    ConversationContextMixin,
-    ToolRoutingMixin,
-    PlatformToolHandlersMixin,
-    ConsumerToolHandlersMixin,
-    CodeExecutionMixin,
-    ShellExecutionMixin,
-    FileSearchMixin,
+class GptOssBaseWorker(
+    _ProviderMixins,
+    OrchestratorCore,  # Base logic comes last
+    ABC,  # ABC can remain if needed, usually redundant if Core has it
 ):
-    """Flat bundle for Hyperbolic GPT-OSS Provider."""
-
-
-class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
     """
-    Abstract Base for openai/gpt-oss-120b Providers.
-    Encapsulates core logic for tool normalization, streaming, and history preservation.
+    Async Base for openai/gpt-oss-120b Providers.
+    Encapsulates logic for decision buffering, tool normalization, and streaming.
     """
 
     def __init__(
@@ -70,9 +45,7 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         assistant_cache: dict | None = None,
         **extra,
     ) -> None:
-        self._assistant_cache: dict = (
-            assistant_cache or extra.get("assistant_cache") or {}
-        )
+        self._assistant_cache: dict = assistant_cache or extra.get("assistant_cache") or {}
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
@@ -86,14 +59,12 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
 
         # State for Dialogue Binding
         self._current_tool_call_id: str | None = None
-        # [NEW] Holding variable for the parsed tool payload to pass between methods
         self._pending_tool_payload: Optional[Dict[str, Any]] = None
-        # [NEW] Holding variable for the parsed decision payload
         self._decision_payload: Optional[Dict[str, Any]] = None
 
         self.setup_services()
 
-        # Runtime Safety
+        # Ensure Runtime Safety for Mixins
         if not hasattr(self, "get_function_call_state"):
             LOG.error("CRITICAL: ToolRoutingMixin failed to load. Monkey-patching.")
             self.get_function_call_state = lambda: False
@@ -101,47 +72,6 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             self.set_tool_response_state = lambda x: None
 
         LOG.debug("Hyperbolic-GptOss provider ready (assistant=%s)", assistant_id)
-
-    def _normalize_native_tool_payload(self, accumulated: str | None) -> str | None:
-        if not accumulated:
-            return None
-        try:
-            payload = json.loads(accumulated)
-        except Exception:
-            return None
-        if not isinstance(payload, dict):
-            return None
-
-        name = payload.get("name")
-        args = payload.get("arguments")
-        if not name or args is None:
-            return None
-
-        if isinstance(args, str):
-            try:
-                parsed = json.loads(args)
-                if (
-                    isinstance(parsed, dict)
-                    and "name" in parsed
-                    and "arguments" in parsed
-                ):
-                    args = parsed["arguments"]
-                else:
-                    args = parsed
-            except Exception:
-                pass
-
-        if not isinstance(args, dict):
-            if isinstance(args, str):
-                try:
-                    args = json.loads(args)
-                except:
-                    pass
-            if not isinstance(args, dict):
-                return None
-
-        canonical = {"name": name, "arguments": args}
-        return json.dumps(canonical)
 
     @abstractmethod
     def _get_client_instance(self, api_key: str):
@@ -155,47 +85,41 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
     def assistant_cache(self, value: dict) -> None:
         self._assistant_cache = value
 
-    def get_assistant_cache(self) -> dict:
-        return self._assistant_cache
-
-    def stream(
+    async def stream(
         self,
         thread_id: str,
-        message_id: Optional[str],
+        message_id: str | None,
         run_id: str,
         assistant_id: str,
         model: Any,
         *,
         force_refresh: bool = False,
         stream_reasoning: bool = False,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         **kwargs,
-    ) -> Generator[str, None, None]:
-        import re  # Ensure re is available for the sanitization logic
-        import uuid
-
-        redis = get_redis()
+    ) -> AsyncGenerator[str, None]:
+        redis = self.redis
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
-        # --- FIX 1: Early Variable Initialization (Safety) ---
+        # Reset internal state
         self._current_tool_call_id = None
         self._pending_tool_payload = None
-        self._decision_payload = None  # Reset decision state
+        self._decision_payload = None
 
         assistant_reply = ""
         accumulated = ""
         reasoning_reply = ""
-        decision_buffer = ""  # [NEW] Buffer for raw decision JSON string
+        decision_buffer = ""
         current_block = None
-        # -----------------------------------------------------
 
         try:
-
-            if mapped := self._get_model_map(model):
+            # Map model if necessary
+            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
                 model = mapped
 
-            raw_ctx = self._set_up_context_window(
+            # Prepare context
+            raw_ctx = await self._set_up_context_window(
                 assistant_id,
                 thread_id,
                 trunk=True,
@@ -206,44 +130,34 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
             if not api_key:
-                yield json.dumps(
-                    {"type": "error", "content": "Missing Hyperbolic API key."}
-                )
+                err_msg = json.dumps({"type": "error", "content": "Missing Hyperbolic API key."})
+                yield err_msg
                 return
 
             client = self._get_client_instance(api_key=api_key)
-            payload = {
-                "messages": cleaned_ctx,
-                "model": model,
-                "tools": extracted_tools,
-                "temperature": kwargs.get("temperature", 0.4),
-                "top_p": 0.9,
-            }
 
-            if stream_reasoning:
-                del payload["tools"]
+            raw_stream = client.stream_chat_completion(
+                messages=cleaned_ctx,
+                model=model,
+                tools=None if stream_reasoning else extracted_tools,
+                temperature=kwargs.get("temperature", 0.4),
+                **kwargs,
+            )
 
-            raw_stream = client.stream_chat_completion(**payload)
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
-            token_iterator = async_to_sync_stream(raw_stream)
-
-            # -----------------------------------------------------------
-            # 1. PROCESS DELTAS & INJECT TAGS
-            # -----------------------------------------------------------
-            for chunk in HyperbolicDeltaNormalizer.iter_deltas(token_iterator, run_id):
+            # -------------------------------
+            # 1. Process deltas asynchronously
+            # -------------------------------
+            async for chunk in HyperbolicDeltaNormalizer.async_iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
                     break
 
-                ctype, ccontent = chunk["type"], chunk["content"]
+                ctype = chunk.get("type")
+                ccontent = chunk.get("content") or ""
+                safe_content = ccontent if isinstance(ccontent, str) else ""
 
-                # --- FILTERING FIX ---
-                # Only process string content. Ignore dicts/lists (metadata) to prevent garbage injection.
-                if isinstance(ccontent, str):
-                    safe_content = ccontent
-                else:
-                    safe_content = ""
-
+                # Manage internal accumulation blocks
                 if ctype == "content":
                     if current_block == "fc":
                         accumulated += "</fc>"
@@ -252,7 +166,7 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                     current_block = None
                     assistant_reply += safe_content
 
-                elif ctype == "tool_name" or ctype == "call_arguments":
+                elif ctype in ("tool_name", "call_arguments"):
                     if current_block != "fc":
                         if current_block == "think":
                             accumulated += "</think>"
@@ -267,7 +181,6 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                         current_block = "think"
                     reasoning_reply += safe_content
 
-                # [NEW] Decision Handling
                 elif ctype == "decision":
                     decision_buffer += safe_content
                     if current_block == "fc":
@@ -276,68 +189,55 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                         accumulated += "</think>"
                     current_block = "decision"
 
-                # Accumulate content (filtered)
                 accumulated += safe_content
 
-                # --- REFACTOR: Prevent yielding call_arguments ---
-                # This prevents the "KeyError: name" in the consumer by holding back
-                # partial tool chunks while still accumulating them in 'accumulated'
-                # Note: We allow 'decision' to pass through.
                 if ctype not in ("tool_name", "call_arguments"):
                     yield json.dumps(chunk)
-                # -------------------------------------------------
 
-                self._shunt_to_redis_stream(redis, stream_key, chunk)
+                await self._shunt_to_redis_stream(redis, stream_key, chunk)
 
-            # Close dangling tags at end of stream
             if current_block == "fc":
                 accumulated += "</fc>"
             elif current_block == "think":
                 accumulated += "</think>"
 
         except Exception as exc:
-            LOG.error(f"DEBUG: Stream Exception: {exc}")
-            err = {"type": "error", "content": f"GPT-OSS stream error: {exc}"}
+            LOG.error(f"Stream Exception: {exc}")
+            err = {"type": "error", "content": f"Stream error: {exc}", "run_id": run_id}
             yield json.dumps(err)
-            self._shunt_to_redis_stream(redis, stream_key, err)
+            await self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
             stop_event.set()
 
         yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
-        # --- [NEW] Validate and Save Decision Payload ---
+        # -------------------------------
+        # 2. Parse decision payload
+        # -------------------------------
         if decision_buffer:
             try:
                 self._decision_payload = json.loads(decision_buffer.strip())
                 LOG.info(f"Decision payload validated: {self._decision_payload}")
-            except json.JSONDecodeError as e:
-                LOG.error(f"Failed to parse decision payload: {e}")
+            except json.JSONDecodeError:
+                LOG.warning(f"Failed to parse decision payload: {decision_buffer}")
 
-        # ------------------------------------------------------------------
-        # 💉 FIX 2: TIMEOUT PREVENTION (Keep-Alive Heartbeat)
-        # ------------------------------------------------------------------
-        # This prevents the client from timing out while we do the heavy parsing below
         yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
-        # -----------------------------------------------------------
-        # 2. DETECTION & PERSISTENCE
-        # -----------------------------------------------------------
-        LOG.debug(f"DEBUG: Final Accumulated String for Parsing: {accumulated}")
-
-        # --- Sanitize tool call format (Name{Args} -> JSON) ---
+        # -------------------------------
+        # 3. Detect and sanitize <fc> blocks
+        # -------------------------------
         if "<fc>" in accumulated:
             try:
                 fc_pattern = r"<fc>(.*?)</fc>"
                 matches = re.findall(fc_pattern, accumulated, re.DOTALL)
                 for original_content in matches:
-                    # If it parses as JSON immediately, it's fine.
+                    if not original_content.strip():
+                        continue
                     try:
                         json.loads(original_content)
                         continue
                     except json.JSONDecodeError:
                         pass
-
-                    # Pattern: FunctionName {JSON}
                     fix_match = re.match(
                         r"^\s*([a-zA-Z0-9_]+)\s*(\{.*)", original_content, re.DOTALL
                     )
@@ -345,94 +245,75 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                         func_name = fix_match.group(1)
                         func_args = fix_match.group(2)
                         try:
-                            # Use raw_decode to ignore trailing garbage (like repeated structs)
                             parsed_args, _ = json.JSONDecoder().raw_decode(func_args)
-
                             valid_payload = json.dumps(
                                 {"name": func_name, "arguments": parsed_args}
                             )
-
+                            # REFACTOR: Replace the tagged block with the sanitized tagged block
                             accumulated = accumulated.replace(
-                                f"<fc>{original_content}</fc>",
-                                f"<fc>{valid_payload}</fc>",
+                                f"<fc>{original_content}</fc>", f"<fc>{valid_payload}</fc>"
                             )
-                            LOG.debug(
-                                f"DEBUG: Sanitized tool call structure for: {func_name}"
-                            )
-                        except Exception as e:
-                            LOG.warning(
-                                f"DEBUG: Failed to sanitize potential tool call: {e}"
-                            )
+                        except Exception:
+                            pass
             except Exception as e:
-                LOG.error(f"DEBUG: Error during tool call sanitization: {e}")
+                LOG.warning(f"Sanitization warning: {e}")
 
-        # This triggers the Mixin logic to set internal state
-        has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
-
-        # Double check state via the Mixin getter
-        mixin_state = (
-            self.get_function_call_state()
-            if hasattr(self, "get_function_call_state")
-            else has_fc
-        )
-        LOG.debug(
-            f"DEBUG: Detection Summary -> parse_result: {has_fc}, mixin_state: {mixin_state}"
-        )
+        has_fc_dict = self.parse_and_set_function_calls(accumulated, assistant_reply)
 
         message_to_save = assistant_reply
+        final_status = StatusEnum.completed.value
 
-        # Only use 'has_fc' or 'mixin_state' to decide if we structure as a tool call
-        if has_fc or mixin_state:
+        if has_fc_dict:
+            final_status = StatusEnum.pending_action.value
             try:
-                # Use regex to pull the content between the injected <fc> tags
-                fc_match = re.search(r"<fc>(.*?)</fc>", accumulated, re.DOTALL)
-                if fc_match:
-                    raw_json = fc_match.group(1).strip()
-                    payload_dict = json.loads(raw_json)
+                call_id = f"call_{uuid.uuid4().hex[:8]}"
+                self._current_tool_call_id = call_id
+                self._pending_tool_payload = has_fc_dict
 
-                    call_id = f"call_{uuid.uuid4().hex[:8]}"
-                    self._current_tool_call_id = call_id
-
-                    # Structure it for the Database/OpenAI compatibility
-                    tool_calls_structure = [
-                        {
-                            "id": call_id,
-                            "type": "function",
-                            "function": {
-                                "name": payload_dict.get("name"),
-                                "arguments": (
-                                    json.dumps(payload_dict.get("arguments", {}))
-                                    if isinstance(payload_dict.get("arguments"), dict)
-                                    else payload_dict.get("arguments")
-                                ),
-                            },
-                        }
-                    ]
-                    message_to_save = json.dumps(tool_calls_structure)
-
-                    # [NEW] Ensure this is set for process_conversation to pick up
-                    self._pending_tool_payload = payload_dict
-
-                    LOG.info(f"DEBUG: Successfully structured tool call: {call_id}")
-            except Exception as e:
-                LOG.error(f"DEBUG: Failed to structure tool calls from tags: {e}")
-                # FIX 3: Fallback to the accumulated string if formatting fails
-                # This prevents data loss if the regex or JSON parse fails
+                tool_calls_structure = [
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {
+                            "name": has_fc_dict.get("name"),
+                            "arguments": json.dumps(has_fc_dict.get("arguments", {})),
+                        },
+                    }
+                ]
+                message_to_save = json.dumps(tool_calls_structure)
+            except Exception:
                 message_to_save = accumulated
 
+        # -------------------------------
+        # 4. Save assistant message (Async)
+        # -------------------------------
         if message_to_save:
-            self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
+            try:
+                # We await the now-asynchronous finalize_conversation
+                await asyncio.wait_for(
+                    self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id),
+                    timeout=20,
+                )
+            except Exception as e:
+                LOG.error(f"finalize_conversation failed for run {run_id}: {e}")
 
-        # Update run status based on whether a tool call was detected
-        final_status = (
-            StatusEnum.pending_action.value
-            if (has_fc or mixin_state)
-            else StatusEnum.completed.value
-        )
-        LOG.info(f"DEBUG: Final Run Status determined as: {final_status}")
-        self.project_david_client.runs.update_run_status(run_id, final_status)
+        # -------------------------------
+        # 5. Safely update run status (Offloaded to Thread)
+        # -------------------------------
+        if self.project_david_client:
+            try:
+                # Since project_david_client is sync, we use to_thread to keep the loop free
+                await asyncio.to_thread(
+                    self.project_david_client.runs.update_run_status, run_id, final_status
+                )
+            except Exception as e:
+                LOG.error(f"update_run_status failed for run {run_id}: {e}")
+        else:
+            LOG.warning(
+                f"project_david_client is None. Skipping run status update for run {run_id}"
+            )
 
-    def process_conversation(
+    async def process_conversation(
         self,
         thread_id: str,
         message_id: Optional[str],
@@ -441,9 +322,9 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
         model: Any,
         api_key: Optional[str] = None,
         **kwargs,
-    ):
-        # Turn 1: Initial Inference
-        yield from self.stream(
+    ) -> AsyncGenerator[str, None]:
+
+        async for chunk in self.stream(
             thread_id,
             message_id,
             run_id,
@@ -451,48 +332,37 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
             model,
             api_key=api_key,
             **kwargs,
-        )
+        ):
+            yield chunk
 
-        # --- TOOL CHECK ---
         has_tools = False
         if hasattr(self, "get_function_call_state"):
             has_tools = self.get_function_call_state()
-            LOG.info(f"DEBUG: process_conversation check -> has_tools: {has_tools}")
-        else:
-            LOG.error("DEBUG: CRITICAL - self has no get_function_call_state method")
 
         if has_tools:
             tool_call_id = getattr(self, "_current_tool_call_id", None)
-            LOG.info(f"DEBUG: Triggering tool logic for ID: {tool_call_id}")
-
-            # [NEW] Retrieve decision payload
             current_decision = getattr(self, "_decision_payload", None)
 
-            yield from self.process_tool_calls(
+            async for chunk in self.process_tool_calls(
                 thread_id,
                 run_id,
                 assistant_id,
                 tool_call_id=tool_call_id,
                 model=model,
                 api_key=api_key,
-                decision=current_decision,  # [NEW] Pass telemetry
-            )
+                decision=current_decision,
+            ):
+                yield chunk
 
-            # Cleanup State
             if hasattr(self, "set_tool_response_state"):
                 self.set_tool_response_state(False)
             if hasattr(self, "set_function_call_state"):
                 self.set_function_call_state(None)
 
             self._current_tool_call_id = None
-            self._decision_payload = None  # [NEW] Cleanup
-            self._force_refresh = True
+            self._decision_payload = None
 
-            LOG.info(
-                "DEBUG: Tool results processed. Starting Turn 2 stream (Final Response)."
-            )
-            # Turn 2: Final Response after Tool Output
-            yield from self.stream(
+            async for chunk in self.stream(
                 thread_id,
                 None,
                 run_id,
@@ -501,6 +371,5 @@ class GptOssBaseWorker(_ProviderMixins, OrchestratorCore, ABC):
                 force_refresh=True,
                 api_key=api_key,
                 **kwargs,
-            )
-        else:
-            LOG.info(f"DEBUG: No tools detected. Workflow for run {run_id} finished.")
+            ):
+                yield chunk

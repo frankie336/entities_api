@@ -1,8 +1,9 @@
 import os
 
 from entities_api.clients.async_to_sync import async_to_sync_stream
-from src.api.entities_api.orchestration.workers.base_workers.gpt_oss_base import \
-    GptOssBaseWorker
+from src.api.entities_api.orchestration.workers.base_workers.gpt_oss_base import GptOssBaseWorker
+
+from entities_api.clients.unified_async_client import get_cached_client
 
 
 class HyperbolicGptOssWorker(GptOssBaseWorker):
@@ -12,8 +13,9 @@ class HyperbolicGptOssWorker(GptOssBaseWorker):
     """
 
     def _get_client_instance(self, api_key: str):
-        return self._get_unified_client(
-            base_url=os.getenv("HYPERBOLIC_BASE_URL"), api_key=api_key
+
+        return get_cached_client(
+            api_key=api_key, base_url=os.getenv("HYPERBOLIC_BASE_URL"), enable_logging=False
         )
 
     def _execute_stream_request(self, client, payload: dict):

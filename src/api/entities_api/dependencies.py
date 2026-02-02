@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from typing import AsyncGenerator, Optional
+from typing import Optional
 
 import redis.asyncio as aioredis
 from fastapi import Depends, HTTPException, Security, status
@@ -10,17 +10,41 @@ from sqlalchemy.orm import Session
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.cache.message_cache import MessageCache
-# Import the single, authoritative 'get_db' function from your central database file.
-# This ensures all dependencies use the same database session configuration.
 from src.api.entities_api.db.database import get_db
 from src.api.entities_api.models.models import ApiKey, User
 
 API_KEY_NAME = "X-API-Key"
 _api_key_scheme = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
+# -----------------------------------------------------------------------------
+# FIX: Global Redis Connection Pool & Sync Factory
+# -----------------------------------------------------------------------------
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
-# This dependency now correctly uses the imported get_db, which provides
-# sessions from the properly configured engine.
+# 1. Create Pool Globally
+redis_pool = aioredis.ConnectionPool.from_url(REDIS_URL, decode_responses=True)
+
+
+# 2. Synchronous Factory (Use this in __init__ methods)
+def get_redis_sync() -> Redis:
+    """
+    Creates and returns a Redis client synchronously.
+    The client handles async operations, but creation is instant.
+    """
+    return aioredis.Redis(connection_pool=redis_pool)
+
+
+# 3. Async Dependency (Use this in FastAPI Routes/Depends)
+async def get_redis() -> Redis:
+    """
+    FastAPI dependency version.
+    """
+    return get_redis_sync()
+
+
+# -----------------------------------------------------------------------------
+# Auth & User Dependencies
+# -----------------------------------------------------------------------------
 async def get_api_key(
     api_key_header: Optional[str] = Security(_api_key_scheme),
     db: Session = Depends(get_db),
@@ -40,11 +64,7 @@ async def get_api_key(
             headers={"WWW-Authenticate": "APIKey"},
         )
 
-    key = (
-        db.query(ApiKey)
-        .filter(ApiKey.prefix == prefix, ApiKey.is_active.is_(True))
-        .first()
-    )
+    key = db.query(ApiKey).filter(ApiKey.prefix == prefix, ApiKey.is_active.is_(True)).first()
 
     if not key or not key.verify_key(api_key_header):
         raise HTTPException(
@@ -71,25 +91,10 @@ async def get_current_user(api_key_data: ApiKey = Depends(get_api_key)) -> User:
     return api_key_data.user
 
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-
-
-async def get_redis() -> AsyncGenerator[Redis, None]:
-    """
-    Async dependency that yields a redis.asyncio.Redis client,
-    and closes it at the end of the request.
-    """
-    client = aioredis.from_url(REDIS_URL, decode_responses=True)
-    try:
-        yield client
-    finally:
-        await client.close()
-
-
+# -----------------------------------------------------------------------------
+# Cache Dependencies
+# -----------------------------------------------------------------------------
 async def get_assistant_cache(redis: Redis = Depends(get_redis)) -> AssistantCache:
-    """
-    Provide an AssistantCache backed by the async Redis client.
-    """
     return AssistantCache(
         redis=redis,
         pd_base_url=os.getenv("ASSISTANTS_BASE_URL"),

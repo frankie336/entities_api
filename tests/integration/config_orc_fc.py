@@ -12,5 +12,5 @@ config = {
     "model": "hyperbolic/openai/gpt-oss-120b",
     "provider": "Hyperbolic",
     "assistant_id": "asst_13HyDgBnZxVwh5XexYu74F",
-    "test_prompt": "Write a haiku about Python code.",
+    "test_prompt": "Please fetch me the flight times between LAX and JFK.",
 }
