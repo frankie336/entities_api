@@ -23,6 +23,7 @@ from entities_api.clients.delta_normalizer import DeltaNormalizer
 load_dotenv()
 LOG = LoggingUtility()
 
+
 class GptOssBaseWorker(
     _ProviderMixins,
     OrchestratorCore,
@@ -68,22 +69,17 @@ class GptOssBaseWorker(
             self.set_function_call_state = lambda x: None
             self.set_tool_response_state = lambda x: None
 
-    def _get_project_david_client(self, **kwargs) -> Any:
-        """Shim for ServiceRegistryMixin to find the David API client."""
-        if self._david_client:
-            return self._david_client
-        from projectdavid import Entity
-        self._david_client = Entity(api_key=self.api_key, base_url=self.base_url)
-        return self._david_client
-
     @abstractmethod
-    def _get_client_instance(self, api_key: str): pass
+    def _get_client_instance(self, api_key: str):
+        pass
 
     @property
-    def assistant_cache(self) -> dict: return self._assistant_cache
+    def assistant_cache(self) -> dict:
+        return self._assistant_cache
 
     @assistant_cache.setter
-    def assistant_cache(self, value: dict) -> None: self._assistant_cache = value
+    def assistant_cache(self, value: dict) -> None:
+        self._assistant_cache = value
 
     async def stream(
         self,
@@ -98,15 +94,19 @@ class GptOssBaseWorker(
         api_key: str | None = None,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
+        import re
+        import uuid
+
         redis = self.redis
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
+        # --- SYNC-REPLICA 1: Early Variable Initialization ---
         self._current_tool_call_id = None
         self._pending_tool_payload = None
         self._decision_payload = None
 
-        assistant_reply, accumulated, decision_buffer = "", "", ""
+        assistant_reply, accumulated, reasoning_reply, decision_buffer = "", "", "", ""
         current_block = None
 
         try:
@@ -114,38 +114,64 @@ class GptOssBaseWorker(
                 model = mapped
 
             raw_ctx = await self._set_up_context_window(
-                assistant_id, thread_id, trunk=True,
-                structured_tool_call=True, force_refresh=force_refresh, decision_telemetry=False
+                assistant_id,
+                thread_id,
+                trunk=True,
+                structured_tool_call=True,
+                force_refresh=force_refresh,
+                decision_telemetry=False,
             )
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
-            client = self._get_client_instance(api_key=api_key or self.api_key)
+            if not api_key:
+                yield json.dumps({"type": "error", "content": "Missing API key."})
+                return
+
+            client = self._get_client_instance(api_key=api_key)
             raw_stream = client.stream_chat_completion(
-                messages=cleaned_ctx, model=model,
+                messages=cleaned_ctx,
+                model=model,
                 tools=None if stream_reasoning else extracted_tools,
-                temperature=kwargs.get("temperature", 0.4), **kwargs
+                temperature=kwargs.get("temperature", 0.4),
+                **kwargs,
             )
 
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
             async for chunk in DeltaNormalizer.async_iter_deltas(raw_stream, run_id):
-                if stop_event.is_set(): break
-                ctype, ccontent = chunk.get("type"), chunk.get("content") or ""
+                if stop_event.is_set():
+                    break
+
+                ctype = chunk.get("type")
+                ccontent = chunk.get("content") or ""
                 safe_content = ccontent if isinstance(ccontent, str) else ""
 
                 if ctype == "content":
-                    if current_block == "fc": accumulated += "</fc>"
-                    elif current_block == "think": accumulated += "</think>"
+                    if current_block == "fc":
+                        accumulated += "</fc>"
+                    elif current_block == "think":
+                        accumulated += "</think>"
                     current_block = None
                     assistant_reply += safe_content
                 elif ctype in ("tool_name", "call_arguments"):
                     if current_block != "fc":
-                        if current_block == "think": accumulated += "</think>"
-                        accumulated += "<fc>"; current_block = "fc"
+                        if current_block == "think":
+                            accumulated += "</think>"
+                        accumulated += "<fc>"
+                        current_block = "fc"
+                elif ctype == "reasoning":
+                    if current_block != "think":
+                        if current_block == "fc":
+                            accumulated += "</fc>"
+                        accumulated += "<think>"
+                        current_block = "think"
+                    reasoning_reply += safe_content
                 elif ctype == "decision":
                     decision_buffer += safe_content
-                    if current_block == "fc": accumulated += "</fc>"
-                    elif current_block == "think": accumulated += "</think>"
+                    if current_block == "fc":
+                        accumulated += "</fc>"
+                    elif current_block == "think":
+                        accumulated += "</think>"
                     current_block = "decision"
 
                 accumulated += safe_content
@@ -153,89 +179,112 @@ class GptOssBaseWorker(
                     yield json.dumps(chunk)
                 await self._shunt_to_redis_stream(redis, stream_key, chunk)
 
-            if current_block == "fc": accumulated += "</fc>"
-            elif current_block == "think": accumulated += "</think>"
+            if current_block == "fc":
+                accumulated += "</fc>"
+            elif current_block == "think":
+                accumulated += "</think>"
 
         except Exception as exc:
-            LOG.error(f"Stream Exception: {exc}")
-            yield json.dumps({"type": "error", "content": str(exc), "run_id": run_id})
+            LOG.error(f"DEBUG: Stream Exception: {exc}")
+            err = {"type": "error", "content": f"GPT-OSS stream error: {exc}", "run_id": run_id}
+            yield json.dumps(err)
+            await self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
             stop_event.set()
 
         yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
+        # --- SYNC-REPLICA 2: Validate Decision Payload ---
         if decision_buffer:
-            try: self._decision_payload = json.loads(decision_buffer.strip())
-            except: pass
+            try:
+                self._decision_payload = json.loads(decision_buffer.strip())
+                LOG.info(f"Decision payload validated: {self._decision_payload}")
+            except Exception as e:
+                LOG.error(f"Failed to parse decision payload: {e}")
 
+        # Keep-Alive Heartbeat
         yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
-        # Sanitize <fc> blocks
+        # --- SYNC-REPLICA 3: Post-Stream Sanitization ---
         if "<fc>" in accumulated:
             try:
                 fc_pattern = r"<fc>(.*?)</fc>"
                 matches = re.findall(fc_pattern, accumulated, re.DOTALL)
-                for orig in matches:
-                    try: json.loads(orig); continue
-                    except: pass
-                    fix = re.match(r"^\s*([a-zA-Z0-9_]+)\s*(\{.*)", orig, re.DOTALL)
-                    if fix:
+                for original_content in matches:
+                    try:
+                        json.loads(original_content)
+                        continue
+                    except json.JSONDecodeError:
+                        pass
+
+                    fix_match = re.match(
+                        r"^\s*([a-zA-Z0-9_]+)\s*(\{.*)", original_content, re.DOTALL
+                    )
+                    if fix_match:
+                        func_name, func_args = fix_match.group(1), fix_match.group(2)
                         try:
-                            p_args, _ = json.JSONDecoder().raw_decode(fix.group(2))
-                            valid = json.dumps({"name": fix.group(1), "arguments": p_args})
-                            accumulated = accumulated.replace(f"<fc>{orig}</fc>", f"<fc>{valid}</fc>")
-                        except: pass
-            except Exception as e: LOG.warning(f"Sanitization warning: {e}")
+                            parsed_args, _ = json.JSONDecoder().raw_decode(func_args)
+                            valid_payload = json.dumps(
+                                {"name": func_name, "arguments": parsed_args}
+                            )
+                            accumulated = accumulated.replace(
+                                f"<fc>{original_content}</fc>", f"<fc>{valid_payload}</fc>"
+                            )
+                        except:
+                            pass
+            except Exception as e:
+                LOG.error(f"Error during tool call sanitization: {e}")
 
-        # --- RESTORED LOGIC: Capture and Save Function Call Response ---
-        has_fc_dict = self.parse_and_set_function_calls(accumulated, assistant_reply)
+        # --- SYNC-REPLICA 4: Detection & Mixin State Sync ---
+        has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
+        mixin_state = (
+            self.get_function_call_state() if hasattr(self, "get_function_call_state") else has_fc
+        )
 
-        # Determine status: If a tool was found, status MUST be pending_action
-        final_status = StatusEnum.pending_action.value if has_fc_dict else StatusEnum.completed.value
         message_to_save = assistant_reply
+        final_status = StatusEnum.completed.value
 
-        if has_fc_dict:
+        # --- SYNC-REPLICA 5: Structure and Override Save Message ---
+        if has_fc or mixin_state:
             try:
                 fc_match = re.search(r"<fc>(.*?)</fc>", accumulated, re.DOTALL)
                 if fc_match:
-                    payload = json.loads(fc_match.group(1).strip())
+                    raw_json = fc_match.group(1).strip()
+                    payload_dict = json.loads(raw_json)
+
                     call_id = f"call_{uuid.uuid4().hex[:8]}"
                     self._current_tool_call_id = call_id
-                    self._pending_tool_payload = payload
+                    self._pending_tool_payload = payload_dict
 
-                    # Construct message for the DB as a valid OpenAI-style tool_calls message
-                    tool_calls_structure = [{
-                        "id": call_id,
-                        "type": "function",
-                        "function": {
-                            "name": payload.get("name"),
-                            "arguments": json.dumps(payload.get("arguments", {}))
+                    # CRITICAL: This is the structure the Assistant Cache needs for Turn 2
+                    tool_calls_structure = [
+                        {
+                            "id": call_id,
+                            "type": "function",
+                            "function": {
+                                "name": payload_dict.get("name"),
+                                "arguments": (
+                                    json.dumps(payload_dict.get("arguments", {}))
+                                    if isinstance(payload_dict.get("arguments"), dict)
+                                    else payload_dict.get("arguments")
+                                ),
+                            },
                         }
-                    }]
+                    ]
                     message_to_save = json.dumps(tool_calls_structure)
-            except:
+                    final_status = StatusEnum.pending_action.value
+            except Exception as e:
+                LOG.error(f"Failed to structure tool calls: {e}")
                 message_to_save = accumulated
 
-        # Finalize turn in DB (Atomic status set)
+        # --- SYNC-REPLICA 6: Persistence ---
         if message_to_save:
-            try:
-                await asyncio.wait_for(
-                    self.finalize_conversation(
-                        message_to_save, thread_id, assistant_id, run_id,
-                        final_status=final_status
-                    ),
-                    timeout=20,
-                )
-            except Exception as e:
-                LOG.error(f"finalize_conversation failed for run {run_id}: {e}")
+            await self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
 
-        # CRITICAL: Invalidate the context cache in Redis.
-        # This ensures Turn 2 rebuilt history includes the Assistant's Tool Call and the Tool Result.
-        if redis:
-            cache_key = f"thread:{thread_id}:context"
-            await asyncio.to_thread(redis.delete, cache_key)
-            LOG.debug(f"Invalidated context cache for thread {thread_id}")
-
+        if self.project_david_client:
+            await asyncio.to_thread(
+                self.project_david_client.runs.update_run_status, run_id, final_status
+            )
 
     async def process_conversation(
         self,
@@ -247,44 +296,46 @@ class GptOssBaseWorker(
         api_key: Optional[str] = None,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
-
-        # --- TURN 1 ---
+        # Turn 1
         async for chunk in self.stream(
             thread_id, message_id, run_id, assistant_id, model, api_key=api_key, **kwargs
         ):
             yield chunk
 
-        # --- TOOL HANDLING ---
-        fc_payload = self.get_function_call_state()
+        # Turn 2 / Check Tools
+        if self.get_function_call_state():
+            fc_payload = self.get_function_call_state()
+            fc_name = fc_payload.get("name") if isinstance(fc_payload, dict) else None
 
-        if fc_payload and isinstance(fc_payload, dict):
-            fc_name = fc_payload.get("name")
-            PLATFORM_TOOLS = {"code_interpreter", "computer", "file_search"}
-
-            # 1. Yield manifest / Execute platform tool
+            # 1. Execute/Manifest
             async for chunk in self.process_tool_calls(
-                thread_id, run_id, assistant_id,
+                thread_id,
+                run_id,
+                assistant_id,
                 tool_call_id=self._current_tool_call_id,
-                model=model, api_key=api_key, decision=self._decision_payload
+                model=model,
+                api_key=api_key,
+                decision=self._decision_payload,
             ):
                 yield chunk
 
             # 2. Strategy Split
+            PLATFORM_TOOLS = {"code_interpreter", "computer", "file_search"}
             if fc_name in PLATFORM_TOOLS:
-                # STAY ON THE LINE for platform tools
                 self.set_tool_response_state(False)
                 self.set_function_call_state(None)
-                self._current_tool_call_id = None
-
-                # Perform Turn 2 Inference immediately
                 async for chunk in self.stream(
-                    thread_id, None, run_id, assistant_id, model,
-                    force_refresh=True, api_key=api_key, **kwargs
+                    thread_id,
+                    None,
+                    run_id,
+                    assistant_id,
+                    model,
+                    force_refresh=True,
+                    api_key=api_key,
+                    **kwargs,
                 ):
                     yield chunk
             else:
-                # HANG UP for Consumer tools
-                # The manifest has been yielded. By returning, we close the stream
-                # so the client can POST results and start a new request.
-                LOG.info(f"Consumer turn finished for {fc_name}. Hanging up.")
+                # Consumer tools: connection MUST close here so client can execute and start Request 2.
+                LOG.info(f"Consumer turn finished for {fc_name}. Request Complete.")
                 return
