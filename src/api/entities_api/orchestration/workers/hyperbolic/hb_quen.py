@@ -1,8 +1,9 @@
 import os
 
 from entities_api.clients.async_to_sync import async_to_sync_stream
-from src.api.entities_api.orchestration.workers.base_workers.qwen_base import \
-    QwenBaseWorker
+from src.api.entities_api.orchestration.workers.base_workers.qwen_base import (
+    QwenBaseWorker,
+)
 
 
 class HyperbolicQwenWorker(QwenBaseWorker):

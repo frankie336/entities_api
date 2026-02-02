@@ -1,8 +1,9 @@
 import os
 
 from entities_api.clients.async_to_sync import async_to_sync_stream
-from entities_api.orchestration.workers.base_workers.hermes_type_default_base import \
-    HermesDefaultBaseWorker
+from entities_api.orchestration.workers.base_workers.hermes_type_default_base import (
+    HermesDefaultBaseWorker,
+)
 
 
 class TogetherHermesDefaultWorker(HermesDefaultBaseWorker):

@@ -10,9 +10,11 @@ from sqlalchemy.orm import Session
 from src.api.entities_api.dependencies import get_api_key, get_db
 from src.api.entities_api.models.models import ApiKey as ApiKeyModel
 from src.api.entities_api.models.models import User as UserModel
-from src.api.entities_api.services.vectors import (DatabaseConflictError,
-                                                   VectorStoreDBError,
-                                                   VectorStoreDBService)
+from src.api.entities_api.services.vectors import (
+    DatabaseConflictError,
+    VectorStoreDBError,
+    VectorStoreDBService,
+)
 
 router = APIRouter()
 log = UtilsInterface.LoggingUtility()

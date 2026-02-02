@@ -5,6 +5,7 @@ import re
 from typing import List, Dict, Any, Union
 from jsonschema import validate, ValidationError
 
+
 class InferenceValidationMixin:
     """
     Responsible for validating the structural integrity and protocol compliance
@@ -21,7 +22,7 @@ class InferenceValidationMixin:
         self,
         content_block: str,
         tool_call_obj: Any,
-        assistant_tools: List[Dict[str, Any]]
+        assistant_tools: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         """
         Validates that the model's declared intent (Decision Record in content)
@@ -43,7 +44,7 @@ class InferenceValidationMixin:
             return {
                 "valid": False,
                 "error": "PROTOCOL_VIOLATION: Missing or malformed Decision Record JSON.",
-                "telemetry": None
+                "telemetry": None,
             }
 
         # Validate Decision Schema (Internal Telemetry Check)
@@ -51,7 +52,7 @@ class InferenceValidationMixin:
             return {
                 "valid": False,
                 "error": "PROTOCOL_VIOLATION: Decision Record missing 'tool_name'.",
-                "telemetry": decision
+                "telemetry": decision,
             }
 
         # --- STAGE 2: Intent-Action Alignment ---
@@ -62,26 +63,20 @@ class InferenceValidationMixin:
             return {
                 "valid": False,
                 "error": f"DRIFT_DETECTED: Intent '{intended_tool}' does not match Action '{actual_tool}'.",
-                "telemetry": decision
+                "telemetry": decision,
             }
 
         # --- STAGE 3: Registry & Schema Validation ---
         # We perform a JIT lookup against the allowed tools for this specific assistant
-        validation_error = self._validate_against_registry(actual_tool, tool_call_obj.function.arguments, assistant_tools)
+        validation_error = self._validate_against_registry(
+            actual_tool, tool_call_obj.function.arguments, assistant_tools
+        )
 
         if validation_error:
-            return {
-                "valid": False,
-                "error": validation_error,
-                "telemetry": decision
-            }
+            return {"valid": False, "error": validation_error, "telemetry": decision}
 
         # --- PASS ---
-        return {
-            "valid": True,
-            "error": None,
-            "telemetry": decision
-        }
+        return {"valid": True, "error": None, "telemetry": decision}
 
     def _extract_decision_json(self, content: str) -> Union[Dict, None]:
         """
@@ -98,10 +93,10 @@ class InferenceValidationMixin:
         else:
             # 2. If no fences, try finding the first '{' and last '}'
             # This is a fallback for models that forget markdown
-            start = content.find('{')
-            end = content.rfind('}')
+            start = content.find("{")
+            end = content.rfind("}")
             if start != -1 and end != -1:
-                json_str = content[start:end+1]
+                json_str = content[start : end + 1]
             else:
                 return None
 
@@ -110,7 +105,9 @@ class InferenceValidationMixin:
         except json.JSONDecodeError:
             return None
 
-    def _validate_against_registry(self, tool_name: str, args_json_str: str, allowed_tools: List[Dict]) -> Union[str, None]:
+    def _validate_against_registry(
+        self, tool_name: str, args_json_str: str, allowed_tools: List[Dict]
+    ) -> Union[str, None]:
         """
         Checks if the tool exists in the list and if args match schema.
         Returns Error String if failed, None if passed.

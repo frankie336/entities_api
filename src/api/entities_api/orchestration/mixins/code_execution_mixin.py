@@ -1,10 +1,10 @@
 # src/api/entities_api/orchestration/mixins/code_execution_mixin.py
 from __future__ import annotations
 
+import asyncio
 import json
 import mimetypes
-import pprint
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Dict, List, Optional, AsyncGenerator
 
 from src.api.entities_api.services.logging_service import LoggingUtility
 
@@ -17,20 +17,16 @@ class CodeExecutionMixin:
     through real-time streaming, to final summary/attachment handling.
     """
 
-    def handle_code_interpreter_action(
+    async def handle_code_interpreter_action(
         self,
         thread_id: str,
         run_id: str,
         assistant_id: str,
         arguments_dict: dict,
         tool_call_id: Optional[str] = None,
-        # [NEW] Accept decision payload
         decision: Optional[Dict] = None,
-    ) -> Generator[str, None, None]:
-        """
-        Streams sandbox output **live** while accumulating a plain-text
-        summary and optional file previews.
-        """
+    ) -> AsyncGenerator[str, None]:
+
         # 1. Notify start
         yield json.dumps(
             {
@@ -39,21 +35,26 @@ class CodeExecutionMixin:
             }
         )
 
-        # 1. Create the Action Record with Decision Data
-        action = self.project_david_client.actions.create_action(
-            tool_name="code_interpreter",
-            run_id=run_id,
-            tool_call_id=tool_call_id,
-            function_args=arguments_dict,
-            # [NEW] Pass to API/Service
-            decision=decision,
-        )
+        # 2. Create the Action Record (Keyword args prevent positional swap bugs)
+        try:
+            action = await asyncio.to_thread(
+                self.project_david_client.actions.create_action,
+                tool_name="code_interpreter",
+                run_id=run_id,
+                tool_call_id=tool_call_id,
+                function_args=arguments_dict,
+                decision=decision,
+            )
+        except Exception as e:
+            LOG.error(f"CodeInterpreter ▸ Action creation failed: {e}")
+            yield json.dumps(
+                {"type": "error", "chunk": {"type": "error", "content": f"Creation failed: {e}"}}
+            )
+            return
 
         code: str = arguments_dict.get("code", "")
 
-        # ---------------------------------------------------------
-        # ⚡ HOT CODE REPLAY (Line-by-Line Typewriter)
-        # ---------------------------------------------------------
+        # ⚡ HOT CODE REPLAY
         if code:
             yield json.dumps(
                 {
@@ -74,38 +75,44 @@ class CodeExecutionMixin:
                     "chunk": {"type": "hot_code", "content": "\n```\n"},
                 }
             )
-        # ---------------------------------------------------------
 
         uploaded_files: List[dict] = []
         hot_code_buffer: List[str] = []
-        final_content_for_assistant = ""
-        LOG.info("Run %s: streaming sandbox output…", run_id)
-
-        # Use a proper JSON decoder to handle split/merged packets
         decoder = json.JSONDecoder()
         stream_buffer = ""
 
-        # 3. Stream Execution Output (Robust Parsing)
+        # 3. Stream Execution Output
         try:
-            for chunk_str in self.code_execution_client.stream_output(code):
+            sync_iter = iter(self.code_execution_client.stream_output(code))
+
+            # FIX: safe_next wrapper catches StopIteration inside the thread
+            # so it doesn't crash the asyncio Future.
+            def safe_next(it):
+                try:
+                    return next(it)
+                except (StopIteration, Exception):
+                    return None
+
+            while True:
+                # Offload to thread using safe wrapper
+                chunk_str = await asyncio.to_thread(safe_next, sync_iter)
+
+                # If None, stream ended (StopIteration) or client disconnected
+                if chunk_str is None:
+                    break
+
                 stream_buffer += chunk_str
 
-                # Continuously decode valid objects from the buffer
                 while stream_buffer:
-                    stream_buffer = stream_buffer.lstrip()  # Remove leading whitespace
+                    stream_buffer = stream_buffer.lstrip()
                     if not stream_buffer:
                         break
-
                     try:
-                        # raw_decode returns the object and the index where it ended
                         wrapper, idx = decoder.raw_decode(stream_buffer)
-                        # Slice off the processed part
                         stream_buffer = stream_buffer[idx:]
                     except json.JSONDecodeError:
-                        # Not enough data for a full JSON object yet; wait for next chunk
                         break
 
-                    # --- Process the Successfully Decoded Wrapper ---
                     payload = (
                         wrapper["chunk"]
                         if isinstance(wrapper, dict) and "chunk" in wrapper
@@ -118,41 +125,26 @@ class CodeExecutionMixin:
                     ctype = payload.get("type")
                     content = payload.get("content")
 
-                    # --- OUTPUT HANDLER ---
                     if ctype in ("hot_code_output", "stdout", "stderr", "console"):
                         if content is not None:
-                            clean_content = str(content)
-                            # Backend sanitization replacing frontend helper
-                            clean_content = clean_content.replace("\\n", "\n")
-
+                            clean_content = str(content).replace("\\n", "\n")
                             hot_code_buffer.append(clean_content)
-
                             yield json.dumps(
                                 {
                                     "stream_type": "code_execution",
-                                    "chunk": {
-                                        "type": "hot_code_output",
-                                        "content": clean_content,
-                                    },
+                                    "chunk": {"type": "hot_code_output", "content": clean_content},
                                 }
                             )
 
-                    # --- STATUS HANDLER ---
                     elif ctype == "status":
-                        status = content
-                        LOG.debug("Run %s: sandbox status → %s", run_id, status)
-                        if status == "complete" and isinstance(
+                        if content == "complete" and isinstance(
                             payload.get("uploaded_files"), list
                         ):
                             uploaded_files.extend(payload["uploaded_files"])
+                        yield json.dumps({"stream_type": "code_execution", "chunk": payload})
 
-                        yield json.dumps(
-                            {"stream_type": "code_execution", "chunk": payload}
-                        )
-
-                    # --- ERROR HANDLER ---
                     elif ctype == "error":
-                        LOG.error("Run %s: sandbox error chunk: %s", run_id, content)
+                        LOG.error(f"CodeInterpreter ▸ Error: {content}")
                         hot_code_buffer.append(f"[Code Exec Error] {content}")
                         yield json.dumps(
                             {
@@ -162,76 +154,46 @@ class CodeExecutionMixin:
                         )
 
         except Exception as stream_err:
-            LOG.error(
-                "Run %s: sandbox streaming failed: %s",
-                run_id,
-                stream_err,
-                exc_info=True,
-            )
+            LOG.error(f"CodeInterpreter ▸ Stream error: {stream_err}")
             yield json.dumps(
-                {
-                    "stream_type": "code_execution",
-                    "chunk": {
-                        "type": "error",
-                        "content": f"Failed to stream code execution: {stream_err}",
-                    },
-                }
-            )
-            hot_code_buffer.append(f"[Streaming error] {stream_err}")
-
-        # 4. Construct Final Summary for LLM
-        if len(hot_code_buffer) > 0:
-            final_content_for_assistant = "\n".join(hot_code_buffer).strip()
-            if not final_content_for_assistant:
-                final_content_for_assistant = (
-                    "[Code executed successfully. Output contained only whitespace.]"
-                )
-        elif not uploaded_files:
-            final_content_for_assistant = (
-                "[Code executed successfully, no output and no files generated.]"
-            )
-        else:
-            final_content_for_assistant = (
-                "[Code executed successfully, files generated but no textual output.]"
+                {"type": "error", "chunk": {"type": "error", "content": str(stream_err)}}
             )
 
-        # 5. Process and Yield Generated Files
+        # 4. Final Summary Construction
+        final_content = "\n".join(hot_code_buffer).strip() or "[Code executed successfully.]"
+
+        # 5. Process Files
         for file_meta in uploaded_files:
-            file_id = file_meta.get("id")
-            filename = file_meta.get("filename")
+            file_id, filename = file_meta.get("id"), file_meta.get("filename")
             if not file_id or not filename:
                 continue
-
-            mime_type, _ = mimetypes.guess_type(filename)
-            mime_type = mime_type or "application/octet-stream"
+            mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
             try:
-                b64 = self.project_david_client.files.get_file_as_base64(
-                    file_id=file_id
+                b64 = await asyncio.to_thread(
+                    self.project_david_client.files.get_file_as_base64, file_id=file_id
+                )
+                yield json.dumps(
+                    {
+                        "stream_type": "code_execution",
+                        "chunk": {
+                            "type": "code_interpreter_stream",
+                            "content": {
+                                "filename": filename,
+                                "file_id": file_id,
+                                "base64": b64,
+                                "mime_type": mime_type,
+                            },
+                        },
+                    }
                 )
             except Exception as e:
-                LOG.error(f"Error fetching file {file_id}: {e}")
-                b64 = ""
+                LOG.error(f"CodeInterpreter ▸ File fetch error ({file_id}): {e}")
 
-            yield json.dumps(
-                {
-                    "stream_type": "code_execution",
-                    "chunk": {
-                        "type": "code_interpreter_stream",
-                        "content": {
-                            "filename": filename,
-                            "file_id": file_id,
-                            "base64": b64,
-                            "mime_type": mime_type,
-                        },
-                    },
-                }
-            )
-
-        # 6. Yield Final Content Summary
+        # 6. Close out
         yield json.dumps(
             {
                 "stream_type": "code_execution",
-                "chunk": {"type": "content", "content": final_content_for_assistant},
+                "chunk": {"type": "content", "content": final_content},
             }
         )
         yield json.dumps(
@@ -241,39 +203,17 @@ class CodeExecutionMixin:
             }
         )
 
-        if uploaded_files:
-            LOG.info(
-                "Run %s: uploaded_files metadata:\n%s",
-                run_id,
-                pprint.pformat(uploaded_files),
-            )
-
-        # 7. Submit Output back to Thread/Assistant
+        # 7. Submit Result (Awaiting async submit)
         try:
-            self.submit_tool_output(
+            await self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
-                content=final_content_for_assistant,
+                content=final_content,
                 action=action,
             )
-            LOG.info("Run %s: tool output submitted.", run_id)
-        except Exception as submit_err:
-            LOG.error(
-                "Run %s: error submitting tool output: %s",
-                run_id,
-                submit_err,
-                exc_info=True,
-            )
-            yield json.dumps(
-                {
-                    "stream_type": "code_execution",
-                    "chunk": {
-                        "type": "error",
-                        "content": f"Failed to submit results to assistant: {submit_err}",
-                    },
-                }
-            )
+        except Exception as e:
+            LOG.error(f"CodeInterpreter ▸ Submission failure: {e}")
 
     def process_hot_code_buffer(
         self,
@@ -333,9 +273,7 @@ class CodeExecutionMixin:
 
             # Visual De-escaping
             clean_segment = (
-                unsent_buffer.replace("\\n", "\n")
-                .replace('\\"', '"')
-                .replace("\\'", "'")
+                unsent_buffer.replace("\\n", "\n").replace('\\"', '"').replace("\\'", "'")
             )
 
             # Squelch structural closers at the tail end (visual only)

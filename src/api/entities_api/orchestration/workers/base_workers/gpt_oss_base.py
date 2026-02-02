@@ -18,7 +18,9 @@ from src.api.entities_api.orchestration.engine.orchestrator_core import Orchestr
 
 # --- MIXINS ---
 from src.api.entities_api.orchestration.mixins.providers import _ProviderMixins
-from src.api.entities_api.orchestration.streaming.hyperbolic import HyperbolicDeltaNormalizer
+from src.api.entities_api.orchestration.streaming.hyperbolic import (
+    HyperbolicDeltaNormalizer,
+)
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -45,7 +47,9 @@ class GptOssBaseWorker(
         assistant_cache: dict | None = None,
         **extra,
     ) -> None:
-        self._assistant_cache: dict = assistant_cache or extra.get("assistant_cache") or {}
+        self._assistant_cache: dict = (
+            assistant_cache or extra.get("assistant_cache") or {}
+        )
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
@@ -115,7 +119,9 @@ class GptOssBaseWorker(
 
         try:
             # Map model if necessary
-            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
+            if hasattr(self, "_get_model_map") and (
+                mapped := self._get_model_map(model)
+            ):
                 model = mapped
 
             # Prepare context
@@ -130,7 +136,9 @@ class GptOssBaseWorker(
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
             if not api_key:
-                err_msg = json.dumps({"type": "error", "content": "Missing Hyperbolic API key."})
+                err_msg = json.dumps(
+                    {"type": "error", "content": "Missing Hyperbolic API key."}
+                )
                 yield err_msg
                 return
 
@@ -149,7 +157,9 @@ class GptOssBaseWorker(
             # -------------------------------
             # 1. Process deltas asynchronously
             # -------------------------------
-            async for chunk in HyperbolicDeltaNormalizer.async_iter_deltas(raw_stream, run_id):
+            async for chunk in HyperbolicDeltaNormalizer.async_iter_deltas(
+                raw_stream, run_id
+            ):
                 if stop_event.is_set():
                     break
 
@@ -251,7 +261,8 @@ class GptOssBaseWorker(
                             )
                             # REFACTOR: Replace the tagged block with the sanitized tagged block
                             accumulated = accumulated.replace(
-                                f"<fc>{original_content}</fc>", f"<fc>{valid_payload}</fc>"
+                                f"<fc>{original_content}</fc>",
+                                f"<fc>{valid_payload}</fc>",
                             )
                         except Exception:
                             pass
@@ -291,7 +302,9 @@ class GptOssBaseWorker(
             try:
                 # We await the now-asynchronous finalize_conversation
                 await asyncio.wait_for(
-                    self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id),
+                    self.finalize_conversation(
+                        message_to_save, thread_id, assistant_id, run_id
+                    ),
                     timeout=20,
                 )
             except Exception as e:
@@ -304,7 +317,9 @@ class GptOssBaseWorker(
             try:
                 # Since project_david_client is sync, we use to_thread to keep the loop free
                 await asyncio.to_thread(
-                    self.project_david_client.runs.update_run_status, run_id, final_status
+                    self.project_david_client.runs.update_run_status,
+                    run_id,
+                    final_status,
                 )
             except Exception as e:
                 LOG.error(f"update_run_status failed for run {run_id}: {e}")

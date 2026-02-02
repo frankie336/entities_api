@@ -64,7 +64,11 @@ async def get_api_key(
             headers={"WWW-Authenticate": "APIKey"},
         )
 
-    key = db.query(ApiKey).filter(ApiKey.prefix == prefix, ApiKey.is_active.is_(True)).first()
+    key = (
+        db.query(ApiKey)
+        .filter(ApiKey.prefix == prefix, ApiKey.is_active.is_(True))
+        .first()
+    )
 
     if not key or not key.verify_key(api_key_header):
         raise HTTPException(

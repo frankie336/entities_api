@@ -142,9 +142,7 @@ class AsyncUnifiedInferenceClient:
 # FACTORY FUNCTION (Use this in your Worker!)
 # ------------------------------------------------------------------
 def get_cached_client(
-    api_key: str,
-    base_url: str,
-    enable_logging: bool = False
+    api_key: str, base_url: str, enable_logging: bool = False
 ) -> AsyncUnifiedInferenceClient:
     """
     Returns a cached client instance for the given API key/Base URL combo.
@@ -154,9 +152,7 @@ def get_cached_client(
 
     if cache_key not in _ACTIVE_CLIENTS:
         client = AsyncUnifiedInferenceClient(
-            api_key=api_key,
-            base_url=base_url,
-            enable_chunk_logging=enable_logging
+            api_key=api_key, base_url=base_url, enable_chunk_logging=enable_logging
         )
         _ACTIVE_CLIENTS[cache_key] = client
 
@@ -165,9 +161,7 @@ def get_cached_client(
     if client.client.is_closed:
         # Re-create if closed
         client = AsyncUnifiedInferenceClient(
-            api_key=api_key,
-            base_url=base_url,
-            enable_chunk_logging=enable_logging
+            api_key=api_key, base_url=base_url, enable_chunk_logging=enable_logging
         )
         _ACTIVE_CLIENTS[cache_key] = client
 

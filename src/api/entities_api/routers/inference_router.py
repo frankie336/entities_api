@@ -8,10 +8,10 @@ from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from redis import Redis
 
-from entities_api.orchestration.engine.inference_arbiter import \
-    InferenceArbiter
-from entities_api.orchestration.engine.inference_provider_selector import \
-    InferenceProviderSelector
+from entities_api.orchestration.engine.inference_arbiter import InferenceArbiter
+from entities_api.orchestration.engine.inference_provider_selector import (
+    InferenceProviderSelector,
+)
 from src.api.entities_api.dependencies import get_redis
 
 router = APIRouter()
@@ -24,8 +24,7 @@ logging_utility = LoggingUtility()
     response_description="A stream of JSON-formatted completions chunks",
 )
 async def completions(
-    stream_request: ValidationInterface.StreamRequest,
-    redis: Redis = Depends(get_redis)
+    stream_request: ValidationInterface.StreamRequest, redis: Redis = Depends(get_redis)
 ):
     """
     Handles streaming completion requests using the appropriate inference provider.
