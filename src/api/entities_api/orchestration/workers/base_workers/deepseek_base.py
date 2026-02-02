@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import re
 from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Dict, Optional
 
@@ -32,7 +31,7 @@ class DeepSeekBaseWorker(
 ):
     """
     Async Base for DeepSeek Providers.
-    Migrated to Async-First Architecture following GPT-OSS Gold Standard.
+    Migrated to Async-First Architecture.
     """
 
     def __init__(
@@ -54,7 +53,7 @@ class DeepSeekBaseWorker(
         self.assistant_id = assistant_id
         self.thread_id = thread_id
         self.base_url = base_url or os.getenv("BASE_URL")
-        self.api_key = api_key
+        self.api_key = api_key or extra.get("api_key")
 
         self.model_name = extra.get("model_name", "deepseek-ai/DeepSeek-V3")
         self.max_context_window = extra.get("max_context_window", 128000)
@@ -66,11 +65,14 @@ class DeepSeekBaseWorker(
 
         self.setup_services()
 
+        # Ensure mixin stubs exist if failed to load (Standardized from GptOss)
         if not hasattr(self, "get_function_call_state"):
             LOG.error("CRITICAL: ToolRoutingMixin failed to load.")
             self.get_function_call_state = lambda: None
             self.set_function_call_state = lambda x: None
             self.set_tool_response_state = lambda x: None
+
+        LOG.debug("Hyperbolic-Ds1 provider ready (assistant=%s)", assistant_id)
 
     @abstractmethod
     def _get_client_instance(self, api_key: str):
@@ -97,18 +99,20 @@ class DeepSeekBaseWorker(
         api_key: str | None = None,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
-
         redis = self.redis
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
-        # --- SYNC-REPLICA 1: Early Variable Initialization ---
+        # Early Variable Initialization
         self._current_tool_call_id = None
         self._pending_tool_payload = None
         self._decision_payload = None
 
-        assistant_reply, accumulated, reasoning_reply, decision_buffer = "", "", "", ""
-        current_block = None
+        accumulated: str = ""
+        assistant_reply: str = ""
+        reasoning_reply: str = ""
+        decision_buffer: str = ""
+        current_block: str | None = None
 
         try:
             if hasattr(self, "_get_model_map") and (
@@ -116,45 +120,38 @@ class DeepSeekBaseWorker(
             ):
                 model = mapped
 
-            raw_ctx = await self._set_up_context_window(
-                assistant_id,
-                thread_id,
-                trunk=True,
-                structured_tool_call=True,
-                force_refresh=force_refresh,
-                decision_telemetry=False,
+            # Async Context Setup
+            ctx = await self._set_up_context_window(
+                assistant_id, thread_id, trunk=True, force_refresh=force_refresh
             )
 
-            # --- DeepSeek Specific: R1 System Message Handling ---
+            # DeepSeek Specific: R1 System Message Amendment
             if model == "deepseek-ai/DeepSeek-R1":
                 amended = self._build_amended_system_message(assistant_id=assistant_id)
-                raw_ctx = self.replace_system_message(
-                    raw_ctx, json.dumps(amended, ensure_ascii=False)
+                ctx = self.replace_system_message(
+                    ctx, json.dumps(amended, ensure_ascii=False)
                 )
-
-            cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
             if not api_key:
                 yield json.dumps({"type": "error", "content": "Missing API key."})
                 return
 
-            # --- Standardized Client Execution (GPT-OSS Style) ---
-            client = self._get_client_instance(api_key=api_key)
-
-            # Note: We pass extracted_tools only if not using stream_reasoning,
-            # or based on your specific logic for DeepSeek.
-            # Assuming strictly following GPT-OSS pattern regarding reasoning/tools conflict:
-            tools_arg = None if stream_reasoning else extracted_tools
-
-            raw_stream = client.stream_chat_completion(
-                messages=raw_ctx,
-                model=model,
-                # tools=tools_arg,
-                temperature=kwargs.get("temperature", 0.6),
-                **kwargs,
-            )
-
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
+
+            # -----------------------------------------------------------
+            # STANDARDIZED CLIENT EXECUTION
+            # -----------------------------------------------------------
+            client = self._get_client_instance(api_key=api_key)
+            raw_stream = client.stream_chat_completion(
+                messages=ctx,
+                model=model,
+                max_tokens=10000,
+                temperature=kwargs.get("temperature", 0.6),
+                stream=True,
+                # Note: DeepSeek legacy worker does not pass native 'tools' list,
+                # relying on prompt/XML parsing instead.
+            )
+            # -----------------------------------------------------------
 
             async for chunk in DeltaNormalizer.async_iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
@@ -162,24 +159,26 @@ class DeepSeekBaseWorker(
 
                 ctype = chunk.get("type")
                 ccontent = chunk.get("content") or ""
-                safe_content = ccontent if isinstance(ccontent, str) else ""
 
+                # --- DEEPSEEK SPECIFIC PARSING LOGIC (MAINTAINED AS IS) ---
                 if ctype == "content":
                     if current_block == "fc":
                         accumulated += "</fc>"
                     elif current_block == "think":
                         accumulated += "</think>"
+                    # Note: We don't add </decision> to 'accumulated' because
+                    # we want to filter it out of the visible history.
                     current_block = None
-                    assistant_reply += safe_content
-                    accumulated += safe_content
+                    assistant_reply += ccontent
+                    accumulated += ccontent
 
-                elif ctype in ("tool_name", "call_arguments"):
+                elif ctype == "call_arguments":
                     if current_block != "fc":
                         if current_block == "think":
                             accumulated += "</think>"
                         accumulated += "<fc>"
                         current_block = "fc"
-                    accumulated += safe_content
+                    accumulated += ccontent
 
                 elif ctype == "reasoning":
                     if current_block != "think":
@@ -187,11 +186,11 @@ class DeepSeekBaseWorker(
                             accumulated += "</fc>"
                         accumulated += "<think>"
                         current_block = "think"
-                    reasoning_reply += safe_content
+                    reasoning_reply += ccontent
 
                 elif ctype == "decision":
-                    # DeepSeek specific: Accumulate decision buffer but do NOT add to visible accumulated/reply
-                    decision_buffer += safe_content
+                    # We are in decision mode. We DO NOT add this to 'accumulated'
+                    decision_buffer += ccontent
 
                     if current_block == "fc":
                         accumulated += "</fc>"
@@ -199,9 +198,11 @@ class DeepSeekBaseWorker(
                         accumulated += "</think>"
                     current_block = "decision"
 
-                # Yield events (filtering out raw call_arguments if desired, usually handled by Normalizer)
-                if ctype not in ("tool_name", "call_arguments"):
-                    yield json.dumps(chunk)
+                # Selective Yielding
+                if ctype == "call_arguments":
+                    continue
+
+                yield json.dumps(chunk)
                 await self._shunt_to_redis_stream(redis, stream_key, chunk)
 
             # Close blocks
@@ -222,9 +223,7 @@ class DeepSeekBaseWorker(
         finally:
             stop_event.set()
 
-        yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
-
-        # --- SYNC-REPLICA 2: Validate Decision Payload ---
+        # --- VALIDATE DECISION PAYLOAD ---
         if decision_buffer:
             try:
                 cleaned_decision = decision_buffer.strip()
@@ -233,34 +232,26 @@ class DeepSeekBaseWorker(
             except Exception as e:
                 LOG.error(f"Failed to parse decision payload: {e}")
 
-        # Keep-Alive Heartbeat
+        # Keep-Alive
         yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
-        # --- SYNC-REPLICA 4: Detection & Mixin State Sync ---
+        # --- DEEPSEEK SPECIFIC PERSISTENCE (NO HERMES ENVELOPE) ---
         has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
-
         message_to_save = assistant_reply
         final_status = StatusEnum.completed.value
 
-        # --- SYNC-REPLICA 5: Persistence (DEEPSEEK STYLE) ---
-        # Note: We PRESERVE the raw JSON persistence logic from the original DeepSeek worker
-        # instead of adopting the GPT-OSS Hermes envelope.
         if has_fc:
             try:
-                # Clean tags
+                # Clean tags - DeepSeek Specific Logic
                 raw_json = accumulated.replace("<fc>", "").replace("</fc>", "").strip()
                 payload_dict = json.loads(raw_json)
-
-                # DeepSeek saves the raw dictionary structure directly
                 message_to_save = json.dumps(payload_dict)
                 self._pending_tool_payload = payload_dict
                 final_status = StatusEnum.pending_action.value
-
             except Exception as e:
                 LOG.error(f"Error parsing raw tool JSON: {e}")
                 message_to_save = accumulated
 
-        # --- SYNC-REPLICA 6: Persistence ---
         if message_to_save:
             await self.finalize_conversation(
                 message_to_save, thread_id, assistant_id, run_id
@@ -270,6 +261,9 @@ class DeepSeekBaseWorker(
             await asyncio.to_thread(
                 self.project_david_client.runs.update_run_status, run_id, final_status
             )
+
+        if not has_fc:
+            yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
     async def process_conversation(
         self,
@@ -281,7 +275,6 @@ class DeepSeekBaseWorker(
         api_key: Optional[str] = None,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
-
         # Turn 1
         async for chunk in self.stream(
             thread_id,
@@ -299,6 +292,9 @@ class DeepSeekBaseWorker(
             fc_payload = self.get_function_call_state()
             fc_name = fc_payload.get("name") if isinstance(fc_payload, dict) else None
 
+            # DeepSeek Specific: Pass decision payload
+            current_decision = getattr(self, "_decision_payload", None)
+
             # 1. Execute/Manifest
             async for chunk in self.process_tool_calls(
                 thread_id,
@@ -307,11 +303,13 @@ class DeepSeekBaseWorker(
                 tool_call_id=self._current_tool_call_id,
                 model=model,
                 api_key=api_key,
-                decision=self._decision_payload,
+                decision=current_decision,
             ):
                 yield chunk
 
-            # 2. Strategy Split (Migrated from GPT-OSS Standard)
+            # -------------------------------------------------------------
+            # 2. Strategy Split (Migrated from GPT-OSS Arch)
+            # -------------------------------------------------------------
             if fc_name in PLATFORM_TOOLS:
                 self.set_tool_response_state(False)
                 self.set_function_call_state(None)
