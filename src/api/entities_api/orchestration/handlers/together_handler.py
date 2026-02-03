@@ -1,6 +1,6 @@
 # src/api/entities_api/orchestration/workers/togeterai/together_handler.py
 
-from typing import Any, Generator, Optional, Type
+from typing import Any, AsyncGenerator, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
@@ -122,42 +122,22 @@ class TogetherAIHandler:
         LOG.debug(f"Routing '{sub_model_id}' to: {specific_cls.__name__}")
         return self.arbiter.get_provider_instance(specific_cls)
 
-    def process_conversation(
+    async def process_conversation(
         self,
         thread_id: str,
-        message_id: str,
-        run_id: str,
-        assistant_id: str,
-        model: str,
-        stream_reasoning: bool = False,
-        api_key: Optional[str] = None,
-        **kwargs,
-    ) -> Generator[str, None, None]:
-        handler = self._get_specific_handler_instance(model)
-        yield from handler.process_conversation(
-            thread_id=thread_id,
-            message_id=message_id,
-            run_id=run_id,
-            assistant_id=assistant_id,
-            model=model,
-            stream_reasoning=stream_reasoning,
-            api_key=api_key,
-            **kwargs,
-        )
-
-    def stream(
-        self,
-        thread_id: str,
-        message_id: str,
+        message_id: Optional[str],
         run_id: str,
         assistant_id: str,
         model: Any,
-        stream_reasoning: bool = True,
+        stream_reasoning: bool = False,
         api_key: Optional[str] = None,
         **kwargs,
-    ) -> Generator[str, None, None]:
-        handler = self._get_specific_handler_instance(model)
-        yield from handler.stream(
+    ) -> AsyncGenerator[str, None]:
+        worker = self._get_specific_handler_instance(model)
+
+        # 'yield from' does not work with async generators.
+        # We must iterate asynchronously and yield the chunks.
+        async for chunk in worker.process_conversation(
             thread_id=thread_id,
             message_id=message_id,
             run_id=run_id,
@@ -166,21 +146,52 @@ class TogetherAIHandler:
             stream_reasoning=stream_reasoning,
             api_key=api_key,
             **kwargs,
-        )
+        ):
+            yield chunk
 
-    def process_function_calls(
+    async def stream(
+        self,
+        thread_id: str,
+        message_id: Optional[str],
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        stream_reasoning: bool = False,
+        api_key: Optional[str] = None,
+        **kwargs,
+    ) -> AsyncGenerator[str, None]:
+        worker = self._get_specific_handler_instance(model)
+
+        async for chunk in worker.stream(
+            thread_id=thread_id,
+            message_id=message_id,
+            run_id=run_id,
+            assistant_id=assistant_id,
+            model=model,
+            stream_reasoning=stream_reasoning,
+            api_key=api_key,
+            **kwargs,
+        ):
+            yield chunk
+
+    async def process_function_calls(
         self,
         thread_id: str,
         run_id: str,
         assistant_id: str,
-        model: str = None,
+        model: Any = None,
         api_key: Optional[str] = None,
-    ) -> Generator[str, None, None]:
-        handler = self._get_specific_handler_instance(model)
-        yield from handler.process_tool_calls(
+        **kwargs,
+    ) -> AsyncGenerator[str, None]:
+        worker = self._get_specific_handler_instance(model)
+
+        # Internal workers typically use 'process_tool_calls'
+        async for chunk in worker.process_tool_calls(
             thread_id=thread_id,
             run_id=run_id,
             assistant_id=assistant_id,
             model=model,
             api_key=api_key,
-        )
+            **kwargs,
+        ):
+            yield chunk

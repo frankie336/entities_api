@@ -127,7 +127,10 @@ class DeepSeekBaseWorker(
 
             # DeepSeek Specific: R1 System Message Amendment
             if model == "deepseek-ai/DeepSeek-R1":
-                amended = self._build_amended_system_message(assistant_id=assistant_id)
+                # FIX: Await this call as it likely involves async DB/Mixin logic now
+                amended = await self._build_amended_system_message(
+                    assistant_id=assistant_id
+                )
                 ctx = self.replace_system_message(
                     ctx, json.dumps(amended, ensure_ascii=False)
                 )
