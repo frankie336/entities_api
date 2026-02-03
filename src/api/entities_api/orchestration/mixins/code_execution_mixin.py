@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
+import re
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from src.api.entities_api.services.logging_service import LoggingUtility
@@ -15,7 +16,22 @@ class CodeExecutionMixin:
     """
     Mixin that handles the `code_interpreter` tool from registration,
     through real-time streaming, to final summary/attachment handling.
+
+    Level 2 Enhancement: Implementation of automated self-correction for
+    code failures (SyntaxErrors, RuntimeErrors, etc.).
     """
+
+    @staticmethod
+    def _format_level2_code_error(error_content: str) -> str:
+        """
+        Translates raw Python execution errors into actionable hints for the LLM.
+        """
+        return (
+            f"Code Execution Failed: {error_content}\n\n"
+            "Instructions: Please analyze the traceback above. If this is a syntax error, "
+            "logical bug, or missing import, correct your code and retry execution. "
+            "If a data file was missing, ensure you used the correct file path from the context."
+        )
 
     async def handle_code_interpreter_action(
         self,
@@ -35,7 +51,7 @@ class CodeExecutionMixin:
             }
         )
 
-        # 2. Create the Action Record (Keyword args prevent positional swap bugs)
+        # 2. Create the Action Record
         try:
             action = await asyncio.to_thread(
                 self.project_david_client.actions.create_action,
@@ -57,7 +73,7 @@ class CodeExecutionMixin:
 
         code: str = arguments_dict.get("code", "")
 
-        # ⚡ HOT CODE REPLAY
+        # ⚡ HOT CODE REPLAY (Visual feedback)
         if code:
             yield json.dumps(
                 {
@@ -83,13 +99,12 @@ class CodeExecutionMixin:
         hot_code_buffer: List[str] = []
         decoder = json.JSONDecoder()
         stream_buffer = ""
+        execution_had_error = False
 
         # 3. Stream Execution Output
         try:
             sync_iter = iter(self.code_execution_client.stream_output(code))
 
-            # FIX: safe_next wrapper catches StopIteration inside the thread
-            # so it doesn't crash the asyncio Future.
             def safe_next(it):
                 try:
                     return next(it)
@@ -97,10 +112,7 @@ class CodeExecutionMixin:
                     return None
 
             while True:
-                # Offload to thread using safe wrapper
                 chunk_str = await asyncio.to_thread(safe_next, sync_iter)
-
-                # If None, stream ended (StopIteration) or client disconnected
                 if chunk_str is None:
                     break
 
@@ -132,6 +144,14 @@ class CodeExecutionMixin:
                         if content is not None:
                             clean_content = str(content).replace("\\n", "\n")
                             hot_code_buffer.append(clean_content)
+
+                            # Detection of failure within the stream
+                            if (
+                                "Traceback" in clean_content
+                                or "Error:" in clean_content
+                            ):
+                                execution_had_error = True
+
                             yield json.dumps(
                                 {
                                     "stream_type": "code_execution",
@@ -152,6 +172,7 @@ class CodeExecutionMixin:
                         )
 
                     elif ctype == "error":
+                        execution_had_error = True
                         LOG.error(f"CodeInterpreter ▸ Error: {content}")
                         hot_code_buffer.append(f"[Code Exec Error] {content}")
                         yield json.dumps(
@@ -162,6 +183,7 @@ class CodeExecutionMixin:
                         )
 
         except Exception as stream_err:
+            execution_had_error = True
             LOG.error(f"CodeInterpreter ▸ Stream error: {stream_err}")
             yield json.dumps(
                 {
@@ -170,12 +192,19 @@ class CodeExecutionMixin:
                 }
             )
 
-        # 4. Final Summary Construction
-        final_content = (
-            "\n".join(hot_code_buffer).strip() or "[Code executed successfully.]"
-        )
+        # 4. Final Summary & Level 2 Correction Logic
+        raw_output = "\n".join(hot_code_buffer).strip()
 
-        # 5. Process Files
+        if execution_had_error:
+            # LEVEL 2: Instead of raw failure, we provide a structured Hint
+            final_content = self._format_level2_code_error(
+                raw_output or "Unknown execution failure."
+            )
+            LOG.warning(f"CodeInterpreter ▸ Self-Correction Triggered for run {run_id}")
+        else:
+            final_content = raw_output or "[Code executed successfully.]"
+
+        # 5. Process Files (Plots/CSVs generated during execution)
         for file_meta in uploaded_files:
             file_id, filename = file_meta.get("id"), file_meta.get("filename")
             if not file_id or not filename:
@@ -202,7 +231,7 @@ class CodeExecutionMixin:
             except Exception as e:
                 LOG.error(f"CodeInterpreter ▸ File fetch error ({file_id}): {e}")
 
-        # 6. Close out
+        # 6. Close out current stream
         yield json.dumps(
             {
                 "stream_type": "code_execution",
@@ -217,6 +246,7 @@ class CodeExecutionMixin:
         )
 
         # 7. Submit Result (Awaiting async submit)
+        # On error, is_error=True signals the orchestrator that Turn 2 is required
         try:
             await self.submit_tool_output(
                 thread_id=thread_id,
@@ -224,6 +254,7 @@ class CodeExecutionMixin:
                 tool_call_id=tool_call_id,
                 content=final_content,
                 action=action,
+                is_error=execution_had_error,
             )
         except Exception as e:
             LOG.error(f"CodeInterpreter ▸ Submission failure: {e}")
@@ -237,72 +268,36 @@ class CodeExecutionMixin:
         stream_key: str,
     ) -> tuple[int, int, Optional[str]]:
         """
-        Process a raw JSON buffer to extract, clean, and stream code execution updates.
-        Handles the 'Matrix effect' buffering to prevent one-char-per-line rendering issues.
-
-        Args:
-            buffer: The accumulated raw JSON string of arguments.
-            start_index: The cached index where the code string starts (-1 if unknown).
-            cursor: The number of characters from the code string already processed.
-            redis_client: The Redis connection.
-            stream_key: The Redis stream key.
-
-        Returns:
-            (new_start_index, new_cursor, json_payload_string_or_None)
+        Process raw JSON buffer for 'Matrix effect' rendering.
         """
-        import json
-        import re
-
-        # 1. Locate Start of Code (Once)
         if start_index == -1:
-            # Matches keys like "code" or 'code' followed by colon and quote
             match = re.search(r"[\"\']code[\"\']\s*:\s*[\"\']", buffer)
             if match:
                 start_index = match.end()
             else:
-                # Code field not found yet
                 return start_index, cursor, None
 
-        # 2. Slice the relevant data
         full_code_value = buffer[start_index:]
         unsent_buffer = full_code_value[cursor:]
-
         if not unsent_buffer:
             return start_index, cursor, None
 
-        # 3. Buffering Strategy (The Fix)
-        # We buffer until we have a newline, a decent chunk size, or the end of the string.
         has_newline = "\\n" in unsent_buffer
         is_long_enough = len(unsent_buffer) > 15
         is_closed = unsent_buffer.endswith('"') or unsent_buffer.endswith("'")
-
-        # Safety: Never cut on a backslash to protect escape sequences
         safe_cut = not unsent_buffer.endswith("\\")
 
         if (has_newline or is_long_enough or is_closed) and safe_cut:
-
-            # Commit cursor forward
             cursor += len(unsent_buffer)
-
-            # Visual De-escaping
             clean_segment = (
                 unsent_buffer.replace("\\n", "\n")
                 .replace('\\"', '"')
                 .replace("\\'", "'")
             )
-
-            # Squelch structural closers at the tail end (visual only)
             if len(clean_segment) == 1 and clean_segment in ('"', "}"):
                 return start_index, cursor, None
-
-            # Construct Payload
             payload_dict = {"type": "hot_code", "content": clean_segment}
-
-            # Side-effect: Shunt to Redis immediately
-            # (Assumes OrchestratorCore has _shunt_to_redis_stream, which is standard in your architecture)
             self._shunt_to_redis_stream(redis_client, stream_key, payload_dict)
-
             return start_index, cursor, json.dumps(payload_dict)
 
-        # Not enough data to yield yet
         return start_index, cursor, None

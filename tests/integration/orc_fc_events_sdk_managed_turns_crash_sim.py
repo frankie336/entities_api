@@ -1,10 +1,9 @@
 """
-Level 2 Unified Function Calling Test
+Level 2 Unified Function Calling Test: Error Recovery Simulation
 ---------------------------------------------------
 1. Streams Events via a SINGLE loop.
-2. Automatically handles Turn 2 (Final Answer) or Turn N (Correction)
-   within the same generator loop.
-3. Demonstrates the SDK-managed recursive turn logic.
+2. SIMULATES an error on the first tool execution.
+3. Demonstrates the SDK catching the error and the LLM attempting to recover.
 """
 
 import json
@@ -46,26 +45,35 @@ print(f"{GREY}[CONFIG] Model: {MODEL_ID} | Provider: {PROVIDER_KW}{RESET}")
 
 client = Entity(base_url=BASE_URL, api_key=ENTITIES_API_KEY)
 
-# Bind clients (Required for the SDK to manage tool execution internally)
-if hasattr(client, "synchronous_inference_stream"):
-    client.synchronous_inference_stream.bind_clients(
-        client.runs, client.actions, client.messages, client.assistants
-    )
+# ------------------------------------------------------------------
+# 1. Tool Executor Logic (WITH SIMULATED FAILURE)
+# ------------------------------------------------------------------
+# We use a simple counter to fail the first time and succeed the second
+EXECUTION_ATTEMPTS = 0
 
 
-# ------------------------------------------------------------------
-# 1. Tool Executor Logic
-# ------------------------------------------------------------------
 def get_flight_times(tool_name: str, arguments: dict) -> str:
     """
-    Fake tool.
-    TESTING TIP: Raise an exception here to test Level 2 Self-Correction!
+    Fake tool that simulates a database failure on the first attempt.
     """
+    global EXECUTION_ATTEMPTS
+    EXECUTION_ATTEMPTS += 1
+
     print(
-        f"{YELLOW}   -> [TOOL EXEC] {tool_name} for {arguments.get('departure')}...{RESET}"
+        f"{YELLOW}   -> [TOOL ATTEMPT {EXECUTION_ATTEMPTS}] {tool_name} for {arguments.get('departure')}...{RESET}"
     )
 
-    # Example logic:
+    # SIMULATE A CRASH ON TURN 1
+    if EXECUTION_ATTEMPTS == 1:
+        print(
+            f"{RED}   -> [SIMULATED ERROR] Triggering fake Database Timeout...{RESET}"
+        )
+        raise Exception(
+            "Database Connection Timeout: The flight server is currently not responding."
+        )
+
+    # SUCCESS ON TURN 2
+    print(f"{GREEN}   -> [SUCCESS] Database recovered for turn 2.{RESET}")
     return json.dumps(
         {
             "status": "success",
@@ -76,18 +84,16 @@ def get_flight_times(tool_name: str, arguments: dict) -> str:
     )
 
 
-# --- NEW: DYNAMIC TOOL REGISTRY ---
-# Map the string name (from the LLM) to the Python function object
+# --- DYNAMIC TOOL REGISTRY ---
 TOOL_REGISTRY = {
     "get_flight_times": get_flight_times,
-    # "get_weather": get_weather,  <-- Add more tools here
 }
 
 
 # ==================================================================
 # 2. Setup & Global Timer
 # ==================================================================
-print(f"\n{YELLOW}[TIMER] Starting Unified Round-Trip...{RESET}")
+print(f"\n{YELLOW}[TIMER] Starting Unified Round-Trip with Error Simulation...{RESET}")
 global_start = time.perf_counter()
 
 thread = client.threads.create_thread()
@@ -112,14 +118,17 @@ stream.setup(
     api_key=HYPERBOLIC_API_KEY,
 )
 
-print(f"\n{CYAN}[▶] UNIFIED STREAM: SDK-Managed Turns{RESET}")
+print(f"\n{CYAN}[▶] UNIFIED STREAM: Testing Agentic Recovery{RESET}")
 print(f"{'LATENCY':<12} | {'EVENT CLASS':<25} | {'PAYLOAD'}")
 print("-" * 110)
 
 last_tick = time.perf_counter()
 
 try:
-    # This ONE loop now handles Turn 1 (Tool Call) AND Turn 2 (Answer)
+    # This loop will now likely run for THREE turns:
+    # Turn 1: AI calls tool -> Handler crashes -> SDK submits Error.
+    # Turn 2: AI sees error -> Retries tool call -> Handler succeeds.
+    # Turn 3: AI sees success -> Generates final answer.
     for event in stream.stream_events(provider=PROVIDER_KW, model=MODEL_ID):
 
         # Timing logic
@@ -147,30 +156,26 @@ try:
         )
 
         # ---------------------------------------------------------
-        # THE MAGIC BIT:
-        # When a tool is requested, we just call .execute().
-        # The generator (stream_events) will automatically pause,
-        # submit the output, and resume the next turn from the model.
+        # LEVEL 2 EXECUTION:
+        # If the handler crashes, event.execute() returns True (because
+        # it successfully submitted the error feedback). The SDK loop
+        # then triggers the next turn automatically.
         # ---------------------------------------------------------
         if isinstance(event, ToolCallRequestEvent):
             print(f"\n{YELLOW}[LOCAL] AI requested tool: {event.tool_name}{RESET}")
 
-            # --- DYNAMIC DISPATCH ---
-            # Lookup the function by name in our registry
             handler = TOOL_REGISTRY.get(event.tool_name)
 
             if handler:
-                event.execute(handler)
-                print(
-                    f"{GREEN}[✓] Tool Result Submitted. Resuming stream for final answer...{RESET}\n"
-                )
+                success = event.execute(handler)
+                if success:
+                    print(
+                        f"{GREEN}[✓] Feedback/Result Submitted. Turn complete.{RESET}\n"
+                    )
             else:
-                # Handle cases where AI hallucinates a tool name not in our registry
                 print(
                     f"{RED}[!] No local handler found for tool: {event.tool_name}{RESET}"
                 )
-                # Level 2 Tip: You could call messages_client.submit_tool_output
-                # with an error here to tell the AI it's using a non-existent tool.
 
 except Exception as e:
     print(f"{RED}[!] Error in loop: {e}{RESET}")
@@ -182,5 +187,5 @@ global_end = time.perf_counter()
 total_time = global_end - global_start
 
 print(f"\n{YELLOW}" + "=" * 60)
-print(f" TOTAL ROUND TRIP TIME: {total_time:.4f}s")
+print(f" TOTAL ROUND TRIP TIME (INCLUDING RECOVERY): {total_time:.4f}s")
 print("=" * 60 + f"{RESET}\n")

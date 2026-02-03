@@ -57,3 +57,7 @@ assistant = client.assistants.create_assistant(
 
 print(assistant.id)
 print(assistant.instructions)
+
+
+retrieve_assistant = client.assistants.retrieve_assistant(assistant.id)
+print(retrieve_assistant)

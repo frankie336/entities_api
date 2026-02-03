@@ -189,3 +189,22 @@ class JsonUtilsMixin:
 
     def _get_model_map(self, value: str) -> str | None:
         return MODEL_MAP.get(value)
+
+    @staticmethod
+    def validate_tool_args(
+        tool_name: str, args: Dict, schema_registry: Dict[str, list]
+    ) -> Optional[str]:
+        """
+        Level 2 Enhancement: Checks if the LLM actually provided what's required.
+        Returns a string error message if validation fails, else None.
+        """
+        required_fields = schema_registry.get(tool_name, [])
+        missing = [f for f in required_fields if f not in args or args[f] is None]
+
+        if missing:
+            return (
+                f"Missing required arguments for '{tool_name}': {', '.join(missing)}."
+            )
+
+        # Optional: Add type checking here (e.g. ensure 'count' is an int)
+        return None

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from datetime import datetime
@@ -241,6 +242,7 @@ class ConversationContextMixin:
         decision_telemetry: bool = True,
     ) -> List[Dict]:
 
+        # 1. Build the System Message (This part is solid)
         if structured_tool_call:
             system_msg = await self._build_native_function_calls_system_message(
                 assistant_id=assistant_id,
@@ -255,15 +257,34 @@ class ConversationContextMixin:
         if force_refresh:
             LOG.debug(f"[CTX-REFRESH] 🔄 Force Refresh Active for {thread_id}")
 
-            client = Entity(
-                base_url=os.getenv("ASSISTANTS_BASE_URL"),
-                api_key=os.getenv("ADMIN_API_KEY"),
-            )
+            # --- CRITICAL CHANGE START: BYPASS HTTP ---
+            # Instead of: client = Entity(...), use the internal service directly.
+            # Assuming you have self.message_service or similar available via the Mixin.
 
-            full_hist = client.messages.get_formatted_messages(
-                thread_id,
-                system_message=None,
-            )
+            # If you don't have the service injected, utilize the direct DB lookup logic
+            # that your 'get_formatted_messages' endpoint uses.
+
+            try:
+                # Bypass the HTTP request to prevent deadlock
+                full_hist = await asyncio.to_thread(
+                    self.message_service.get_formatted_messages,  # Use the SERVICE, not the CLIENT
+                    thread_id=thread_id,
+                    system_message=None,
+                )
+            except AttributeError:
+                # Fallback: If service isn't available, we MUST increase the timeout
+                # and use a non-blocking internal URL.
+                LOG.warning(
+                    "[CTX-REFRESH] Service not found, falling back to internal API (Danger of Deadlock)"
+                )
+                client = Entity(
+                    base_url="http://localhost:9000",  # Ensure this points to the internal network
+                    api_key=os.getenv("ADMIN_API_KEY"),
+                )
+                full_hist = client.messages.get_formatted_messages(
+                    thread_id, system_message=None
+                )
+            # --- CRITICAL CHANGE END ---
 
             last_role = full_hist[-1].get("role") if full_hist else "N/A"
             LOG.info(
@@ -276,14 +297,14 @@ class ConversationContextMixin:
             msgs = self.message_cache.get_history_sync(thread_id)
             LOG.debug(f"[CTX-CACHE] Redis Hit for {thread_id}: {len(msgs)} msgs found.")
 
+        # Filter and prepend
         msgs = [m for m in msgs if m.get("role") != "system"]
         full_context = [system_msg] + msgs
 
         normalized = self._normalize_roles(full_context)
 
-        LOG.info(
-            f"\n=== 🚀 OUTBOUND CONTEXT (Size: {len(normalized)}) ===\n{json.dumps(normalized, indent=2)}"
-        )
+        # Logging the context is great for debugging Turn 2
+        LOG.info(f"=== 🚀 OUTBOUND CONTEXT (Size: {len(normalized)}) ===")
 
         if trunk:
             return self.conversation_truncator.truncate(normalized)

@@ -1,31 +1,36 @@
+# src/api/entities_api/orchestration/mixins/file_search_mixin.py
 from __future__ import annotations
 
 import asyncio
 import json
-import os
-import time
-import traceback
 from typing import Any, Dict, Optional
 
-import httpx
 from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 LOG = LoggingUtility()
 
-SURFACE_TRACEBACK = os.getenv("SURFACE_TRACEBACK", "false").lower() == "true"
-
 
 class FileSearchMixin:
     """
-    Drive the **file_search** tool-call asynchronously:
+    Drive the **file_search** tool-call asynchronously.
 
-    • creates/updates the Action record
-    • looks up (or lazily creates) the caller’s “file_search” vector-store
-    • runs an unattended_vector search and submits results back to the thread
-    • offloads blocking sync I/O to background threads
+    Level 2 Enhancement: Implementation of automated self-correction for
+    retrieval failures and empty search results.
     """
+
+    @staticmethod
+    def _format_level2_search_error(error_content: str, query: str) -> str:
+        """
+        Translates retrieval crashes or empty sets into actionable hints for the LLM.
+        """
+        return (
+            f"File Search Result for '{query}': {error_content}\n\n"
+            "Instructions: If no results were found, please try again with broader keywords, "
+            "remove specific filters, or check if the document names provided in context exist. "
+            "If this was a system error, you may attempt to retry once."
+        )
 
     async def handle_file_search(
         self,
@@ -38,11 +43,13 @@ class FileSearchMixin:
     ) -> None:
         """
         Asynchronous handler for file_search.
-        Uses asyncio.to_thread to prevent Qdrant/DB lookups from blocking the event loop.
+        Signals the internal orchestrator loop for Turn 2 if retrieval fails
+        or returns empty results.
         """
         ts_start = asyncio.get_event_loop().time()
+        query_text: str = arguments_dict.get("query_text", "")
 
-        # 1. Create Action Record (Offloaded to thread with keyword safety)
+        # 1. Create Action Record
         try:
             action = await asyncio.to_thread(
                 self.project_david_client.actions.create_action,
@@ -55,13 +62,6 @@ class FileSearchMixin:
         except Exception as e:
             LOG.error(f"FileSearch ▸ Action creation failed for run {run_id}: {e}")
             return
-
-        LOG.debug(
-            "[%s] Created action id=%s args=%s",
-            run_id,
-            action.id,
-            json.dumps(arguments_dict),
-        )
 
         try:
             # 2. Retrieve Run and User ID (Threaded)
@@ -76,14 +76,6 @@ class FileSearchMixin:
                 user_id=user_id,
             )
 
-            query_text: str = arguments_dict.get("query_text", "")
-            LOG.debug(
-                "[%s] file_search → store=%s query=%s",
-                run_id,
-                vector_store_id,
-                query_text,
-            )
-
             # 4. Perform Search (Heavy I/O - Threaded)
             search_results = await asyncio.to_thread(
                 self.project_david_client.vectors.unattended_file_search,
@@ -92,22 +84,42 @@ class FileSearchMixin:
                 vector_store_host="qdrant",
             )
 
-            LOG.debug("[%s] file_search results received", run_id)
+            # --- LEVEL 2: DETECT EMPTY RESULTS (Soft Failure) ---
+            # If search returns nothing, we treat it as an error Turn to force the model to rethink keywords
+            is_soft_failure = False
+            if not search_results or (
+                isinstance(search_results, list) and len(search_results) == 0
+            ):
+                is_soft_failure = True
+                final_content = self._format_level2_search_error(
+                    "No relevant document snippets found.", query_text
+                )
+                LOG.warning(
+                    f"FileSearch ▸ No results for '{query_text}'. Triggering self-correction turn."
+                )
+            else:
+                final_content = json.dumps(search_results, indent=2)
 
-            # 5. Submit Tool Output (Awaiting the now-async handler)
+            # 5. Submit Tool Output
+            # If soft failure, we flag is_error=True to trigger the next Turn in process_conversation
             await self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
-                content=json.dumps(search_results, indent=2),
+                content=final_content,
                 action=action,
+                is_error=is_soft_failure,
             )
 
-            # 6. Mark Action Completed (Threaded)
+            # 6. Mark Action Status
             await asyncio.to_thread(
                 self.project_david_client.actions.update_action,
                 action_id=action.id,
-                status=StatusEnum.completed.value,
+                status=(
+                    StatusEnum.completed.value
+                    if not is_soft_failure
+                    else StatusEnum.failed.value
+                ),
             )
 
             LOG.info(
@@ -118,50 +130,35 @@ class FileSearchMixin:
             )
 
         except Exception as exc:
-            tb = traceback.format_exc()
+            # --- LEVEL 2: HANDLE HARD FAILURES (Crashes) ---
             LOG.error(
-                "[%s] file_search FAILED action=%s exc=%s\n%s",
+                f"[%s] file_search HARD FAILURE action=%s exc=%s",
                 run_id,
                 action.id,
                 exc,
-                tb,
             )
 
-            # Update action status to failed (Threaded)
+            # Construct a clean instructional hint for the LLM
+            error_hint = self._format_level2_search_error(str(exc), query_text)
+
             try:
+                # Update status (Threaded)
                 await asyncio.to_thread(
                     self.project_david_client.actions.update_action,
                     action_id=action.id,
                     status=StatusEnum.failed.value,
                 )
-            except:
-                pass
 
-            # Construct and surface error block
-            err_block = {"error_type": exc.__class__.__name__, "message": str(exc)}
-            if isinstance(exc, httpx.HTTPStatusError):
-                err_block.update(
-                    {
-                        "status_code": exc.response.status_code,
-                        "response_text": exc.response.text,
-                        "url": str(exc.request.url),
-                    }
-                )
-            if SURFACE_TRACEBACK:
-                err_block["traceback"] = tb
-
-            try:
-                # Surface the error to the assistant so it doesn't hang (Async)
+                # Surface the error as a correction turn
                 await self.submit_tool_output(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
                     tool_call_id=tool_call_id,
-                    content=json.dumps(err_block, indent=2),
+                    content=error_hint,
                     action=action,
                     is_error=True,
                 )
             except Exception as inner:
-                LOG.exception("[%s] Failed to surface error: %s", run_id, inner)
-
-            # We don't necessarily want to crash the whole worker stream,
-            # just report the tool failure to the LLM.
+                LOG.exception(
+                    "[%s] Critical failure during error surfacing: %s", run_id, inner
+                )

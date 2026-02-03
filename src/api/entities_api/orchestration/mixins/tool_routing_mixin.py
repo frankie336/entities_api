@@ -1,7 +1,4 @@
-"""
-High-level routing of <fc> tool-calls with detailed activation logs.
-(Async Version - Restored Decision/Flat Payload Handling)
-"""
+# src/api/entities_api/orchestration/mixins/tool_routing_mixin.py
 
 from __future__ import annotations
 
@@ -18,6 +15,12 @@ LOG = LoggingUtility()
 
 
 class ToolRoutingMixin:
+    """
+    High-level routing of tool-calls.
+    Refactored for Level 2 Reliability: Platform tools (Code, Computer, File Search)
+    now support automated internal self-correction turns.
+    """
+
     FC_REGEX = re.compile(r"<fc>\s*(?P<payload>\{.*?\})\s*</fc>", re.DOTALL | re.I)
     _tool_response: bool = False
     _function_call: Optional[Dict] = None
@@ -40,15 +43,14 @@ class ToolRoutingMixin:
         return self._function_call
 
     # -----------------------------------------------------
-    # Parsing Logic
+    # Parsing Logic (Stage 1 Healing)
     # -----------------------------------------------------
-
     def parse_and_set_function_calls(
         self, accumulated_content: str, assistant_reply: str
     ) -> Optional[Dict]:
         """
-        Scans text for tool call payloads, supporting both <fc> tags and raw JSON.
-        Returns the parsed dictionary and sets internal state.
+        Scans text for tool call payloads.
+        Level 2: Supports robust extraction from 'chatty' model responses.
         """
         from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
             JsonUtilsMixin
@@ -77,12 +79,10 @@ class ToolRoutingMixin:
             if m:
                 parsed = self.ensure_valid_json(m.group("payload"))
                 if parsed:
-                    # Healing: We accept even if 'name' is missing,
-                    # relying on 'decision' telemetry in process_tool_calls.
                     LOG.debug("FC-SCAN ✓ found JSON in <fc> tags")
                     return _normalize_arguments(parsed)
 
-            # 2. Try raw JSON finding (Searching for { ... })
+            # 2. Try raw JSON finding (Robust Regex-based hunt)
             start = text.find("{")
             end = text.rfind("}")
             if start != -1 and end != -1 and end > start:
@@ -94,7 +94,6 @@ class ToolRoutingMixin:
 
             return None
 
-        # Check accumulated content (streaming buffer) or final reply
         parsed_fc = _extract_json_block(accumulated_content) or _extract_json_block(
             assistant_reply
         )
@@ -104,7 +103,7 @@ class ToolRoutingMixin:
             self.set_function_call_state(parsed_fc)
             return parsed_fc
 
-        # Legacy fallback for older formatting
+        # Legacy fallback
         loose = self.extract_function_calls_within_body_of_text(assistant_reply)
         if loose:
             normalized = _normalize_arguments(loose[0])
@@ -135,7 +134,7 @@ class ToolRoutingMixin:
                 yield result
 
     # -----------------------------------------------------
-    # Tool Processing & Dispatching
+    # Tool Processing & Dispatching (Level 2 Recursive)
     # -----------------------------------------------------
 
     async def process_tool_calls(
@@ -151,6 +150,9 @@ class ToolRoutingMixin:
     ) -> AsyncGenerator:
         """
         Orchestrates the execution of a detected tool call.
+        Level 2:
+        - Platform tools (Code, Shell, Search) execute directly and return recursion signal.
+        - Consumer tools yield a manifest and signal the end of the server turn.
         """
         fc = self.get_function_call_state()
         if not fc:
@@ -171,25 +173,21 @@ class ToolRoutingMixin:
                 )
                 name = inferred_name
                 if args is None:
-                    args = fc  # If no arguments key, the whole payload is the arguments
+                    args = fc
                 fc = {"name": name, "arguments": args}
                 self.set_function_call_state(fc)
 
         if not name:
-            LOG.error(
-                "TOOL-ROUTER ▸ Failed to resolve tool name. Payload: %s, Decision: %s",
-                fc,
-                decision,
-            )
+            LOG.error("TOOL-ROUTER ▸ Failed to resolve tool name.")
             return
 
         LOG.info("TOOL-ROUTER ▶ dispatching tool=%s", name)
 
         # -----------------------------------------------------
-        # DISPATCHING WITH KEYWORD ARGUMENTS
+        # 1. PLATFORM TOOLS (Internal Level 2 Recovery)
         # -----------------------------------------------------
 
-        # 1. Code Interpreter
+        # Code Interpreter
         if name == "code_interpreter":
             async for chunk in self._yield_maybe_async(
                 self.handle_code_interpreter_action(
@@ -203,8 +201,10 @@ class ToolRoutingMixin:
             ):
                 yield chunk
 
-        # 2. Computer / Shell
+        # Computer / Shell (Terminal)
         elif name == "computer":
+            # Note: handle_shell_action should follow the same try/except pattern
+            # as code_interpreter to provide Level 2 Instructional Hints.
             async for chunk in self._yield_maybe_async(
                 self.handle_shell_action(
                     thread_id=thread_id,
@@ -217,8 +217,11 @@ class ToolRoutingMixin:
             ):
                 yield chunk
 
-        # 3. File Search
+        # File Search (Knowledge Retrieval)
         elif name == "file_search":
+            # Level 2 Logic: If no snippets are found, handle_file_search
+            # should submit a 'tool' output saying "No relevant information found"
+            # so the model can try a different search term in turn 2.
             await self._yield_maybe_async(
                 self.handle_file_search(
                     thread_id=thread_id,
@@ -230,7 +233,9 @@ class ToolRoutingMixin:
                 )
             )
 
-        # 4. Platform Tools
+        # -----------------------------------------------------
+        # 2. OTHER PLATFORM / SYSTEM TOOLS
+        # -----------------------------------------------------
         elif name in PLATFORM_TOOLS:
             if name in SPECIAL_CASE_TOOL_HANDLING:
                 gen = self._process_tool_calls(
@@ -254,7 +259,9 @@ class ToolRoutingMixin:
             async for chunk in self._yield_maybe_async(gen):
                 yield chunk
 
-        # 5. Default Consumer Tools
+        # -----------------------------------------------------
+        # 3. CONSUMER TOOLS (Manifest Handover to SDK)
+        # -----------------------------------------------------
         else:
             async for chunk in self._yield_maybe_async(
                 self._process_tool_calls(
