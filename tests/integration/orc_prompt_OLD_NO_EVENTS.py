@@ -76,7 +76,6 @@ sync_stream = client.synchronous_inference_stream
 # --------------------------------------------------------
 print(f"Setting up stream for thread {actual_thread_id}...")
 sync_stream.setup(
-    user_id=user_id,
     thread_id=actual_thread_id,
     assistant_id=assistant.id,
     message_id=message.id,

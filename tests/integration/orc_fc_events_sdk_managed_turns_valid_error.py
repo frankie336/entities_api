@@ -39,7 +39,10 @@ RESET = "\033[0m"
 BASE_URL = config.get("base_url") or os.getenv("BASE_URL", "http://localhost:9000")
 ENTITIES_API_KEY = os.getenv("ENTITIES_API_KEY") or config.get("entities_api_key")
 ENTITIES_USER_ID = os.getenv("ENTITIES_USER_ID") or config.get("entities_user_id")
-HYPERBOLIC_API_KEY = os.getenv("HYPERBOLIC_API_KEY")
+
+
+PROVIDER_API_KEY = config.get("together_api_key")
+
 
 MODEL_ID = config.get("model", "together-ai/mistralai/Ministral-3-14B-Instruct-2512")
 PROVIDER_KW = config.get("provider", "Hyperbolic")
@@ -77,12 +80,11 @@ run = client.runs.create_run(assistant_id=ASSISTANT_ID, thread_id=thread.id)
 
 stream = client.synchronous_inference_stream
 stream.setup(
-    user_id=ENTITIES_USER_ID,
     thread_id=thread.id,
     assistant_id=ASSISTANT_ID,
     message_id=message.id,
     run_id=run.id,
-    api_key=HYPERBOLIC_API_KEY,
+    api_key=PROVIDER_API_KEY,
 )
 
 # ------------------------------------------------------------------
