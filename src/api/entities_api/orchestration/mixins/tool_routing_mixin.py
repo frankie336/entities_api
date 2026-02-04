@@ -52,9 +52,8 @@ class ToolRoutingMixin:
         Scans text for tool call payloads.
         Level 2: Supports robust extraction from 'chatty' model responses.
         """
-        from src.api.entities_api.orchestration.mixins.json_utils_mixin import (
-            JsonUtilsMixin,
-        )
+        from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
+            JsonUtilsMixin
 
         if not isinstance(self, JsonUtilsMixin):
             raise TypeError("ToolRoutingMixin must be mixed with JsonUtilsMixin")

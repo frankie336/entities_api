@@ -7,10 +7,14 @@ from typing import Any, Dict, List, Optional, Tuple
 from projectdavid import Entity
 
 from entities_api.constants.tools import PLATFORM_TOOL_MAP
-from entities_api.orchestration.instructions.assembler import assemble_instructions
-from src.api.entities_api.platform_tools.definitions.record_tool_decision import (
-    record_tool_decision,
-)
+from entities_api.orchestration.instructions.assembler import \
+    assemble_instructions
+from src.api.entities_api.orchestration.instructions.assemble_core_instructions import \
+    assemble_core_instructions
+from src.api.entities_api.orchestration.instructions.include_lists import (
+    GENERAL_INSTRUCTIONS, L3_INSTRUCTIONS, NO_CORE_INSTRUCTIONS)
+from src.api.entities_api.platform_tools.definitions.record_tool_decision import \
+    record_tool_decision
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 LOG = LoggingUtility()
@@ -22,7 +26,8 @@ class ConversationContextMixin:
     @property
     def message_cache(self):
         if not self._message_cache:
-            from src.api.entities_api.cache.message_cache import get_sync_message_cache
+            from src.api.entities_api.cache.message_cache import \
+                get_sync_message_cache
 
             self._message_cache = get_sync_message_cache()
         return self._message_cache
@@ -141,6 +146,7 @@ class ConversationContextMixin:
         self,
         assistant_id: str,
         decision_telemetry: bool = True,
+        agent_mode: bool = False,
     ) -> Dict:
 
         cache = self.get_assistant_cache()
@@ -148,18 +154,30 @@ class ConversationContextMixin:
 
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        include_keys = [
-            "TOOL_USAGE_PROTOCOL",
-            "FUNCTION_CALL_FORMATTING",
-            "FUNCTION_CALL_WRAPPING",
-        ]
+        # ---------------------------------------------------------
+        # 1. Builds core platform instructions
+        # 2. Merges Core instructions with developer instructions
+        # 2. If model tolerates decision telemetry in insert the instruction
+        # 3. Preserves the order: [platform_instructions]
+        #                          [developer_instruction]
+        # ----------------------------------------------------------
 
-        if decision_telemetry:
-            include_keys.insert(0, "TOOL_DECISION_PROTOCOL")
+        if agent_mode:
+            instructions = L3_INSTRUCTIONS
+        else:
+            instructions = GENERAL_INSTRUCTIONS
 
-        platform_instructions = assemble_instructions(include_keys=include_keys)
+        platform_instructions = await assemble_core_instructions(
+            include_keys=instructions, decision_telemetry=decision_telemetry
+        )
+
         developer_instructions = cfg.get("instructions", "")
 
+        # -------------------------------------------------
+        # - Resolves the assistants tools registry
+        # - Merges The assistants tools registry
+        # with selected platform tools
+        # -----------------------------------------------------
         final_tools = self._resolve_and_prioritize_platform_tools(
             tools=cfg["tools"],
             decision_telemetry=decision_telemetry,
@@ -196,6 +214,7 @@ class ConversationContextMixin:
         self,
         assistant_id: str,
         decision_telemetry: bool = True,
+        agent_mode: bool = False,
     ) -> Dict:
 
         cache = self.get_assistant_cache()
@@ -203,11 +222,15 @@ class ConversationContextMixin:
 
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        include_keys = ["DEVELOPER_INSTRUCTIONS"]
-        if decision_telemetry:
-            include_keys.append("TOOL_DECISION_PROTOCOL")
+        if agent_mode:
+            instructions = L3_INSTRUCTIONS
+        else:
+            instructions = GENERAL_INSTRUCTIONS
 
-        platform_instructions = assemble_instructions(include_keys=include_keys)
+        platform_instructions = await assemble_core_instructions(
+            include_keys=instructions, decision_telemetry=decision_telemetry
+        )
+
         developer_instructions = cfg.get("instructions", "")
 
         final_tools = self._resolve_and_prioritize_platform_tools(
