@@ -13,9 +13,16 @@ import time
 
 from config_orc_fc import config
 from dotenv import load_dotenv
+
 # Import the project classes
-from projectdavid import (ContentEvent, DecisionEvent, Entity, ReasoningEvent,
-                          StatusEvent, ToolCallRequestEvent)
+from projectdavid import (
+    ContentEvent,
+    DecisionEvent,
+    Entity,
+    ReasoningEvent,
+    StatusEvent,
+    ToolCallRequestEvent,
+)
 
 # ------------------------------------------------------------------
 # 0. CONFIGURATION & SDK INIT
@@ -45,12 +52,6 @@ TEST_PROMPT = config.get(
 print(f"{GREY}[CONFIG] Model: {MODEL_ID} | Provider: {PROVIDER_KW}{RESET}")
 
 client = Entity(base_url=BASE_URL, api_key=ENTITIES_API_KEY)
-
-# Bind clients (Required for the SDK to manage tool execution internally)
-if hasattr(client, "synchronous_inference_stream"):
-    client.synchronous_inference_stream.bind_clients(
-        client.runs, client.actions, client.messages, client.assistants
-    )
 
 
 # ------------------------------------------------------------------

@@ -12,13 +12,13 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from entities_api.clients.delta_normalizer import DeltaNormalizer
+
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
+
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.provider_mixins import \
-    _ProviderMixins
+from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -267,74 +267,3 @@ class DeepSeekBaseWorker(
 
         if not has_fc:
             yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
-
-    async def process_conversation(
-        self,
-        thread_id: str,
-        message_id: Optional[str],
-        run_id: str,
-        assistant_id: str,
-        model: Any,
-        api_key: Optional[str] = None,
-        **kwargs,
-    ) -> AsyncGenerator[str, None]:
-        # Turn 1
-        async for chunk in self.stream(
-            thread_id,
-            message_id,
-            run_id,
-            assistant_id,
-            model,
-            api_key=api_key,
-            **kwargs,
-        ):
-            yield chunk
-
-        # Turn 2 / Check Tools
-        if self.get_function_call_state():
-            fc_payload = self.get_function_call_state()
-            fc_name = fc_payload.get("name") if isinstance(fc_payload, dict) else None
-
-            # DeepSeek Specific: Pass decision payload
-            current_decision = getattr(self, "_decision_payload", None)
-
-            # 1. Execute/Manifest
-            async for chunk in self.process_tool_calls(
-                thread_id,
-                run_id,
-                assistant_id,
-                tool_call_id=self._current_tool_call_id,
-                model=model,
-                api_key=api_key,
-                decision=current_decision,
-            ):
-                yield chunk
-
-            # -------------------------------------------------------------
-            # 2. Strategy Split (Migrated from GPT-OSS Arch)
-            # -------------------------------------------------------------
-            if fc_name in PLATFORM_TOOLS:
-                self.set_tool_response_state(False)
-                self.set_function_call_state(None)
-
-                # Clear specific payloads
-                if hasattr(self, "_pending_tool_payload"):
-                    self._pending_tool_payload = None
-                if hasattr(self, "_decision_payload"):
-                    self._decision_payload = None
-
-                async for chunk in self.stream(
-                    thread_id,
-                    None,
-                    run_id,
-                    assistant_id,
-                    model,
-                    force_refresh=True,
-                    api_key=api_key,
-                    **kwargs,
-                ):
-                    yield chunk
-            else:
-                # Consumer tools: connection MUST close here so client can execute and start Request 2.
-                LOG.info(f"Consumer turn finished for {fc_name}. Request Complete.")
-                return

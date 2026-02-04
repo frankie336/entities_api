@@ -5,6 +5,8 @@ Automated Model Benchmark: Reasoning & Tool Use (Event-Driven Refactor)
 Refactored to catch and classify DEAD/UNAVAILABLE endpoints (404s).
 Now supports DecisionEvent logging and External Configuration.
 Includes 'Telemetry' column to track DecisionEvents before Tool Calls.
+
+UPDATED: Uses SDK-side Turn 2 handling (Single Loop).
 """
 
 import json
@@ -19,9 +21,16 @@ from typing import Dict, List, Optional, Tuple
 
 from config_benchmark import config
 from dotenv import load_dotenv
+
 # --- SDK Event Imports ---
-from projectdavid import (ContentEvent, DecisionEvent, Entity, ReasoningEvent,
-                          StatusEvent, ToolCallRequestEvent)
+from projectdavid import (
+    ContentEvent,
+    DecisionEvent,
+    Entity,
+    ReasoningEvent,
+    StatusEvent,
+    ToolCallRequestEvent,
+)
 
 # ------------------------------------------------------------------
 # 0. Setup & Config
@@ -115,7 +124,6 @@ class ReportManager:
             reas_icon = "🧠" if res["reasoning_detected"] else "—"
             tool_icon = "✅" if res["tool_call_ok"] else "❌"
 
-            # [NEW] Telemetry Icon
             # 📡 = Telemetry Received, — = No Telemetry
             telem_icon = "📡" if res["call_telemetry"] else "—"
 
@@ -127,7 +135,6 @@ class ReportManager:
             # Use the specific error message if present, otherwise OK
             note = res["error_msg"] if res["error_msg"] else "OK"
 
-            # Added {telem_icon} column
             new_row = (
                 f"| **{res['name']}** | {res['provider']} | `{res['id']}` | "
                 f"{inf_icon} | {reas_icon} | {tool_icon} | {telem_icon} | {timestamp} | {note} |"
@@ -135,7 +142,6 @@ class ReportManager:
             rows_by_provider[res["provider"]][res["id"]] = new_row
 
         # 3. Write Report
-        # [NEW] Added 'Telemetry' to header
         table_header_row = "| Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Telemetry | Last Run | Notes |"
         table_align_row = (
             "| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- |"
@@ -175,18 +181,19 @@ class ModelTester:
         self.user_id = USER_ID
         self.provider_api_key = get_api_key_for_provider(self.provider)
 
+        # [CRITICAL UPDATE] Bind clients so SDK can handle recursion automatically
         if hasattr(self.client, "synchronous_inference_stream"):
             self.client.synchronous_inference_stream.bind_clients(
-                self.client.runs, self.client.actions, self.client.messages
+                self.client.runs,
+                self.client.actions,
+                self.client.messages,
+                self.client.assistants,
             )
 
     def _classify_error(self, error_text: str) -> str:
-        """
-        Parses raw exception strings to return clean Notes for the CSV/MD.
-        """
+        """Parses raw exception strings to return clean Notes for the CSV/MD."""
         text = str(error_text).lower()
 
-        # Dead / 404
         if (
             "404" in text
             or "model_not_available" in text
@@ -194,16 +201,10 @@ class ModelTester:
             or "not found" in text
         ):
             return "💀 DEAD / UNAVAILABLE"
-
-        # Auth / 401
         if "401" in text or "unauthorized" in text or "invalid api key" in text:
             return "⛔ AUTH ERROR"
-
-        # Rate Limit / 429
         if "429" in text or "rate limit" in text or "quota" in text:
             return "⏳ RATE LIMIT"
-
-        # Server Error / 5xx
         if (
             "500" in text
             or "502" in text
@@ -211,12 +212,9 @@ class ModelTester:
             or "internal server error" in text
         ):
             return "🔥 SERVER ERROR"
-
-        # Context Length
         if "context_length_exceeded" in text:
             return "📏 CONTEXT LIMIT"
 
-        # Fallback: Truncate generic error
         clean_err = str(error_text).replace("\n", " ")
         return f"Error: {clean_err[:30]}..."
 
@@ -251,7 +249,6 @@ class ModelTester:
             self.assistant_id = assistant.id
             return True, None
         except Exception as e:
-            # Also classify setup errors (e.g., if model is invalid at creation time)
             return False, self._classify_error(str(e))
 
     def run_benchmark(self) -> Dict:
@@ -262,7 +259,7 @@ class ModelTester:
             "inference_ok": False,
             "reasoning_detected": False,
             "tool_call_ok": False,
-            "call_telemetry": False,  # [NEW] Track telemetry stats
+            "call_telemetry": False,
             "error_msg": "",
         }
 
@@ -287,16 +284,14 @@ class ModelTester:
             result["inference_ok"] = flags["inference_ok"]
             result["reasoning_detected"] = flags["reasoning_detected"]
 
-            # Use the classified detailed error if present
             if flags["error"]:
                 result["error_msg"] = self._classify_error(flags["detailed_error"])
 
         except Exception as e:
-            # Catch errors that happen outside the stream (e.g. create_run fails)
             result["error_msg"] = self._classify_error(str(e))
             return result
 
-        # Stage 2: Tool Calls
+        # Stage 2: Tool Calls (Single Loop)
         if result["inference_ok"]:
             print(f"\n{YELLOW}--- Stage 2: Tool Calls ({self.model_label}) ---{RESET}")
             try:
@@ -313,35 +308,35 @@ class ModelTester:
                     assistant_id=self.assistant_id, thread_id=thread.id
                 )
 
-                # Execute Stream 1 (Detection & Execution)
+                # [UPDATED] Single Stream Call
+                # The SDK now automatically submits output and yields the final answer
+                # within this single iterator.
                 stream_res = self._stream_and_analyze(
-                    thread.id, message.id, run.id, timeout=60.0
+                    thread.id, message.id, run.id, timeout=120.0
                 )
 
-                # [NEW] Capture Telemetry status from the Tool Call stream
                 if stream_res["decision_detected"]:
                     result["call_telemetry"] = True
 
-                if stream_res["tool_executed"]:
-                    print(f"\n{YELLOW}[*] Streaming Final Response...{RESET}")
-                    # Execute Stream 2 (Final Answer)
-                    final_res = self._stream_and_analyze(
-                        thread.id, message.id, run.id, timeout=60.0
+                # We consider tool support "OK" if:
+                # 1. The tool was executed.
+                # 2. We received a final answer (inference_ok) in the same stream.
+                if stream_res["tool_executed"] and stream_res["inference_ok"]:
+                    result["tool_call_ok"] = True
+                    print(
+                        f"\n{GREEN}[✓] Tool execution and Final Response verified in single stream.{RESET}"
                     )
-                    if final_res["inference_ok"]:
-                        result["tool_call_ok"] = True
-                    elif final_res["error"]:
-                        # If it fails during final response
-                        result["error_msg"] = self._classify_error(
-                            final_res["detailed_error"]
-                        )
                 else:
                     if stream_res["error"]:
                         result["error_msg"] = self._classify_error(
                             stream_res["detailed_error"]
                         )
-                    else:
+                    elif not stream_res["tool_executed"]:
                         print(f"{RED}[!] Tool call not triggered.{RESET}")
+                    elif not stream_res["inference_ok"]:
+                        print(
+                            f"{RED}[!] Tool executed but no final answer received.{RESET}"
+                        )
 
             except Exception as e:
                 result["error_msg"] = self._classify_error(str(e))
@@ -349,12 +344,12 @@ class ModelTester:
         return result
 
     def _stream_and_analyze(self, thread_id, message_id, run_id, timeout) -> Dict:
-        """New event-driven analysis loop."""
+        """New event-driven analysis loop. Handles recursive turns automatically."""
         stats = {
             "inference_ok": False,
             "reasoning_detected": False,
             "tool_executed": False,
-            "decision_detected": False,  # [NEW] Local flag for this stream
+            "decision_detected": False,
             "error": False,
             "detailed_error": None,
         }
@@ -371,6 +366,7 @@ class ModelTester:
 
         current_mode = None
         try:
+            # This loop now runs until the model stops completely (post-tool-execution)
             for event in stream.stream_events(
                 provider=self.provider, model=self.model_id, timeout_per_chunk=timeout
             ):
@@ -391,9 +387,7 @@ class ModelTester:
                         stats["inference_ok"] = True
                     print(f"{GREEN}{event.content}{RESET}", end="", flush=True)
 
-                # [NEW] Decision Event Handling & Stats Update
                 elif isinstance(event, DecisionEvent):
-                    # Mark that we received telemetry
                     stats["decision_detected"] = True
                     print(
                         f"\n{MAGENTA}⚡ [DECISION]: {event.to_dict()}{RESET}",
@@ -403,9 +397,11 @@ class ModelTester:
 
                 elif isinstance(event, ToolCallRequestEvent):
                     print(f"\n{YELLOW}🛠  [TOOL DETECTED]: {event.tool_name}{RESET}")
-                    # SDK handles the output submission automatically
+                    # SDK handles the output submission automatically upon .execute()
+                    # The generator will PAUSE here, submit output, and then RESUME.
                     if event.execute(get_flight_times):
                         stats["tool_executed"] = True
+                    # Note: We do NOT break here anymore.
 
                 elif isinstance(event, StatusEvent) and event.status == "failed":
                     stats["error"] = True
@@ -413,7 +409,6 @@ class ModelTester:
 
             print()
         except Exception as e:
-            # Capture the full exception string here
             print(f"\n{RED}[!] Stream Error: {e}{RESET}")
             stats["error"] = True
             stats["detailed_error"] = str(e)
@@ -453,7 +448,7 @@ def main(models_to_run):
                         "reasoning_detected": False,
                         "tool_call_ok": False,
                         "call_telemetry": False,
-                        "error_msg": err,  # setup() already classifies the error
+                        "error_msg": err,
                     }
                 ]
             )

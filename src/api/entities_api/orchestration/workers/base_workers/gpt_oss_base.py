@@ -7,18 +7,17 @@ from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Dict, Optional
 
 from dotenv import load_dotenv
-from projectdavid_common.constants import PLATFORM_TOOLS
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from entities_api.clients.delta_normalizer import DeltaNormalizer
+
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
+
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.provider_mixins import \
-    _ProviderMixins
+from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -298,114 +297,3 @@ class GptOssBaseWorker(
             await asyncio.to_thread(
                 self.project_david_client.runs.update_run_status, run_id, final_status
             )
-
-    async def process_conversation(
-        self,
-        thread_id: str,
-        message_id: Optional[str],
-        run_id: str,
-        assistant_id: str,
-        model: Any,
-        api_key: Optional[str] = None,
-        max_turns: int = 10,
-        **kwargs,
-    ) -> AsyncGenerator[str, None]:
-        """
-        Level 2 Recursive Orchestrator.
-
-        Orchestrates multi-turn self-correction for Platform Tools internally.
-        If a Platform Tool (e.g. Code Interpreter) fails with a syntax or logic
-        error, this loop injects an instructional hint and re-runs the LLM
-        immediately to attempt a fix.
-        """
-        from src.api.entities_api.constants.assistant import PLATFORM_TOOLS
-
-        turn_count = 0
-        current_message_id = message_id  # First turn uses the original user message_id
-
-        while turn_count < max_turns:
-            turn_count += 1
-            LOG.info(f"ORCHESTRATOR ▸ Turn {turn_count} start [Run: {run_id}]")
-
-            # --- 1. RESET INTERNAL STATE ---
-            # Ensure previous turn data doesn't pollute the new turn
-            self.set_tool_response_state(False)
-            self.set_function_call_state(None)
-            self._current_tool_call_id = None
-
-            # --- 2. THE INFERENCE TURN ---
-            # Call the LLM and stream the response
-            try:
-                async for chunk in self.stream(
-                    thread_id=thread_id,
-                    message_id=current_message_id,
-                    run_id=run_id,
-                    assistant_id=assistant_id,
-                    model=model,
-                    # Turn 2+ must force a refresh to include the previous Turn's tool output
-                    force_refresh=(turn_count > 1),
-                    api_key=api_key,
-                    **kwargs,
-                ):
-                    yield chunk
-            except Exception as stream_exc:
-                # Catching timeouts (like the one in your logs) to prevent a terminal crash
-                LOG.error(
-                    f"ORCHESTRATOR ▸ Turn {turn_count} stream failed: {stream_exc}"
-                )
-                yield json.dumps(
-                    {
-                        "type": "error",
-                        "content": f"Connection error during turn {turn_count}. Sequence aborted.",
-                    }
-                )
-                break
-
-            # After the stream completes, check if a tool call was detected and parsed
-            fc_payload = self.get_function_call_state()
-
-            if not fc_payload:
-                LOG.info(
-                    f"ORCHESTRATOR ▸ Turn {turn_count} produced text. Sequence complete."
-                )
-                break
-
-            # --- 3. THE TOOL PROCESSING TURN ---
-            fc_name = fc_payload.get("name")
-
-            # Dispatch the tool (Direct execution for Platform tools, Manifest for Consumer)
-            async for chunk in self.process_tool_calls(
-                thread_id=thread_id,
-                run_id=run_id,
-                assistant_id=assistant_id,
-                tool_call_id=self._current_tool_call_id,
-                model=model,
-                api_key=api_key,
-                decision=self._decision_payload,
-            ):
-                yield chunk
-
-            # --- 4. RECURSION DECISION ---
-            if fc_name in PLATFORM_TOOLS:
-                # Level 2: Platform tools handle their own turns.
-                LOG.info(
-                    f"ORCHESTRATOR ▸ Platform tool '{fc_name}' turn complete. Stabilizing..."
-                )
-
-                # [STABILIZATION] Give the Database and Assistant Cache a moment to commit
-                # the tool output before we refresh context for the next turn.
-                # This prevents the 'retrieving run: timed out' error seen in logs.
-                await asyncio.sleep(0.5)
-
-                # Turn 2+ relies on thread history, so we clear current_message_id
-                current_message_id = None
-                continue  # Jumps back to Turn 1 (The Inference Turn)
-            else:
-                # Consumer tools: The server MUST yield the manifest and close the stream.
-                LOG.info(
-                    f"ORCHESTRATOR ▸ Consumer tool '{fc_name}' detected. Handover to SDK."
-                )
-                return
-
-        if turn_count >= max_turns:
-            LOG.error(f"ORCHESTRATOR ▸ Max turns ({max_turns}) reached. Terminal exit.")

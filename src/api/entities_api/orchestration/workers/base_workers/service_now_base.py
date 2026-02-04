@@ -7,18 +7,17 @@ from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Dict, Optional
 
 from dotenv import load_dotenv
-from projectdavid_common.constants import PLATFORM_TOOLS
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from entities_api.clients.delta_normalizer import DeltaNormalizer
+
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
+
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.provider_mixins import \
-    _ProviderMixins
+from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -46,18 +45,14 @@ class ServiceNowBaseWorker(
         **extra,
     ) -> None:
         self._david_client: Any = None
-        self._assistant_cache: dict = (
-            assistant_cache or extra.get("assistant_cache") or {}
-        )
+        self._assistant_cache: dict = assistant_cache or extra.get("assistant_cache") or {}
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
         self.base_url = base_url or os.getenv("BASE_URL")
         self.api_key = api_key or extra.get("api_key")
 
-        self.model_name = extra.get(
-            "model_name", "ServiceNow-AI/Apriel-1.6-15b-Thinker"
-        )
+        self.model_name = extra.get("model_name", "ServiceNow-AI/Apriel-1.6-15b-Thinker")
         self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
 
@@ -115,9 +110,7 @@ class ServiceNowBaseWorker(
         current_block = None
 
         try:
-            if hasattr(self, "_get_model_map") and (
-                mapped := self._get_model_map(model)
-            ):
+            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
                 model = mapped
 
             # Async Context Setup
@@ -245,81 +238,9 @@ class ServiceNowBaseWorker(
                 message_to_save = accumulated
 
         if message_to_save:
-            await self.finalize_conversation(
-                message_to_save, thread_id, assistant_id, run_id
-            )
+            await self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
 
         if self.project_david_client:
             await asyncio.to_thread(
                 self.project_david_client.runs.update_run_status, run_id, final_status
             )
-
-    async def process_conversation(
-        self,
-        thread_id: str,
-        message_id: Optional[str],
-        run_id: str,
-        assistant_id: str,
-        model: Any,
-        api_key: Optional[str] = None,
-        **kwargs,
-    ) -> AsyncGenerator[str, None]:
-        # Turn 1
-        async for chunk in self.stream(
-            thread_id,
-            message_id,
-            run_id,
-            assistant_id,
-            model,
-            api_key=api_key,
-            **kwargs,
-        ):
-            yield chunk
-
-        # Turn 2 / Check Tools
-        if self.get_function_call_state():
-            fc_payload = self.get_function_call_state()
-            fc_name = fc_payload.get("name") if isinstance(fc_payload, dict) else None
-
-            # ServiceNow Specific: Pass decision payload (standardized)
-            current_decision = getattr(self, "_decision_payload", None)
-
-            # 1. Execute/Manifest
-            # We use self._current_tool_call_id (might be None, handled by mixin)
-            async for chunk in self.process_tool_calls(
-                thread_id,
-                run_id,
-                assistant_id,
-                tool_call_id=self._current_tool_call_id,
-                model=model,
-                api_key=api_key,
-                decision=current_decision,
-            ):
-                yield chunk
-
-            # -------------------------------------------------------------
-            # 2. Strategy Split (Migrated from GPT-OSS Arch)
-            # -------------------------------------------------------------
-            if fc_name in PLATFORM_TOOLS:
-                self.set_tool_response_state(False)
-                self.set_function_call_state(None)
-
-                # Clear specific payloads
-                self._pending_tool_payload = None
-                self._decision_payload = None
-
-                async for chunk in self.stream(
-                    thread_id,
-                    None,
-                    run_id,
-                    assistant_id,
-                    model,
-                    force_refresh=True,
-                    api_key=api_key,
-                    **kwargs,
-                ):
-                    yield chunk
-            else:
-                # Consumer tools: connection MUST close here so client can execute
-                LOG.info(f"Consumer turn finished for {fc_name}. Request Complete.")
-                return
