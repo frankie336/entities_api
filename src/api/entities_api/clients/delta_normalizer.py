@@ -15,6 +15,7 @@ class DeltaNormalizer:
     FC_START, FC_END = "<fc>", "</fc>"
     TH_START, TH_END = "<think>", "</think>"
     DEC_START, DEC_END = "<decision>", "</decision>"
+    PLAN_START, PLAN_END = "<plan>", "</plan>"  # [NEW] Level 3 Planning Tags
 
     # GPT-OSS / Hermes Channel tags
     CH_ANALYSIS = "<|channel|>analysis"
@@ -39,11 +40,7 @@ class DeltaNormalizer:
             lambda: {"index": 0, "function": {"name": "", "arguments": ""}}
         )
 
-        # ------------------------------------------------------------------
-        # [CHANGE] Use 'async for' to consume the network stream non-blocking
-        # ------------------------------------------------------------------
         async for token in raw_stream:
-            # --- Normalize Input (Universal Adapter) ---
             choices = []
             is_dict = isinstance(token, dict)
 
@@ -60,7 +57,6 @@ class DeltaNormalizer:
             else:
                 continue
 
-            # --- 1. Handle Native Reasoning ---
             r_content = (
                 delta.get("reasoning_content")
                 if is_dict
@@ -69,7 +65,6 @@ class DeltaNormalizer:
             if r_content:
                 yield {"type": "reasoning", "content": r_content, "run_id": run_id}
 
-            # --- 2. Handle Native Tool Calls ---
             t_calls = (
                 delta.get("tool_calls")
                 if is_dict
@@ -90,7 +85,6 @@ class DeltaNormalizer:
 
                     tool_data = pending_tool_calls[t_index]
 
-                    # Accumulate Name
                     if fn_name:
                         tool_data["function"]["name"] += fn_name
                         yield {
@@ -99,7 +93,6 @@ class DeltaNormalizer:
                             "run_id": run_id,
                         }
 
-                    # Accumulate Arguments
                     if fn_args:
                         tool_data["function"]["arguments"] += fn_args
                         yield {
@@ -108,12 +101,10 @@ class DeltaNormalizer:
                             "run_id": run_id,
                         }
 
-            # --- 3. Handle Standard Content ---
             seg = (
                 delta.get("content", "") if is_dict else getattr(delta, "content", "")
             ) or ""
 
-            # --- 4. Tool Completion Trigger (Explicit) ---
             if finish_reason == "tool_calls":
                 for idx, data in list(pending_tool_calls.items()):
                     name = data["function"]["name"]
@@ -131,15 +122,9 @@ class DeltaNormalizer:
 
             buffer += seg
 
-            # ==================================================================
-            # ⚡ REAL-TIME OPTIMISTIC STATE MACHINE ⚡
-            # ==================================================================
             while buffer:
                 yielded_something = False
 
-                # -----------------------------------------------------------
-                # STATE: CONTENT
-                # -----------------------------------------------------------
                 if state == "content":
                     if "<" not in buffer:
                         yield {"type": "content", "content": buffer, "run_id": run_id}
@@ -163,6 +148,7 @@ class DeltaNormalizer:
                         (cls.FC_START, "fc"),
                         (cls.TH_START, "think"),
                         (cls.DEC_START, "decision"),
+                        (cls.PLAN_START, "plan"),  # [NEW] Handle Plan transition
                     ]
 
                     match_found = False
@@ -190,9 +176,6 @@ class DeltaNormalizer:
                         buffer = buffer[1:]
                         yielded_something = True
 
-                # -----------------------------------------------------------
-                # STATE: THINK (Reasoning)
-                # -----------------------------------------------------------
                 elif state == "think":
                     if "<" not in buffer:
                         yield {"type": "reasoning", "content": buffer, "run_id": run_id}
@@ -221,9 +204,6 @@ class DeltaNormalizer:
                     buffer = buffer[1:]
                     yielded_something = True
 
-                # -----------------------------------------------------------
-                # STATE: DECISION
-                # -----------------------------------------------------------
                 elif state == "decision":
                     if "<" not in buffer:
                         yield {"type": "decision", "content": buffer, "run_id": run_id}
@@ -252,9 +232,35 @@ class DeltaNormalizer:
                     buffer = buffer[1:]
                     yielded_something = True
 
-                # -----------------------------------------------------------
-                # STATE: CHANNEL REASONING
-                # -----------------------------------------------------------
+                # [NEW] STATE: PLAN
+                elif state == "plan":
+                    if "<" not in buffer:
+                        yield {"type": "plan", "content": buffer, "run_id": run_id}
+                        buffer = ""
+                        break
+
+                    lt_idx = buffer.find("<")
+                    if lt_idx > 0:
+                        yield {
+                            "type": "plan",
+                            "content": buffer[:lt_idx],
+                            "run_id": run_id,
+                        }
+                        buffer = buffer[lt_idx:]
+
+                    if buffer.startswith(cls.PLAN_END):
+                        buffer = buffer[len(cls.PLAN_END) :]
+                        state = "content"
+                        yielded_something = True
+                        continue
+
+                    if cls.PLAN_END.startswith(buffer):
+                        break
+
+                    yield {"type": "plan", "content": buffer[0], "run_id": run_id}
+                    buffer = buffer[1:]
+                    yielded_something = True
+
                 elif state == "channel_reasoning":
                     special_markers = [cls.CH_FINAL, cls.CH_COMMENTARY, cls.MSG_TAG]
                     potential_match = False
@@ -287,9 +293,6 @@ class DeltaNormalizer:
                     buffer = buffer[1:]
                     yielded_something = True
 
-                # -----------------------------------------------------------
-                # STATE: TOOL HANDLING
-                # -----------------------------------------------------------
                 elif state == "channel_tool_meta":
                     if cls.MSG_TAG in buffer:
                         _, post = buffer.split(cls.MSG_TAG, 1)
@@ -348,7 +351,6 @@ class DeltaNormalizer:
                 if not yielded_something:
                     break
 
-        # --- FINALIZATION ---
         if pending_tool_calls:
             for idx, data in list(pending_tool_calls.items()):
                 name = data["function"]["name"]
@@ -368,5 +370,7 @@ class DeltaNormalizer:
                 yield {"type": "call_arguments", "content": buffer, "run_id": run_id}
             elif state == "decision":
                 yield {"type": "decision", "content": buffer, "run_id": run_id}
+            elif state == "plan":  # [NEW] Yield remaining buffer as plan
+                yield {"type": "plan", "content": buffer, "run_id": run_id}
             elif state == "content":
                 yield {"type": "content", "content": buffer, "run_id": run_id}
