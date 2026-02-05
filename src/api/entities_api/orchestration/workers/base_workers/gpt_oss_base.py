@@ -175,7 +175,7 @@ class GptOssBaseWorker(
                 messages=cleaned_ctx,
                 model=model,
                 tools=None if stream_reasoning else extracted_tools,
-                temperature=kwargs.get("temperature", 0.4),
+                temperature=kwargs.get("temperature", 0.6),
                 **kwargs,
             )
 

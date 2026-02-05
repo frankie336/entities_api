@@ -213,8 +213,7 @@ class ConversationContextMixin:
     async def _build_native_function_calls_system_message(
         self,
         assistant_id: str,
-        decision_telemetry: bool = False,
-        agent_mode: bool = False,
+        decision_telemetry: bool = True,
     ) -> Dict:
 
         cache = self.get_assistant_cache()
@@ -222,16 +221,11 @@ class ConversationContextMixin:
 
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        if agent_mode:
-            instructions = NO_CORE_INSTRUCTIONS
-        else:
-            instructions = NO_CORE_INSTRUCTIONS
-            # instructions = GENERAL_INSTRUCTIONS
+        include_keys = ["NONE"]
+        if decision_telemetry:
+            include_keys.append("TOOL_DECISION_PROTOCOL")
 
-        platform_instructions = await assemble_core_instructions(
-            include_keys=instructions, decision_telemetry=decision_telemetry
-        )
-
+        platform_instructions = assemble_instructions(include_keys=include_keys)
         developer_instructions = cfg.get("instructions", "")
 
         final_tools = self._resolve_and_prioritize_platform_tools(
@@ -271,7 +265,7 @@ class ConversationContextMixin:
             system_msg = await self._build_native_function_calls_system_message(
                 assistant_id=assistant_id,
                 decision_telemetry=decision_telemetry,
-                agent_mode=agent_mode,
+                # agent_mode=agent_mode,
             )
         else:
             system_msg = await self._build_system_message(
