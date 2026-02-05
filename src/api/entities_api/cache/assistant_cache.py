@@ -81,8 +81,8 @@ class AssistantCache:
         payload = {
             "instructions": assistant.instructions,
             "tools": clean_tools,
-            "agent_mode": bool(getattr(assistant, "agent_mode", False)),
-            "decision_telemetry": bool(getattr(assistant, "decision_telemetry", True)),
+            "agent_mode": assistant.agent_mode,
+            "decision_telemetry": assistant.decision_telemetry,
         }
 
         await self.set(assistant_id, payload)

@@ -48,6 +48,28 @@ class QwenBaseWorker(
         **extra,
     ) -> None:
 
+        # 2. Setup Redis (Critical for the Mixin fallback)
+        # We use get_redis_sync() if no client is provided, ensuring we have a connection.
+        self.redis = redis or get_redis_sync()
+
+        # 3. Setup the Cache Service (The "New Way")
+        # If passed explicitly, store it. If not, the Mixin will lazy-load it using self.redis
+        if assistant_cache_service:
+            self._assistant_cache = assistant_cache_service
+        elif "assistant_cache" in extra and isinstance(
+            extra["assistant_cache"], AssistantCache
+        ):
+            # Handle case where it might be passed via **extra
+            self._assistant_cache = extra["assistant_cache"]
+
+        # 4. Setup the Data/Config (The "Old Way" renamed)
+        # We rename this to avoid overwriting the Mixin's property.
+        # We check if a raw dict was passed in 'extra' (legacy support)
+        legacy_config = extra.get("assistant_config") or extra.get("assistant_cache")
+        self.assistant_config: Dict[str, Any] = (
+            legacy_config if isinstance(legacy_config, dict) else {}
+        )
+
         self._david_client: Any = None
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
@@ -116,9 +138,12 @@ class QwenBaseWorker(
         current_block: str | None = None
 
         try:
-            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
+            if hasattr(self, "_get_model_map") and (
+                mapped := self._get_model_map(model)
+            ):
                 model = mapped
 
+            self.assistant_id = assistant_id
             # [NEW] Ensure cache is hot before starting
             await self._ensure_config_loaded()
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
@@ -233,7 +258,9 @@ class QwenBaseWorker(
 
         # --- [LEVEL 3] PARSE BATCH & SYNC IDs ---
         # The parser ensures every tool in the list has a 'id' key.
-        tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
+        tool_calls_batch = self.parse_and_set_function_calls(
+            accumulated, assistant_reply
+        )
 
         message_to_save = assistant_reply
         final_status = StatusEnum.completed.value
@@ -268,13 +295,17 @@ class QwenBaseWorker(
             message_to_save = json.dumps(tool_calls_structure)
 
             # [LOGGING] Verify ID Parity
-            LOG.info(f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}")
+            LOG.info(
+                f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}"
+            )
             for item in tool_calls_structure:
                 LOG.info(f"   ▸ Tool: {item['function']['name']} | ID: {item['id']}")
 
         # Persistence: Assistant Plan/Actions saved to Thread
         if message_to_save:
-            await self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
+            await self.finalize_conversation(
+                message_to_save, thread_id, assistant_id, run_id
+            )
 
         # Update Run status to trigger Dispatch Turn
         if self.project_david_client:

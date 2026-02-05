@@ -8,14 +8,16 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
+from entities_api.cache import assistant_cache
+from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
+
 # --- DEPENDENCIES ---
-from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.dependencies import get_redis, get_redis_sync
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
+
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.provider_mixins import \
-    _ProviderMixins
+from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -39,9 +41,33 @@ class HermesDefaultBaseWorker(
         redis=None,
         base_url: str | None = None,
         api_key: str | None = None,
-        assistant_cache: dict | None = None,
+        # assistant_cache: dict | None = None,
+        assistant_cache_service: Optional[AssistantCache] = None,
         **extra,
     ) -> None:
+
+        # 2. Setup Redis (Critical for the Mixin fallback)
+        # We use get_redis_sync() if no client is provided, ensuring we have a connection.
+        self.redis = redis or get_redis_sync()
+
+        # 3. Setup the Cache Service (The "New Way")
+        # If passed explicitly, store it. If not, the Mixin will lazy-load it using self.redis
+        if assistant_cache_service:
+            self._assistant_cache = assistant_cache_service
+        elif "assistant_cache" in extra and isinstance(
+            extra["assistant_cache"], AssistantCache
+        ):
+            # Handle case where it might be passed via **extra
+            self._assistant_cache = extra["assistant_cache"]
+
+        # 4. Setup the Data/Config (The "Old Way" renamed)
+        # We rename this to avoid overwriting the Mixin's property.
+        # We check if a raw dict was passed in 'extra' (legacy support)
+        legacy_config = extra.get("assistant_config") or extra.get("assistant_cache")
+        self.assistant_config: Dict[str, Any] = (
+            legacy_config if isinstance(legacy_config, dict) else {}
+        )
+
         self._david_client: Any = None
         self._assistant_cache: dict = (
             assistant_cache or extra.get("assistant_cache") or {}
@@ -124,6 +150,7 @@ class HermesDefaultBaseWorker(
             ):
                 model = mapped
 
+            self.assistant_id = assistant_id
             # [NEW] Ensure cache is hot before starting
             await self._ensure_config_loaded()
             agent_mode_setting = self.assistant_config.get("agent_mode", False)

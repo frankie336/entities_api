@@ -1,7 +1,5 @@
-from entities_api.orchestration.instructions.assembler import \
-    assemble_instructions
-from entities_api.orchestration.instructions.include_lists import \
-    L3_INSTRUCTIONS
+from entities_api.orchestration.instructions.assembler import assemble_instructions
+from entities_api.orchestration.instructions.include_lists import L3_INSTRUCTIONS
 
 
 async def assemble_core_instructions(include_keys, decision_telemetry=True):

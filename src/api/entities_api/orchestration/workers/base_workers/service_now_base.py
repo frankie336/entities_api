@@ -45,14 +45,18 @@ class ServiceNowBaseWorker(
         **extra,
     ) -> None:
         self._david_client: Any = None
-        self._assistant_cache: dict = assistant_cache or extra.get("assistant_cache") or {}
+        self._assistant_cache: dict = (
+            assistant_cache or extra.get("assistant_cache") or {}
+        )
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
         self.base_url = base_url or os.getenv("BASE_URL")
         self.api_key = api_key or extra.get("api_key")
 
-        self.model_name = extra.get("model_name", "ServiceNow-AI/Apriel-1.6-15b-Thinker")
+        self.model_name = extra.get(
+            "model_name", "ServiceNow-AI/Apriel-1.6-15b-Thinker"
+        )
         self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
 
@@ -110,7 +114,9 @@ class ServiceNowBaseWorker(
         current_block = None
 
         try:
-            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
+            if hasattr(self, "_get_model_map") and (
+                mapped := self._get_model_map(model)
+            ):
                 model = mapped
 
             # Async Context Setup
@@ -238,7 +244,9 @@ class ServiceNowBaseWorker(
                 message_to_save = accumulated
 
         if message_to_save:
-            await self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
+            await self.finalize_conversation(
+                message_to_save, thread_id, assistant_id, run_id
+            )
 
         if self.project_david_client:
             await asyncio.to_thread(

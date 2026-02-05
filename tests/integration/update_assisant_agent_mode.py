@@ -21,3 +21,4 @@ update_assistant = client.assistants.update_assistant(
 )
 print(update_assistant.agent_mode)
 print(update_assistant.decision_telemetry)
+print(update_assistant.id)

@@ -20,26 +20,32 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.dependencies import get_redis_sync
-from src.api.entities_api.orchestration.mixins.client_factory_mixin import \
-    ClientFactoryMixin
-from src.api.entities_api.orchestration.mixins.code_execution_mixin import \
-    CodeExecutionMixin
-from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import \
-    ConsumerToolHandlersMixin
-from src.api.entities_api.orchestration.mixins.conversation_context_mixin import \
-    ConversationContextMixin
-from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
-    JsonUtilsMixin
-from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import \
-    PlatformToolHandlersMixin
-from src.api.entities_api.orchestration.mixins.service_registry_mixin import \
-    ServiceRegistryMixin
-from src.api.entities_api.orchestration.mixins.shell_execution_mixin import \
-    ShellExecutionMixin
-from src.api.entities_api.orchestration.mixins.streaming_mixin import \
-    StreamingMixin
-from src.api.entities_api.orchestration.mixins.tool_routing_mixin import \
-    ToolRoutingMixin
+from src.api.entities_api.orchestration.mixins.client_factory_mixin import (
+    ClientFactoryMixin,
+)
+from src.api.entities_api.orchestration.mixins.code_execution_mixin import (
+    CodeExecutionMixin,
+)
+from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import (
+    ConsumerToolHandlersMixin,
+)
+from src.api.entities_api.orchestration.mixins.conversation_context_mixin import (
+    ConversationContextMixin,
+)
+from src.api.entities_api.orchestration.mixins.json_utils_mixin import JsonUtilsMixin
+from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import (
+    PlatformToolHandlersMixin,
+)
+from src.api.entities_api.orchestration.mixins.service_registry_mixin import (
+    ServiceRegistryMixin,
+)
+from src.api.entities_api.orchestration.mixins.shell_execution_mixin import (
+    ShellExecutionMixin,
+)
+from src.api.entities_api.orchestration.mixins.streaming_mixin import StreamingMixin
+from src.api.entities_api.orchestration.mixins.tool_routing_mixin import (
+    ToolRoutingMixin,
+)
 
 LOG = LoggingUtility()
 
@@ -163,14 +169,35 @@ class OrchestratorCore(
 
     async def _ensure_config_loaded(self):
         """
-        Ensures self.assistant_config is populated with fresh data from Redis.
+        Forces a cache refresh from Redis.
+        Logs exactly what is found to help debug 'False' values.
         """
-        if not self.assistant_config and self.assistant_id:
-            # self.assistant_cache is provided by the Mixin
-            data = await self.assistant_cache.retrieve(self.assistant_id)
-            if data:
-                self.assistant_config = data
-                LOG.debug(f"Loaded config for {self.assistant_id}: {data.keys()}")
+        # If we don't have an ID, we can't load anything
+        if not self.assistant_id:
+            LOG.warning("⚠️ Cannot load config: No assistant_id provided.")
+            return
+
+        # Try to retrieve from Redis via the Cache Service
+        try:
+            # This uses the mixin to get the cache service, then hits Redis
+            cached_data = await self.assistant_cache.retrieve(self.assistant_id)
+
+            if cached_data:
+                self.assistant_config = cached_data
+
+                # [DEBUG] Log exactly what we found to catch typo/logic errors
+                LOG.info(
+                    f"✅ Config Loaded for {self.assistant_id} | "
+                    f"AgentMode: {self.assistant_config.get('agent_mode')} | "
+                    f"Telemetry: {self.assistant_config.get('decision_telemetry')}"
+                )
+            else:
+                LOG.warning(
+                    f"⚠️ Cache Miss for {self.assistant_id} - Using defaults (AgentMode=False)"
+                )
+
+        except Exception as e:
+            LOG.error(f"❌ Error loading assistant config: {e}")
 
     async def process_conversation(
         self,
