@@ -10,10 +10,12 @@ from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
+from entities_api.cache import assistant_cache
+from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
 
 # --- DEPENDENCIES ---
-from src.api.entities_api.dependencies import get_redis
+from src.api.entities_api.dependencies import get_redis, get_redis_sync
 from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
 
 # --- MIXINS ---
@@ -41,11 +43,33 @@ class GptOssBaseWorker(
         redis=None,
         base_url: str | None = None,
         api_key: str | None = None,
-        assistant_cache: dict | None = None,
+        # assistant_cache: dict | None = None,
+        assistant_cache_service: Optional[AssistantCache] = None,
         **extra,
     ) -> None:
+
+        # 2. Setup Redis (Critical for the Mixin fallback)
+        # We use get_redis_sync() if no client is provided, ensuring we have a connection.
+        self.redis = redis or get_redis_sync()
+
+        # 3. Setup the Cache Service (The "New Way")
+        # If passed explicitly, store it. If not, the Mixin will lazy-load it using self.redis
+        if assistant_cache_service:
+            self._assistant_cache = assistant_cache_service
+        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
+            # Handle case where it might be passed via **extra
+            self._assistant_cache = extra["assistant_cache"]
+
+        # 4. Setup the Data/Config (The "Old Way" renamed)
+        # We rename this to avoid overwriting the Mixin's property.
+        # We check if a raw dict was passed in 'extra' (legacy support)
+        legacy_config = extra.get("assistant_config") or extra.get("assistant_cache")
+        self.assistant_config: Dict[str, Any] = (
+            legacy_config if isinstance(legacy_config, dict) else {}
+        )
+
         self._david_client: Any = None
-        self._assistant_cache: dict = assistant_cache or extra.get("assistant_cache") or {}
+
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
@@ -72,14 +96,6 @@ class GptOssBaseWorker(
     def _get_client_instance(self, api_key: str):
         pass
 
-    @property
-    def assistant_cache(self) -> dict:
-        return self._assistant_cache
-
-    @assistant_cache.setter
-    def assistant_cache(self, value: dict) -> None:
-        self._assistant_cache = value
-
     async def stream(
         self,
         thread_id: str,
@@ -100,17 +116,26 @@ class GptOssBaseWorker(
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
-        # --- SYNC-REPLICA 1: Early Variable Initialization ---
         self._current_tool_call_id = None
         self._pending_tool_payload = None
         self._decision_payload = None
 
-        assistant_reply, accumulated, reasoning_reply, decision_buffer = "", "", "", ""
-        current_block = None
+        accumulated: str = ""
+        assistant_reply: str = ""
+        reasoning_reply: str = ""
+        decision_buffer: str = ""
+        plan_buffer: str = ""
+        current_block: str | None = None
 
         try:
             if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
                 model = mapped
+
+            self.assistant_id = assistant_id
+            # [NEW] Ensure cache is hot before starting
+            await self._ensure_config_loaded()
+            agent_mode_setting = self.assistant_config.get("agent_mode", False)
+            decision_telemetry = self.assistant_config.get("decision_telemetry", True)
 
             raw_ctx = await self._set_up_context_window(
                 assistant_id,
@@ -118,7 +143,8 @@ class GptOssBaseWorker(
                 trunk=True,
                 structured_tool_call=True,
                 force_refresh=force_refresh,
-                decision_telemetry=False,
+                agent_mode=agent_mode_setting,
+                decision_telemetry=decision_telemetry,
             )
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
@@ -150,46 +176,64 @@ class GptOssBaseWorker(
                         accumulated += "</fc>"
                     elif current_block == "think":
                         accumulated += "</think>"
+                    elif current_block == "plan":
+                        accumulated += "</plan>"
                     current_block = None
-                    assistant_reply += safe_content
-                elif ctype in ("tool_name", "call_arguments"):
+                    assistant_reply += ccontent
+                    accumulated += ccontent
+                elif ctype == "call_arguments":
                     if current_block != "fc":
                         if current_block == "think":
                             accumulated += "</think>"
+                        elif current_block == "plan":
+                            accumulated += "</plan>"
                         accumulated += "<fc>"
                         current_block = "fc"
+                    accumulated += ccontent
                 elif ctype == "reasoning":
                     if current_block != "think":
                         if current_block == "fc":
                             accumulated += "</fc>"
+                        elif current_block == "plan":
+                            accumulated += "</plan>"
                         accumulated += "<think>"
                         current_block = "think"
-                    reasoning_reply += safe_content
+                    reasoning_reply += ccontent
+                elif ctype == "plan":
+                    if current_block != "plan":
+                        if current_block == "fc":
+                            accumulated += "</fc>"
+                        elif current_block == "think":
+                            accumulated += "</think>"
+                        accumulated += "<plan>"
+                        current_block = "plan"
+                    plan_buffer += ccontent
+                    accumulated += ccontent
                 elif ctype == "decision":
-                    decision_buffer += safe_content
+                    decision_buffer += ccontent
                     if current_block == "fc":
                         accumulated += "</fc>"
                     elif current_block == "think":
                         accumulated += "</think>"
+                    elif current_block == "plan":
+                        accumulated += "</plan>"
                     current_block = "decision"
 
-                accumulated += safe_content
-                if ctype not in ("tool_name", "call_arguments"):
-                    yield json.dumps(chunk)
+                if ctype == "call_arguments":
+                    continue
+                yield json.dumps(chunk)
                 await self._shunt_to_redis_stream(redis, stream_key, chunk)
 
             if current_block == "fc":
                 accumulated += "</fc>"
             elif current_block == "think":
                 accumulated += "</think>"
+            elif current_block == "plan":
+                accumulated += "</plan>"
 
         except Exception as exc:
             LOG.error(f"DEBUG: Stream Exception: {exc}")
-            err = {
-                "type": "error",
-                "content": f"GPT-OSS stream error: {exc}",
-                "run_id": run_id,
-            }
+            err = {"type": "error", "content": f"Stream error: {exc}", "run_id": run_id}
             yield json.dumps(err)
             await self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
@@ -239,16 +283,9 @@ class GptOssBaseWorker(
             except Exception as e:
                 LOG.error(f"Error during tool call sanitization: {e}")
 
-        # --- SYNC-REPLICA 4: Detection & Mixin State Sync ---
-        has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
-        mixin_state = (
-            self.get_function_call_state() if hasattr(self, "get_function_call_state") else has_fc
-        )
-
+        tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
         message_to_save = assistant_reply
         final_status = StatusEnum.completed.value
-
-        tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
 
         # --- SYNC-REPLICA 5: Structure and Override Save Message ---
         if tool_calls_batch:
@@ -280,11 +317,20 @@ class GptOssBaseWorker(
             # CRITICAL: We overwrite message_to_save with the standard tool structure
             message_to_save = json.dumps(tool_calls_structure)
 
-        # --- SYNC-REPLICA 6: Persistence ---
+            # [LOGGING] Verify ID Parity
+            LOG.info(f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}")
+            for item in tool_calls_structure:
+                LOG.info(f"   ▸ Tool: {item['function']['name']} | ID: {item['id']}")
+
+        # Persistence: Assistant Plan/Actions saved to Thread
         if message_to_save:
             await self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
 
+        # Update Run status to trigger Dispatch Turn
         if self.project_david_client:
             await asyncio.to_thread(
                 self.project_david_client.runs.update_run_status, run_id, final_status
             )
+
+        if not tool_calls_batch:
+            yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
