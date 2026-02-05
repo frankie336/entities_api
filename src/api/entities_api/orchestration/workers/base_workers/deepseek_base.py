@@ -78,14 +78,6 @@ class DeepSeekBaseWorker(
     def _get_client_instance(self, api_key: str):
         pass
 
-    @property
-    def assistant_cache(self) -> dict:
-        return self._assistant_cache
-
-    @assistant_cache.setter
-    def assistant_cache(self, value: dict) -> None:
-        self._assistant_cache = value
-
     async def stream(
         self,
         thread_id: str,
@@ -130,13 +122,18 @@ class DeepSeekBaseWorker(
             ):
                 model = mapped
 
+            # [NEW] Ensure cache is hot before starting
+            await self._ensure_config_loaded()
+            agent_mode_setting = self.assistant_config.get("agent_mode", False)
+            decision_telemetry = self.assistant_config.get("decision_telemetry", True)
+
             ctx = await self._set_up_context_window(
                 assistant_id,
                 thread_id,
                 trunk=True,
                 force_refresh=force_refresh,
-                agent_mode=False,
-                decision_telemetry=True,
+                agent_mode=agent_mode_setting,
+                decision_telemetry=decision_telemetry,
             )
 
             if not api_key:

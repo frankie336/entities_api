@@ -14,10 +14,12 @@ from __future__ import annotations
 import asyncio
 import json
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Generator, Optional
+from typing import Any, AsyncGenerator, Dict, Generator, Optional
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
+from entities_api.cache.assistant_cache import AssistantCache
+from entities_api.dependencies import get_redis_sync
 from src.api.entities_api.orchestration.mixins.client_factory_mixin import \
     ClientFactoryMixin
 from src.api.entities_api.orchestration.mixins.code_execution_mixin import \
@@ -54,6 +56,42 @@ class OrchestratorCore(
     ShellExecutionMixin,
     ABC,
 ):
+
+    def __init__(
+        self,
+        *,
+        assistant_id: str | None = None,
+        thread_id: str | None = None,
+        redis=None,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        # assistant_cache: dict | None = None,
+        assistant_cache_service: Optional[AssistantCache] = None,
+        **extra,
+    ) -> None:
+
+        # 2. Setup Redis (Critical for the Mixin fallback)
+        # We use get_redis_sync() if no client is provided, ensuring we have a connection.
+        self.redis = redis or get_redis_sync()
+
+        # 3. Setup the Cache Service (The "New Way")
+        # If passed explicitly, store it. If not, the Mixin will lazy-load it using self.redis
+        if assistant_cache_service:
+            self._assistant_cache = assistant_cache_service
+        elif "assistant_cache" in extra and isinstance(
+            extra["assistant_cache"], AssistantCache
+        ):
+            # Handle case where it might be passed via **extra
+            self._assistant_cache = extra["assistant_cache"]
+
+        # 4. Setup the Data/Config (The "Old Way" renamed)
+        # We rename this to avoid overwriting the Mixin's property.
+        # We check if a raw dict was passed in 'extra' (legacy support)
+        legacy_config = extra.get("assistant_config") or extra.get("assistant_cache")
+        self.assistant_config: Dict[str, Any] = (
+            legacy_config if isinstance(legacy_config, dict) else {}
+        )
+
     """
     All behaviour resides in the mix-ins.
     Concrete provider classes only need to implement:
@@ -106,9 +144,22 @@ class OrchestratorCore(
         Must open a streaming connection to the underlying LLM provider,
         parse deltas into the mix-in JSON chunk format and `yield` them.
 
-        Every provider has its own SDK quirks – that's why we leave this
-        abstract.
+        Every provider has its own SDK quirks – This core class contains
+        The common logic.
         """
+
+    # 5. Helper to load config asynchronously
+    # Call this at the start of your run/execute method
+    async def load_assistant_config(self):
+        """
+        Populates self.assistant_config from Redis if not already set.
+        """
+        if not self.assistant_config and self.assistant_id:
+            # self.assistant_cache is provided by the Mixin
+            self.assistant_config = (
+                await self.assistant_cache.retrieve(self.assistant_id) or {}
+            )
+            LOG.debug(f"Loaded config for {self.assistant_id}")
 
     async def _ensure_config_loaded(self):
         """
