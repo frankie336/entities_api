@@ -122,30 +122,26 @@ class OrchestratorCore(
         **kwargs,
     ) -> AsyncGenerator[str, None]:
         """
-        Level 2 Recursive Orchestrator.
+        Level 3 Recursive Orchestrator (Batch-Aware).
 
-        Orchestrates multi-turn self-correction for Platform Tools internally.
-        If a Platform Tool (e.g. Code Interpreter) fails with a syntax or logic
-        error, this loop injects an instructional hint and re-runs the LLM
-        immediately to attempt a fix.
+        Orchestrates multi-turn self-correction for Platform Tools.
+        Supports batches of multiple tool calls emitted in a single turn.
         """
         from src.api.entities_api.constants.assistant import PLATFORM_TOOLS
 
         turn_count = 0
-        current_message_id = message_id  # First turn uses the original user message_id
+        current_message_id = message_id
 
         while turn_count < max_turns:
             turn_count += 1
             LOG.info(f"ORCHESTRATOR ▸ Turn {turn_count} start [Run: {run_id}]")
 
             # --- 1. RESET INTERNAL STATE ---
-            # Ensure previous turn data doesn't pollute the new turn
             self.set_tool_response_state(False)
-            self.set_function_call_state(None)
+            self.set_function_call_state(None) # Clears the list
             self._current_tool_call_id = None
 
             # --- 2. THE INFERENCE TURN ---
-            # Call the LLM and stream the response
             try:
                 async for chunk in self.stream(
                     thread_id=thread_id,
@@ -153,38 +149,30 @@ class OrchestratorCore(
                     run_id=run_id,
                     assistant_id=assistant_id,
                     model=model,
-                    # Turn 2+ must force a refresh to include the previous Turn's tool output
                     force_refresh=(turn_count > 1),
                     api_key=api_key,
                     **kwargs,
                 ):
                     yield chunk
             except Exception as stream_exc:
-                # Catching timeouts (like the one in your logs) to prevent a terminal crash
-                LOG.error(
-                    f"ORCHESTRATOR ▸ Turn {turn_count} stream failed: {stream_exc}"
-                )
-                yield json.dumps(
-                    {
-                        "type": "error",
-                        "content": f"Connection error during turn {turn_count}. Sequence aborted.",
-                    }
-                )
+                LOG.error(f"ORCHESTRATOR ▸ Turn {turn_count} stream failed: {stream_exc}")
+                yield json.dumps({"type": "error", "content": f"Stream failure: {stream_exc}"})
                 break
 
-            # After the stream completes, check if a tool call was detected and parsed
-            fc_payload = self.get_function_call_state()
+            # --- 3. BATCH EVALUATION ---
+            # Retrieve the batch queue (List[Dict])
+            batch = self.get_function_call_state()
 
-            if not fc_payload:
-                LOG.info(
-                    f"ORCHESTRATOR ▸ Turn {turn_count} produced text. Sequence complete."
-                )
+            if not batch:
+                LOG.info(f"ORCHESTRATOR ▸ Turn {turn_count} completed with text.")
                 break
 
-            # --- 3. THE TOOL PROCESSING TURN ---
-            fc_name = fc_payload.get("name")
+            # Determine if we need to hand over to the SDK.
+            # If any tool in the batch is NOT in PLATFORM_TOOLS, we must stop looping.
+            has_consumer_tool = any(tool.get("name") not in PLATFORM_TOOLS for tool in batch)
 
-            # Dispatch the tool (Direct execution for Platform tools, Manifest for Consumer)
+            # --- 4. THE TOOL PROCESSING TURN ---
+            # The dispatcher now handles the entire batch internally
             async for chunk in self.process_tool_calls(
                 thread_id=thread_id,
                 run_id=run_id,
@@ -196,27 +184,19 @@ class OrchestratorCore(
             ):
                 yield chunk
 
-            # --- 4. RECURSION DECISION ---
-            if fc_name in PLATFORM_TOOLS:
-                # Level 2: Platform tools handle their own turns.
-                LOG.info(
-                    f"ORCHESTRATOR ▸ Platform tool '{fc_name}' turn complete. Stabilizing..."
-                )
+            # --- 5. RECURSION DECISION ---
+            if not has_consumer_tool:
+                # All tools in this turn were direct-execution Platform Tools.
+                LOG.info(f"ORCHESTRATOR ▸ Platform batch {turn_count} complete. Stabilizing...")
 
-                # [STABILIZATION] Give the Database and Assistant Cache a moment to commit
-                # the tool output before we refresh context for the next turn.
-                # This prevents the 'retrieving run: timed out' error seen in logs.
                 await asyncio.sleep(0.5)
-
-                # Turn 2+ relies on thread history, so we clear current_message_id
                 current_message_id = None
-                continue  # Jumps back to Turn 1 (The Inference Turn)
+                continue  # Jumps back to Turn N+1
             else:
-                # Consumer tools: The server MUST yield the manifest and close the stream.
-                LOG.info(
-                    f"ORCHESTRATOR ▸ Consumer tool '{fc_name}' detected. Handover to SDK."
-                )
+                # At least one Consumer Tool was detected.
+                # Connection closes so SDK can execute and start Request Turn 2.
+                LOG.info(f"ORCHESTRATOR ▸ Consumer tool detected in batch. Handing over to SDK.")
                 return
 
         if turn_count >= max_turns:
-            LOG.error(f"ORCHESTRATOR ▸ Max turns ({max_turns}) reached. Terminal exit.")
+            LOG.error(f"ORCHESTRATOR ▸ Max turns reached.")

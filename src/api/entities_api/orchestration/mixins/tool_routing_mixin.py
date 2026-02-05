@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 import json
 import re
-from typing import AsyncGenerator, Dict, Optional
+from typing import AsyncGenerator, Dict, Optional, List, Union
 
 from src.api.entities_api.constants.assistant import PLATFORM_TOOLS
 from src.api.entities_api.constants.platform import SPECIAL_CASE_TOOL_HANDLING
@@ -21,9 +21,11 @@ class ToolRoutingMixin:
     now support automated internal self-correction turns.
     """
 
+    # UPDATED: Regex for global finding
     FC_REGEX = re.compile(r"<fc>\s*(?P<payload>\{.*?\})\s*</fc>", re.DOTALL | re.I)
+
     _tool_response: bool = False
-    _function_call: Optional[Dict] = None
+    _function_calls: List[Dict] = []  # [L3] Changed to a list for batching
 
     # -----------------------------------------------------
     # State Management
@@ -32,92 +34,94 @@ class ToolRoutingMixin:
         LOG.debug("TOOL-ROUTER ▸ set_tool_response_state(%s)", value)
         self._tool_response = value
 
-    def get_tool_response_state(self) -> bool:
-        return self._tool_response
-
-    def set_function_call_state(self, value: Optional[Dict] = None) -> None:
-        LOG.debug("TOOL-ROUTER ▸ set_function_call_state(%s)", value)
-        self._function_call = value
-
-    def get_function_call_state(self) -> Optional[Dict]:
-        return self._function_call
-
     # -----------------------------------------------------
-    # Parsing Logic (Stage 1 Healing)
+    # Helper: Moved to Class Scope for L3 Batching
     # -----------------------------------------------------
+
+    def _normalize_arguments(self, payload: Dict) -> Dict:
+        """Heals stringified JSON arguments in a tool payload."""
+        args = payload.get("arguments")
+        if isinstance(args, str):
+            try:
+                clean_args = args.strip()
+                if clean_args.startswith("```"):
+                    clean_args = clean_args.strip("`").replace("json", "").strip()
+                payload["arguments"] = json.loads(clean_args)
+            except Exception:
+                LOG.warning("TOOL-ROUTER ▸ failed to parse string arguments")
+        return payload
+
+        # -----------------------------------------------------
+        # State Management
+        # -----------------------------------------------------
+
+    def set_function_call_state(self, value: Optional[Union[Dict, List[Dict]]] = None) -> None:
+        if value is None:
+            self._function_calls = []
+        elif isinstance(value, dict):
+            self._function_calls = [value]
+        else:
+            self._function_calls = value
+
+    def get_function_call_state(self) -> List[Dict]:
+        return self._function_calls
+
+        # -----------------------------------------------------
+        # The Pedantic L3 Parser
+        # -----------------------------------------------------
+
     def parse_and_set_function_calls(
         self, accumulated_content: str, assistant_reply: str
-    ) -> Optional[Dict]:
+    ) -> List[Dict]:
         """
         Scans text for tool call payloads.
-        Level 2: Supports robust extraction from 'chatty' model responses.
+        Level 3: Isolates planning blocks and extracts ALL tool tags in sequence.
         """
-        from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
-            JsonUtilsMixin
+        from src.api.entities_api.orchestration.mixins.json_utils_mixin import JsonUtilsMixin
 
         if not isinstance(self, JsonUtilsMixin):
             raise TypeError("ToolRoutingMixin must be mixed with JsonUtilsMixin")
 
-        def _normalize_arguments(payload: Dict) -> Dict:
-            args = payload.get("arguments")
-            if isinstance(args, str):
-                try:
-                    clean_args = args.strip()
-                    if clean_args.startswith("```"):
-                        clean_args = clean_args.strip("`").replace("json", "").strip()
-                    payload["arguments"] = json.loads(clean_args)
-                except Exception:
-                    LOG.warning("TOOL-ROUTER ▸ failed to parse string arguments")
-            return payload
+        # --- STEP 1: PLAN ISOLATION ---
+        # We strip the plan block so that if the model says:
+        # "I will call <fc>{...}</fc>" in its reasoning, it's ignored.
+        # We only care about tags appearing AFTER or OUTSIDE the plan.
+        body_to_scan = re.sub(r"<plan>.*?</plan>", "", accumulated_content, flags=re.DOTALL)
 
-        def _extract_json_block(text: str) -> Optional[Dict]:
-            if not text:
-                return None
+        # --- STEP 2: MULTI-TAG EXTRACTION ---
+        matches = self.FC_REGEX.finditer(body_to_scan)
+        results = []
 
-            # 1. Try explicit <fc> tags
-            m = self.FC_REGEX.search(text)
-            if m:
-                parsed = self.ensure_valid_json(m.group("payload"))
-                if parsed:
-                    LOG.debug("FC-SCAN ✓ found JSON in <fc> tags")
-                    return _normalize_arguments(parsed)
+        for m in matches:
+            raw_payload = m.group("payload")
+            # ensure_valid_json lives on JsonUtilsMixin
+            parsed = self.ensure_valid_json(raw_payload)
+            if parsed:
+                # Call the now-available class method
+                normalized = self._normalize_arguments(parsed)
+                results.append(normalized)
 
-            # 2. Try raw JSON finding (Robust Regex-based hunt)
-            start = text.find("{")
-            end = text.rfind("}")
-            if start != -1 and end != -1 and end > start:
-                candidate = text[start : end + 1]
-                parsed = self.ensure_valid_json(candidate)
-                if parsed:
-                    LOG.debug("FC-SCAN ✓ found raw JSON block")
-                    return _normalize_arguments(parsed)
-
-            return None
-
-        parsed_fc = _extract_json_block(accumulated_content) or _extract_json_block(
-            assistant_reply
-        )
-
-        if parsed_fc:
+        if results:
+            LOG.info(f"L3-PARSER ▸ Successfully parsed {len(results)} tool(s) in batch.")
             self.set_tool_response_state(True)
-            self.set_function_call_state(parsed_fc)
-            return parsed_fc
+            self.set_function_call_state(results)
+            return results
 
-        # Legacy fallback
+        # --- STEP 3: LEGACY FALLBACK ---
+        # (Only if no tags were found at all)
         loose = self.extract_function_calls_within_body_of_text(assistant_reply)
         if loose:
-            normalized = _normalize_arguments(loose[0])
+            normalized = [self._normalize_arguments(l) for l in loose]
             self.set_tool_response_state(True)
             self.set_function_call_state(normalized)
             return normalized
 
-        LOG.debug("FC-SCAN ✗ nothing found")
-        return None
+        LOG.debug("L3-PARSER ✗ No tool calls detected.")
+        return []
 
     # -----------------------------------------------------
     # Async Helpers
     # -----------------------------------------------------
-
     async def _yield_maybe_async(self, obj):
         """Helper to yield from sync generators, async generators, or coroutines."""
         if obj is None:
@@ -134,9 +138,8 @@ class ToolRoutingMixin:
                 yield result
 
     # -----------------------------------------------------
-    # Tool Processing & Dispatching (Level 2 Recursive)
+    # Tool Processing & Dispatching (Level 3 Batch Enabled)
     # -----------------------------------------------------
-
     async def process_tool_calls(
         self,
         thread_id: str,
@@ -149,129 +152,126 @@ class ToolRoutingMixin:
         decision: Optional[Dict] = None,
     ) -> AsyncGenerator:
         """
-        Orchestrates the execution of a detected tool call.
-        Level 2:
-        - Platform tools (Code, Shell, Search) execute directly and return recursion signal.
-        - Consumer tools yield a manifest and signal the end of the server turn.
+        Orchestrates the execution of one or more detected tool calls.
+        Level 3: Iterates through the batch queue, supporting parallel intent.
         """
-        fc = self.get_function_call_state()
-        if not fc:
+        # Retrieve the batch queue from state (now a List[Dict])
+        batch = self.get_function_call_state()
+        if not batch:
+            LOG.warning("TOOL-ROUTER ▸ Dispatcher called but no tool calls found in state.")
             return
 
-        name = fc.get("name")
-        args = fc.get("arguments")
+        LOG.info("TOOL-ROUTER ▸ Processing batch of %s tool calls.", len(batch))
 
-        # --- HEALING LOGIC (Recovery for flat payloads) ---
-        if not name and decision:
-            inferred_name = (
-                decision.get("tool") or decision.get("function") or decision.get("name")
-            )
-            if inferred_name:
-                LOG.info(
-                    "TOOL-ROUTER ▸ Healing flat payload using decision tool='%s'",
-                    inferred_name,
+        for fc in batch:
+            name = fc.get("name")
+            args = fc.get("arguments")
+
+            # --- LEVEL 2 HEALING (Localized to batch item) ---
+            if not name and decision:
+                inferred_name = (
+                    decision.get("tool") or decision.get("function") or decision.get("name")
                 )
-                name = inferred_name
-                if args is None:
-                    args = fc
-                fc = {"name": name, "arguments": args}
-                self.set_function_call_state(fc)
+                if inferred_name:
+                    LOG.info(
+                        "TOOL-ROUTER ▸ Healing batch item using decision tool='%s'",
+                        inferred_name,
+                    )
+                    name = inferred_name
+                    if args is None:
+                        args = fc
 
-        if not name:
-            LOG.error("TOOL-ROUTER ▸ Failed to resolve tool name.")
-            return
+            if not name:
+                LOG.error("TOOL-ROUTER ▸ Failed to resolve name for tool call: %s", fc)
+                continue
 
-        LOG.info("TOOL-ROUTER ▶ dispatching tool=%s", name)
+            LOG.info("TOOL-ROUTER ▶ dispatching batch item: tool=%s", name)
 
-        # -----------------------------------------------------
-        # 1. PLATFORM TOOLS (Internal Level 2 Recovery)
-        # -----------------------------------------------------
+            # -----------------------------------------------------
+            # 1. PLATFORM TOOLS (Direct Execution)
+            # -----------------------------------------------------
+            if name == "code_interpreter":
+                async for chunk in self._yield_maybe_async(
+                    self.handle_code_interpreter_action(
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        assistant_id=assistant_id,
+                        arguments_dict=args,
+                        tool_call_id=tool_call_id,
+                        decision=decision,
+                    )
+                ):
+                    yield chunk
 
-        # Code Interpreter
-        if name == "code_interpreter":
-            async for chunk in self._yield_maybe_async(
-                self.handle_code_interpreter_action(
-                    thread_id=thread_id,
-                    run_id=run_id,
-                    assistant_id=assistant_id,
-                    arguments_dict=args,
-                    tool_call_id=tool_call_id,
-                    decision=decision,
+            elif name == "computer":
+                async for chunk in self._yield_maybe_async(
+                    self.handle_shell_action(
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        assistant_id=assistant_id,
+                        arguments_dict=args,
+                        tool_call_id=tool_call_id,
+                        decision=decision,
+                    )
+                ):
+                    yield chunk
+
+            elif name == "file_search":
+                # Note: handle_file_search handles its own submit_tool_output internally
+                await self._yield_maybe_async(
+                    self.handle_file_search(
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        assistant_id=assistant_id,
+                        arguments_dict=args,
+                        tool_call_id=tool_call_id,
+                        decision=decision,
+                    )
                 )
-            ):
-                yield chunk
 
-        # Computer / Shell (Terminal)
-        elif name == "computer":
-            # Note: handle_shell_action should follow the same try/except pattern
-            # as code_interpreter to provide Level 2 Instructional Hints.
-            async for chunk in self._yield_maybe_async(
-                self.handle_shell_action(
-                    thread_id=thread_id,
-                    run_id=run_id,
-                    assistant_id=assistant_id,
-                    arguments_dict=args,
-                    tool_call_id=tool_call_id,
-                    decision=decision,
-                )
-            ):
-                yield chunk
+            # -----------------------------------------------------
+            # 2. OTHER PLATFORM / SYSTEM TOOLS
+            # -----------------------------------------------------
+            elif name in PLATFORM_TOOLS:
+                if name in SPECIAL_CASE_TOOL_HANDLING:
+                    gen = self._process_tool_calls(
+                        thread_id=thread_id,
+                        assistant_id=assistant_id,
+                        content=fc,
+                        run_id=run_id,
+                        tool_call_id=tool_call_id,
+                        api_key=api_key,
+                        decision=decision,
+                    )
+                else:
+                    gen = self._process_platform_tool_calls(
+                        thread_id=thread_id,
+                        assistant_id=assistant_id,
+                        content=fc,
+                        run_id=run_id,
+                        tool_call_id=tool_call_id,
+                        decision=decision,
+                    )
+                async for chunk in self._yield_maybe_async(gen):
+                    yield chunk
 
-        # File Search (Knowledge Retrieval)
-        elif name == "file_search":
-            # Level 2 Logic: If no snippets are found, handle_file_search
-            # should submit a 'tool' output saying "No relevant information found"
-            # so the model can try a different search term in turn 2.
-            await self._yield_maybe_async(
-                self.handle_file_search(
-                    thread_id=thread_id,
-                    run_id=run_id,
-                    assistant_id=assistant_id,
-                    arguments_dict=args,
-                    tool_call_id=tool_call_id,
-                    decision=decision,
-                )
-            )
-
-        # -----------------------------------------------------
-        # 2. OTHER PLATFORM / SYSTEM TOOLS
-        # -----------------------------------------------------
-        elif name in PLATFORM_TOOLS:
-            if name in SPECIAL_CASE_TOOL_HANDLING:
-                gen = self._process_tool_calls(
-                    thread_id=thread_id,
-                    assistant_id=assistant_id,
-                    content=fc,
-                    run_id=run_id,
-                    tool_call_id=tool_call_id,
-                    api_key=api_key,
-                    decision=decision,
-                )
+            # -----------------------------------------------------
+            # 3. CONSUMER TOOLS (SDK Manifest)
+            # -----------------------------------------------------
             else:
-                gen = self._process_platform_tool_calls(
-                    thread_id=thread_id,
-                    assistant_id=assistant_id,
-                    content=fc,
-                    run_id=run_id,
-                    tool_call_id=tool_call_id,
-                    decision=decision,
-                )
-            async for chunk in self._yield_maybe_async(gen):
-                yield chunk
+                # We reuse _process_tool_calls to emit individual manifests
+                # but ensure the loop in stream() manages the final 'pending_action' state.
+                async for chunk in self._yield_maybe_async(
+                    self._process_tool_calls(
+                        thread_id=thread_id,
+                        assistant_id=assistant_id,
+                        content=fc,
+                        run_id=run_id,
+                        tool_call_id=tool_call_id,
+                        api_key=api_key,
+                        decision=decision,
+                    )
+                ):
+                    yield chunk
 
-        # -----------------------------------------------------
-        # 3. CONSUMER TOOLS (Manifest Handover to SDK)
-        # -----------------------------------------------------
-        else:
-            async for chunk in self._yield_maybe_async(
-                self._process_tool_calls(
-                    thread_id=thread_id,
-                    assistant_id=assistant_id,
-                    content=fc,
-                    run_id=run_id,
-                    tool_call_id=tool_call_id,
-                    api_key=api_key,
-                    decision=decision,
-                )
-            ):
-                yield chunk
+        LOG.info("TOOL-ROUTER ▸ Batch dispatch complete.")

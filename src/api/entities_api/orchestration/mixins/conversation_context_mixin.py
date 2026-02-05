@@ -7,14 +7,18 @@ from typing import Any, Dict, List, Optional, Tuple
 from projectdavid import Entity
 
 from entities_api.constants.tools import PLATFORM_TOOL_MAP
-from entities_api.orchestration.instructions.assembler import \
-    assemble_instructions
-from src.api.entities_api.orchestration.instructions.assemble_core_instructions import \
-    assemble_core_instructions
+from entities_api.orchestration.instructions.assembler import assemble_instructions
+from src.api.entities_api.orchestration.instructions.assemble_core_instructions import (
+    assemble_core_instructions,
+)
 from src.api.entities_api.orchestration.instructions.include_lists import (
-    GENERAL_INSTRUCTIONS, L3_INSTRUCTIONS, NO_CORE_INSTRUCTIONS)
-from src.api.entities_api.platform_tools.definitions.record_tool_decision import \
-    record_tool_decision
+    GENERAL_INSTRUCTIONS,
+    L3_INSTRUCTIONS,
+    NO_CORE_INSTRUCTIONS,
+)
+from src.api.entities_api.platform_tools.definitions.record_tool_decision import (
+    record_tool_decision,
+)
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 LOG = LoggingUtility()
@@ -26,8 +30,7 @@ class ConversationContextMixin:
     @property
     def message_cache(self):
         if not self._message_cache:
-            from src.api.entities_api.cache.message_cache import \
-                get_sync_message_cache
+            from src.api.entities_api.cache.message_cache import get_sync_message_cache
 
             self._message_cache = get_sync_message_cache()
         return self._message_cache
@@ -201,9 +204,7 @@ class ConversationContextMixin:
 
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        excluded_instructions = assemble_instructions(
-            exclude_keys=["TOOL_USAGE_PROTOCOL"]
-        )
+        excluded_instructions = assemble_instructions(exclude_keys=["TOOL_USAGE_PROTOCOL"])
 
         return {
             "role": "system",
@@ -262,6 +263,7 @@ class ConversationContextMixin:
         structured_tool_call: Optional[bool] = False,
         force_refresh: Optional[bool] = False,
         decision_telemetry: bool = True,
+        agent_mode: bool = False,
     ) -> List[Dict]:
 
         # 1. Build the System Message (This part is solid)
@@ -269,11 +271,13 @@ class ConversationContextMixin:
             system_msg = await self._build_native_function_calls_system_message(
                 assistant_id=assistant_id,
                 decision_telemetry=decision_telemetry,
+                agent_mode=agent_mode,
             )
         else:
             system_msg = await self._build_system_message(
                 assistant_id=assistant_id,
                 decision_telemetry=decision_telemetry,
+                agent_mode=agent_mode,
             )
 
         if force_refresh:
@@ -303,9 +307,7 @@ class ConversationContextMixin:
                     base_url="http://localhost:9000",  # Ensure this points to the internal network
                     api_key=os.getenv("ADMIN_API_KEY"),
                 )
-                full_hist = client.messages.get_formatted_messages(
-                    thread_id, system_message=None
-                )
+                full_hist = client.messages.get_formatted_messages(thread_id, system_message=None)
             # --- CRITICAL CHANGE END ---
 
             last_role = full_hist[-1].get("role") if full_hist else "N/A"
@@ -336,7 +338,6 @@ class ConversationContextMixin:
     # -----------------------------------------------------
     # REMAINING SYNC UTILITIES
     # -----------------------------------------------------
-
     def replace_system_message(
         self, context_window: list[dict], new_system_message: str | None = None
     ) -> list[dict]:
@@ -366,14 +367,10 @@ class ConversationContextMixin:
                     if "\n" in tools_json_str:
                         json_part, instructions_part = tools_json_str.split("\n", 1)
                         extracted_tools = json.loads(json_part)
-                        new_msg["content"] = (
-                            f"{system_text}\n{instructions_part}".strip()
-                        )
+                        new_msg["content"] = f"{system_text}\n{instructions_part}".strip()
                     else:
                         extracted_tools = json.loads(tools_json_str)
-                        new_msg["content"] = (
-                            system_text or "You are a helpful assistant."
-                        )
+                        new_msg["content"] = system_text or "You are a helpful assistant."
                 except Exception as e:
                     LOG.error(f"[CTX-MIXIN] Failed tool extraction: {e}")
 
