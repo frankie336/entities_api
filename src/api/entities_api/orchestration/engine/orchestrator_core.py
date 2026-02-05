@@ -110,6 +110,17 @@ class OrchestratorCore(
         abstract.
         """
 
+    async def _ensure_config_loaded(self):
+        """
+        Ensures self.assistant_config is populated with fresh data from Redis.
+        """
+        if not self.assistant_config and self.assistant_id:
+            # self.assistant_cache is provided by the Mixin
+            data = await self.assistant_cache.retrieve(self.assistant_id)
+            if data:
+                self.assistant_config = data
+                LOG.debug(f"Loaded config for {self.assistant_id}: {data.keys()}")
+
     async def process_conversation(
         self,
         thread_id: str,

@@ -393,6 +393,66 @@ class Assistant(Base):
     )
 
 
+class Action(Base):
+    __tablename__ = "actions"
+
+    id = Column(String(64), primary_key=True, index=True)
+    run_id = Column(String(64), ForeignKey("runs.id"), nullable=True)
+
+    # --- Agentic Tracking (Level 3) ---
+    tool_call_id = Column(
+        String(64),
+        nullable=True,
+        index=True,
+        comment="The unique ID linking this action to a specific LLM tool request.",
+    )
+
+    tool_name = Column(
+        String(64),
+        nullable=True,
+        comment="The name of the function/tool to be executed.",
+    )
+
+    turn_index = Column(
+        Integer,
+        default=0,
+        nullable=True,
+        comment="The iteration of the autonomous loop.",
+    )
+
+    # =========================================================================
+    # DECISION TELEMETRY
+    # =========================================================================
+    decision_payload = Column(
+        JSON,
+        nullable=True,
+        comment="The full structured reasoning object (reason, policy, etc) preceding the tool call.",
+    )
+
+    confidence_score = Column(
+        Float,
+        nullable=True,
+        index=True,
+        comment="Extracted confidence score (0.0-1.0) to allow fast querying of 'uncertain' agent actions.",
+    )
+    # =========================================================================
+
+    triggered_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+    is_processed = Column(Boolean, default=False)
+    processed_at = Column(DateTime, nullable=True)
+    status = Column(String(64), nullable=True)
+    function_args = Column(JSON, nullable=True)
+    result = Column(JSON, nullable=True)
+
+    # --- Relationships ---
+    run = relationship("Run", back_populates="actions")
+
+    @staticmethod
+    def get_full_action_query(session):
+        return session.query(Action).options(joinedload(Action.run))
+
+
 class Sandbox(Base):
     __tablename__ = "sandboxes"
     id = Column(String(64), primary_key=True, index=True)

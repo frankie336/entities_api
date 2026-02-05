@@ -9,7 +9,7 @@ from redis import Redis as SyncRedis
 try:
     from redis.asyncio import Redis as AsyncRedis
 except ImportError:
-    # Use a dummy class instead of None so isinstance() and type hints don't break
+
     class AsyncRedis:
         pass
 
@@ -47,9 +47,8 @@ class AssistantCache:
 
     async def retrieve(self, assistant_id: str):
         """
-        Fetches assistant details.
-        Tools are now extracted directly from the assistant object (tool_configs),
-        removing the need for a separate tools API lookup.
+        Fetches assistant details and caches them.
+        Level 3 Update: Now captures agent_mode and decision_telemetry flags.
         """
         cached = await self.get(assistant_id)
         if cached:
@@ -57,42 +56,39 @@ class AssistantCache:
 
         client = Entity(base_url=self.pd_base_url, api_key=self.pd_api_key)
 
-        # 1. Fetch Assistant
+        # 1. Fetch Assistant from the platform
         assistant = await asyncio.to_thread(
             client.assistants.retrieve_assistant, assistant_id=assistant_id
         )
 
         # 2. Extract Tools directly from the Assistant object
-        # (This maps to the JSON 'tool_configs' column in the DB)
         raw_tools = getattr(assistant, "tools", []) or []
 
-        # 3. Normalize Pydantic models to dicts for JSON serialization
+        # 3. Normalize tools for JSON serialization
         clean_tools = []
         for t in raw_tools:
             if isinstance(t, dict):
                 clean_tools.append(t)
-            elif hasattr(t, "model_dump"):  # Pydantic v2
+            elif hasattr(t, "model_dump"):
                 clean_tools.append(t.model_dump())
-            elif hasattr(t, "dict"):  # Pydantic v1
+            elif hasattr(t, "dict"):
                 clean_tools.append(t.dict())
             else:
-                # Fallback for unexpected types
                 clean_tools.append(dict(t))
 
+        # 4. Construct Level 3 Payload
+        # We explicitly cast to bool to handle DB variations (0/1 vs True/False)
         payload = {
             "instructions": assistant.instructions,
             "tools": clean_tools,
-            # Optional: You might want to cache the model name here too if needed downstream
-            # "model": assistant.model
+            "agent_mode": bool(getattr(assistant, "agent_mode", False)),
+            "decision_telemetry": bool(getattr(assistant, "decision_telemetry", True)),
         }
 
         await self.set(assistant_id, payload)
         return payload
 
     async def delete(self, assistant_id: str):
-        """
-        Invalidates the cache for a specific assistant.
-        """
         key = self._cache_key(assistant_id)
         if isinstance(self.redis, AsyncRedis):
             await self.redis.delete(key)
@@ -100,25 +96,16 @@ class AssistantCache:
             await asyncio.to_thread(self.redis.delete, key)
 
     def invalidate_sync(self, assistant_id: str):
-        """
-        Synchronous wrapper for cache invalidation, used by Sync CRUD services.
-        """
         key = self._cache_key(assistant_id)
-        # Check if we are holding a SyncRedis client or AsyncRedis
         if hasattr(self.redis, "delete") and not asyncio.iscoroutinefunction(
             self.redis.delete
         ):
             self.redis.delete(key)
         else:
-            # If we somehow have an Async client in a sync context, run it
             try:
                 asyncio.run(self.delete(assistant_id))
             except RuntimeError:
-                # Fallback if an event loop is already running
                 pass
 
     def retrieve_sync(self, assistant_id: str):
-        """
-        Synchronous wrapper for your BaseInference class.
-        """
         return asyncio.run(self.retrieve(assistant_id))

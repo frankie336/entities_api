@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import uuid
 from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
+from projectdavid_common.validation import StatusEnum
 
+from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
 # --- DEPENDENCIES ---
-from src.api.entities_api.dependencies import get_redis
+from src.api.entities_api.dependencies import get_redis, get_redis_sync
 from src.api.entities_api.orchestration.engine.orchestrator_core import \
     OrchestratorCore
 # --- MIXINS ---
@@ -39,13 +43,34 @@ class QwenBaseWorker(
         redis=None,
         base_url: str | None = None,
         api_key: str | None = None,
-        assistant_cache: dict | None = None,
+        # assistant_cache: dict | None = None,
+        assistant_cache_service: Optional[AssistantCache] = None,
         **extra,
     ) -> None:
-        self._david_client: Any = None
-        self._assistant_cache: dict = (
-            assistant_cache or extra.get("assistant_cache") or {}
+
+        # 2. Setup Redis (Critical for the Mixin fallback)
+        # We use get_redis_sync() if no client is provided, ensuring we have a connection.
+        self.redis = redis or get_redis_sync()
+
+        # 3. Setup the Cache Service (The "New Way")
+        # If passed explicitly, store it. If not, the Mixin will lazy-load it using self.redis
+        if assistant_cache_service:
+            self._assistant_cache = assistant_cache_service
+        elif "assistant_cache" in extra and isinstance(
+            extra["assistant_cache"], AssistantCache
+        ):
+            # Handle case where it might be passed via **extra
+            self._assistant_cache = extra["assistant_cache"]
+
+        # 4. Setup the Data/Config (The "Old Way" renamed)
+        # We rename this to avoid overwriting the Mixin's property.
+        # We check if a raw dict was passed in 'extra' (legacy support)
+        legacy_config = extra.get("assistant_config") or extra.get("assistant_cache")
+        self.assistant_config: Dict[str, Any] = (
+            legacy_config if isinstance(legacy_config, dict) else {}
         )
+
+        self._david_client: Any = None
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
@@ -76,13 +101,18 @@ class QwenBaseWorker(
     def _get_client_instance(self, api_key: str):
         pass
 
-    @property
-    def assistant_cache(self) -> dict:
-        return self._assistant_cache
-
-    @assistant_cache.setter
-    def assistant_cache(self, value: dict) -> None:
-        self._assistant_cache = value
+        # 5. Helper to load config asynchronously
+        # Call this at the start of your run/execute method
+        async def load_assistant_config(self):
+            """
+            Populates self.assistant_config from Redis if not already set.
+            """
+            if not self.assistant_config and self.assistant_id:
+                # self.assistant_cache is provided by the Mixin
+                self.assistant_config = (
+                    await self.assistant_cache.retrieve(self.assistant_id) or {}
+                )
+                LOG.debug(f"Loaded config for {self.assistant_id}")
 
     async def stream(
         self,
@@ -103,10 +133,6 @@ class QwenBaseWorker(
         - Injects Hermes-style tool envelopes for multi-manifest turns.
         - Ensures consistency between Dialogue ID and Control ID.
         """
-        import asyncio
-        import uuid
-
-        from projectdavid_common.validation import StatusEnum
 
         redis = self.redis
         stream_key = f"stream:{run_id}"
@@ -130,12 +156,19 @@ class QwenBaseWorker(
             ):
                 model = mapped
 
+            # [NEW] Ensure cache is hot before starting
+            await self._ensure_config_loaded()
+            agent_mode_setting = self.assistant_config.get("agent_mode", False)
+
+            decision_telemetry = self.assistant_config.get("decision_telemetry", True)
+
             ctx = await self._set_up_context_window(
                 assistant_id,
                 thread_id,
                 trunk=True,
                 force_refresh=force_refresh,
-                agent_mode=True,
+                agent_mode=agent_mode_setting,
+                decision_telemetry=decision_telemetry,
             )
 
             if not api_key:

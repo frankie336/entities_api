@@ -94,7 +94,7 @@ class ConversationContextMixin:
     def _resolve_and_prioritize_platform_tools(
         tools: Optional[List[Dict[str, Any]]],
         *,
-        decision_telemetry: bool = True,
+        decision_telemetry: bool = False,
     ) -> List[Dict[str, Any]]:
 
         mandatory_platform_tools = []
@@ -145,7 +145,7 @@ class ConversationContextMixin:
     async def _build_system_message(
         self,
         assistant_id: str,
-        decision_telemetry: bool = True,
+        decision_telemetry: bool = False,
         agent_mode: bool = False,
     ) -> Dict:
 
@@ -213,7 +213,7 @@ class ConversationContextMixin:
     async def _build_native_function_calls_system_message(
         self,
         assistant_id: str,
-        decision_telemetry: bool = True,
+        decision_telemetry: bool = False,
         agent_mode: bool = False,
     ) -> Dict:
 
@@ -261,7 +261,7 @@ class ConversationContextMixin:
         trunk: Optional[bool] = True,
         structured_tool_call: Optional[bool] = False,
         force_refresh: Optional[bool] = False,
-        decision_telemetry: bool = True,
+        decision_telemetry: bool = False,
         agent_mode: bool = False,
     ) -> List[Dict]:
 

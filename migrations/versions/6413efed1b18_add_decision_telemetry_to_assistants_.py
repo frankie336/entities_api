@@ -41,17 +41,23 @@ def upgrade() -> None:
         ),
     )
 
-    # 2. Convert agent_mode from String/Enum to Boolean
-    # Note: Ensure existing data maps correctly to 0/1 before running if table is not empty.
+    # 2. DATA SANITIZATION (Critical for Type Conversion)
+    # We must convert strings like 'standard' to '0' so MySQL can cast to Boolean/TINYINT.
+    LOG_MSG = (
+        "Mapping 'standard' to 0 and all other strings to 1 for Boolean conversion..."
+    )
+    op.execute("UPDATE assistants SET agent_mode = '0' WHERE agent_mode = 'standard'")
+    # Catch-all for any other strings to ensure they are truthy (1)
+    op.execute("UPDATE assistants SET agent_mode = '1' WHERE agent_mode != '0'")
+
+    # 3. Convert agent_mode from String/Enum to Boolean
     safe_alter_column(
         "assistants",
         "agent_mode",
-        existing_type=mysql.VARCHAR(
-            length=255
-        ),  # Update length if your existing schema differs
+        existing_type=mysql.VARCHAR(length=255),
         type_=sa.Boolean(),
         comment="Boolean flag indicating the mode of the agent.",
-        nullable=False,  # Assuming a mode is always required
+        nullable=False,
     )
 
 
@@ -65,9 +71,12 @@ def downgrade() -> None:
         "assistants",
         "agent_mode",
         existing_type=sa.Boolean(),
-        type_=mysql.VARCHAR(length=255),  # Revert to original length
+        type_=mysql.VARCHAR(length=255),
         nullable=True,
     )
 
-    # 2. Drop the decision_telemetry column
+    # 2. DATA REVERSION (Optional: Restore the 'standard' string)
+    op.execute("UPDATE assistants SET agent_mode = 'standard' WHERE agent_mode = '0'")
+
+    # 3. Drop the decision_telemetry column
     drop_column_if_exists("assistants", "decision_telemetry")
