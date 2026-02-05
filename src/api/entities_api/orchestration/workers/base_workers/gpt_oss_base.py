@@ -10,7 +10,6 @@ from dotenv import load_dotenv
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
-from entities_api.cache import assistant_cache
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
 

@@ -312,7 +312,6 @@ class ModelTester:
         }
         sync_stream = self.client.synchronous_inference_stream
         sync_stream.setup(
-            user_id=self.user_id,
             thread_id=thread_id,
             assistant_id=self.assistant_id,
             message_id="",
