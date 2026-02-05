@@ -5,7 +5,6 @@ from typing import Any, List
 from fastapi import HTTPException
 from projectdavid import Entity
 from projectdavid_common import UtilsInterface, ValidationInterface
-from sqlalchemy.orm import Session
 
 # --- FIX: Removed Tool from imports ---
 from src.api.entities_api.db.database import SessionLocal
@@ -81,6 +80,10 @@ class AssistantService:
                 top_p=assistant.top_p,
                 temperature=assistant.temperature,
                 response_format=assistant.response_format,
+                # --- New Agentic Fields ---
+                max_turns=assistant.max_turns,
+                agent_mode=assistant.agent_mode,
+                decision_telemetry=assistant.decision_telemetry,
             )
 
             db.add(db_assistant)

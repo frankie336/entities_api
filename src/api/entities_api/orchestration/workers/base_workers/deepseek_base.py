@@ -12,13 +12,13 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from entities_api.clients.delta_normalizer import DeltaNormalizer
-
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
-
+from src.api.entities_api.orchestration.engine.orchestrator_core import \
+    OrchestratorCore
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
+from src.api.entities_api.orchestration.mixins.provider_mixins import \
+    _ProviderMixins
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -46,7 +46,9 @@ class DeepSeekBaseWorker(
         **extra,
     ) -> None:
         self._david_client: Any = None
-        self._assistant_cache: dict = assistant_cache or extra.get("assistant_cache") or {}
+        self._assistant_cache: dict = (
+            assistant_cache or extra.get("assistant_cache") or {}
+        )
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
@@ -98,14 +100,12 @@ class DeepSeekBaseWorker(
         **kwargs,
     ) -> AsyncGenerator[str, None]:
         """
-        Level 3 Agentic Stream with ID-Parity:
-        - Orchestrates Plan vs Action cycles.
-        - Injects Hermes-style tool envelopes for multi-manifest turns.
-        - Ensures consistency between Dialogue ID and Control ID.
+        Level 3 Agentic Stream (Native Mode):
+        - Uses raw XML/Tag persistence to prevent Llama/DeepSeek persona breakage.
+        - Maintains internal batching for parallel tool execution.
         """
-        import re
-        import uuid
         import asyncio
+
         from projectdavid_common.validation import StatusEnum
 
         redis = self.redis
@@ -125,16 +125,19 @@ class DeepSeekBaseWorker(
         current_block: str | None = None
 
         try:
-            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
+            if hasattr(self, "_get_model_map") and (
+                mapped := self._get_model_map(model)
+            ):
                 model = mapped
 
             ctx = await self._set_up_context_window(
-                assistant_id, thread_id, trunk=True, force_refresh=force_refresh, agent_mode=True
+                assistant_id,
+                thread_id,
+                trunk=True,
+                force_refresh=force_refresh,
+                agent_mode=False,
+                decision_telemetry=True,
             )
-
-            if model == "deepseek-ai/DeepSeek-R1":
-                amended = await self._build_amended_system_message(assistant_id=assistant_id)
-                ctx = self.replace_system_message(ctx, json.dumps(amended, ensure_ascii=False))
 
             if not api_key:
                 yield json.dumps({"type": "error", "content": "Missing API key."})
@@ -143,6 +146,12 @@ class DeepSeekBaseWorker(
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
             client = self._get_client_instance(api_key=api_key)
+
+            # --- [DEBUG] RAW CONTEXT DUMP ---
+            LOG.info(
+                f"\nRAW_CTX_DUMP:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}"
+            )
+
             raw_stream = client.stream_chat_completion(
                 messages=ctx,
                 model=model,
@@ -152,54 +161,73 @@ class DeepSeekBaseWorker(
             )
 
             async for chunk in DeltaNormalizer.async_iter_deltas(raw_stream, run_id):
-                if stop_event.is_set(): break
+                if stop_event.is_set():
+                    break
 
                 ctype = chunk.get("type")
                 ccontent = chunk.get("content") or ""
 
+                # --- REAL-TIME STATE MACHINE ---
                 if ctype == "content":
-                    if current_block == "fc": accumulated += "</fc>"
-                    elif current_block == "think": accumulated += "</think>"
-                    elif current_block == "plan": accumulated += "</plan>"
+                    if current_block == "fc":
+                        accumulated += "</fc>"
+                    elif current_block == "think":
+                        accumulated += "</think>"
+                    elif current_block == "plan":
+                        accumulated += "</plan>"
                     current_block = None
                     assistant_reply += ccontent
                     accumulated += ccontent
                 elif ctype == "call_arguments":
                     if current_block != "fc":
-                        if current_block == "think": accumulated += "</think>"
-                        elif current_block == "plan": accumulated += "</plan>"
+                        if current_block == "think":
+                            accumulated += "</think>"
+                        elif current_block == "plan":
+                            accumulated += "</plan>"
                         accumulated += "<fc>"
                         current_block = "fc"
                     accumulated += ccontent
                 elif ctype == "reasoning":
                     if current_block != "think":
-                        if current_block == "fc": accumulated += "</fc>"
-                        elif current_block == "plan": accumulated += "</plan>"
+                        if current_block == "fc":
+                            accumulated += "</fc>"
+                        elif current_block == "plan":
+                            accumulated += "</plan>"
                         accumulated += "<think>"
                         current_block = "think"
                     reasoning_reply += ccontent
                 elif ctype == "plan":
                     if current_block != "plan":
-                        if current_block == "fc": accumulated += "</fc>"
-                        elif current_block == "think": accumulated += "</think>"
+                        if current_block == "fc":
+                            accumulated += "</fc>"
+                        elif current_block == "think":
+                            accumulated += "</think>"
                         accumulated += "<plan>"
                         current_block = "plan"
                     plan_buffer += ccontent
                     accumulated += ccontent
                 elif ctype == "decision":
                     decision_buffer += ccontent
-                    if current_block == "fc": accumulated += "</fc>"
-                    elif current_block == "think": accumulated += "</think>"
-                    elif current_block == "plan": accumulated += "</plan>"
+                    if current_block == "fc":
+                        accumulated += "</fc>"
+                    elif current_block == "think":
+                        accumulated += "</think>"
+                    elif current_block == "plan":
+                        accumulated += "</plan>"
                     current_block = "decision"
 
-                if ctype == "call_arguments": continue
+                if ctype == "call_arguments":
+                    continue
                 yield json.dumps(chunk)
                 await self._shunt_to_redis_stream(redis, stream_key, chunk)
 
-            if current_block == "fc": accumulated += "</fc>"
-            elif current_block == "think": accumulated += "</think>"
-            elif current_block == "plan": accumulated += "</plan>"
+            # Cleanup open tags
+            if current_block == "fc":
+                accumulated += "</fc>"
+            elif current_block == "think":
+                accumulated += "</think>"
+            elif current_block == "plan":
+                accumulated += "</plan>"
 
         except Exception as exc:
             LOG.error(f"DEBUG: Stream Exception: {exc}")
@@ -209,56 +237,40 @@ class DeepSeekBaseWorker(
         finally:
             stop_event.set()
 
+        # --- POST-STREAM: BATCH VALIDATION ---
         if decision_buffer:
-            try: self._decision_payload = json.loads(decision_buffer.strip())
-            except Exception: pass
+            try:
+                self._decision_payload = json.loads(decision_buffer.strip())
+            except Exception:
+                pass
 
         yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
-        # --- [LEVEL 3] PARSE BATCH & SYNC IDs ---
-        # The parser ensures every tool in the list has a 'id' key.
-        tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
+        # --- [LEVEL 3] NATIVE PERSISTENCE ---
+        # The parser finds the tools to drive the backend (Action records).
+        tool_calls_batch = self.parse_and_set_function_calls(
+            accumulated, assistant_reply
+        )
 
-        message_to_save = assistant_reply
+        # [THE FIX]: We save the RAW text emitted by Llama.
+        # No formal JSON structure, no ID injection into the dialogue content.
+        message_to_save = accumulated
         final_status = StatusEnum.completed.value
 
         if tool_calls_batch:
-            # 1. Update the internal queue for the dispatcher (process_tool_calls)
+            # We still keep the tool_queue so the dispatcher knows what to execute
             self._tool_queue = tool_calls_batch
             final_status = StatusEnum.pending_action.value
 
-            # 2. Build the Hermes/OpenAI Structured Envelope for the Dialogue
-            # This is what makes Turn 2 contextually consistent.
-            tool_calls_structure = []
-            for tool in tool_calls_batch:
-                tool_id = tool.get("id") or f"call_{uuid.uuid4().hex[:8]}"
+            # [LOGGING]
+            LOG.info(f"🚀 [L3 NATIVE MODE] Turn 1 Batch size: {len(tool_calls_batch)}")
 
-                tool_calls_structure.append({
-                    "id": tool_id,
-                    "type": "function",
-                    "function": {
-                        "name": tool.get("name"),
-                        "arguments": (
-                            json.dumps(tool.get("arguments", {}))
-                            if isinstance(tool.get("arguments"), dict)
-                            else tool.get("arguments")
-                        )
-                    }
-                })
-
-            # CRITICAL: We overwrite message_to_save with the standard tool structure
-            message_to_save = json.dumps(tool_calls_structure)
-
-            # [LOGGING] Verify ID Parity
-            LOG.info(f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}")
-            for item in tool_calls_structure:
-                LOG.info(f"   ▸ Tool: {item['function']['name']} | ID: {item['id']}")
-
-        # Persistence: Assistant Plan/Actions saved to Thread
+        # Persistence: Save the raw <plan> and <fc> text exactly as Llama intended
         if message_to_save:
-            await self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
+            await self.finalize_conversation(
+                message_to_save, thread_id, assistant_id, run_id
+            )
 
-        # Update Run status to trigger Dispatch Turn
         if self.project_david_client:
             await asyncio.to_thread(
                 self.project_david_client.runs.update_run_status, run_id, final_status

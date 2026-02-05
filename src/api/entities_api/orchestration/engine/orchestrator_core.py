@@ -138,7 +138,7 @@ class OrchestratorCore(
 
             # --- 1. RESET INTERNAL STATE ---
             self.set_tool_response_state(False)
-            self.set_function_call_state(None) # Clears the list
+            self.set_function_call_state(None)  # Clears the list
             self._current_tool_call_id = None
 
             # --- 2. THE INFERENCE TURN ---
@@ -155,8 +155,12 @@ class OrchestratorCore(
                 ):
                     yield chunk
             except Exception as stream_exc:
-                LOG.error(f"ORCHESTRATOR ▸ Turn {turn_count} stream failed: {stream_exc}")
-                yield json.dumps({"type": "error", "content": f"Stream failure: {stream_exc}"})
+                LOG.error(
+                    f"ORCHESTRATOR ▸ Turn {turn_count} stream failed: {stream_exc}"
+                )
+                yield json.dumps(
+                    {"type": "error", "content": f"Stream failure: {stream_exc}"}
+                )
                 break
 
             # --- 3. BATCH EVALUATION ---
@@ -169,7 +173,9 @@ class OrchestratorCore(
 
             # Determine if we need to hand over to the SDK.
             # If any tool in the batch is NOT in PLATFORM_TOOLS, we must stop looping.
-            has_consumer_tool = any(tool.get("name") not in PLATFORM_TOOLS for tool in batch)
+            has_consumer_tool = any(
+                tool.get("name") not in PLATFORM_TOOLS for tool in batch
+            )
 
             # --- 4. THE TOOL PROCESSING TURN ---
             # The dispatcher now handles the entire batch internally
@@ -187,7 +193,9 @@ class OrchestratorCore(
             # --- 5. RECURSION DECISION ---
             if not has_consumer_tool:
                 # All tools in this turn were direct-execution Platform Tools.
-                LOG.info(f"ORCHESTRATOR ▸ Platform batch {turn_count} complete. Stabilizing...")
+                LOG.info(
+                    f"ORCHESTRATOR ▸ Platform batch {turn_count} complete. Stabilizing..."
+                )
 
                 await asyncio.sleep(0.5)
                 current_message_id = None
@@ -195,7 +203,9 @@ class OrchestratorCore(
             else:
                 # At least one Consumer Tool was detected.
                 # Connection closes so SDK can execute and start Request Turn 2.
-                LOG.info(f"ORCHESTRATOR ▸ Consumer tool detected in batch. Handing over to SDK.")
+                LOG.info(
+                    f"ORCHESTRATOR ▸ Consumer tool detected in batch. Handing over to SDK."
+                )
                 return
 
         if turn_count >= max_turns:

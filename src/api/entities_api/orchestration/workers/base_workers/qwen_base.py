@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from dotenv import load_dotenv
-from projectdavid_common.constants import PLATFORM_TOOLS
 from projectdavid_common.utilities.logging_service import LoggingUtility
-from projectdavid_common.validation import StatusEnum
 
 from entities_api.clients.delta_normalizer import DeltaNormalizer
 # --- DEPENDENCIES ---
@@ -96,21 +93,36 @@ class QwenBaseWorker(
         model: Any,
         *,
         force_refresh: bool = False,
-        stream_reasoning: bool = False,
+        stream_reasoning: bool = True,
         api_key: str | None = None,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
+        """
+        Level 3 Agentic Stream with ID-Parity:
+        - Orchestrates Plan vs Action cycles.
+        - Injects Hermes-style tool envelopes for multi-manifest turns.
+        - Ensures consistency between Dialogue ID and Control ID.
+        """
+        import asyncio
+        import uuid
+
+        from projectdavid_common.validation import StatusEnum
+
         redis = self.redis
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
-        # --- SYNC-REPLICA 1: Early Variable Initialization ---
+        # Early Variable Initialization
         self._current_tool_call_id = None
-        self._pending_tool_payload = None
         self._decision_payload = None
+        self._tool_queue: List[Dict] = []
 
-        assistant_reply, accumulated, reasoning_reply, decision_buffer = "", "", "", ""
-        current_block = None
+        accumulated: str = ""
+        assistant_reply: str = ""
+        reasoning_reply: str = ""
+        decision_buffer: str = ""
+        plan_buffer: str = ""
+        current_block: str | None = None
 
         try:
             if hasattr(self, "_get_model_map") and (
@@ -118,12 +130,12 @@ class QwenBaseWorker(
             ):
                 model = mapped
 
-            # Async Context Setup
             ctx = await self._set_up_context_window(
                 assistant_id,
                 thread_id,
                 trunk=True,
                 force_refresh=force_refresh,
+                agent_mode=True,
             )
 
             if not api_key:
@@ -132,12 +144,7 @@ class QwenBaseWorker(
 
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
-            # -----------------------------------------------------------
-            # STANDARDIZED CLIENT EXECUTION (GPT-OSS Style)
-            # -----------------------------------------------------------
             client = self._get_client_instance(api_key=api_key)
-            # Note: Qwen usually relies on prompt injection for tools, so we pass
-            # the context (messages) and let the model/mixin handle the rest.
             raw_stream = client.stream_chat_completion(
                 messages=ctx,
                 model=model,
@@ -145,7 +152,6 @@ class QwenBaseWorker(
                 temperature=kwargs.get("temperature", 0.6),
                 stream=True,
             )
-            # -----------------------------------------------------------
 
             async for chunk in DeltaNormalizer.async_iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
@@ -153,102 +159,139 @@ class QwenBaseWorker(
 
                 ctype = chunk.get("type")
                 ccontent = chunk.get("content") or ""
-                safe_content = ccontent if isinstance(ccontent, str) else ""
 
-                # --- QWEN/Standard XML PARSING LOGIC ---
                 if ctype == "content":
                     if current_block == "fc":
                         accumulated += "</fc>"
                     elif current_block == "think":
                         accumulated += "</think>"
+                    elif current_block == "plan":
+                        accumulated += "</plan>"
                     current_block = None
-                    assistant_reply += safe_content
-                    accumulated += safe_content
-                elif ctype in ("tool_name", "call_arguments"):
+                    assistant_reply += ccontent
+                    accumulated += ccontent
+                elif ctype == "call_arguments":
                     if current_block != "fc":
                         if current_block == "think":
                             accumulated += "</think>"
+                        elif current_block == "plan":
+                            accumulated += "</plan>"
                         accumulated += "<fc>"
                         current_block = "fc"
-                    accumulated += safe_content
+                    accumulated += ccontent
                 elif ctype == "reasoning":
                     if current_block != "think":
                         if current_block == "fc":
                             accumulated += "</fc>"
+                        elif current_block == "plan":
+                            accumulated += "</plan>"
                         accumulated += "<think>"
                         current_block = "think"
-                    reasoning_reply += safe_content
+                    reasoning_reply += ccontent
+                elif ctype == "plan":
+                    if current_block != "plan":
+                        if current_block == "fc":
+                            accumulated += "</fc>"
+                        elif current_block == "think":
+                            accumulated += "</think>"
+                        accumulated += "<plan>"
+                        current_block = "plan"
+                    plan_buffer += ccontent
+                    accumulated += ccontent
                 elif ctype == "decision":
-                    decision_buffer += safe_content
+                    decision_buffer += ccontent
                     if current_block == "fc":
                         accumulated += "</fc>"
                     elif current_block == "think":
                         accumulated += "</think>"
+                    elif current_block == "plan":
+                        accumulated += "</plan>"
                     current_block = "decision"
 
-                # Filter: Qwen explicitly blocks yielding tool artifacts
-                if ctype not in ("tool_name", "call_arguments"):
-                    yield json.dumps(chunk)
-
+                if ctype == "call_arguments":
+                    continue
+                yield json.dumps(chunk)
                 await self._shunt_to_redis_stream(redis, stream_key, chunk)
 
             if current_block == "fc":
                 accumulated += "</fc>"
             elif current_block == "think":
                 accumulated += "</think>"
+            elif current_block == "plan":
+                accumulated += "</plan>"
 
         except Exception as exc:
             LOG.error(f"DEBUG: Stream Exception: {exc}")
-            err = {
-                "type": "error",
-                "content": f"Qwen stream error: {exc}",
-                "run_id": run_id,
-            }
+            err = {"type": "error", "content": f"Stream error: {exc}", "run_id": run_id}
             yield json.dumps(err)
             await self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
             stop_event.set()
 
-        yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
-
-        # --- SYNC-REPLICA 2: Validate Decision Payload ---
         if decision_buffer:
             try:
                 self._decision_payload = json.loads(decision_buffer.strip())
-                LOG.info(f"Decision payload validated: {self._decision_payload}")
-            except Exception as e:
-                LOG.error(f"Failed to parse decision payload: {e}")
+            except Exception:
+                pass
 
-        # Keep-Alive Heartbeat
         yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
-        # --- SYNC-REPLICA 3: Persistence & Detection ---
-        has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
+        # --- [LEVEL 3] PARSE BATCH & SYNC IDs ---
+        # The parser ensures every tool in the list has a 'id' key.
+        tool_calls_batch = self.parse_and_set_function_calls(
+            accumulated, assistant_reply
+        )
+
         message_to_save = assistant_reply
         final_status = StatusEnum.completed.value
 
-        # --- QWEN SPECIFIC PERSISTENCE LOGIC (Raw JSON, No Hermes Envelope) ---
-        if has_fc:
-            try:
-                # Clean tags
-                raw_json = accumulated.replace("<fc>", "").replace("</fc>", "").strip()
-                payload_dict = json.loads(raw_json)
+        if tool_calls_batch:
+            # 1. Update the internal queue for the dispatcher (process_tool_calls)
+            self._tool_queue = tool_calls_batch
+            final_status = StatusEnum.pending_action.value
 
-                # Qwen Specific: Save the raw dict as the message content
-                message_to_save = json.dumps(payload_dict)
+            # 2. Build the Hermes/OpenAI Structured Envelope for the Dialogue
+            # This is what makes Turn 2 contextually consistent.
+            tool_calls_structure = []
+            for tool in tool_calls_batch:
+                tool_id = tool.get("id") or f"call_{uuid.uuid4().hex[:8]}"
 
-                self._pending_tool_payload = payload_dict
-                final_status = StatusEnum.pending_action.value
-            except Exception as e:
-                LOG.error(f"Error parsing raw tool JSON: {e}")
-                message_to_save = accumulated
+                tool_calls_structure.append(
+                    {
+                        "id": tool_id,
+                        "type": "function",
+                        "function": {
+                            "name": tool.get("name"),
+                            "arguments": (
+                                json.dumps(tool.get("arguments", {}))
+                                if isinstance(tool.get("arguments"), dict)
+                                else tool.get("arguments")
+                            ),
+                        },
+                    }
+                )
 
+            # CRITICAL: We overwrite message_to_save with the standard tool structure
+            message_to_save = json.dumps(tool_calls_structure)
+
+            # [LOGGING] Verify ID Parity
+            LOG.info(
+                f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}"
+            )
+            for item in tool_calls_structure:
+                LOG.info(f"   ▸ Tool: {item['function']['name']} | ID: {item['id']}")
+
+        # Persistence: Assistant Plan/Actions saved to Thread
         if message_to_save:
             await self.finalize_conversation(
                 message_to_save, thread_id, assistant_id, run_id
             )
 
+        # Update Run status to trigger Dispatch Turn
         if self.project_david_client:
             await asyncio.to_thread(
                 self.project_david_client.runs.update_run_status, run_id, final_status
             )
+
+        if not tool_calls_batch:
+            yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})

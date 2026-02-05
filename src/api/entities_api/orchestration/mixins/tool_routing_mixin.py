@@ -5,7 +5,8 @@ from __future__ import annotations
 import inspect
 import json
 import re
-from typing import AsyncGenerator, Dict, Optional, List, Union
+import uuid
+from typing import AsyncGenerator, Dict, List, Optional, Union
 
 from src.api.entities_api.constants.assistant import PLATFORM_TOOLS
 from src.api.entities_api.constants.platform import SPECIAL_CASE_TOOL_HANDLING
@@ -17,15 +18,15 @@ LOG = LoggingUtility()
 class ToolRoutingMixin:
     """
     High-level routing of tool-calls.
-    Refactored for Level 2 Reliability: Platform tools (Code, Computer, File Search)
-    now support automated internal self-correction turns.
+    Level 3 Refactor: Supports batch extraction, plan isolation,
+    and ID propagation for parallel self-correction.
     """
 
-    # UPDATED: Regex for global finding
+    # UPDATED: Regex for global finding across the stream
     FC_REGEX = re.compile(r"<fc>\s*(?P<payload>\{.*?\})\s*</fc>", re.DOTALL | re.I)
 
     _tool_response: bool = False
-    _function_calls: List[Dict] = []  # [L3] Changed to a list for batching
+    _function_calls: List[Dict] = []  # [L3] Store tool batch as a list
 
     # -----------------------------------------------------
     # State Management
@@ -34,10 +35,27 @@ class ToolRoutingMixin:
         LOG.debug("TOOL-ROUTER ▸ set_tool_response_state(%s)", value)
         self._tool_response = value
 
-    # -----------------------------------------------------
-    # Helper: Moved to Class Scope for L3 Batching
-    # -----------------------------------------------------
+    def get_tool_response_state(self) -> bool:
+        return self._tool_response
 
+    def set_function_call_state(
+        self, value: Optional[Union[Dict, List[Dict]]] = None
+    ) -> None:
+        """Sets either a single dict or a batch list into the tool queue."""
+        if value is None:
+            self._function_calls = []
+        elif isinstance(value, dict):
+            self._function_calls = [value]
+        else:
+            self._function_calls = value
+
+    def get_function_call_state(self) -> List[Dict]:
+        """Always returns a list for consistent iteration."""
+        return self._function_calls
+
+    # -----------------------------------------------------
+    # Helper Methods
+    # -----------------------------------------------------
     def _normalize_arguments(self, payload: Dict) -> Dict:
         """Heals stringified JSON arguments in a tool payload."""
         args = payload.get("arguments")
@@ -51,42 +69,27 @@ class ToolRoutingMixin:
                 LOG.warning("TOOL-ROUTER ▸ failed to parse string arguments")
         return payload
 
-        # -----------------------------------------------------
-        # State Management
-        # -----------------------------------------------------
-
-    def set_function_call_state(self, value: Optional[Union[Dict, List[Dict]]] = None) -> None:
-        if value is None:
-            self._function_calls = []
-        elif isinstance(value, dict):
-            self._function_calls = [value]
-        else:
-            self._function_calls = value
-
-    def get_function_call_state(self) -> List[Dict]:
-        return self._function_calls
-
-        # -----------------------------------------------------
-        # The Pedantic L3 Parser
-        # -----------------------------------------------------
-
+    # -----------------------------------------------------
+    # The Pedantic L3 Parser
+    # -----------------------------------------------------
     def parse_and_set_function_calls(
         self, accumulated_content: str, assistant_reply: str
     ) -> List[Dict]:
         """
         Scans text for tool call payloads.
-        Level 3: Isolates planning blocks and extracts ALL tool tags in sequence.
+        Level 3: Isolates planning blocks and ensures every tool in the batch has a unique ID.
         """
-        from src.api.entities_api.orchestration.mixins.json_utils_mixin import JsonUtilsMixin
+        from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
+            JsonUtilsMixin
 
         if not isinstance(self, JsonUtilsMixin):
             raise TypeError("ToolRoutingMixin must be mixed with JsonUtilsMixin")
 
-        # --- STEP 1: PLAN ISOLATION ---
-        # We strip the plan block so that if the model says:
-        # "I will call <fc>{...}</fc>" in its reasoning, it's ignored.
-        # We only care about tags appearing AFTER or OUTSIDE the plan.
-        body_to_scan = re.sub(r"<plan>.*?</plan>", "", accumulated_content, flags=re.DOTALL)
+        # --- STEP 1: ISOLATION ---
+        # Remove <plan> blocks to avoid executing tools mentioned in reasoning.
+        body_to_scan = re.sub(
+            r"<plan>.*?</plan>", "", accumulated_content, flags=re.DOTALL
+        )
 
         # --- STEP 2: MULTI-TAG EXTRACTION ---
         matches = self.FC_REGEX.finditer(body_to_scan)
@@ -94,36 +97,43 @@ class ToolRoutingMixin:
 
         for m in matches:
             raw_payload = m.group("payload")
-            # ensure_valid_json lives on JsonUtilsMixin
             parsed = self.ensure_valid_json(raw_payload)
             if parsed:
-                # Call the now-available class method
+                # [L3 ID GENERATION]
+                # If the model didn't provide a call ID, we generate one here.
+                # This ID links the Assistant Request to the Tool Result in Turn 2.
+                if not parsed.get("id"):
+                    parsed["id"] = f"call_{uuid.uuid4().hex[:8]}"
+
                 normalized = self._normalize_arguments(parsed)
                 results.append(normalized)
 
         if results:
-            LOG.info(f"L3-PARSER ▸ Successfully parsed {len(results)} tool(s) in batch.")
+            LOG.info(f"L3-PARSER ▸ Detected batch of {len(results)} tool(s).")
             self.set_tool_response_state(True)
             self.set_function_call_state(results)
             return results
 
-        # --- STEP 3: LEGACY FALLBACK ---
-        # (Only if no tags were found at all)
+        # Legacy fallback for body-of-text JSON
         loose = self.extract_function_calls_within_body_of_text(assistant_reply)
         if loose:
-            normalized = [self._normalize_arguments(l) for l in loose]
-            self.set_tool_response_state(True)
-            self.set_function_call_state(normalized)
-            return normalized
+            normalized_list = []
+            for l in loose:
+                if not l.get("id"):
+                    l["id"] = f"call_{uuid.uuid4().hex[:8]}"
+                normalized_list.append(self._normalize_arguments(l))
 
-        LOG.debug("L3-PARSER ✗ No tool calls detected.")
+            self.set_tool_response_state(True)
+            self.set_function_call_state(normalized_list)
+            return normalized_list
+
+        LOG.debug("L3-PARSER ✗ nothing found")
         return []
 
     # -----------------------------------------------------
     # Async Helpers
     # -----------------------------------------------------
     async def _yield_maybe_async(self, obj):
-        """Helper to yield from sync generators, async generators, or coroutines."""
         if obj is None:
             return
         if inspect.isasyncgen(obj):
@@ -145,51 +155,51 @@ class ToolRoutingMixin:
         thread_id: str,
         run_id: str,
         assistant_id: str,
-        tool_call_id: Optional[str] = None,
+        tool_call_id: Optional[str] = None,  # Contextual ID (optional)
         *,
         model: str | None = None,
         api_key: str | None = None,
         decision: Optional[Dict] = None,
     ) -> AsyncGenerator:
         """
-        Orchestrates the execution of one or more detected tool calls.
-        Level 3: Iterates through the batch queue, supporting parallel intent.
+        Orchestrates the execution of a detected batch of tool calls.
+        Level 3: Iterates through the batch, propagating IDs for history linking.
         """
-        # Retrieve the batch queue from state (now a List[Dict])
         batch = self.get_function_call_state()
         if not batch:
-            LOG.warning("TOOL-ROUTER ▸ Dispatcher called but no tool calls found in state.")
             return
 
-        LOG.info("TOOL-ROUTER ▸ Processing batch of %s tool calls.", len(batch))
+        LOG.info("TOOL-ROUTER ▸ Dispatching Turn Batch (%s total)", len(batch))
 
         for fc in batch:
             name = fc.get("name")
             args = fc.get("arguments")
 
-            # --- LEVEL 2 HEALING (Localized to batch item) ---
+            # [L3] Prioritize the ID assigned by the parser/model
+            # current_call_id = fc.get("id") or tool_call_id
+            current_call_id = tool_call_id
+
+            # --- LEVEL 2 HEALING (Per-item) ---
             if not name and decision:
                 inferred_name = (
-                    decision.get("tool") or decision.get("function") or decision.get("name")
+                    decision.get("tool")
+                    or decision.get("function")
+                    or decision.get("name")
                 )
                 if inferred_name:
-                    LOG.info(
-                        "TOOL-ROUTER ▸ Healing batch item using decision tool='%s'",
-                        inferred_name,
-                    )
                     name = inferred_name
                     if args is None:
                         args = fc
 
             if not name:
-                LOG.error("TOOL-ROUTER ▸ Failed to resolve name for tool call: %s", fc)
+                LOG.error(
+                    "TOOL-ROUTER ▸ Failed to resolve tool name for item in batch."
+                )
                 continue
 
-            LOG.info("TOOL-ROUTER ▶ dispatching batch item: tool=%s", name)
+            LOG.info("TOOL-ROUTER ▶ dispatching: %s (ID: %s)", name, current_call_id)
 
-            # -----------------------------------------------------
-            # 1. PLATFORM TOOLS (Direct Execution)
-            # -----------------------------------------------------
+            # 1. PLATFORM TOOLS
             if name == "code_interpreter":
                 async for chunk in self._yield_maybe_async(
                     self.handle_code_interpreter_action(
@@ -197,7 +207,7 @@ class ToolRoutingMixin:
                         run_id=run_id,
                         assistant_id=assistant_id,
                         arguments_dict=args,
-                        tool_call_id=tool_call_id,
+                        tool_call_id=current_call_id,
                         decision=decision,
                     )
                 ):
@@ -210,28 +220,25 @@ class ToolRoutingMixin:
                         run_id=run_id,
                         assistant_id=assistant_id,
                         arguments_dict=args,
-                        tool_call_id=tool_call_id,
+                        tool_call_id=current_call_id,
                         decision=decision,
                     )
                 ):
                     yield chunk
 
             elif name == "file_search":
-                # Note: handle_file_search handles its own submit_tool_output internally
                 await self._yield_maybe_async(
                     self.handle_file_search(
                         thread_id=thread_id,
                         run_id=run_id,
                         assistant_id=assistant_id,
                         arguments_dict=args,
-                        tool_call_id=tool_call_id,
+                        tool_call_id=current_call_id,
                         decision=decision,
                     )
                 )
 
-            # -----------------------------------------------------
-            # 2. OTHER PLATFORM / SYSTEM TOOLS
-            # -----------------------------------------------------
+            # 2. SYSTEM TOOLS
             elif name in PLATFORM_TOOLS:
                 if name in SPECIAL_CASE_TOOL_HANDLING:
                     gen = self._process_tool_calls(
@@ -239,7 +246,7 @@ class ToolRoutingMixin:
                         assistant_id=assistant_id,
                         content=fc,
                         run_id=run_id,
-                        tool_call_id=tool_call_id,
+                        tool_call_id=current_call_id,
                         api_key=api_key,
                         decision=decision,
                     )
@@ -249,29 +256,26 @@ class ToolRoutingMixin:
                         assistant_id=assistant_id,
                         content=fc,
                         run_id=run_id,
-                        tool_call_id=tool_call_id,
+                        tool_call_id=current_call_id,
                         decision=decision,
                     )
                 async for chunk in self._yield_maybe_async(gen):
                     yield chunk
 
-            # -----------------------------------------------------
-            # 3. CONSUMER TOOLS (SDK Manifest)
-            # -----------------------------------------------------
+            # 3. CONSUMER TOOLS (Handover to SDK)
             else:
-                # We reuse _process_tool_calls to emit individual manifests
-                # but ensure the loop in stream() manages the final 'pending_action' state.
+                # We yield individual manifests for the SDK to collect
                 async for chunk in self._yield_maybe_async(
                     self._process_tool_calls(
                         thread_id=thread_id,
                         assistant_id=assistant_id,
                         content=fc,
                         run_id=run_id,
-                        tool_call_id=tool_call_id,
+                        tool_call_id=current_call_id,
                         api_key=api_key,
                         decision=decision,
                     )
                 ):
                     yield chunk
 
-        LOG.info("TOOL-ROUTER ▸ Batch dispatch complete.")
+        LOG.info("TOOL-ROUTER ▸ Batch dispatch Turn complete.")

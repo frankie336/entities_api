@@ -254,113 +254,195 @@ class DefaultBaseWorker(
                 self.project_david_client.runs.update_run_status, run_id, final_status
             )
 
-    async def process_conversation(
+    async def stream(
         self,
         thread_id: str,
-        message_id: Optional[str],
+        message_id: str | None,
         run_id: str,
         assistant_id: str,
         model: Any,
-        api_key: Optional[str] = None,
-        max_turns: int = 10,
+        *,
+        force_refresh: bool = False,
+        stream_reasoning: bool = True,
+        api_key: str | None = None,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
         """
-        Level 2 Recursive Orchestrator.
-
-        Orchestrates multi-turn self-correction for Platform Tools internally.
-        If a Platform Tool (e.g. Code Interpreter) fails with a syntax or logic
-        error, this loop injects an instructional hint and re-runs the LLM
-        immediately to attempt a fix.
+        Level 3 Agentic Stream (Native Mode):
+        - Uses raw XML/Tag persistence to prevent Llama/DeepSeek persona breakage.
+        - Maintains internal batching for parallel tool execution.
         """
-        from src.api.entities_api.constants.assistant import PLATFORM_TOOLS
+        import asyncio
 
-        turn_count = 0
-        current_message_id = message_id  # First turn uses the original user message_id
+        from projectdavid_common.validation import StatusEnum
 
-        while turn_count < max_turns:
-            turn_count += 1
-            LOG.info(f"ORCHESTRATOR ▸ Turn {turn_count} start [Run: {run_id}]")
+        redis = self.redis
+        stream_key = f"stream:{run_id}"
+        stop_event = self.start_cancellation_monitor(run_id)
 
-            # --- 1. RESET INTERNAL STATE ---
-            # Ensure previous turn data doesn't pollute the new turn
-            self.set_tool_response_state(False)
-            self.set_function_call_state(None)
-            self._current_tool_call_id = None
+        # Early Variable Initialization
+        self._current_tool_call_id = None
+        self._decision_payload = None
+        self._tool_queue: List[Dict] = []
 
-            # --- 2. THE INFERENCE TURN ---
-            # Call the LLM and stream the response
-            try:
-                async for chunk in self.stream(
-                    thread_id=thread_id,
-                    message_id=current_message_id,
-                    run_id=run_id,
-                    assistant_id=assistant_id,
-                    model=model,
-                    # Turn 2+ must force a refresh to include the previous Turn's tool output
-                    force_refresh=(turn_count > 1),
-                    api_key=api_key,
-                    **kwargs,
-                ):
-                    yield chunk
-            except Exception as stream_exc:
-                # Catching timeouts (like the one in your logs) to prevent a terminal crash
-                LOG.error(
-                    f"ORCHESTRATOR ▸ Turn {turn_count} stream failed: {stream_exc}"
-                )
-                yield json.dumps(
-                    {
-                        "type": "error",
-                        "content": f"Connection error during turn {turn_count}. Sequence aborted.",
-                    }
-                )
-                break
+        accumulated: str = ""
+        assistant_reply: str = ""
+        reasoning_reply: str = ""
+        decision_buffer: str = ""
+        plan_buffer: str = ""
+        current_block: str | None = None
 
-            # After the stream completes, check if a tool call was detected and parsed
-            fc_payload = self.get_function_call_state()
-
-            if not fc_payload:
-                LOG.info(
-                    f"ORCHESTRATOR ▸ Turn {turn_count} produced text. Sequence complete."
-                )
-                break
-
-            # --- 3. THE TOOL PROCESSING TURN ---
-            fc_name = fc_payload.get("name")
-
-            # Dispatch the tool (Direct execution for Platform tools, Manifest for Consumer)
-            async for chunk in self.process_tool_calls(
-                thread_id=thread_id,
-                run_id=run_id,
-                assistant_id=assistant_id,
-                tool_call_id=self._current_tool_call_id,
-                model=model,
-                api_key=api_key,
-                decision=self._decision_payload,
+        try:
+            if hasattr(self, "_get_model_map") and (
+                mapped := self._get_model_map(model)
             ):
-                yield chunk
+                model = mapped
 
-            # --- 4. RECURSION DECISION ---
-            if fc_name in PLATFORM_TOOLS:
-                # Level 2: Platform tools handle their own turns.
-                LOG.info(
-                    f"ORCHESTRATOR ▸ Platform tool '{fc_name}' turn complete. Stabilizing..."
-                )
+            ctx = await self._set_up_context_window(
+                assistant_id,
+                thread_id,
+                trunk=True,
+                force_refresh=force_refresh,
+                agent_mode=False,
+                decision_telemetry=True,
+            )
 
-                # [STABILIZATION] Give the Database and Assistant Cache a moment to commit
-                # the tool output before we refresh context for the next turn.
-                # This prevents the 'retrieving run: timed out' error seen in logs.
-                await asyncio.sleep(0.5)
-
-                # Turn 2+ relies on thread history, so we clear current_message_id
-                current_message_id = None
-                continue  # Jumps back to Turn 1 (The Inference Turn)
-            else:
-                # Consumer tools: The server MUST yield the manifest and close the stream.
-                LOG.info(
-                    f"ORCHESTRATOR ▸ Consumer tool '{fc_name}' detected. Handover to SDK."
-                )
+            if not api_key:
+                yield json.dumps({"type": "error", "content": "Missing API key."})
                 return
 
-        if turn_count >= max_turns:
-            LOG.error(f"ORCHESTRATOR ▸ Max turns ({max_turns}) reached. Terminal exit.")
+            yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
+
+            client = self._get_client_instance(api_key=api_key)
+
+            # --- [DEBUG] RAW CONTEXT DUMP ---
+            LOG.info(
+                f"\nRAW_CTX_DUMP:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}"
+            )
+
+            raw_stream = client.stream_chat_completion(
+                messages=ctx,
+                model=model,
+                max_tokens=10000,
+                temperature=kwargs.get("temperature", 0.6),
+                stream=True,
+            )
+
+            async for chunk in DeltaNormalizer.async_iter_deltas(raw_stream, run_id):
+                if stop_event.is_set():
+                    break
+
+                ctype = chunk.get("type")
+                ccontent = chunk.get("content") or ""
+
+                # --- REAL-TIME STATE MACHINE ---
+                if ctype == "content":
+                    if current_block == "fc":
+                        accumulated += "</fc>"
+                    elif current_block == "think":
+                        accumulated += "</think>"
+                    elif current_block == "plan":
+                        accumulated += "</plan>"
+                    current_block = None
+                    assistant_reply += ccontent
+                    accumulated += ccontent
+                elif ctype == "call_arguments":
+                    if current_block != "fc":
+                        if current_block == "think":
+                            accumulated += "</think>"
+                        elif current_block == "plan":
+                            accumulated += "</plan>"
+                        accumulated += "<fc>"
+                        current_block = "fc"
+                    accumulated += ccontent
+                elif ctype == "reasoning":
+                    if current_block != "think":
+                        if current_block == "fc":
+                            accumulated += "</fc>"
+                        elif current_block == "plan":
+                            accumulated += "</plan>"
+                        accumulated += "<think>"
+                        current_block = "think"
+                    reasoning_reply += ccontent
+                elif ctype == "plan":
+                    if current_block != "plan":
+                        if current_block == "fc":
+                            accumulated += "</fc>"
+                        elif current_block == "think":
+                            accumulated += "</think>"
+                        accumulated += "<plan>"
+                        current_block = "plan"
+                    plan_buffer += ccontent
+                    accumulated += ccontent
+                elif ctype == "decision":
+                    decision_buffer += ccontent
+                    if current_block == "fc":
+                        accumulated += "</fc>"
+                    elif current_block == "think":
+                        accumulated += "</think>"
+                    elif current_block == "plan":
+                        accumulated += "</plan>"
+                    current_block = "decision"
+
+                if ctype == "call_arguments":
+                    continue
+                yield json.dumps(chunk)
+                await self._shunt_to_redis_stream(redis, stream_key, chunk)
+
+            # Cleanup open tags
+            if current_block == "fc":
+                accumulated += "</fc>"
+            elif current_block == "think":
+                accumulated += "</think>"
+            elif current_block == "plan":
+                accumulated += "</plan>"
+
+        except Exception as exc:
+            LOG.error(f"DEBUG: Stream Exception: {exc}")
+            err = {"type": "error", "content": f"Stream error: {exc}", "run_id": run_id}
+            yield json.dumps(err)
+            await self._shunt_to_redis_stream(redis, stream_key, err)
+        finally:
+            stop_event.set()
+
+        # --- POST-STREAM: BATCH VALIDATION ---
+        if decision_buffer:
+            try:
+                self._decision_payload = json.loads(decision_buffer.strip())
+            except Exception:
+                pass
+
+        yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
+
+        # --- [LEVEL 3] NATIVE PERSISTENCE ---
+        # The parser finds the tools to drive the backend (Action records).
+        tool_calls_batch = self.parse_and_set_function_calls(
+            accumulated, assistant_reply
+        )
+
+        # [THE FIX]: We save the RAW text emitted by Llama.
+        # No formal JSON structure, no ID injection into the dialogue content.
+        message_to_save = accumulated
+        final_status = StatusEnum.completed.value
+
+        if tool_calls_batch:
+            # We still keep the tool_queue so the dispatcher knows what to execute
+            self._tool_queue = tool_calls_batch
+            final_status = StatusEnum.pending_action.value
+
+            # [LOGGING]
+            LOG.info(f"🚀 [L3 NATIVE MODE] Turn 1 Batch size: {len(tool_calls_batch)}")
+
+        # Persistence: Save the raw <plan> and <fc> text exactly as Llama intended
+        if message_to_save:
+            await self.finalize_conversation(
+                message_to_save, thread_id, assistant_id, run_id
+            )
+
+        if self.project_david_client:
+            await asyncio.to_thread(
+                self.project_david_client.runs.update_run_status, run_id, final_status
+            )
+
+        if not tool_calls_batch:
+            yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})

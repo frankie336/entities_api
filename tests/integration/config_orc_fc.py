@@ -2,6 +2,10 @@ import dotenv
 
 dotenv.load_dotenv()
 
+
+# hyperbolic/meta-llama/Llama-3.3-70B-Instruct
+# hyperbolic/deepseek-ai/DeepSeek-V3
+
 config = {
     "together_api_key": "",
     "entities_api_key": "",

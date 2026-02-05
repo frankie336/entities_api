@@ -137,6 +137,7 @@ class ConsumerToolHandlersMixin:
                     "type": "tool_call_manifest",
                     "run_id": run_id,
                     "action_id": action.id,
+                    "tool_call_id": tool_call_id,  # [L3] ENSURE THIS IS SENT
                     "tool": tool_name,
                     "args": tool_args,
                 }

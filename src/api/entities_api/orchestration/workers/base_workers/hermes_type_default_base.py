@@ -100,21 +100,36 @@ class HermesDefaultBaseWorker(
         model: Any,
         *,
         force_refresh: bool = False,
-        stream_reasoning: bool = False,
+        stream_reasoning: bool = True,
         api_key: str | None = None,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
+        """
+        Level 3 Agentic Stream with ID-Parity:
+        - Orchestrates Plan vs Action cycles.
+        - Injects Hermes-style tool envelopes for multi-manifest turns.
+        - Ensures consistency between Dialogue ID and Control ID.
+        """
+        import asyncio
+        import uuid
+
+        from projectdavid_common.validation import StatusEnum
+
         redis = self.redis
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
-        # --- SYNC-REPLICA 1: Early Variable Initialization ---
+        # Early Variable Initialization
         self._current_tool_call_id = None
-        self._pending_tool_payload = None
         self._decision_payload = None
+        self._tool_queue: List[Dict] = []
 
-        assistant_reply, accumulated, reasoning_reply, decision_buffer = "", "", "", ""
-        current_block = None
+        accumulated: str = ""
+        assistant_reply: str = ""
+        reasoning_reply: str = ""
+        decision_buffer: str = ""
+        plan_buffer: str = ""
+        current_block: str | None = None
 
         try:
             if hasattr(self, "_get_model_map") and (
@@ -122,38 +137,28 @@ class HermesDefaultBaseWorker(
             ):
                 model = mapped
 
-            # Async Context Setup
-            raw_ctx = await self._set_up_context_window(
+            ctx = await self._set_up_context_window(
                 assistant_id,
                 thread_id,
                 trunk=True,
-                structured_tool_call=True,
                 force_refresh=force_refresh,
-                decision_telemetry=False,
+                agent_mode=True,
             )
-            cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
             if not api_key:
-                yield json.dumps(
-                    {"type": "error", "content": "Missing Hyperbolic API key."}
-                )
+                yield json.dumps({"type": "error", "content": "Missing API key."})
                 return
 
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
-            # -----------------------------------------------------------
-            # STANDARDIZED CLIENT EXECUTION (GPT-OSS Style)
-            # -----------------------------------------------------------
             client = self._get_client_instance(api_key=api_key)
             raw_stream = client.stream_chat_completion(
-                messages=cleaned_ctx,
+                messages=ctx,
                 model=model,
-                tools=None if stream_reasoning else extracted_tools,
-                temperature=kwargs.get("temperature", 0.4),
-                top_p=0.9,  # Retained from Legacy Worker
+                max_tokens=10000,
+                temperature=kwargs.get("temperature", 0.6),
                 stream=True,
             )
-            # -----------------------------------------------------------
 
             async for chunk in DeltaNormalizer.async_iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
@@ -161,160 +166,139 @@ class HermesDefaultBaseWorker(
 
                 ctype = chunk.get("type")
                 ccontent = chunk.get("content") or ""
-                # Legacy worker explicitly checked for string type to avoid garbage injection
-                safe_content = ccontent if isinstance(ccontent, str) else ""
 
                 if ctype == "content":
                     if current_block == "fc":
                         accumulated += "</fc>"
                     elif current_block == "think":
                         accumulated += "</think>"
+                    elif current_block == "plan":
+                        accumulated += "</plan>"
                     current_block = None
-                    assistant_reply += safe_content
-                elif ctype in ("tool_name", "call_arguments"):
+                    assistant_reply += ccontent
+                    accumulated += ccontent
+                elif ctype == "call_arguments":
                     if current_block != "fc":
                         if current_block == "think":
                             accumulated += "</think>"
+                        elif current_block == "plan":
+                            accumulated += "</plan>"
                         accumulated += "<fc>"
                         current_block = "fc"
+                    accumulated += ccontent
                 elif ctype == "reasoning":
                     if current_block != "think":
                         if current_block == "fc":
                             accumulated += "</fc>"
+                        elif current_block == "plan":
+                            accumulated += "</plan>"
                         accumulated += "<think>"
                         current_block = "think"
-                    reasoning_reply += safe_content
+                    reasoning_reply += ccontent
+                elif ctype == "plan":
+                    if current_block != "plan":
+                        if current_block == "fc":
+                            accumulated += "</fc>"
+                        elif current_block == "think":
+                            accumulated += "</think>"
+                        accumulated += "<plan>"
+                        current_block = "plan"
+                    plan_buffer += ccontent
+                    accumulated += ccontent
                 elif ctype == "decision":
-                    decision_buffer += safe_content
+                    decision_buffer += ccontent
                     if current_block == "fc":
                         accumulated += "</fc>"
                     elif current_block == "think":
                         accumulated += "</think>"
+                    elif current_block == "plan":
+                        accumulated += "</plan>"
                     current_block = "decision"
 
-                accumulated += safe_content
-
-                # Filter: Block tool artifacts to prevent "KeyError: name" in consumer
-                if ctype not in ("tool_name", "call_arguments"):
-                    yield json.dumps(chunk)
-
+                if ctype == "call_arguments":
+                    continue
+                yield json.dumps(chunk)
                 await self._shunt_to_redis_stream(redis, stream_key, chunk)
 
             if current_block == "fc":
                 accumulated += "</fc>"
             elif current_block == "think":
                 accumulated += "</think>"
+            elif current_block == "plan":
+                accumulated += "</plan>"
 
         except Exception as exc:
             LOG.error(f"DEBUG: Stream Exception: {exc}")
-            err = {
-                "type": "error",
-                "content": f"Stream error: {exc}",
-                "run_id": run_id,
-            }
+            err = {"type": "error", "content": f"Stream error: {exc}", "run_id": run_id}
             yield json.dumps(err)
             await self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
             stop_event.set()
 
-        yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
-
-        # --- SYNC-REPLICA 2: Validate Decision Payload ---
         if decision_buffer:
             try:
                 self._decision_payload = json.loads(decision_buffer.strip())
-                LOG.info(f"Decision payload validated: {self._decision_payload}")
-            except Exception as e:
-                LOG.error(f"Failed to parse decision payload: {e}")
+            except Exception:
+                pass
 
-        # Keep-Alive Heartbeat
         yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
-        # --- SYNC-REPLICA 3: Post-Stream Sanitization ---
-        # Matches logic in both Gold Standard and Legacy HermesDefault
-        if "<fc>" in accumulated:
-            try:
-                fc_pattern = r"<fc>(.*?)</fc>"
-                matches = re.findall(fc_pattern, accumulated, re.DOTALL)
-                for original_content in matches:
-                    try:
-                        json.loads(original_content)
-                        continue
-                    except json.JSONDecodeError:
-                        pass
-
-                    fix_match = re.match(
-                        r"^\s*([a-zA-Z0-9_]+)\s*(\{.*)", original_content, re.DOTALL
-                    )
-                    if fix_match:
-                        func_name, func_args = fix_match.group(1), fix_match.group(2)
-                        try:
-                            parsed_args, _ = json.JSONDecoder().raw_decode(func_args)
-                            valid_payload = json.dumps(
-                                {"name": func_name, "arguments": parsed_args}
-                            )
-                            accumulated = accumulated.replace(
-                                f"<fc>{original_content}</fc>",
-                                f"<fc>{valid_payload}</fc>",
-                            )
-                        except:
-                            pass
-            except Exception as e:
-                LOG.error(f"Error during tool call sanitization: {e}")
-
-        # --- SYNC-REPLICA 4: Detection & Mixin State Sync ---
-        has_fc = self.parse_and_set_function_calls(accumulated, assistant_reply)
-        mixin_state = (
-            self.get_function_call_state()
-            if hasattr(self, "get_function_call_state")
-            else has_fc
+        # --- [LEVEL 3] PARSE BATCH & SYNC IDs ---
+        # The parser ensures every tool in the list has a 'id' key.
+        tool_calls_batch = self.parse_and_set_function_calls(
+            accumulated, assistant_reply
         )
 
         message_to_save = assistant_reply
         final_status = StatusEnum.completed.value
 
-        # --- SYNC-REPLICA 5: Structure and Override Save Message ---
-        # Note: This logic existed in the Legacy HermesDefault worker, so it is preserved here.
-        if has_fc or mixin_state:
-            try:
-                fc_match = re.search(r"<fc>(.*?)</fc>", accumulated, re.DOTALL)
-                if fc_match:
-                    raw_json = fc_match.group(1).strip()
-                    payload_dict = json.loads(raw_json)
+        if tool_calls_batch:
+            # 1. Update the internal queue for the dispatcher (process_tool_calls)
+            self._tool_queue = tool_calls_batch
+            final_status = StatusEnum.pending_action.value
 
-                    call_id = f"call_{uuid.uuid4().hex[:8]}"
-                    self._current_tool_call_id = call_id
-                    self._pending_tool_payload = payload_dict
+            # 2. Build the Hermes/OpenAI Structured Envelope for the Dialogue
+            # This is what makes Turn 2 contextually consistent.
+            tool_calls_structure = []
+            for tool in tool_calls_batch:
+                tool_id = tool.get("id") or f"call_{uuid.uuid4().hex[:8]}"
 
-                    # CRITICAL: Hermes Envelope (OpenAI Standard)
-                    tool_calls_structure = [
-                        {
-                            "id": call_id,
-                            "type": "function",
-                            "function": {
-                                "name": payload_dict.get("name"),
-                                "arguments": (
-                                    json.dumps(payload_dict.get("arguments", {}))
-                                    if isinstance(payload_dict.get("arguments"), dict)
-                                    else payload_dict.get("arguments")
-                                ),
-                            },
-                        }
-                    ]
-                    message_to_save = json.dumps(tool_calls_structure)
-                    final_status = StatusEnum.pending_action.value
-            except Exception as e:
-                LOG.error(f"Failed to structure tool calls: {e}")
-                # Fallback to accumulated string so no data is lost
-                message_to_save = accumulated
+                tool_calls_structure.append(
+                    {
+                        "id": tool_id,
+                        "type": "function",
+                        "function": {
+                            "name": tool.get("name"),
+                            "arguments": (
+                                json.dumps(tool.get("arguments", {}))
+                                if isinstance(tool.get("arguments"), dict)
+                                else tool.get("arguments")
+                            ),
+                        },
+                    }
+                )
 
-        # --- SYNC-REPLICA 6: Persistence ---
+            # CRITICAL: We overwrite message_to_save with the standard tool structure
+            message_to_save = json.dumps(tool_calls_structure)
+
+            # [LOGGING] Verify ID Parity
+            LOG.info(
+                f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}"
+            )
+            for item in tool_calls_structure:
+                LOG.info(f"   ▸ Tool: {item['function']['name']} | ID: {item['id']}")
+
+        # Persistence: Assistant Plan/Actions saved to Thread
         if message_to_save:
             await self.finalize_conversation(
                 message_to_save, thread_id, assistant_id, run_id
             )
 
+        # Update Run status to trigger Dispatch Turn
         if self.project_david_client:
             await asyncio.to_thread(
                 self.project_david_client.runs.update_run_status, run_id, final_status
             )
+
+        if not tool_calls_batch:
+            yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})

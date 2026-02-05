@@ -98,7 +98,6 @@ run = client.runs.create_run(assistant_id=ASSISTANT_ID, thread_id=thread.id)
 # ------------------------------------------------------------------
 stream = client.synchronous_inference_stream
 stream.setup(
-    user_id=ENTITIES_USER_ID,
     thread_id=thread.id,
     assistant_id=ASSISTANT_ID,
     message_id=message.id,
