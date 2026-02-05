@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Dict, Optional
 
 from dotenv import load_dotenv
+from projectdavid_common.constants import PLATFORM_TOOLS
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
@@ -248,37 +249,38 @@ class GptOssBaseWorker(
         message_to_save = assistant_reply
         final_status = StatusEnum.completed.value
 
-        tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
-
         # --- SYNC-REPLICA 5: Structure and Override Save Message ---
-        if tool_calls_batch:
-            # 1. Update the internal queue for the dispatcher (process_tool_calls)
-            self._tool_queue = tool_calls_batch
-            final_status = StatusEnum.pending_action.value
+        if has_fc or mixin_state:
+            try:
+                fc_match = re.search(r"<fc>(.*?)</fc>", accumulated, re.DOTALL)
+                if fc_match:
+                    raw_json = fc_match.group(1).strip()
+                    payload_dict = json.loads(raw_json)
 
-            # 2. Build the Hermes/OpenAI Structured Envelope for the Dialogue
-            # This is what makes Turn 2 contextually consistent.
-            tool_calls_structure = []
-            for tool in tool_calls_batch:
-                tool_id = tool.get("id") or f"call_{uuid.uuid4().hex[:8]}"
+                    call_id = f"call_{uuid.uuid4().hex[:8]}"
+                    self._current_tool_call_id = call_id
+                    self._pending_tool_payload = payload_dict
 
-                tool_calls_structure.append(
-                    {
-                        "id": tool_id,
-                        "type": "function",
-                        "function": {
-                            "name": tool.get("name"),
-                            "arguments": (
-                                json.dumps(tool.get("arguments", {}))
-                                if isinstance(tool.get("arguments"), dict)
-                                else tool.get("arguments")
-                            ),
-                        },
-                    }
-                )
-
-            # CRITICAL: We overwrite message_to_save with the standard tool structure
-            message_to_save = json.dumps(tool_calls_structure)
+                    # CRITICAL: This is the structure the Assistant Cache needs for Turn 2
+                    tool_calls_structure = [
+                        {
+                            "id": call_id,
+                            "type": "function",
+                            "function": {
+                                "name": payload_dict.get("name"),
+                                "arguments": (
+                                    json.dumps(payload_dict.get("arguments", {}))
+                                    if isinstance(payload_dict.get("arguments"), dict)
+                                    else payload_dict.get("arguments")
+                                ),
+                            },
+                        }
+                    ]
+                    message_to_save = json.dumps(tool_calls_structure)
+                    final_status = StatusEnum.pending_action.value
+            except Exception as e:
+                LOG.error(f"Failed to structure tool calls: {e}")
+                message_to_save = accumulated
 
         # --- SYNC-REPLICA 6: Persistence ---
         if message_to_save:
@@ -288,3 +290,67 @@ class GptOssBaseWorker(
             await asyncio.to_thread(
                 self.project_david_client.runs.update_run_status, run_id, final_status
             )
+
+    async def process_conversation(
+        self,
+        thread_id: str,
+        message_id: Optional[str],
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        api_key: Optional[str] = None,
+        **kwargs,
+    ) -> AsyncGenerator[str, None]:
+        # Turn 1
+        async for chunk in self.stream(
+            thread_id,
+            message_id,
+            run_id,
+            assistant_id,
+            model,
+            api_key=api_key,
+            **kwargs,
+        ):
+            yield chunk
+
+        # Turn 2 / Check Tools
+        if self.get_function_call_state():
+            fc_payload = self.get_function_call_state()
+            fc_name = fc_payload.get("name") if isinstance(fc_payload, dict) else None
+
+            # 1. Execute/Manifest
+            async for chunk in self.process_tool_calls(
+                thread_id,
+                run_id,
+                assistant_id,
+                tool_call_id=self._current_tool_call_id,
+                model=model,
+                api_key=api_key,
+                decision=self._decision_payload,
+            ):
+                yield chunk
+
+            # -------------------------------------------------------------
+            #
+            # 2. Strategy Split
+            #
+            # Some platform tools interleave their own streamed responses
+            # ---------------------------------------------------------------
+            if fc_name in PLATFORM_TOOLS:
+                self.set_tool_response_state(False)
+                self.set_function_call_state(None)
+                async for chunk in self.stream(
+                    thread_id,
+                    None,
+                    run_id,
+                    assistant_id,
+                    model,
+                    force_refresh=True,
+                    api_key=api_key,
+                    **kwargs,
+                ):
+                    yield chunk
+            else:
+                # Consumer tools: connection MUST close here so client can execute and start Request 2.
+                LOG.info(f"Consumer turn finished for {fc_name}. Request Complete.")
+                return
