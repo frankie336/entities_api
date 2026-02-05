@@ -55,7 +55,7 @@ GENERAL_INSTRUCTIONS = {
     "LATEX_MARKDOWN_FORMATTING": "\n🔹 **LATEX / MARKDOWN FORMATTING RULES:**\n- For mathematical expressions:\n  1. **Inline equations**: Wrap with single `$`\n     Example: `Einstein: $E = mc^2$` → Einstein: $E = mc^2$\n  2. **Display equations**: Wrap with double `$$`\n     Example:\n     $$F = ma$$\n\n- **Platform considerations**:\n  • On GitHub: Use `\\(...\\)` for inline and `\\[...\\]` for block equations.\n  • On MathJax-supported platforms: Use standard `$` and `$$` delimiters.\n\n- **Formatting requirements**:\n  1. Always include space between operators: `a + b` not `a+b`.\n  2. Use `\\mathbf{}` for vectors/matrices: `$\\mathbf{F} = m\\mathbf{a}$`.\n  3. Avoid code blocks unless explicitly requested.\n  4. Provide rendering notes when context is unclear.\n    ".strip(),
     "FINAL_WARNING": "\nFailure to comply will result in system rejection.\n    ".strip(),
     "COGNITIVE_ARCHITECTURE": "You are an intelligent agent responsible for complex reasoning and execution.\n Your process follows a strict **Plan-Then-Act** cycle for any non-trivial task.\n".strip(),
-    "DEVELOPER_INSTRUCTIONS": "".strip(),
+    "NONE": "".strip(),
 }
 
 

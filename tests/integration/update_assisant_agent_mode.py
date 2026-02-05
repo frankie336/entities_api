@@ -16,8 +16,8 @@ client = Entity(
 
 update_assistant = client.assistants.update_assistant(
     assistant_id=config.get("assistant_id"),
-    agent_mode=True,
-    decision_telemetry=True,
+    agent_mode=False,
+    decision_telemetry=False,
 )
 print(update_assistant.agent_mode)
 print(update_assistant.decision_telemetry)

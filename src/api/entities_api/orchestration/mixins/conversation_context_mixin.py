@@ -203,9 +203,7 @@ class ConversationContextMixin:
 
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        excluded_instructions = assemble_instructions(
-            exclude_keys=["TOOL_USAGE_PROTOCOL"]
-        )
+        excluded_instructions = assemble_instructions(exclude_keys=["TOOL_USAGE_PROTOCOL"])
 
         return {
             "role": "system",
@@ -225,9 +223,10 @@ class ConversationContextMixin:
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         if agent_mode:
-            instructions = L3_INSTRUCTIONS
+            instructions = NO_CORE_INSTRUCTIONS
         else:
-            instructions = GENERAL_INSTRUCTIONS
+            instructions = NO_CORE_INSTRUCTIONS
+            # instructions = GENERAL_INSTRUCTIONS
 
         platform_instructions = await assemble_core_instructions(
             include_keys=instructions, decision_telemetry=decision_telemetry
@@ -308,9 +307,7 @@ class ConversationContextMixin:
                     base_url="http://localhost:9000",  # Ensure this points to the internal network
                     api_key=os.getenv("ADMIN_API_KEY"),
                 )
-                full_hist = client.messages.get_formatted_messages(
-                    thread_id, system_message=None
-                )
+                full_hist = client.messages.get_formatted_messages(thread_id, system_message=None)
             # --- CRITICAL CHANGE END ---
 
             last_role = full_hist[-1].get("role") if full_hist else "N/A"
@@ -370,14 +367,10 @@ class ConversationContextMixin:
                     if "\n" in tools_json_str:
                         json_part, instructions_part = tools_json_str.split("\n", 1)
                         extracted_tools = json.loads(json_part)
-                        new_msg["content"] = (
-                            f"{system_text}\n{instructions_part}".strip()
-                        )
+                        new_msg["content"] = f"{system_text}\n{instructions_part}".strip()
                     else:
                         extracted_tools = json.loads(tools_json_str)
-                        new_msg["content"] = (
-                            system_text or "You are a helpful assistant."
-                        )
+                        new_msg["content"] = system_text or "You are a helpful assistant."
                 except Exception as e:
                     LOG.error(f"[CTX-MIXIN] Failed tool extraction: {e}")
 

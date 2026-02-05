@@ -7,7 +7,7 @@ dotenv.load_dotenv()
 # hyperbolic/deepseek-ai/DeepSeek-V3
 # hyperbolic/Qwen/Qwen3-235B-A22B
 # hyperbolic/Qwen/Qwen2.5-VL-7B-Instruct
-
+# hyperbolic/openai/gpt-oss-120b
 
 config = {
     "together_api_key": "",
@@ -15,7 +15,7 @@ config = {
     "entities_user_id": "",
     "base_url": "http://localhost:9000",
     "url": "https://api.together.xyz/v1/chat/completions",
-    "model": "hyperbolic/meta-llama/Llama-3.3-70B-Instruct",
+    "model": "hyperbolic/openai/gpt-oss-120b",
     "provider": "Hyperbolic",
     "assistant_id": "asst_13HyDgBnZxVwh5XexYu74F",
     "test_prompt": "Please fetch me the flight times between LAX and JFK.",

@@ -56,9 +56,7 @@ class QwenBaseWorker(
         # If passed explicitly, store it. If not, the Mixin will lazy-load it using self.redis
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(
-            extra["assistant_cache"], AssistantCache
-        ):
+        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
             # Handle case where it might be passed via **extra
             self._assistant_cache = extra["assistant_cache"]
 
@@ -138,9 +136,7 @@ class QwenBaseWorker(
         current_block: str | None = None
 
         try:
-            if hasattr(self, "_get_model_map") and (
-                mapped := self._get_model_map(model)
-            ):
+            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
                 model = mapped
 
             self.assistant_id = assistant_id
@@ -258,9 +254,7 @@ class QwenBaseWorker(
 
         # --- [LEVEL 3] PARSE BATCH & SYNC IDs ---
         # The parser ensures every tool in the list has a 'id' key.
-        tool_calls_batch = self.parse_and_set_function_calls(
-            accumulated, assistant_reply
-        )
+        tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
 
         message_to_save = assistant_reply
         final_status = StatusEnum.completed.value
@@ -295,17 +289,13 @@ class QwenBaseWorker(
             message_to_save = json.dumps(tool_calls_structure)
 
             # [LOGGING] Verify ID Parity
-            LOG.info(
-                f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}"
-            )
+            LOG.info(f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}")
             for item in tool_calls_structure:
                 LOG.info(f"   ▸ Tool: {item['function']['name']} | ID: {item['id']}")
 
         # Persistence: Assistant Plan/Actions saved to Thread
         if message_to_save:
-            await self.finalize_conversation(
-                message_to_save, thread_id, assistant_id, run_id
-            )
+            await self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
 
         # Update Run status to trigger Dispatch Turn
         if self.project_david_client:

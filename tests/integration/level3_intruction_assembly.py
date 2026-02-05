@@ -1,5 +1,8 @@
 from entities_api.orchestration.instructions.assembler import assemble_instructions
-from entities_api.orchestration.instructions.include_lists import L3_INSTRUCTIONS
+from entities_api.orchestration.instructions.include_lists import (
+    L3_INSTRUCTIONS,
+    NO_CORE_INSTRUCTIONS,
+)
 
 
 def assemble_core_instructions(include_keys, decision_telemetry=True):
@@ -32,4 +35,4 @@ def assemble_core_instructions(include_keys, decision_telemetry=True):
 
 
 # Execute
-print(assemble_core_instructions(L3_INSTRUCTIONS))
+print(assemble_core_instructions(NO_CORE_INSTRUCTIONS))

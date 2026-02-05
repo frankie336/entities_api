@@ -37,3 +37,6 @@ def assemble_instructions(
             if key not in exclude_set:
                 final_instructions.append(text)
     return "\n\n".join(final_instructions)
+
+
+print(assemble_instructions(include_keys=["NONE"]))

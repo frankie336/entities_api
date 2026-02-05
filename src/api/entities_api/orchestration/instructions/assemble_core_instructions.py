@@ -2,17 +2,17 @@ from entities_api.orchestration.instructions.assembler import assemble_instructi
 from entities_api.orchestration.instructions.include_lists import L3_INSTRUCTIONS
 
 
-async def assemble_core_instructions(include_keys, decision_telemetry=True):
+async def assemble_core_instructions(include_keys, decision_telemetry=False):
     # 1. Work on a local copy to avoid mutating the imported list
     keys_to_process = list(include_keys)
 
     # 2. Handle the Telemetry switch
     if decision_telemetry:
-        if "TOOL_DECISION_PROTOCOL" not in keys_to_process:
-            keys_to_process.append("TOOL_DECISION_PROTOCOL")
+
+        keys_to_process.append("TOOL_DECISION_PROTOCOL")
+
     else:
-        if "TOOL_DECISION_PROTOCOL" in keys_to_process:
-            keys_to_process.remove("TOOL_DECISION_PROTOCOL")
+        keys_to_process.append("NONE")
 
     # 3. SORTING LOGIC: Re-order based on our Ratified Level 3 sequence.
     # Any keys not in our L3 list (like tool-specific commandments)
