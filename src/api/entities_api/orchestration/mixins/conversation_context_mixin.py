@@ -7,18 +7,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from projectdavid import Entity
 
 from entities_api.constants.tools import PLATFORM_TOOL_MAP
-from entities_api.orchestration.instructions.assembler import assemble_instructions
-from src.api.entities_api.orchestration.instructions.assemble_core_instructions import (
-    assemble_core_instructions,
-)
+from entities_api.orchestration.instructions.assembler import \
+    assemble_instructions
 from src.api.entities_api.orchestration.instructions.include_lists import (
-    GENERAL_INSTRUCTIONS,
-    L3_INSTRUCTIONS,
-    NO_CORE_INSTRUCTIONS,
-)
-from src.api.entities_api.platform_tools.definitions.record_tool_decision import (
-    record_tool_decision,
-)
+    L2_INSTRUCTIONS, L3_INSTRUCTIONS, NO_CORE_INSTRUCTIONS)
+from src.api.entities_api.platform_tools.definitions.record_tool_decision import \
+    record_tool_decision
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 LOG = LoggingUtility()
@@ -30,7 +24,8 @@ class ConversationContextMixin:
     @property
     def message_cache(self):
         if not self._message_cache:
-            from src.api.entities_api.cache.message_cache import get_sync_message_cache
+            from src.api.entities_api.cache.message_cache import \
+                get_sync_message_cache
 
             self._message_cache = get_sync_message_cache()
         return self._message_cache
@@ -141,39 +136,26 @@ class ConversationContextMixin:
 
         return deduped_platform_tools + resolved_user_tools
 
-    # -----------------------------------------------------
-    # ASYNC BUILDERS (FIXED)
-    # -----------------------------------------------------
     async def _build_system_message(
         self,
         assistant_id: str,
-        decision_telemetry: bool = False,
+        decision_telemetry: bool = True,
         agent_mode: bool = False,
     ) -> Dict:
-
+        # 1. Setup & Retrieval
         cache = self.get_assistant_cache()
         cfg = await cache.retrieve(assistant_id)
-
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # ---------------------------------------------------------
-        # 1. Builds core platform instructions
-        # 2. Merges Core instructions with developer instructions
-        # 2. If model tolerates decision telemetry in insert the instruction
-        # 3. Preserves the order: [platform_instructions]
-        #                          [developer_instruction]
-        # ----------------------------------------------------------
+        # 2. Select Instruction Set (Create a copy to avoid mutating constants)
+        instruction_keys = list(L3_INSTRUCTIONS if agent_mode else L2_INSTRUCTIONS)
 
-        if agent_mode:
-            instructions = L3_INSTRUCTIONS
-        else:
-            instructions = GENERAL_INSTRUCTIONS
+        # 3. Inject Telemetry (if requested and not already present)
+        if decision_telemetry and "TOOL_DECISION_PROTOCOL" not in instruction_keys:
+            instruction_keys.insert(0, "TOOL_DECISION_PROTOCOL")
 
-        platform_instructions = await assemble_core_instructions(
-            include_keys=instructions, decision_telemetry=decision_telemetry
-        )
-
-        developer_instructions = cfg.get("instructions", "")
+        # 4. Resolve Tools & Instructions
+        platform_instructions = assemble_instructions(include_keys=instruction_keys)
 
         # -------------------------------------------------
         # - Resolves the assistants tools registry
@@ -185,17 +167,22 @@ class ConversationContextMixin:
             decision_telemetry=decision_telemetry,
         )
 
-        combined_content = (
-            f"Today's date and time: {today}\n\n"
-            f"### ASSISTANT INSTRUCTIONS\n"
-            f"{developer_instructions}\n\n"
-            f"### OPERATIONAL PROTOCOLS\n"
-            f"{platform_instructions}\n\n"
-            f"### AVAILABLE TOOLS\n"
-            f"tools:\n{json.dumps(final_tools)}"
-        )
+        # 5. Build Content Blocks (Cleaner construction)
+        # Using a list allows us to join with double newlines, handling empty sections gracefully.
+        content_blocks = [
+            f"Today's date and time: {today}",
+            "### ASSISTANT INSTRUCTIONS",
+            cfg.get("instructions", ""),
+            "### OPERATIONAL PROTOCOLS",
+            platform_instructions,
+            "### AVAILABLE TOOLS",
+            f"tools:\n{json.dumps(final_tools)}",
+        ]
 
-        return {"role": "system", "content": combined_content}
+        return {
+            "role": "system",
+            "content": "\n\n".join(block for block in content_blocks if block),
+        }
 
     async def _build_amended_system_message(self, assistant_id: str) -> Dict:
         cache = self.get_assistant_cache()
@@ -203,7 +190,9 @@ class ConversationContextMixin:
 
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        excluded_instructions = assemble_instructions(exclude_keys=["TOOL_USAGE_PROTOCOL"])
+        excluded_instructions = assemble_instructions(
+            exclude_keys=["TOOL_USAGE_PROTOCOL"]
+        )
 
         return {
             "role": "system",
@@ -214,36 +203,45 @@ class ConversationContextMixin:
         self,
         assistant_id: str,
         decision_telemetry: bool = True,
+        agent_mode: bool = False,
     ) -> Dict:
-
+        # 1. Setup & Retrieval
         cache = self.get_assistant_cache()
         cfg = await cache.retrieve(assistant_id)
-
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        include_keys = ["NONE"]
-        if decision_telemetry:
-            include_keys.append("TOOL_DECISION_PROTOCOL")
+        # 2. Select Instruction Set
+        # If Agent Mode -> L3 Instructions
+        # If Standard  -> NO_CORE_INSTRUCTIONS (The "NONE" list)
+        instruction_keys = list(L3_INSTRUCTIONS if agent_mode else NO_CORE_INSTRUCTIONS)
 
-        platform_instructions = assemble_instructions(include_keys=include_keys)
-        developer_instructions = cfg.get("instructions", "")
+        # 3. Inject Telemetry (if requested and not already present)
+        if decision_telemetry and "TOOL_DECISION_PROTOCOL" not in instruction_keys:
+            instruction_keys.insert(0, "TOOL_DECISION_PROTOCOL")
+
+        # 4. Resolve Tools & Instructions
+        platform_instructions = assemble_instructions(include_keys=instruction_keys)
 
         final_tools = self._resolve_and_prioritize_platform_tools(
-            tools=cfg["tools"],
+            tools=cfg.get("tools", []),
             decision_telemetry=decision_telemetry,
         )
 
-        combined_content = (
-            f"Today's date and time: {today}\n\n"
-            f"### ASSISTANT INSTRUCTIONS\n"
-            f"{developer_instructions}\n\n"
-            f"### OPERATIONAL PROTOCOLS\n"
-            f"{platform_instructions}\n\n"
-            f"### AVAILABLE TOOLS\n"
-            f"tools:\n{json.dumps(final_tools)}"
-        )
+        # 5. Build Content Blocks
+        content_blocks = [
+            f"Today's date and time: {today}",
+            "### ASSISTANT INSTRUCTIONS",
+            cfg.get("instructions", ""),
+            "### OPERATIONAL PROTOCOLS",
+            platform_instructions,
+            "### AVAILABLE TOOLS",
+            f"tools:\n{json.dumps(final_tools)}",
+        ]
 
-        return {"role": "system", "content": combined_content}
+        return {
+            "role": "system",
+            "content": "\n\n".join(block for block in content_blocks if block),
+        }
 
     # -----------------------------------------------------
     # ASYNC CONTEXT WINDOW (FIXED)
@@ -301,7 +299,9 @@ class ConversationContextMixin:
                     base_url="http://localhost:9000",  # Ensure this points to the internal network
                     api_key=os.getenv("ADMIN_API_KEY"),
                 )
-                full_hist = client.messages.get_formatted_messages(thread_id, system_message=None)
+                full_hist = client.messages.get_formatted_messages(
+                    thread_id, system_message=None
+                )
             # --- CRITICAL CHANGE END ---
 
             last_role = full_hist[-1].get("role") if full_hist else "N/A"
@@ -361,10 +361,14 @@ class ConversationContextMixin:
                     if "\n" in tools_json_str:
                         json_part, instructions_part = tools_json_str.split("\n", 1)
                         extracted_tools = json.loads(json_part)
-                        new_msg["content"] = f"{system_text}\n{instructions_part}".strip()
+                        new_msg["content"] = (
+                            f"{system_text}\n{instructions_part}".strip()
+                        )
                     else:
                         extracted_tools = json.loads(tools_json_str)
-                        new_msg["content"] = system_text or "You are a helpful assistant."
+                        new_msg["content"] = (
+                            system_text or "You are a helpful assistant."
+                        )
                 except Exception as e:
                     LOG.error(f"[CTX-MIXIN] Failed tool extraction: {e}")
 

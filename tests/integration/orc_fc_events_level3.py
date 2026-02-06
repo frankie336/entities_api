@@ -13,17 +13,10 @@ import time
 
 from config_orc_fc import config
 from dotenv import load_dotenv
-
 # Import the project classes
 from projectdavid import PlanEvent  # [NEW] Imported for Level 3 visibility
-from projectdavid import (
-    ContentEvent,
-    DecisionEvent,
-    Entity,
-    ReasoningEvent,
-    StatusEvent,
-    ToolCallRequestEvent,
-)
+from projectdavid import (ContentEvent, DecisionEvent, Entity, ReasoningEvent,
+                          StatusEvent, ToolCallRequestEvent)
 
 # ------------------------------------------------------------------
 # 0. CONFIGURATION & SDK INIT
@@ -101,6 +94,13 @@ def get_weather(tool_name: str, arguments: dict) -> str:
     )
 
 
+if config.get("provider") == "together":
+    API_KEY = os.environ.get("TOGETHER_API_KEY")
+
+if config.get("provider") == "hyperbolic":
+    API_KEY = os.getenv("HYPERBOLIC_API_KEY")
+
+
 # --- DYNAMIC TOOL REGISTRY ---
 TOOL_REGISTRY = {
     "get_flight_times": get_flight_times,
@@ -132,7 +132,7 @@ stream.setup(
     assistant_id=ASSISTANT_ID,
     message_id=message.id,
     run_id=run.id,
-    api_key=HYPERBOLIC_API_KEY,
+    api_key=API_KEY,
 )
 
 print(f"\n{CYAN}[▶] UNIFIED STREAM: SDK-Managed Turns (L3 Planning Enabled){RESET}")

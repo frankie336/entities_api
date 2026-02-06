@@ -1,18 +1,16 @@
-# tests/integration/events_driven_unified_inference_test.py
 """
-Automated Model Benchmark: Reasoning & Tool Use (Event-Driven Refactor)
------------------------------------------------------------------------
-Refactored to catch and classify DEAD/UNAVAILABLE endpoints (404s).
-Now supports DecisionEvent logging and External Configuration.
-Includes 'Telemetry' column to track DecisionEvents before Tool Calls.
-
-UPDATED: Uses SDK-side Turn 2 handling (Single Loop).
+Automated Model Benchmark: Reasoning, Tool Use & L3 Batching
+------------------------------------------------------------
+1. Loops through specified models.
+2. Updates a persistent Markdown report.
+3. BEHAVIOR: One table per Provider.
+4. GUARANTEES ID UNIQUENESS: Merges new results based on Endpoint ID.
+5. TESTS: Inference -> Single Tool -> Parallel Batch Tools.
 """
 
 import json
 import os
 import re
-import sys
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -21,23 +19,16 @@ from typing import Dict, List, Optional, Tuple
 
 from config_benchmark import config
 from dotenv import load_dotenv
-
 # --- SDK Event Imports ---
-from projectdavid import (
-    ContentEvent,
-    DecisionEvent,
-    Entity,
-    ReasoningEvent,
-    StatusEvent,
-    ToolCallRequestEvent,
-)
+from projectdavid import PlanEvent  # [NEW] For L3 Strategy Visibility
+from projectdavid import (ContentEvent, DecisionEvent, Entity, ReasoningEvent,
+                          StatusEvent, ToolCallRequestEvent)
 
 # ------------------------------------------------------------------
 # 0. Setup & Config
 # ------------------------------------------------------------------
-# Define Root (Up 2 levels from tests/integration)
 root_dir = Path(__file__).resolve().parents[2]
-load_dotenv()  # Load .env as fallback
+load_dotenv()
 
 # ANSI Colors
 CYAN = "\033[96m"
@@ -45,14 +36,14 @@ GREEN = "\033[92m"
 YELLOW = "\033[93m"
 RED = "\033[91m"
 MAGENTA = "\033[95m"
+BLUE = "\033[94m"  # Planning Color
 RESET = "\033[0m"
 
 # --- Load External Config ---
 CONFIG_FILE_NAME = "benchmark_config.json"
 CONFIG_PATH = root_dir / CONFIG_FILE_NAME
 
-
-# --- Global Constants (Priority: Config File -> Env Var -> Default) ---
+# --- Global Constants ---
 BASE_URL = config.get("base_url") or os.getenv("BASE_URL", "http://localhost:9000")
 ENTITIES_API_KEY = config.get("entities_api_key") or os.getenv("ENTITIES_API_KEY")
 USER_ID = config.get("entities_user_id") or os.getenv("ENTITIES_USER_ID")
@@ -73,7 +64,7 @@ def get_api_key_for_provider(provider: str) -> str:
 
 
 # ------------------------------------------------------------------
-# 1. Tool Logic
+# 1. Tool Logic (Registry)
 # ------------------------------------------------------------------
 def get_flight_times(tool_name: str, arguments: dict) -> str:
     """Mock flight-time lookup tool."""
@@ -83,8 +74,24 @@ def get_flight_times(tool_name: str, arguments: dict) -> str:
             "duration": "4h 30m",
             "departure_time": "10:00 AM PST",
             "arrival_time": "06:30 PM EST",
+            "route": f"{arguments.get('departure', 'UNK')} -> {arguments.get('arrival', 'UNK')}",
         }
     )
+
+
+def get_weather(tool_name: str, arguments: dict) -> str:
+    """Mock weather tool for Batch testing."""
+    loc = arguments.get("location", "Unknown")
+    return json.dumps(
+        {"status": "success", "location": loc, "temp": "15C", "condition": "Cloudy"}
+    )
+
+
+# Registry for Dynamic Dispatch
+TOOL_REGISTRY = {
+    "get_flight_times": get_flight_times,
+    "get_weather": get_weather,
+}
 
 
 # ------------------------------------------------------------------
@@ -94,12 +101,12 @@ class ReportManager:
     @staticmethod
     def update_report(new_results: List[Dict]):
         """
-        Updates the MD file with the exact same layout.
+        Updates the MD file with Parallel Call column.
         """
         file_path = Path(REPORT_FILE)
         rows_by_provider = defaultdict(dict)
 
-        # 1. Read Existing File for Deduplication
+        # 1. Read Existing File
         if file_path.exists():
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
@@ -107,10 +114,9 @@ class ReportManager:
                         clean_line = line.strip()
                         if clean_line.startswith("| **"):
                             parts = [p.strip() for p in clean_line.split("|")]
-                            # We check for provider index (usually index 2)
+                            # Ensure we capture enough columns for the new format
                             if len(parts) >= 4:
                                 provider = parts[2].strip()
-                                # Extract endpoint ID
                                 match = re.search(r"`(.*?)`", parts[3])
                                 if match:
                                     eid = match.group(1).strip()
@@ -124,28 +130,26 @@ class ReportManager:
             reas_icon = "🧠" if res["reasoning_detected"] else "—"
             tool_icon = "✅" if res["tool_call_ok"] else "❌"
 
-            # 📡 = Telemetry Received, — = No Telemetry
+            # 🚀 = Batch Success (2+ tools), — = Not tested/Failed
+            batch_icon = "🚀" if res.get("batch_ok") else "—"
+            if not res["tool_call_ok"]:
+                batch_icon = "—"
+
             telem_icon = "📡" if res["call_telemetry"] else "—"
 
-            if not res["inference_ok"]:
-                tool_icon = "—"
-                telem_icon = "—"
-
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-            # Use the specific error message if present, otherwise OK
             note = res["error_msg"] if res["error_msg"] else "OK"
 
             new_row = (
                 f"| **{res['name']}** | {res['provider']} | `{res['id']}` | "
-                f"{inf_icon} | {reas_icon} | {tool_icon} | {telem_icon} | {timestamp} | {note} |"
+                f"{inf_icon} | {reas_icon} | {tool_icon} | {batch_icon} | {telem_icon} | {timestamp} | {note} |"
             )
             rows_by_provider[res["provider"]][res["id"]] = new_row
 
         # 3. Write Report
-        table_header_row = "| Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Telemetry | Last Run | Notes |"
-        table_align_row = (
-            "| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- |"
-        )
+        table_header_row = "| Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Parallel | Telemetry | Last Run | Notes |"
+        table_align_row = "| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- | :--- |"
+
         main_title = [
             "# 🧪 Model Compatibility Report",
             f"**Last Update:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
@@ -169,7 +173,7 @@ class ReportManager:
 
 
 # ------------------------------------------------------------------
-# 3. Test Logic (Refactored for Error Classification)
+# 3. Test Logic
 # ------------------------------------------------------------------
 class ModelTester:
     def __init__(self, model_label: str, config: Dict):
@@ -181,7 +185,7 @@ class ModelTester:
         self.user_id = USER_ID
         self.provider_api_key = get_api_key_for_provider(self.provider)
 
-        # [CRITICAL UPDATE] Bind clients so SDK can handle recursion automatically
+        # Bind clients for recursive SDK handling
         if hasattr(self.client, "synchronous_inference_stream"):
             self.client.synchronous_inference_stream.bind_clients(
                 self.client.runs,
@@ -191,30 +195,15 @@ class ModelTester:
             )
 
     def _classify_error(self, error_text: str) -> str:
-        """Parses raw exception strings to return clean Notes for the CSV/MD."""
         text = str(error_text).lower()
-
-        if (
-            "404" in text
-            or "model_not_available" in text
-            or "does not exist" in text
-            or "not found" in text
-        ):
+        if "404" in text or "not found" in text:
             return "💀 DEAD / UNAVAILABLE"
-        if "401" in text or "unauthorized" in text or "invalid api key" in text:
+        if "401" in text or "unauthorized" in text:
             return "⛔ AUTH ERROR"
-        if "429" in text or "rate limit" in text or "quota" in text:
+        if "429" in text:
             return "⏳ RATE LIMIT"
-        if (
-            "500" in text
-            or "502" in text
-            or "503" in text
-            or "internal server error" in text
-        ):
+        if "500" in text:
             return "🔥 SERVER ERROR"
-        if "context_length_exceeded" in text:
-            return "📏 CONTEXT LIMIT"
-
         clean_err = str(error_text).replace("\n", " ")
         return f"Error: {clean_err[:30]}..."
 
@@ -226,7 +215,7 @@ class ModelTester:
             print(f"{YELLOW}[*] [{self.model_label}] Creating Assistant...{RESET}")
             assistant = self.client.assistants.create_assistant(
                 name=f"Bench_{self.model_label}",
-                instructions="You are a helpful AI assistant.",
+                instructions="You are a helpful AI assistant. Use tools when needed.",
                 model=self.model_id,
                 tools=[
                     {
@@ -243,7 +232,19 @@ class ModelTester:
                                 "required": ["departure", "arrival"],
                             },
                         },
-                    }
+                    },
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "description": "Get current weather for a city",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {"location": {"type": "string"}},
+                                "required": ["location"],
+                            },
+                        },
+                    },
                 ],
             )
             self.assistant_id = assistant.id
@@ -259,11 +260,12 @@ class ModelTester:
             "inference_ok": False,
             "reasoning_detected": False,
             "tool_call_ok": False,
+            "batch_ok": False,
             "call_telemetry": False,
             "error_msg": "",
         }
 
-        # Stage 1: Inference & Reasoning
+        # --- Stage 1: Inference ---
         print(f"\n{YELLOW}--- Stage 1: Inference ({self.model_label}) ---{RESET}")
         try:
             thread = self.client.threads.create_thread(participant_ids=[self.user_id])
@@ -276,24 +278,23 @@ class ModelTester:
             run = self.client.runs.create_run(
                 assistant_id=self.assistant_id, thread_id=thread.id
             )
-
-            flags = self._stream_and_analyze(
+            stats = self._stream_and_analyze(
                 thread.id, message.id, run.id, timeout=180.0
             )
 
-            result["inference_ok"] = flags["inference_ok"]
-            result["reasoning_detected"] = flags["reasoning_detected"]
-
-            if flags["error"]:
-                result["error_msg"] = self._classify_error(flags["detailed_error"])
+            result["inference_ok"] = stats["inference_ok"]
+            result["reasoning_detected"] = stats["reasoning_detected"]
+            if stats["error"]:
+                result["error_msg"] = self._classify_error(stats["detailed_error"])
+                return result
 
         except Exception as e:
             result["error_msg"] = self._classify_error(str(e))
             return result
 
-        # Stage 2: Tool Calls (Single Loop)
+        # --- Stage 2: Single Tool ---
         if result["inference_ok"]:
-            print(f"\n{YELLOW}--- Stage 2: Tool Calls ({self.model_label}) ---{RESET}")
+            print(f"\n{YELLOW}--- Stage 2: Single Tool ({self.model_label}) ---{RESET}")
             try:
                 thread = self.client.threads.create_thread(
                     participant_ids=[self.user_id]
@@ -307,48 +308,72 @@ class ModelTester:
                 run = self.client.runs.create_run(
                     assistant_id=self.assistant_id, thread_id=thread.id
                 )
-
-                # [UPDATED] Single Stream Call
-                # The SDK now automatically submits output and yields the final answer
-                # within this single iterator.
-                stream_res = self._stream_and_analyze(
+                stats = self._stream_and_analyze(
                     thread.id, message.id, run.id, timeout=120.0
                 )
 
-                if stream_res["decision_detected"]:
+                if stats["decision_detected"]:
                     result["call_telemetry"] = True
 
-                # We consider tool support "OK" if:
-                # 1. The tool was executed.
-                # 2. We received a final answer (inference_ok) in the same stream.
-                if stream_res["tool_executed"] and stream_res["inference_ok"]:
+                if stats["tool_executed_count"] > 0 and stats["inference_ok"]:
                     result["tool_call_ok"] = True
-                    print(
-                        f"\n{GREEN}[✓] Tool execution and Final Response verified in single stream.{RESET}"
-                    )
+                    print(f"{GREEN}[✓] Single Tool Verified.{RESET}")
                 else:
-                    if stream_res["error"]:
+                    if stats["error"]:
                         result["error_msg"] = self._classify_error(
-                            stream_res["detailed_error"]
+                            stats["detailed_error"]
                         )
-                    elif not stream_res["tool_executed"]:
+                    elif stats["tool_executed_count"] == 0:
                         print(f"{RED}[!] Tool call not triggered.{RESET}")
-                    elif not stream_res["inference_ok"]:
-                        print(
-                            f"{RED}[!] Tool executed but no final answer received.{RESET}"
-                        )
 
             except Exception as e:
                 result["error_msg"] = self._classify_error(str(e))
 
+        # --- Stage 3: Batch/Parallel Tools (Level 3) ---
+        if result["tool_call_ok"]:
+            print(
+                f"\n{MAGENTA}--- Stage 3: Parallel Batch ({self.model_label}) ---{RESET}"
+            )
+            try:
+                thread = self.client.threads.create_thread(
+                    participant_ids=[self.user_id]
+                )
+                # Prompt requires TWO tools
+                message = self.client.messages.create_message(
+                    thread_id=thread.id,
+                    role="user",
+                    content="I need two things: check the weather in London, AND find flight times from NYC to Paris.",
+                    assistant_id=self.assistant_id,
+                )
+                run = self.client.runs.create_run(
+                    assistant_id=self.assistant_id, thread_id=thread.id
+                )
+                stats = self._stream_and_analyze(
+                    thread.id, message.id, run.id, timeout=120.0
+                )
+
+                # Check if we executed at least 2 distinct tools or 2 calls total
+                if stats["tool_executed_count"] >= 2 and stats["inference_ok"]:
+                    result["batch_ok"] = True
+                    print(
+                        f"{GREEN}[✓] Batch Verified: {stats['tool_executed_count']} tools executed.{RESET}"
+                    )
+                else:
+                    print(
+                        f"{RED}[!] Batch Failed. Tools executed: {stats['tool_executed_count']}{RESET}"
+                    )
+
+            except Exception as e:
+                result["error_msg"] = f"Batch Error: {str(e)[:20]}"
+
         return result
 
     def _stream_and_analyze(self, thread_id, message_id, run_id, timeout) -> Dict:
-        """New event-driven analysis loop. Handles recursive turns automatically."""
+        """Unified Event Loop for all stages."""
         stats = {
             "inference_ok": False,
             "reasoning_detected": False,
-            "tool_executed": False,
+            "tool_executed_count": 0,
             "decision_detected": False,
             "error": False,
             "detailed_error": None,
@@ -356,7 +381,6 @@ class ModelTester:
 
         stream = self.client.synchronous_inference_stream
         stream.setup(
-            user_id=self.user_id,
             thread_id=thread_id,
             assistant_id=self.assistant_id,
             message_id=message_id,
@@ -365,8 +389,9 @@ class ModelTester:
         )
 
         current_mode = None
+        seen_tools = set()
+
         try:
-            # This loop now runs until the model stops completely (post-tool-execution)
             for event in stream.stream_events(
                 provider=self.provider, model=self.model_id, timeout_per_chunk=timeout
             ):
@@ -377,6 +402,14 @@ class ModelTester:
                         current_mode = "reasoning"
                         stats["reasoning_detected"] = True
                     print(f"{CYAN}{event.content}{RESET}", end="", flush=True)
+
+                elif isinstance(event, PlanEvent):
+                    # Level 3 Visualization
+                    print(
+                        f"\n{BLUE}🗺️  [PLAN]: {event.content}{RESET}",
+                        end="",
+                        flush=True,
+                    )
 
                 elif isinstance(event, ContentEvent):
                     if current_mode != "content":
@@ -397,17 +430,23 @@ class ModelTester:
 
                 elif isinstance(event, ToolCallRequestEvent):
                     print(f"\n{YELLOW}🛠  [TOOL DETECTED]: {event.tool_name}{RESET}")
-                    # SDK handles the output submission automatically upon .execute()
-                    # The generator will PAUSE here, submit output, and then RESUME.
-                    if event.execute(get_flight_times):
-                        stats["tool_executed"] = True
-                    # Note: We do NOT break here anymore.
+
+                    # Dynamic Dispatch
+                    handler = TOOL_REGISTRY.get(event.tool_name)
+                    if handler:
+                        # SDK automatically handles output submission
+                        if event.execute(handler):
+                            stats["tool_executed_count"] += 1
+                            seen_tools.add(event.tool_name)
+                    else:
+                        print(f"{RED} [!] No handler for {event.tool_name}{RESET}")
 
                 elif isinstance(event, StatusEvent) and event.status == "failed":
                     stats["error"] = True
                     stats["detailed_error"] = "Stream Status: Failed"
 
             print()
+
         except Exception as e:
             print(f"\n{RED}[!] Stream Error: {e}{RESET}")
             stats["error"] = True
@@ -447,6 +486,7 @@ def main(models_to_run):
                         "inference_ok": False,
                         "reasoning_detected": False,
                         "tool_call_ok": False,
+                        "batch_ok": False,
                         "call_telemetry": False,
                         "error_msg": err,
                     }

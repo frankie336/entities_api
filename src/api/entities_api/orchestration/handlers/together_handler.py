@@ -4,33 +4,25 @@ from typing import Any, AsyncGenerator, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from src.api.entities_api.orchestration.engine.inference_arbiter import InferenceArbiter
-from src.api.entities_api.orchestration.workers.togeterai.together_deepseek import (
-    TogetherDs1,
-)
-from src.api.entities_api.orchestration.workers.togeterai.together_default import (
-    TogetherDefaultWorker,
-)
-from src.api.entities_api.orchestration.workers.togeterai.together_gpt_oss import (
-    TogetherGptOssWorker,
-)
-from src.api.entities_api.orchestration.workers.togeterai.together_hermes_default import (
-    TogetherHermesDefaultWorker,
-)
-from src.api.entities_api.orchestration.workers.togeterai.together_llama import (
-    TogetherLlamaWorker,
-)
-
+from src.api.entities_api.orchestration.engine.inference_arbiter import \
+    InferenceArbiter
+from src.api.entities_api.orchestration.workers.togeterai.together_deepseek import \
+    TogetherDs1
+from src.api.entities_api.orchestration.workers.togeterai.together_default import \
+    TogetherDefaultWorker
+from src.api.entities_api.orchestration.workers.togeterai.together_gpt_oss import \
+    TogetherGptOssWorker
+from src.api.entities_api.orchestration.workers.togeterai.together_hermes_default import \
+    TogetherHermesDefaultWorker
+from src.api.entities_api.orchestration.workers.togeterai.together_llama import \
+    TogetherLlamaWorker
 # Worker Imports
-from src.api.entities_api.orchestration.workers.togeterai.together_nvidia import (
-    TogetherNvidiaWorker,
-)
-from src.api.entities_api.orchestration.workers.togeterai.together_quen import (
-    TogetherQwenWorker,
-)
-from src.api.entities_api.orchestration.workers.togeterai.together_service_now import (
-    TogetherServiceNowWorker,
-)
+from src.api.entities_api.orchestration.workers.togeterai.together_nvidia import \
+    TogetherNvidiaWorker
+from src.api.entities_api.orchestration.workers.togeterai.together_quen import \
+    TogetherQwenWorker
+from src.api.entities_api.orchestration.workers.togeterai.together_service_now import \
+    TogetherServiceNowWorker
 
 LOG = LoggingUtility()
 
@@ -41,8 +33,6 @@ class TogetherAIHandler:
     Consolidated to use provider/family prefixes for better maintainability.
     """
 
-    # We map by prefix. The logic handles both folder-style "qwen/"
-    # and substring-style "nvidia" matches.
     SUBMODEL_CLASS_MAP: dict[str, Type[Any]] = {
         # --- DeepSeek Family ---
         "deepseek-ai/": TogetherDs1,
@@ -57,27 +47,18 @@ class TogetherAIHandler:
         "nvidia": TogetherNvidiaWorker,
         "gpt-oss": TogetherGptOssWorker,
         # --- Default routes  ---
-        "deepcogito": TogetherHermesDefaultWorker,
+        "deepcogito": TogetherDefaultWorker,
         "zai-org": TogetherHermesDefaultWorker,
         "moonshotai": TogetherHermesDefaultWorker,
-        "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": TogetherHermesDefaultWorker,
-        "meta-llama/Llama-4-Scout-17B-16E-Instruct": TogetherHermesDefaultWorker,
-        "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo": TogetherHermesDefaultWorker,
-        "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": TogetherHermesDefaultWorker,
+        # "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": TogetherHermesDefaultWorker,
+        # "meta-llama/Llama-4-Scout-17B-16E-Instruct": TogetherHermesDefaultWorker,
+        # "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo": TogetherHermesDefaultWorker,
+        # "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": TogetherHermesDefaultWorker,
         "mistralai/Ministral-3-14B-Instruct-2512": TogetherHermesDefaultWorker,
         "mistralai/Mistral-7B-Instruct-v0.2": TogetherHermesDefaultWorker,
         "mistralai/Mistral-7B-Instruct-v0.3": TogetherHermesDefaultWorker,
         "mistralai/Mistral-Small-24B-Instruct-2501": TogetherHermesDefaultWorker,
         "nvidia/NVIDIA-Nemotron-Nano-9B-v2": TogetherHermesDefaultWorker,
-        "Qwen/Qwen2.5-72B-Instruct-Turbo": TogetherHermesDefaultWorker,
-        "Qwen/Qwen2.5-7B-Instruct-Turbo": TogetherHermesDefaultWorker,
-        "Qwen/Qwen3-235B-A22B-fp8-tput": TogetherHermesDefaultWorker,
-        "Qwen/Qwen3-235B-A22B-Instruct-2507-tput": TogetherHermesDefaultWorker,
-        "Qwen/Qwen3-235B-A22B-Thinking-2507": TogetherHermesDefaultWorker,
-        "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8": TogetherHermesDefaultWorker,
-        "Qwen/Qwen3-Next-80B-A3B-Instruct": TogetherHermesDefaultWorker,
-        "Qwen/Qwen3-Next-80B-A3B-Thinking": TogetherHermesDefaultWorker,
-        "Qwen/Qwen3-VL-32B-Instruct": TogetherHermesDefaultWorker,
         "essentialai/rnj-1-instruct": TogetherHermesDefaultWorker,
         "arcee-ai/trinity-mini": TogetherHermesDefaultWorker,
         "": TogetherDefaultWorker,

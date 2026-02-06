@@ -13,16 +13,9 @@ import time
 
 from config_orc_fc import config
 from dotenv import load_dotenv
-
 # Import the project classes
-from projectdavid import (
-    ContentEvent,
-    DecisionEvent,
-    Entity,
-    ReasoningEvent,
-    StatusEvent,
-    ToolCallRequestEvent,
-)
+from projectdavid import (ContentEvent, DecisionEvent, Entity, ReasoningEvent,
+                          StatusEvent, ToolCallRequestEvent)
 
 # ------------------------------------------------------------------
 # 0. CONFIGURATION & SDK INIT
@@ -41,6 +34,8 @@ BASE_URL = config.get("base_url") or os.getenv("BASE_URL", "http://localhost:900
 ENTITIES_API_KEY = os.getenv("ENTITIES_API_KEY") or config.get("entities_api_key")
 ENTITIES_USER_ID = os.getenv("ENTITIES_USER_ID") or config.get("entities_user_id")
 HYPERBOLIC_API_KEY = os.getenv("HYPERBOLIC_API_KEY")
+TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
+
 
 MODEL_ID = config.get("model", "together-ai/mistralai/Ministral-3-14B-Instruct-2512")
 PROVIDER_KW = config.get("provider", "Hyperbolic")
@@ -84,6 +79,12 @@ TOOL_REGISTRY = {
     # "get_weather": get_weather,  <-- Add more tools here
 }
 
+if config.get("provider") == "together":
+    API_KEY = TOGETHER_API_KEY
+
+if config.get("provider") == "hyperbolic":
+    API_KEY = HYPERBOLIC_API_KEY
+
 
 # ==================================================================
 # 2. Setup & Global Timer
@@ -109,7 +110,7 @@ stream.setup(
     assistant_id=ASSISTANT_ID,
     message_id=message.id,
     run_id=run.id,
-    api_key=HYPERBOLIC_API_KEY,
+    api_key=API_KEY,
 )
 
 print(f"\n{CYAN}[▶] UNIFIED STREAM: SDK-Managed Turns{RESET}")
