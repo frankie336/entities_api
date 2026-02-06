@@ -4,25 +4,27 @@ from typing import Any, AsyncGenerator, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from src.api.entities_api.orchestration.engine.inference_arbiter import \
-    InferenceArbiter
-from src.api.entities_api.orchestration.workers.togeterai.together_deepseek import \
-    TogetherDs1
-from src.api.entities_api.orchestration.workers.togeterai.together_default import \
-    TogetherDefaultWorker
-from src.api.entities_api.orchestration.workers.togeterai.together_gpt_oss import \
-    TogetherGptOssWorker
-from src.api.entities_api.orchestration.workers.togeterai.together_hermes_default import \
-    TogetherHermesDefaultWorker
-from src.api.entities_api.orchestration.workers.togeterai.together_llama import \
-    TogetherLlamaWorker
+from src.api.entities_api.orchestration.engine.inference_arbiter import InferenceArbiter
+from src.api.entities_api.orchestration.workers.togeterai.together_deepseek import TogetherDs1
+from src.api.entities_api.orchestration.workers.togeterai.together_default import (
+    TogetherDefaultWorker,
+)
+from src.api.entities_api.orchestration.workers.togeterai.together_gpt_oss import (
+    TogetherGptOssWorker,
+)
+from src.api.entities_api.orchestration.workers.togeterai.together_hermes_default import (
+    TogetherHermesDefaultWorker,
+)
+from src.api.entities_api.orchestration.workers.togeterai.together_llama import TogetherLlamaWorker
+
 # Worker Imports
-from src.api.entities_api.orchestration.workers.togeterai.together_nvidia import \
-    TogetherNvidiaWorker
-from src.api.entities_api.orchestration.workers.togeterai.together_quen import \
-    TogetherQwenWorker
-from src.api.entities_api.orchestration.workers.togeterai.together_service_now import \
-    TogetherServiceNowWorker
+from src.api.entities_api.orchestration.workers.togeterai.together_nvidia import (
+    TogetherNvidiaWorker,
+)
+from src.api.entities_api.orchestration.workers.togeterai.together_quen import TogetherQwenWorker
+from src.api.entities_api.orchestration.workers.togeterai.together_service_now import (
+    TogetherServiceNowWorker,
+)
 
 LOG = LoggingUtility()
 
@@ -50,10 +52,6 @@ class TogetherAIHandler:
         "deepcogito": TogetherDefaultWorker,
         "zai-org": TogetherHermesDefaultWorker,
         "moonshotai": TogetherHermesDefaultWorker,
-        # "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": TogetherHermesDefaultWorker,
-        # "meta-llama/Llama-4-Scout-17B-16E-Instruct": TogetherHermesDefaultWorker,
-        # "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo": TogetherHermesDefaultWorker,
-        # "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": TogetherHermesDefaultWorker,
         "mistralai/Ministral-3-14B-Instruct-2512": TogetherHermesDefaultWorker,
         "mistralai/Mistral-7B-Instruct-v0.2": TogetherHermesDefaultWorker,
         "mistralai/Mistral-7B-Instruct-v0.3": TogetherHermesDefaultWorker,
@@ -68,9 +66,7 @@ class TogetherAIHandler:
         self.arbiter = arbiter
         # Sort keys by length descending. This ensures that if we ever add a specific
         # long-form override, it matches before the generic family prefix.
-        self._sorted_sub_routes = sorted(
-            self.SUBMODEL_CLASS_MAP.keys(), key=len, reverse=True
-        )
+        self._sorted_sub_routes = sorted(self.SUBMODEL_CLASS_MAP.keys(), key=len, reverse=True)
         LOG.info("TogetherAIHandler consolidated dispatcher initialized.")
 
     def _get_specific_handler_instance(self, unified_model_id: str) -> Any:
@@ -85,9 +81,7 @@ class TogetherAIHandler:
             sub_model_id = lower_id[len(prefix) :]
         else:
             sub_model_id = lower_id
-            LOG.warning(
-                f"Model ID '{unified_model_id}' missing expected prefix '{prefix}'."
-            )
+            LOG.warning(f"Model ID '{unified_model_id}' missing expected prefix '{prefix}'.")
 
         specific_cls: Optional[Type[Any]] = None
 
