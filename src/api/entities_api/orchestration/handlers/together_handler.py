@@ -49,7 +49,7 @@ class TogetherAIHandler:
         "nvidia": TogetherNvidiaWorker,
         "gpt-oss": TogetherGptOssWorker,
         # --- Default routes  ---
-        "deepcogito": TogetherDefaultWorker,
+        # "deepcogito": TogetherDefaultWorker,
         "zai-org": TogetherHermesDefaultWorker,
         "moonshotai": TogetherHermesDefaultWorker,
         "mistralai/Ministral-3-14B-Instruct-2512": TogetherHermesDefaultWorker,
@@ -58,6 +58,7 @@ class TogetherAIHandler:
         "mistralai/Mistral-Small-24B-Instruct-2501": TogetherHermesDefaultWorker,
         "nvidia/NVIDIA-Nemotron-Nano-9B-v2": TogetherHermesDefaultWorker,
         "essentialai/rnj-1-instruct": TogetherHermesDefaultWorker,
+        "marin-community/marin-8b-instruct": TogetherHermesDefaultWorker,
         "arcee-ai/trinity-mini": TogetherHermesDefaultWorker,
         "": TogetherDefaultWorker,
     }

@@ -25,7 +25,7 @@ if not TOGETHER_API_KEY or TOGETHER_API_KEY == "YOUR_TOGETHER_API_KEY_HERE":
     sys.exit(1)
 
 URL = config.get("url", "https://api.together.xyz/v1/chat/completions")
-MODEL = config.get("model", "Meta-Llama-3.1-405B-Instruct-Turbo")
+MODEL = config.get("model", "meta-llama/Llama-3.1-405B-Instruct")
 TEST_PROMPT = config.get("test_prompt", "Please fetch me the flight times...")
 
 print(f"⚙️  [CONFIG] Model: {MODEL}")

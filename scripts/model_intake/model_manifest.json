@@ -1,0 +1,812 @@
+[
+  {
+    "id": "Qwen/Qwen2.5-72B-Instruct",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/Qwen/Qwen2.5-72B-Instruct",
+    "name": "Qwen2.5-72B-Instruct",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.0,
+    "error": null
+  },
+  {
+    "id": "meta-llama/Meta-Llama-3.1-70B-Instruct",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/meta-llama/Meta-Llama-3.1-70B-Instruct",
+    "name": "Meta-Llama-3.1-70B-Instruct",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.37,
+    "error": null
+  },
+  {
+    "id": "meta-llama/Llama-3.2-3B-Instruct",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/meta-llama/Llama-3.2-3B-Instruct",
+    "name": "Llama-3.2-3B-Instruct",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.52,
+    "error": null
+  },
+  {
+    "id": "Qwen/Qwen2.5-Coder-32B-Instruct",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/Qwen/Qwen2.5-Coder-32B-Instruct",
+    "name": "Qwen2.5-Coder-32B-Instruct",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 1.66,
+    "error": null
+  },
+  {
+    "id": "meta-llama/Llama-3.3-70B-Instruct",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/meta-llama/Llama-3.3-70B-Instruct",
+    "name": "Llama-3.3-70B-Instruct",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 2.03,
+    "error": null
+  },
+  {
+    "id": "meta-llama/Meta-Llama-3.1-405B",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/meta-llama/Meta-Llama-3.1-405B",
+    "name": "Meta-Llama-3.1-405B",
+    "status": "dead",
+    "protocol": "none",
+    "latency": 0.86,
+    "error": "HTTP 400: Bad Request"
+  },
+  {
+    "id": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/meta-llama/Meta-Llama-3.1-8B-Instruct",
+    "name": "Meta-Llama-3.1-8B-Instruct",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.49,
+    "error": null
+  },
+  {
+    "id": "deepseek-ai/DeepSeek-V3-0324",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/deepseek-ai/DeepSeek-V3-0324",
+    "name": "DeepSeek-V3-0324",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 2.51,
+    "error": null
+  },
+  {
+    "id": "deepseek-ai/DeepSeek-V3",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/deepseek-ai/DeepSeek-V3",
+    "name": "DeepSeek-V3",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 2.52,
+    "error": null
+  },
+  {
+    "id": "Qwen/QwQ-32B",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/Qwen/QwQ-32B",
+    "name": "QwQ-32B",
+    "status": "dead",
+    "protocol": "none",
+    "latency": 0.58,
+    "error": "HTTP 400: Bad Request"
+  },
+  {
+    "id": "meta-llama/Meta-Llama-3.1-405B-Instruct",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/meta-llama/Meta-Llama-3.1-405B-Instruct",
+    "name": "Meta-Llama-3.1-405B-Instruct",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 2.8,
+    "error": null
+  },
+  {
+    "id": "openai/gpt-oss-120b",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/openai/gpt-oss-120b",
+    "name": "gpt-oss-120b",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.07,
+    "error": null
+  },
+  {
+    "id": "Qwen/Qwen3-235B-A22B-Instruct-2507",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/Qwen/Qwen3-235B-A22B-Instruct-2507",
+    "name": "Qwen3-235B-A22B-Instruct-2507",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.23,
+    "error": null
+  },
+  {
+    "id": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/Qwen/Qwen3-Coder-480B-A35B-Instruct",
+    "name": "Qwen3-Coder-480B-A35B-Instruct",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.27,
+    "error": null
+  },
+  {
+    "id": "openai/gpt-oss-20b",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/openai/gpt-oss-20b",
+    "name": "gpt-oss-20b",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.22,
+    "error": null
+  },
+  {
+    "id": "openai/gpt-oss-120b-turbo",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/openai/gpt-oss-120b-turbo",
+    "name": "gpt-oss-120b-turbo",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.59,
+    "error": null
+  },
+  {
+    "id": "Qwen/Qwen2.5-VL-72B-Instruct",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/Qwen/Qwen2.5-VL-72B-Instruct",
+    "name": "Qwen2.5-VL-72B-Instruct",
+    "status": "dead",
+    "protocol": "none",
+    "latency": 0.69,
+    "error": "HTTP 500: Internal Server Error"
+  },
+  {
+    "id": "Qwen/Qwen2.5-VL-7B-Instruct",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/Qwen/Qwen2.5-VL-7B-Instruct",
+    "name": "Qwen2.5-VL-7B-Instruct",
+    "status": "dead",
+    "protocol": "none",
+    "latency": 0.51,
+    "error": "HTTP 500: Internal Server Error"
+  },
+  {
+    "id": "Qwen/Qwen3-Next-80B-A3B-Instruct",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/Qwen/Qwen3-Next-80B-A3B-Instruct",
+    "name": "Qwen3-Next-80B-A3B-Instruct",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.06,
+    "error": null
+  },
+  {
+    "id": "togethercomputer/MoA-1",
+    "provider": "together-ai",
+    "full_id": "together-ai/togethercomputer/MoA-1",
+    "name": "MoA-1",
+    "status": "dead",
+    "protocol": "none",
+    "latency": 0.41,
+    "error": "HTTP 503: Service Temporarily Unavailable"
+  },
+  {
+    "id": "mistralai/Pixtral-12B-2409",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/mistralai/Pixtral-12B-2409",
+    "name": "Pixtral-12B-2409",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 0.78,
+    "error": null
+  },
+  {
+    "id": "Qwen/Qwen3-Next-80B-A3B-Thinking",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/Qwen/Qwen3-Next-80B-A3B-Thinking",
+    "name": "Qwen3-Next-80B-A3B-Thinking",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.37,
+    "error": null
+  },
+  {
+    "id": "togethercomputer/MoA-1-Turbo",
+    "provider": "together-ai",
+    "full_id": "together-ai/togethercomputer/MoA-1-Turbo",
+    "name": "MoA-1-Turbo",
+    "status": "dead",
+    "protocol": "none",
+    "latency": 0.41,
+    "error": "HTTP 503: Service Temporarily Unavailable"
+  },
+  {
+    "id": "deepseek-ai/DeepSeek-R1",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/deepseek-ai/DeepSeek-R1",
+    "name": "DeepSeek-R1",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 4.46,
+    "error": null
+  },
+  {
+    "id": "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+    "provider": "together-ai",
+    "full_id": "together-ai/meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+    "name": "Meta-Llama-3.1-70B-Instruct-Turbo",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.35,
+    "error": null
+  },
+  {
+    "id": "mistralai/Ministral-3-14B-Instruct-2512",
+    "provider": "together-ai",
+    "full_id": "together-ai/mistralai/Ministral-3-14B-Instruct-2512",
+    "name": "Ministral-3-14B-Instruct-2512",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 1.69,
+    "error": null
+  },
+  {
+    "id": "Qwen/Qwen3-235B-A22B",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/Qwen/Qwen3-235B-A22B",
+    "name": "Qwen3-235B-A22B",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 4.68,
+    "error": null
+  },
+  {
+    "id": "Qwen/Qwen3-Next-80B-A3B-Instruct",
+    "provider": "together-ai",
+    "full_id": "together-ai/Qwen/Qwen3-Next-80B-A3B-Instruct",
+    "name": "Qwen3-Next-80B-A3B-Instruct",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.21,
+    "error": null
+  },
+  {
+    "id": "deepseek-ai/DeepSeek-R1-0528",
+    "provider": "hyperbolic",
+    "full_id": "hyperbolic/deepseek-ai/DeepSeek-R1-0528",
+    "name": "DeepSeek-R1-0528",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 5.54,
+    "error": null
+  },
+  {
+    "id": "moonshotai/Kimi-K2-Thinking",
+    "provider": "together-ai",
+    "full_id": "together-ai/moonshotai/Kimi-K2-Thinking",
+    "name": "Kimi-K2-Thinking",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 2.79,
+    "error": null
+  },
+  {
+    "id": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+    "provider": "together-ai",
+    "full_id": "together-ai/meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+    "name": "Llama-4-Maverick-17B-128E-Instruct-FP8",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 0.78,
+    "error": null
+  },
+  {
+    "id": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    "provider": "together-ai",
+    "full_id": "together-ai/meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    "name": "Llama-3.3-70B-Instruct-Turbo",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 4.96,
+    "error": null
+  },
+  {
+    "id": "deepcogito/cogito-v2-1-671b",
+    "provider": "together-ai",
+    "full_id": "together-ai/deepcogito/cogito-v2-1-671b",
+    "name": "cogito-v2-1-671b",
+    "status": "dead",
+    "protocol": "none",
+    "latency": 1.82,
+    "error": "HTTP 400: Bad Request"
+  },
+  {
+    "id": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+    "provider": "together-ai",
+    "full_id": "together-ai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+    "name": "Meta-Llama-3.1-8B-Instruct-Turbo",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.9,
+    "error": null
+  },
+  {
+    "id": "meta-llama/Llama-4-Scout-17B-16E-Instruct",
+    "provider": "together-ai",
+    "full_id": "together-ai/meta-llama/Llama-4-Scout-17B-16E-Instruct",
+    "name": "Llama-4-Scout-17B-16E-Instruct",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 2.34,
+    "error": null
+  },
+  {
+    "id": "ServiceNow-AI/Apriel-1.5-15b-Thinker",
+    "provider": "together-ai",
+    "full_id": "together-ai/ServiceNow-AI/Apriel-1.5-15b-Thinker",
+    "name": "Apriel-1.5-15b-Thinker",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 2.59,
+    "error": null
+  },
+  {
+    "id": "Qwen/Qwen3-Coder-Next-FP8",
+    "provider": "together-ai",
+    "full_id": "together-ai/Qwen/Qwen3-Coder-Next-FP8",
+    "name": "Qwen3-Coder-Next-FP8",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 2.41,
+    "error": null
+  },
+  {
+    "id": "nvidia/NVIDIA-Nemotron-Nano-9B-v2",
+    "provider": "together-ai",
+    "full_id": "together-ai/nvidia/NVIDIA-Nemotron-Nano-9B-v2",
+    "name": "NVIDIA-Nemotron-Nano-9B-v2",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 3.52,
+    "error": null
+  },
+  {
+    "id": "Qwen/Qwen3-235B-A22B-fp8-tput",
+    "provider": "together-ai",
+    "full_id": "together-ai/Qwen/Qwen3-235B-A22B-fp8-tput",
+    "name": "Qwen3-235B-A22B-fp8-tput",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 5.03,
+    "error": null
+  },
+  {
+    "id": "togethercomputer/Refuel-Llm-V2",
+    "provider": "together-ai",
+    "full_id": "together-ai/togethercomputer/Refuel-Llm-V2",
+    "name": "Refuel-Llm-V2",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 0.78,
+    "error": null
+  },
+  {
+    "id": "Qwen/Qwen2.5-7B-Instruct-Turbo",
+    "provider": "together-ai",
+    "full_id": "together-ai/Qwen/Qwen2.5-7B-Instruct-Turbo",
+    "name": "Qwen2.5-7B-Instruct-Turbo",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 0.81,
+    "error": null
+  },
+  {
+    "id": "arize-ai/qwen-2-1.5b-instruct",
+    "provider": "together-ai",
+    "full_id": "together-ai/arize-ai/qwen-2-1.5b-instruct",
+    "name": "qwen-2-1.5b-instruct",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 1.12,
+    "error": null
+  },
+  {
+    "id": "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
+    "provider": "together-ai",
+    "full_id": "together-ai/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
+    "name": "Qwen3-Coder-480B-A35B-Instruct-FP8",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.15,
+    "error": null
+  },
+  {
+    "id": "google/gemma-2b-it-Ishan",
+    "provider": "together-ai",
+    "full_id": "together-ai/google/gemma-2b-it-Ishan",
+    "name": "gemma-2b-it-Ishan",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 1.62,
+    "error": null
+  },
+  {
+    "id": "Qwen/Qwen3-VL-8B-Instruct",
+    "provider": "together-ai",
+    "full_id": "together-ai/Qwen/Qwen3-VL-8B-Instruct",
+    "name": "Qwen3-VL-8B-Instruct",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 0.73,
+    "error": null
+  },
+  {
+    "id": "essentialai/rnj-1-instruct",
+    "provider": "together-ai",
+    "full_id": "together-ai/essentialai/rnj-1-instruct",
+    "name": "rnj-1-instruct",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 2.01,
+    "error": null
+  },
+  {
+    "id": "Qwen/Qwen3-Next-80B-A3B-Thinking",
+    "provider": "together-ai",
+    "full_id": "together-ai/Qwen/Qwen3-Next-80B-A3B-Thinking",
+    "name": "Qwen3-Next-80B-A3B-Thinking",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.21,
+    "error": null
+  },
+  {
+    "id": "moonshotai/Kimi-K2-Instruct-0905",
+    "provider": "together-ai",
+    "full_id": "together-ai/moonshotai/Kimi-K2-Instruct-0905",
+    "name": "Kimi-K2-Instruct-0905",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.46,
+    "error": null
+  },
+  {
+    "id": "Qwen/Qwen3-VL-32B-Instruct",
+    "provider": "together-ai",
+    "full_id": "together-ai/Qwen/Qwen3-VL-32B-Instruct",
+    "name": "Qwen3-VL-32B-Instruct",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.33,
+    "error": null
+  },
+  {
+    "id": "marin-community/marin-8b-instruct",
+    "provider": "together-ai",
+    "full_id": "together-ai/marin-community/marin-8b-instruct",
+    "name": "marin-8b-instruct",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 1.4,
+    "error": null
+  },
+  {
+    "id": "togethercomputer/Refuel-Llm-V2-Small",
+    "provider": "together-ai",
+    "full_id": "together-ai/togethercomputer/Refuel-Llm-V2-Small",
+    "name": "Refuel-Llm-V2-Small",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 0.74,
+    "error": null
+  },
+  {
+    "id": "ServiceNow-AI/Apriel-1.6-15b-Thinker",
+    "provider": "together-ai",
+    "full_id": "together-ai/ServiceNow-AI/Apriel-1.6-15b-Thinker",
+    "name": "Apriel-1.6-15b-Thinker",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.41,
+    "error": null
+  },
+  {
+    "id": "zai-org/GLM-4.5-Air-FP8",
+    "provider": "together-ai",
+    "full_id": "together-ai/zai-org/GLM-4.5-Air-FP8",
+    "name": "GLM-4.5-Air-FP8",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.54,
+    "error": null
+  },
+  {
+    "id": "arcee-ai/trinity-mini",
+    "provider": "together-ai",
+    "full_id": "together-ai/arcee-ai/trinity-mini",
+    "name": "trinity-mini",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.0,
+    "error": null
+  },
+  {
+    "id": "mistralai/Mistral-Small-24B-Instruct-2501",
+    "provider": "together-ai",
+    "full_id": "together-ai/mistralai/Mistral-Small-24B-Instruct-2501",
+    "name": "Mistral-Small-24B-Instruct-2501",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 0.97,
+    "error": null
+  },
+  {
+    "id": "Qwen/Qwen2.5-72B-Instruct-Turbo",
+    "provider": "together-ai",
+    "full_id": "together-ai/Qwen/Qwen2.5-72B-Instruct-Turbo",
+    "name": "Qwen2.5-72B-Instruct-Turbo",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 0.94,
+    "error": null
+  },
+  {
+    "id": "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
+    "provider": "together-ai",
+    "full_id": "together-ai/meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
+    "name": "Meta-Llama-3.1-405B-Instruct-Turbo",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 2.23,
+    "error": null
+  },
+  {
+    "id": "moonshotai/Kimi-K2.5",
+    "provider": "together-ai",
+    "full_id": "together-ai/moonshotai/Kimi-K2.5",
+    "name": "Kimi-K2.5",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 2.2,
+    "error": null
+  },
+  {
+    "id": "meta-llama/Meta-Llama-3-8B-Instruct-Lite",
+    "provider": "together-ai",
+    "full_id": "together-ai/meta-llama/Meta-Llama-3-8B-Instruct-Lite",
+    "name": "Meta-Llama-3-8B-Instruct-Lite",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 4.21,
+    "error": null
+  },
+  {
+    "id": "meta-llama/Meta-Llama-3.1-70B-Instruct-Reference",
+    "provider": "together-ai",
+    "full_id": "together-ai/meta-llama/Meta-Llama-3.1-70B-Instruct-Reference",
+    "name": "Meta-Llama-3.1-70B-Instruct-Reference",
+    "status": "dead",
+    "protocol": "none",
+    "latency": 0.62,
+    "error": "HTTP 400: Bad Request"
+  },
+  {
+    "id": "meta-llama/Llama-3.1-405B-Instruct",
+    "provider": "together-ai",
+    "full_id": "together-ai/meta-llama/Llama-3.1-405B-Instruct",
+    "name": "Llama-3.1-405B-Instruct",
+    "status": "dead",
+    "protocol": "none",
+    "latency": 0.7,
+    "error": "HTTP 400: Bad Request"
+  },
+  {
+    "id": "meta-llama/Llama-3.2-3B-Instruct-Turbo",
+    "provider": "together-ai",
+    "full_id": "together-ai/meta-llama/Llama-3.2-3B-Instruct-Turbo",
+    "name": "Llama-3.2-3B-Instruct-Turbo",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 0.82,
+    "error": null
+  },
+  {
+    "id": "google/gemma-3n-E4B-it",
+    "provider": "together-ai",
+    "full_id": "together-ai/google/gemma-3n-E4B-it",
+    "name": "gemma-3n-E4B-it",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 5.22,
+    "error": null
+  },
+  {
+    "id": "meta-llama/Llama-3-70b-hf",
+    "provider": "together-ai",
+    "full_id": "together-ai/meta-llama/Llama-3-70b-hf",
+    "name": "Llama-3-70b-hf",
+    "status": "dead",
+    "protocol": "none",
+    "latency": 1.03,
+    "error": "HTTP 400: Bad Request"
+  },
+  {
+    "id": "Qwen/Qwen2.5-14B-Instruct",
+    "provider": "together-ai",
+    "full_id": "together-ai/Qwen/Qwen2.5-14B-Instruct",
+    "name": "Qwen2.5-14B-Instruct",
+    "status": "dead",
+    "protocol": "none",
+    "latency": 0.69,
+    "error": "HTTP 400: Bad Request"
+  },
+  {
+    "id": "meta-llama/Meta-Llama-3.1-8B-Instruct-Reference",
+    "provider": "together-ai",
+    "full_id": "together-ai/meta-llama/Meta-Llama-3.1-8B-Instruct-Reference",
+    "name": "Meta-Llama-3.1-8B-Instruct-Reference",
+    "status": "dead",
+    "protocol": "none",
+    "latency": 1.07,
+    "error": "HTTP 400: Bad Request"
+  },
+  {
+    "id": "meta-llama/Llama-3.2-1B-Instruct",
+    "provider": "together-ai",
+    "full_id": "together-ai/meta-llama/Llama-3.2-1B-Instruct",
+    "name": "Llama-3.2-1B-Instruct",
+    "status": "dead",
+    "protocol": "none",
+    "latency": 1.24,
+    "error": "HTTP 400: Bad Request"
+  },
+  {
+    "id": "meta-llama/Meta-Llama-3-8B-Instruct",
+    "provider": "together-ai",
+    "full_id": "together-ai/meta-llama/Meta-Llama-3-8B-Instruct",
+    "name": "Meta-Llama-3-8B-Instruct",
+    "status": "dead",
+    "protocol": "none",
+    "latency": 1.23,
+    "error": "HTTP 400: Bad Request"
+  },
+  {
+    "id": "openai/gpt-oss-20b",
+    "provider": "together-ai",
+    "full_id": "together-ai/openai/gpt-oss-20b",
+    "name": "gpt-oss-20b",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.25,
+    "error": null
+  },
+  {
+    "id": "zai-org/GLM-4.7",
+    "provider": "together-ai",
+    "full_id": "together-ai/zai-org/GLM-4.7",
+    "name": "GLM-4.7",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 3.36,
+    "error": null
+  },
+  {
+    "id": "mistralai/Mistral-7B-Instruct-v0.2",
+    "provider": "together-ai",
+    "full_id": "together-ai/mistralai/Mistral-7B-Instruct-v0.2",
+    "name": "Mistral-7B-Instruct-v0.2",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 1.94,
+    "error": null
+  },
+  {
+    "id": "Qwen/Qwen3-235B-A22B-Instruct-2507-tput",
+    "provider": "together-ai",
+    "full_id": "together-ai/Qwen/Qwen3-235B-A22B-Instruct-2507-tput",
+    "name": "Qwen3-235B-A22B-Instruct-2507-tput",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 1.34,
+    "error": null
+  },
+  {
+    "id": "Qwen/Qwen2.5-72B-Instruct",
+    "provider": "together-ai",
+    "full_id": "together-ai/Qwen/Qwen2.5-72B-Instruct",
+    "name": "Qwen2.5-72B-Instruct",
+    "status": "dead",
+    "protocol": "none",
+    "latency": 0.64,
+    "error": "HTTP 400: Bad Request"
+  },
+  {
+    "id": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+    "provider": "together-ai",
+    "full_id": "together-ai/mistralai/Mixtral-8x7B-Instruct-v0.1",
+    "name": "Mixtral-8x7B-Instruct-v0.1",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 4.43,
+    "error": null
+  },
+  {
+    "id": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+    "provider": "together-ai",
+    "full_id": "together-ai/deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+    "name": "DeepSeek-R1-Distill-Llama-70B",
+    "status": "dead",
+    "protocol": "none",
+    "latency": 0.71,
+    "error": "HTTP 400: Bad Request"
+  },
+  {
+    "id": "deepseek-ai/DeepSeek-V3.1",
+    "provider": "together-ai",
+    "full_id": "together-ai/deepseek-ai/DeepSeek-V3.1",
+    "name": "DeepSeek-V3.1",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 2.12,
+    "error": null
+  },
+  {
+    "id": "zai-org/GLM-4.6",
+    "provider": "together-ai",
+    "full_id": "together-ai/zai-org/GLM-4.6",
+    "name": "GLM-4.6",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 3.87,
+    "error": null
+  },
+  {
+    "id": "mistralai/Mistral-7B-Instruct-v0.3",
+    "provider": "together-ai",
+    "full_id": "together-ai/mistralai/Mistral-7B-Instruct-v0.3",
+    "name": "Mistral-7B-Instruct-v0.3",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 1.17,
+    "error": null
+  },
+  {
+    "id": "Qwen/Qwen3-235B-A22B-Thinking-2507",
+    "provider": "together-ai",
+    "full_id": "together-ai/Qwen/Qwen3-235B-A22B-Thinking-2507",
+    "name": "Qwen3-235B-A22B-Thinking-2507",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 2.71,
+    "error": null
+  },
+  {
+    "id": "deepseek-ai/DeepSeek-R1",
+    "provider": "together-ai",
+    "full_id": "together-ai/deepseek-ai/DeepSeek-R1",
+    "name": "DeepSeek-R1",
+    "status": "alive",
+    "protocol": "chat-only",
+    "latency": 5.28,
+    "error": null
+  },
+  {
+    "id": "openai/gpt-oss-120b",
+    "provider": "together-ai",
+    "full_id": "together-ai/openai/gpt-oss-120b",
+    "name": "gpt-oss-120b",
+    "status": "alive",
+    "protocol": "native",
+    "latency": 3.55,
+    "error": null
+  }
+]

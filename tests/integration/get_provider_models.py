@@ -131,8 +131,6 @@ def get_together_data():
 
 
 # --- FILE UPDATER ---
-
-
 def update_block(content, marker_start, marker_end, var_name, dict_string):
     """Replaces text between markers with the generated dict string."""
     new_block = f"{var_name} = {dict_string}"
