@@ -38,7 +38,6 @@ HYPERBOLIC_MODELS = {
         "provider": "hyperbolic",
         "protocol": "native",
     },
-
     # --- deepseek-ai ---
     "DeepSeek-R1": {
         "id": "hyperbolic/deepseek-ai/DeepSeek-R1",
@@ -60,7 +59,6 @@ HYPERBOLIC_MODELS = {
         "provider": "hyperbolic",
         "protocol": "chat-only",
     },
-
     # --- meta-llama ---
     "Llama-3.2-3B-Instruct": {
         "id": "hyperbolic/meta-llama/Llama-3.2-3B-Instruct",
@@ -87,14 +85,12 @@ HYPERBOLIC_MODELS = {
         "provider": "hyperbolic",
         "protocol": "native",
     },
-
     # --- mistralai ---
     "Pixtral-12B-2409": {
         "id": "hyperbolic/mistralai/Pixtral-12B-2409",
         "provider": "hyperbolic",
         "protocol": "chat-only",
     },
-
     # --- openai ---
     "gpt-oss-120b": {
         "id": "hyperbolic/openai/gpt-oss-120b",
@@ -111,7 +107,6 @@ HYPERBOLIC_MODELS = {
         "provider": "hyperbolic",
         "protocol": "native",
     },
-
 }
 # --- HYPERBOLIC_MODELS_END ---
 
@@ -173,7 +168,6 @@ TOGETHER_AI_MODELS = {
         "provider": "together-ai",
         "protocol": "native",
     },
-
     # --- ServiceNow-AI ---
     "Apriel-1.5-15b-Thinker": {
         "id": "together-ai/ServiceNow-AI/Apriel-1.5-15b-Thinker",
@@ -185,21 +179,18 @@ TOGETHER_AI_MODELS = {
         "provider": "together-ai",
         "protocol": "native",
     },
-
     # --- arcee-ai ---
     "trinity-mini": {
         "id": "together-ai/arcee-ai/trinity-mini",
         "provider": "together-ai",
         "protocol": "native",
     },
-
     # --- arize-ai ---
     "qwen-2-1.5b-instruct": {
         "id": "together-ai/arize-ai/qwen-2-1.5b-instruct",
         "provider": "together-ai",
         "protocol": "chat-only",
     },
-
     # --- deepseek-ai ---
     "DeepSeek-R1": {
         "id": "together-ai/deepseek-ai/DeepSeek-R1",
@@ -211,14 +202,12 @@ TOGETHER_AI_MODELS = {
         "provider": "together-ai",
         "protocol": "chat-only",
     },
-
     # --- essentialai ---
     "rnj-1-instruct": {
         "id": "together-ai/essentialai/rnj-1-instruct",
         "provider": "together-ai",
         "protocol": "native",
     },
-
     # --- google ---
     "gemma-2b-it-Ishan": {
         "id": "together-ai/google/gemma-2b-it-Ishan",
@@ -230,14 +219,12 @@ TOGETHER_AI_MODELS = {
         "provider": "together-ai",
         "protocol": "chat-only",
     },
-
     # --- marin-community ---
     "marin-8b-instruct": {
         "id": "together-ai/marin-community/marin-8b-instruct",
         "provider": "together-ai",
         "protocol": "chat-only",
     },
-
     # --- meta-llama ---
     "Llama-3.2-3B-Instruct-Turbo": {
         "id": "together-ai/meta-llama/Llama-3.2-3B-Instruct-Turbo",
@@ -279,7 +266,6 @@ TOGETHER_AI_MODELS = {
         "provider": "together-ai",
         "protocol": "native",
     },
-
     # --- mistralai ---
     "Ministral-3-14B-Instruct-2512": {
         "id": "together-ai/mistralai/Ministral-3-14B-Instruct-2512",
@@ -306,7 +292,6 @@ TOGETHER_AI_MODELS = {
         "provider": "together-ai",
         "protocol": "chat-only",
     },
-
     # --- moonshotai ---
     "Kimi-K2-Instruct-0905": {
         "id": "together-ai/moonshotai/Kimi-K2-Instruct-0905",
@@ -323,14 +308,12 @@ TOGETHER_AI_MODELS = {
         "provider": "together-ai",
         "protocol": "native",
     },
-
     # --- nvidia ---
     "NVIDIA-Nemotron-Nano-9B-v2": {
         "id": "together-ai/nvidia/NVIDIA-Nemotron-Nano-9B-v2",
         "provider": "together-ai",
         "protocol": "native",
     },
-
     # --- openai ---
     "gpt-oss-120b": {
         "id": "together-ai/openai/gpt-oss-120b",
@@ -342,7 +325,6 @@ TOGETHER_AI_MODELS = {
         "provider": "together-ai",
         "protocol": "native",
     },
-
     # --- togethercomputer ---
     "Refuel-Llm-V2": {
         "id": "together-ai/togethercomputer/Refuel-Llm-V2",
@@ -354,7 +336,6 @@ TOGETHER_AI_MODELS = {
         "provider": "together-ai",
         "protocol": "chat-only",
     },
-
     # --- zai-org ---
     "GLM-4.5-Air-FP8": {
         "id": "together-ai/zai-org/GLM-4.5-Air-FP8",
@@ -371,6 +352,5 @@ TOGETHER_AI_MODELS = {
         "provider": "together-ai",
         "protocol": "native",
     },
-
 }
 # --- TOGETHER_AI_MODELS_END ---

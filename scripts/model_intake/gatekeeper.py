@@ -2,11 +2,12 @@ import json
 import os
 import re
 import time
-import urllib.request
 import urllib.error
+import urllib.request
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from collections import defaultdict
+
 import dotenv
 
 dotenv.load_dotenv()
