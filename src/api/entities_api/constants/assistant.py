@@ -4,6 +4,7 @@ PLATFORM_TOOLS = [
     "search_web_page",
     "scroll_web_page",
     "read_web_page",
+    "perform_web_search",
     "vector_store_search",
     "computer",
 ]

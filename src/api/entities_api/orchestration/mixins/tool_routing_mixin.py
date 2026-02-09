@@ -240,7 +240,6 @@ class ToolRoutingMixin:
                     yield chunk
 
             # --- [NEW] WEB SEARCH TOOLS ROUTING ---
-            # FIX: Use 'async for' because _yield_maybe_async returns a generator
             elif name == "read_web_page":
                 async for chunk in self._yield_maybe_async(
                     self.handle_read_web_page(
@@ -270,6 +269,20 @@ class ToolRoutingMixin:
             elif name == "search_web_page":
                 async for chunk in self._yield_maybe_async(
                     self.handle_search_web_page(
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        assistant_id=assistant_id,
+                        arguments_dict=args,
+                        tool_call_id=current_call_id,
+                        decision=decision,
+                    )
+                ):
+                    yield chunk
+
+            # ✅ ADDED SERP HANDLER
+            elif name == "perform_web_search":
+                async for chunk in self._yield_maybe_async(
+                    self.handle_perform_web_search(
                         thread_id=thread_id,
                         run_id=run_id,
                         assistant_id=assistant_id,

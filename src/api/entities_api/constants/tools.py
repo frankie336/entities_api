@@ -3,6 +3,8 @@ from src.api.entities_api.platform_tools.definitions.code_interpreter import \
 from src.api.entities_api.platform_tools.definitions.computer import computer
 from src.api.entities_api.platform_tools.definitions.file_search import \
     file_search
+from src.api.entities_api.platform_tools.definitions.perform_web_search import \
+    perform_web_search
 # --- Web Tools Imports ---
 from src.api.entities_api.platform_tools.definitions.read_web_page import \
     read_web_page
@@ -13,7 +15,7 @@ from src.api.entities_api.platform_tools.definitions.search_web_page import \
 
 # Group them in the efficient "L3 Strategy" order:
 # 1. Read (Get Context) -> 2. Search (Target Data) -> 3. Scroll (Fallback)
-WEB_SEARCH_TOOLS = [read_web_page, search_web_page, scroll_web_page]
+WEB_SEARCH_TOOLS = [read_web_page, search_web_page, scroll_web_page, perform_web_search]
 
 PLATFORM_TOOL_MAP = {
     "code_interpreter": code_interpreter,

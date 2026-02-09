@@ -78,6 +78,14 @@ TEST_PROMPTS = {
         "Go to https://www.reddit.com/r/technology/ and tell me the title of the "
         "top pinned post."
     ),
+    # 9. SERP Discovery / No URL Provided
+    # Tests the "Discovery" loop: Search -> Select URL -> Read -> Synthesize.
+    # The agent must realize it lacks a URL and initiate a search.
+    "serp_discovery": (
+        "I don't have a link, but I need to know the latest status of the "
+        "SpaceX Starship program. Search for recent news or the official page "
+        "and summarize the outcome of the last major test flight."
+    ),
 }
 
 
@@ -91,5 +99,5 @@ config = {
     # "provider": "together",
     "provider": "hyperbolic",
     "assistant_id": "asst_13HyDgBnZxVwh5XexYu74F",
-    "test_prompt": TEST_PROMPTS["bot_protection_403"],
+    "test_prompt": TEST_PROMPTS["serp_discovery"],
 }

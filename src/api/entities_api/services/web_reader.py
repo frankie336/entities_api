@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from typing import List
 
 import html2text
@@ -92,6 +93,53 @@ class UniversalWebReader:
         return [
             text[i : i + self.CHUNK_SIZE] for i in range(0, len(text), self.CHUNK_SIZE)
         ]
+
+    async def perform_serp_search(self, query: str) -> str:
+        """
+        Action: Search the Web (DuckDuckGo).
+        Returns a numbered list of results with URLs for the Agent to select from.
+        """
+        # We use the HTML-only version of DDG which is lighter and easier to parse
+        search_url = f"https://html.duckduckgo.com/html/?q={query}"
+
+        logger.info(f"🔎 Performing SERP Search: {query}")
+
+        # Reuse your existing browser infrastructure!
+        raw_markdown = await self.read(search_url, force_refresh=True)
+
+        # --- PARSE THE MARKDOWN TO CLEAN LIST ---
+        # The raw markdown from html2text will be messy. We need to extract the relevant links.
+        # This is a heuristic parser for DDG HTML results.
+
+        lines = raw_markdown.split("\n")
+        results = []
+        count = 0
+
+        # Simple parser logic: look for links that look like external results
+        # Note: This is brittle. For production, use an API like Serper.dev or Bing API.
+        for i, line in enumerate(lines):
+            if count >= 5:
+                break  # Top 5 results
+
+            # DDG HTML results usually look like: [Title](url) \n Snippet
+            # We filter out internal DDG links
+            if "](" in line and "duckduckgo.com" not in line:
+                # Extract URL using regex
+                match = re.search(r"\((https?://[^)]+)\)", line)
+                if match:
+                    url = match.group(1)
+                    title = line.split("](")[0].strip("[")
+
+                    # Create a clean entry
+                    results.append(f"{count+1}. **{title}**\n   LINK: {url}")
+                    count += 1
+
+        if not results:
+            return "❌ No search results found. Try a broader query."
+
+        header = f"--- 🔎 SEARCH RESULTS FOR: '{query}' ---\n"
+        instructions = "\n\n👉 SYSTEM HINT: To read a result, use `read_web_page(url='...')` on one of the links above."
+        return header + "\n".join(results) + instructions
 
     # --- NETWORK LAYER (Remote Only) ---
 
