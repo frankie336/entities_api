@@ -134,6 +134,23 @@ class WebSearchMixin:
                     url=arguments_dict["url"],
                     force_refresh=arguments_dict.get("force_refresh", False),
                 )
+
+                # [FIX START] INJECT INTELLIGENCE HINT
+                # If the content indicates multiple pages (e.g., "Page 0 of 6"),
+                # we explicitly tell the LLM to use search if it hasn't found the answer.
+                # This prevents "lazy" termination on long documents.
+                if (
+                    "Page 0 of 0" not in result_content
+                    and "Page 0 of" in result_content
+                ):
+                    result_content += (
+                        "\n\n💡 INTELLIGENCE HINT: This is a multi-page document. "
+                        "If the specific answer is not visible in this view, "
+                        "you MUST use `search_web_page(query='...')` to find it. "
+                        "Do not give up; the data is likely on a later page."
+                    )
+                # [FIX END]
+
             elif tool_name == "scroll_web_page":
                 result_content = await asyncio.to_thread(
                     self.project_david_client.tools.web_scroll,

@@ -26,15 +26,19 @@ dotenv.load_dotenv()
 # together-ai/meta-llama/Llama-3.2-1B-Instruct < -- Not in approved list
 
 
+content = "Go to https://www.paulgraham.com/ds.html and find out exactly what he says about 'Brian Chesky' and 'air mattresses'."
+# content = "Go to https://pypi.org/project/pandas/ and tell me the latest version number and the exact command to install it."
+# content = "Go to https://en.wikipedia.org/wiki/List_of_highest-grossing_films and tell me which movie is at rank #1 and how much it earned."
+
 config = {
     "together_api_key": "",
     "entities_api_key": "",
     "entities_user_id": "",
     "base_url": "http://localhost:9000",
     "url": "https://api.together.xyz/v1/chat/completions",
-    "model": "hyperbolic/openai/gpt-oss-120b",
+    "model": "hyperbolic/Qwen/Qwen2.5-VL-7B-Instruct",
     # "provider": "together",
     "provider": "hyperbolic",
     "assistant_id": "asst_13HyDgBnZxVwh5XexYu74F",
-    "test_prompt": "Go to https://example.com and tell me exactly what the main header text says",
+    "test_prompt": content,
 }
