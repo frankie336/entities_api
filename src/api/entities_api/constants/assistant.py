@@ -1,4 +1,12 @@
-PLATFORM_TOOLS = ["code_interpreter", "web_search", "vector_store_search", "computer"]
+PLATFORM_TOOLS = [
+    "code_interpreter",
+    "web_search",
+    "search_web_page",
+    "scroll_web_page",
+    "read_web_page",
+    "vector_store_search",
+    "computer",
+]
 
 API_TIMEOUT = 30
 DEFAULT_MODEL = "llama3.1"

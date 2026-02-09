@@ -3,7 +3,15 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-PLATFORM_TOOLS = ["code_interpreter", "web_search", "vector_store_search", "computer"]
+PLATFORM_TOOLS = [
+    "code_interpreter",
+    "web_search",
+    "search_web_page",
+    "scroll_web_page",
+    "read_web_page",
+    "vector_store_search",
+    "computer",
+]
 
 TOOLS_ID_MAP = {
     "code_interpreter": "tool_79YkQEz5cDwpJjnR7oJ80D",
