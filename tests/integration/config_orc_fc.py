@@ -29,6 +29,8 @@ dotenv.load_dotenv()
 content = "Go to https://www.paulgraham.com/ds.html and find out exactly what he says about 'Brian Chesky' and 'air mattresses'."
 # content = "Go to https://pypi.org/project/pandas/ and tell me the latest version number and the exact command to install it."
 # content = "Go to https://en.wikipedia.org/wiki/List_of_highest-grossing_films and tell me which movie is at rank #1 and how much it earned."
+# content = "I want to compare the main headline on https://www.cnn.com/ vs https://www.foxnews.com/. Go to both right now and tell me how their top stories differ."
+
 
 config = {
     "together_api_key": "",

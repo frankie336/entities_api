@@ -1,13 +1,8 @@
-# src/api/entities_api/services/web_reader.py
-import asyncio
 import logging
 import os
-import shutil
-import subprocess
-from typing import List, Optional
+from typing import List
 
 import html2text
-import requests
 from playwright.async_api import async_playwright
 
 # Import your cache class
@@ -19,8 +14,11 @@ logger = logging.getLogger("UniversalWebReader")
 class UniversalWebReader:
     """
     The 'Eyes' of the agent.
-    Responsibility: Fetch raw content (Static or Dynamic), clean it, chunk it,
-    and hand it off to the WebSessionCache.
+
+    ARCHITECTURE CHANGE:
+    This service no longer executes local 'curl' or 'requests'.
+    It strictly offloads all fetching to the 'browserless/chromium' container
+    via WebSocket (CDP). This keeps the API container secure and lightweight.
     """
 
     def __init__(self, cache_service: WebSessionCache):
@@ -35,10 +33,8 @@ class UniversalWebReader:
 
         # Config
         self.CHUNK_SIZE = 4000
-        self.browser_ws = os.getenv(
-            "BROWSER_WS_ENDPOINT", None
-        )  # e.g. ws://browser:3000
-        self.has_curl = shutil.which("curl") is not None
+        # This matches your docker-compose environment variable
+        self.browser_ws = os.getenv("BROWSER_WS_ENDPOINT", "ws://browser:3000")
 
         self.garbage_triggers = [
             "enable javascript",
@@ -52,140 +48,102 @@ class UniversalWebReader:
     async def read(self, url: str, force_refresh: bool = False) -> str:
         """
         Action: Scrape a URL.
-        1. Checks Redis (via WebSessionCache).
-        2. If missing, Fetches (Curl -> Browserless).
-        3. Saves to Redis.
-        4. Returns Page 0.
+        1. Checks Redis.
+        2. If missing, offloads fetch to 'browser' container.
+        3. Returns Page 0.
         """
         # 1. Check Cache
         if not force_refresh:
-            # We check if the session exists in your Redis Cache
             cached_session = await self.cache.get_session(url)
             if cached_session:
                 logger.info(f"⚡ Cache Hit for {url}")
-                # Return Page 0 using your cache's formatting logic
                 return await self.cache.get_page_view(url, 0)
 
-        # 2. Fetch Content
-        logger.info(f"🌐 Fetching fresh content: {url}")
-        content = self._fetch_static(url)
-        source = "Static (Fast)"
+        # 2. Fetch Content (Strictly Remote)
+        logger.info(f"🌐 Offloading fetch to Browser Service: {url}")
+        content = await self._fetch_via_browserless(url)
 
-        # 3. Validate & Failover to Browser
-        if not self._is_valid_content(content):
-            logger.info(
-                "⚠️ Static fetch failed/garbage. Switching to Sidecar Browser..."
-            )
-            content = await self._fetch_dynamic(url)
-            source = "Dynamic (Browser)"
-
-        # 4. Process & Chunk
+        # 3. Process & Chunk
         clean_text = content.strip()
-        if not clean_text:
-            return "❌ Error: Could not extract any text from this URL."
+        if not clean_text or len(clean_text) < 50:
+            # Fallback check for empty responses
+            return "❌ Error: The browser service returned no content. The site might be blocking headless access."
 
         chunks = self._chunk_text(clean_text)
 
-        # 5. Save to your Redis Cache
+        # 4. Save to Redis
         await self.cache.save_session(
-            url=url, full_text=clean_text, chunks=chunks, source=source
+            url=url, full_text=clean_text, chunks=chunks, source="Remote Browserless"
         )
 
-        # 6. Return Page 0
+        # 5. Return Page 0
         return await self.cache.get_page_view(url, 0)
 
     async def scroll(self, url: str, page: int) -> str:
-        """
-        Action: Scroll.
-        Direct pass-through to the cache logic.
-        """
         return await self.cache.get_page_view(url, page)
 
     async def search(self, url: str, query: str) -> str:
-        """
-        Action: Search.
-        Scans the Redis cache for a keyword across all pages of the session.
-        This prevents context pollution by extracting only relevant snippets
-        on the server side, rather than loading full pages into the LLM.
-        """
         logger.info(f"🔍 Searching {url} for query: '{query}'")
         return await self.cache.search_session(url, query)
 
     # --- INTERNAL HELPERS ---
 
     def _chunk_text(self, text: str) -> List[str]:
-        """Splits text into 4000-char pages."""
         return [
             text[i : i + self.CHUNK_SIZE] for i in range(0, len(text), self.CHUNK_SIZE)
         ]
 
-    def _is_valid_content(self, text: str) -> bool:
-        """Detects if we got a 'Please enable JS' stub."""
-        if not text or len(text) < 300:
-            return False
-        header = text.lower()[:500]
-        return not any(trigger in header for trigger in self.garbage_triggers)
+    # --- NETWORK LAYER (Remote Only) ---
 
-    # --- NETWORK LAYERS (Docker Optimized) ---
-
-    def _fetch_static(self, url: str) -> str:
-        """Layer 1: Curl (Fastest, avoids some bot blocks)."""
-        if self.has_curl:
-            try:
-                # -L follows redirects, -s silent, --max-time prevents hangs
-                cmd = [
-                    "curl",
-                    "-L",
-                    "-s",
-                    "--max-time",
-                    "10",
-                    "--user-agent",
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                    url,
-                ]
-                result = subprocess.run(cmd, capture_output=True, text=True)
-
-                if result.returncode == 0 and len(result.stdout) > 100:
-                    return self.converter.handle(result.stdout)
-            except Exception as e:
-                logger.warning(f"Curl error: {e}")
-
-        # Fallback: Requests
-        try:
-            resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-            return self.converter.handle(resp.text)
-        except Exception:
-            return ""
-
-    async def _fetch_dynamic(self, url: str) -> str:
-        """Layer 2: Browserless Sidecar (Heavy duty)."""
+    async def _fetch_via_browserless(self, url: str) -> str:
+        """
+        Connects to the `browser` container via WebSocket.
+        Includes optimization to BLOCK images/fonts for speed.
+        """
         async with async_playwright() as p:
             browser = None
             try:
-                if self.browser_ws:
-                    # Connect to the 'browser' container defined in docker-compose
-                    browser = await p.chromium.connect_over_cdp(self.browser_ws)
-                else:
-                    # Local fallback (dev mode)
-                    browser = await p.chromium.launch(headless=True)
+                # Connect to the remote container
+                logger.debug(f"Connecting to CDP at {self.browser_ws}")
+                browser = await p.chromium.connect_over_cdp(self.browser_ws)
 
-                context = await browser.new_context()
+                # Create context with stealth/user-agent settings
+                context = await browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+                    viewport={"width": 1920, "height": 1080},
+                )
+
                 page = await context.new_page()
 
-                # Extended timeout for heavy sites
-                await page.goto(url, timeout=45000, wait_until="domcontentloaded")
+                # --- OPTIMIZATION: Network Interception ---
+                # This makes the browser nearly as fast as curl by blocking heavy assets
+                await page.route("**/*", lambda route: self._handle_route(route))
 
-                # Optional: Smart wait for text hydration
+                # Navigate with a generous timeout for the container communication
+                await page.goto(url, timeout=60000, wait_until="domcontentloaded")
+
+                # Handle "Hydration" (wait for body to actually populate)
                 try:
                     await page.wait_for_selector("body", timeout=5000)
                 except:
                     pass
 
+                # Extract HTML
                 html = await page.content()
+
+                # Convert to Markdown
                 return self.converter.handle(html)
+
             except Exception as e:
-                logger.error(f"Browser error: {e}")
-                return f"Error reading page via browser: {e}"
+                logger.error(f"Remote Browser Error: {e}")
+                return f"Error reading page via browser service: {e}"
             finally:
                 if browser:
                     await browser.close()
+
+    async def _handle_route(self, route):
+        """Block images, fonts, and media to speed up scraping."""
+        if route.request.resource_type in ["image", "media", "font", "stylesheet"]:
+            await route.abort()
+        else:
+            await route.continue_()
