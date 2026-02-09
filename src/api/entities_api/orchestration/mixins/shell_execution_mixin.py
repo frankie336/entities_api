@@ -10,9 +10,8 @@ import jwt
 from projectdavid_common import ToolValidator
 
 # --- DEPENDENCIES ---
-from entities_api.platform_tools.handlers.computer.shell_command_interface import (
-    run_shell_commands_async,
-)
+from entities_api.platform_tools.handlers.computer.shell_command_interface import \
+    run_shell_commands_async
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 LOG = LoggingUtility()
@@ -49,7 +48,9 @@ class ShellExecutionMixin:
         """
         secret = os.getenv("SANDBOX_AUTH_SECRET")
         if not secret:
-            LOG.error("CRITICAL: SANDBOX_AUTH_SECRET is missing in environment variables.")
+            LOG.error(
+                "CRITICAL: SANDBOX_AUTH_SECRET is missing in environment variables."
+            )
             raise ValueError("Server configuration error: Sandbox secret missing.")
 
         payload = {
@@ -107,7 +108,8 @@ class ShellExecutionMixin:
                 pass
 
             error_msg = (
-                f"{validation_error}\n" "Please correct the function arguments and try again."
+                f"{validation_error}\n"
+                "Please correct the function arguments and try again."
             )
 
             yield json.dumps(
@@ -174,7 +176,8 @@ class ShellExecutionMixin:
             # FIXED: Pass thread_id as room_id when generating the token
             # -----------------------------------------------------------------
             auth_token = self._generate_shell_auth_token(
-                subject_id=f"run_{run_id}", room_id=thread_id  # <--- Pass the thread_id here
+                subject_id=f"run_{run_id}",
+                room_id=thread_id,  # <--- Pass the thread_id here
             )
 
             # Pass the token (containing the room claim) to the websocket client
@@ -221,7 +224,8 @@ class ShellExecutionMixin:
             LOG.warning(f"ShellExecution ▸ Self-Correction Triggered for run {run_id}")
         else:
             final_content = (
-                accumulated_content.strip() or "Command executed successfully with no output."
+                accumulated_content.strip()
+                or "Command executed successfully with no output."
             )
 
         # 4. Submit Result

@@ -5,6 +5,7 @@ import os
 import pty
 import subprocess
 import termios  # <--- REQUIRED for controlling the terminal echo
+
 from fastapi import WebSocket, WebSocketDisconnect
 from sandbox.services.room_manager import RoomManager
 

@@ -3,7 +3,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import List, AsyncGenerator
+from typing import AsyncGenerator, List
 
 import websockets
 from dotenv import load_dotenv
@@ -59,7 +59,7 @@ class ShellClient:
                 payload = {"action": "shell_command", "command": cmd}
                 await self.ws.send(json.dumps(payload))
                 logging_utility.info(f"Sent command: {cmd}")
-                await asyncio.sleep(0.1) # Small delay to ensure order
+                await asyncio.sleep(0.1)  # Small delay to ensure order
 
             # 2. Receive loop (Yielding chunks)
             try:
@@ -71,7 +71,9 @@ class ShellClient:
                     if msg_type in ["shell_output", "shell_error"]:
                         content = data.get("content", "")
                         # Log it for debugging
-                        logging_utility.info(f"Received output chunk: {content.strip()}")
+                        logging_utility.info(
+                            f"Received output chunk: {content.strip()}"
+                        )
                         # CRITICAL: Yield immediately to the upper layers
                         yield content
 
@@ -120,6 +122,7 @@ def run_commands_sync(
     """
     Wraps the streaming generator into a single blocking string return.
     """
+
     async def _collect():
         buffer = ""
         async for chunk in run_commands(commands, room, token, elevated):

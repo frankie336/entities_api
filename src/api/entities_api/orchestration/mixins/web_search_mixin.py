@@ -6,10 +6,8 @@ import json
 from typing import Any, Dict, Optional
 
 from projectdavid_common import ToolValidator
-from projectdavid_common.validation import StatusEnum
-
-
 from projectdavid_common.utilities.logging_service import LoggingUtility
+from projectdavid_common.validation import StatusEnum
 
 LOG = LoggingUtility()
 

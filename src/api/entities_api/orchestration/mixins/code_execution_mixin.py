@@ -46,13 +46,16 @@ class CodeExecutionMixin:
         """
         secret = os.getenv("SANDBOX_AUTH_SECRET")
         if not secret:
-            LOG.error("CRITICAL: SANDBOX_AUTH_SECRET is missing in environment variables.")
+            LOG.error(
+                "CRITICAL: SANDBOX_AUTH_SECRET is missing in environment variables."
+            )
             raise ValueError("Server configuration error: Sandbox secret missing.")
 
         payload = {
             "sub": subject_id,
             "iat": int(time.time()),
-            "exp": int(time.time()) + 60,  # Token valid for 60 seconds (connection setup only)
+            "exp": int(time.time())
+            + 60,  # Token valid for 60 seconds (connection setup only)
             "scopes": ["execution"],
         }
 
@@ -105,7 +108,8 @@ class CodeExecutionMixin:
 
             # Send the Validation Error directly back to the LLM
             error_msg = (
-                f"{validation_error}\n" "Please correct the function arguments and try again."
+                f"{validation_error}\n"
+                "Please correct the function arguments and try again."
             )
 
             # Stream the error to frontend
@@ -186,7 +190,9 @@ class CodeExecutionMixin:
             auth_token = self._generate_sandbox_token(subject_id=f"run_{run_id}")
 
             # Pass the token to the client method
-            sync_iter = iter(self.code_execution_client.stream_output(code, token=auth_token))
+            sync_iter = iter(
+                self.code_execution_client.stream_output(code, token=auth_token)
+            )
 
             def safe_next(it):
                 try:
@@ -251,7 +257,9 @@ class CodeExecutionMixin:
                             payload.get("uploaded_files"), list
                         ):
                             uploaded_files.extend(payload["uploaded_files"])
-                        yield json.dumps({"stream_type": "code_execution", "chunk": payload})
+                        yield json.dumps(
+                            {"stream_type": "code_execution", "chunk": payload}
+                        )
 
                     elif ctype == "error":
                         execution_had_error = True
@@ -372,7 +380,9 @@ class CodeExecutionMixin:
         if (has_newline or is_long_enough or is_closed) and safe_cut:
             cursor += len(unsent_buffer)
             clean_segment = (
-                unsent_buffer.replace("\\n", "\n").replace('\\"', '"').replace("\\'", "'")
+                unsent_buffer.replace("\\n", "\n")
+                .replace('\\"', '"')
+                .replace("\\'", "'")
             )
             if len(clean_segment) == 1 and clean_segment in ('"', "}"):
                 return start_index, cursor, None

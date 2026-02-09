@@ -1,6 +1,7 @@
 import asyncio
-import os
 import json
+import os
+
 import websockets
 from dotenv import load_dotenv
 from projectdavid import Entity

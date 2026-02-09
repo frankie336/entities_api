@@ -2,12 +2,11 @@
 import os
 from typing import AsyncGenerator, List, Optional
 
-from entities_api.platform_tools.handlers.computer.shell_command_client import (
-    run_commands,
-    run_commands_sync,
-)
-from src.api.entities_api.services.logging_service import LoggingUtility
 from dotenv import load_dotenv
+
+from entities_api.platform_tools.handlers.computer.shell_command_client import (
+    run_commands, run_commands_sync)
+from src.api.entities_api.services.logging_service import LoggingUtility
 
 load_dotenv()
 logging_utility = LoggingUtility()
@@ -21,7 +20,9 @@ class ShellCommandInterface:
         idle_timeout: float = 2.0,
     ):
         self.logging_utility = LoggingUtility()
-        self.endpoint = endpoint or os.getenv("SHELL_SERVER_URL", "ws://localhost:8000/ws/computer")
+        self.endpoint = endpoint or os.getenv(
+            "SHELL_SERVER_URL", "ws://localhost:8000/ws/computer"
+        )
         self.default_thread_id = thread_id or "thread_default_id"
         self.idle_timeout = idle_timeout
 
@@ -41,7 +42,9 @@ class ShellCommandInterface:
 
         # CRITICAL CHANGE: "async for" instead of "await"
         # We iterate over the chunks coming from the client
-        async for chunk in run_commands(commands, target_room, token=token, elevated=elevated):
+        async for chunk in run_commands(
+            commands, target_room, token=token, elevated=elevated
+        ):
             yield chunk
 
     def run_commands(
