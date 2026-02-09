@@ -32,9 +32,9 @@ config = {
     "entities_user_id": "",
     "base_url": "http://localhost:9000",
     "url": "https://api.together.xyz/v1/chat/completions",
-    "model": "together-ai/marin-community/marin-8b-instruct",
-    "provider": "together",
-    # "provider": "hyperbolic",
+    "model": "hyperbolic/deepseek-ai/DeepSeek-V3",
+    # "provider": "together",
+    "provider": "hyperbolic",
     "assistant_id": "asst_13HyDgBnZxVwh5XexYu74F",
-    "test_prompt": "Please fetch me the flight times between LAX and JFK.",
+    "test_prompt": "Go to https://example.com and tell me exactly what the main header text says",
 }

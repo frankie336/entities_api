@@ -1,9 +1,10 @@
 import asyncio
 import json
 import logging
-from asyncio import create_subprocess_exec
-from asyncio.subprocess import PIPE
-
+import os
+import pty
+import subprocess
+import termios  # <--- REQUIRED for controlling the terminal echo
 from fastapi import WebSocket, WebSocketDisconnect
 from sandbox.services.room_manager import RoomManager
 
@@ -11,6 +12,9 @@ logger = logging.getLogger("shell_session")
 
 
 class PersistentShellSession:
+    # A magic string to let us know the shell finished the previous command
+    CMD_SENTINEL = "###__CMD_COMPLETE__###"
+
     def __init__(
         self,
         websocket: WebSocket,
@@ -18,42 +22,63 @@ class PersistentShellSession:
         room_manager: RoomManager,
         elevated: bool = False,
     ):
-        """
-        Initializes a persistent computer session with optional elevation.
-
-        :param websocket: WebSocket connection
-        :param room: Unique identifier for the session room
-        :param room_manager: Manages multiple session rooms
-        :param elevated: If True, starts the computer with sudo (default: False)
-        """
         self.websocket = websocket
         self.room = room
         self.room_manager = room_manager
         self.elevated = elevated
+
         self.process = None
+        self.master_fd = None
         self.alive = True
-        self.output_task = None
 
     async def start(self):
-        """Starts the persistent computer session, handling incoming WebSocket messages."""
-        await self.websocket.accept()
+        # NOTE: If your Router (v1.py) accepts the socket, keep this commented.
+        # await self.websocket.accept()
+
         await self.room_manager.connect(self.room, self.websocket)
 
-        # Choose computer startup command based on elevation flag
+        # 1. Create PTY
+        self.master_fd, slave_fd = pty.openpty()
+
+        # ------------------------------------------------------------------
+        # TRICK: Disable the PTY's native echo.
+        # This hides the "whoami; echo SENTINEL" text from appearing automatically.
+        # We will manually broadcast the clean "whoami" later.
+        # ------------------------------------------------------------------
+        try:
+            attrs = termios.tcgetattr(slave_fd)
+            attrs[3] = attrs[3] & ~termios.ECHO  # Turn off ECHO flag
+            termios.tcsetattr(slave_fd, termios.TCSANOW, attrs)
+        except Exception as e:
+            logger.warning(f"Failed to disable PTY echo: {e}")
+
         shell_command = ["sudo", "/bin/bash"] if self.elevated else ["/bin/bash"]
 
-        # Start the subprocess
-        self.process = await create_subprocess_exec(
-            *shell_command, stdin=PIPE, stdout=PIPE, stderr=PIPE
-        )
-
-        # Start streaming computer output
-        self.output_task = asyncio.create_task(self.stream_output())
-
         try:
+            # 2. Start Subprocess
+            self.process = subprocess.Popen(
+                shell_command,
+                stdin=slave_fd,
+                stdout=slave_fd,
+                stderr=slave_fd,
+                preexec_fn=os.setsid,
+                shell=False,
+                close_fds=True,
+            )
+            os.close(slave_fd)
+
+            # 3. Register Reader
+            loop = asyncio.get_running_loop()
+            loop.add_reader(self.master_fd, self._read_output)
+
+            # 4. Listen for WebSocket messages
             while self.alive:
                 raw_message = await self.websocket.receive_text()
-                message = json.loads(raw_message)
+                try:
+                    message = json.loads(raw_message)
+                except json.JSONDecodeError:
+                    continue
+
                 action = message.get("action")
 
                 if action == "shell_command":
@@ -64,17 +89,16 @@ class PersistentShellSession:
                     await self.websocket.send_json({"type": "pong"})
 
                 elif action == "disconnect":
-                    break  # Explicit disconnect requested
+                    break
 
                 elif action == "toggle_elevation":
-                    self.elevated = not self.elevated  # Toggle elevation setting
+                    self.elevated = not self.elevated
                     await self.websocket.send_json(
                         {
                             "type": "status",
-                            "content": f"Elevation toggled: {'Enabled' if self.elevated else 'Disabled'}",
+                            "content": f"Elevation flag changed to: {self.elevated}",
                         }
                     )
-
                 else:
                     await self.websocket.send_json(
                         {"type": "error", "content": f"Unknown action: {action}"}
@@ -82,40 +106,35 @@ class PersistentShellSession:
 
         except WebSocketDisconnect:
             logger.info(f"Client disconnected from room {self.room}")
-
         except Exception as e:
-            logger.error(f"Unexpected error: {str(e)}")
-
+            logger.error(f"Unexpected error in shell session: {str(e)}")
         finally:
             await self.cleanup()
 
-    async def send_command(self, cmd: str):
-        """Sends a command to the computer session and broadcasts it."""
-        marker = "!__COMMAND_COMPLETE__"
-        # Append a marker to know when the command has completed
-        full_cmd = f"{cmd}\necho {marker}"
-
-        await self.room_manager.broadcast(
-            self.room,
-            {"type": "shell_command", "thread_id": self.room, "content": full_cmd},
-        )
-
-        if self.process and self.process.stdin:
-            self.process.stdin.write((full_cmd + "\n").encode())
-            await self.process.stdin.drain()
-
-    async def stream_output(self):
-        """Streams computer output to the WebSocket in real-time."""
-        marker = "!__COMMAND_COMPLETE__"
+    def _read_output(self):
+        """Reads from PTY, detects sentinel, and broadcasts."""
         try:
-            while self.alive:
-                chunk = await self.process.stdout.read(1024)
-                if chunk:
-                    text_chunk = chunk.decode(errors="replace")
-                    if marker in text_chunk:
-                        # Remove the marker from the output before broadcasting
-                        text_chunk = text_chunk.replace(marker, "")
-                        await self.room_manager.broadcast(
+            if not self.master_fd:
+                return
+
+            output = os.read(self.master_fd, 4096)
+
+            if output:
+                text_chunk = output.decode("utf-8", errors="replace")
+
+                # --- SENTINEL DETECTION LOGIC ---
+                completion_detected = False
+
+                if self.CMD_SENTINEL in text_chunk:
+                    completion_detected = True
+                    # Clean the sentinel from the output so the user doesn't see it
+                    text_chunk = text_chunk.replace(self.CMD_SENTINEL, "")
+                    # Often the sentinel leaves a trailing newline or prompt artifact
+                    text_chunk = text_chunk.replace("\n\r\n", "\n")
+
+                if text_chunk:
+                    asyncio.create_task(
+                        self.room_manager.broadcast(
                             self.room,
                             {
                                 "type": "shell_output",
@@ -123,55 +142,71 @@ class PersistentShellSession:
                                 "content": text_chunk,
                             },
                         )
-                        # Send explicit command complete signal
-                        await self.room_manager.broadcast(
-                            self.room,
-                            {
-                                "type": "command_complete",
-                                "thread_id": self.room,
-                                "content": "",
-                            },
-                        )
-                    else:
-                        await self.room_manager.broadcast(
-                            self.room,
-                            {
-                                "type": "shell_output",
-                                "thread_id": self.room,
-                                "content": text_chunk,
-                            },
-                        )
-                else:
-                    await asyncio.sleep(0.01)
+                    )
 
-        except asyncio.CancelledError:
-            logger.info(f"Streaming cancelled for room {self.room}")
+                if completion_detected:
+                    logger.info(f"Command completion detected in room {self.room}")
+                    asyncio.create_task(
+                        self.room_manager.broadcast(
+                            self.room, {"type": "command_complete"}
+                        )
+                    )
+            else:
+                self.alive = False
+        except OSError:
+            self.alive = False
 
-        except Exception as e:
-            logger.error(f"Error streaming output: {str(e)}")
+    async def send_command(self, cmd: str):
+        """
+        Injects the command, manually echoes the clean version,
+        and then runs the sentinel version in the background.
+        """
+        if self.master_fd and self.alive:
+            try:
+                # 1. VISUAL ECHO: Manually send the CLEAN command to the UI
+                # This makes it look like the user typed it.
+                # Adding \r\n simulates the user hitting Enter.
+                asyncio.create_task(
+                    self.room_manager.broadcast(
+                        self.room,
+                        {
+                            "type": "shell_output",
+                            "thread_id": self.room,
+                            "content": f"{cmd}\r\n",
+                        },
+                    )
+                )
+
+                # 2. ACTUAL EXECUTION: Run the command + Sentinel
+                # The PTY will NOT echo this back because we disabled termios.ECHO
+                wrapped_cmd = f"{cmd}; echo '{self.CMD_SENTINEL}'\n"
+                os.write(self.master_fd, wrapped_cmd.encode())
+
+            except OSError as e:
+                logger.error(f"Failed to write to PTY: {e}")
+                self.alive = False
 
     async def cleanup(self):
-        """Terminates the computer session and cleans up resources."""
         self.alive = False
+        loop = asyncio.get_running_loop()
+
+        if self.master_fd:
+            try:
+                loop.remove_reader(self.master_fd)
+                os.close(self.master_fd)
+            except Exception:
+                pass
+            self.master_fd = None
+
         if self.process:
             try:
-                self.process.stdin.write(b"exit\n")
-                await self.process.stdin.drain()
-                await asyncio.wait_for(self.process.wait(), timeout=5)
-            except Exception as e:
-                logger.error(f"Failed to terminate process: {str(e)}")
-
-        if self.output_task:
-            self.output_task.cancel()
-            try:
-                await self.output_task
-            except asyncio.CancelledError:
+                self.process.terminate()
+                self.process.wait()
+            except Exception:
                 pass
 
         try:
             await self.room_manager.disconnect(self.room, self.websocket)
             await self.websocket.close()
-        except Exception as e:
-            logger.error(f"Error closing websocket: {str(e)}")
-
-        logger.info(f"Session cleaned up for room {self.room}.")
+        except Exception:
+            pass

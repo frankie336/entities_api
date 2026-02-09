@@ -11,6 +11,8 @@ RUN pip install --upgrade pip setuptools wheel
 # === Stage 1: install UNHASHABLE packages (PyTorch, Nvidia, etc.) ======================
 FROM base AS unhashed_builder
 COPY api_unhashed_reqs.txt .
+# (Optional) You can add playwright here if you prefer managing it via txt
+# RUN echo "playwright" >> api_unhashed_reqs.txt
 RUN echo "opencv-python-headless" >> api_unhashed_reqs.txt
 RUN pip install \
     --prefix=/install/packages \
@@ -37,6 +39,7 @@ FROM python:3.11-slim AS runtime
 WORKDIR /app
 
 # Minimal OS deps (+ dos2unix)
+# NOTE: Playwright 'install-deps' will install more heavy libs (GStreamer, NSS, etc.)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --no-install-suggests \
         libgl1 \
@@ -58,7 +61,15 @@ COPY --from=unhashed_builder /install/packages /usr/local
 COPY --from=hashed_builder   /install/packages /usr/local
 
 # ------------------------------------------------------------------
-# CHANGED: copy the entire 'src' tree (now contains api/entities_api)
+# [NEW] WEB READER DEPENDENCIES
+# 1. Install Python libs (in case they are missing from requirements.txt)
+# 2. Install Chromium Binary + System Deps (The Heavy Lift)
+# ------------------------------------------------------------------
+RUN pip install --no-cache-dir html2text playwright && \
+    playwright install --with-deps chromium
+
+# ------------------------------------------------------------------
+# Copy Source Code
 # ------------------------------------------------------------------
 COPY src /app/src
 
@@ -74,9 +85,7 @@ COPY docker/api/supervisord.conf    /etc/supervisor/conf.d/supervisord.conf
 RUN dos2unix /app/init_and_run_api.sh && chmod +x /app/init_and_run_api.sh
 
 # ------------------------------------------------------------------
-# CHANGED: point PYTHONPATH at /app/src/api
-#   • /app/src/api  ⟶  contains the package `entities_api`
-#   • makes `from entities_api.utils import safe_ddl` work in Alembic
+# PYTHONPATH Configuration
 # ------------------------------------------------------------------
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app/src/api

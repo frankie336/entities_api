@@ -1,3 +1,4 @@
+# src/api/entities_api/routers/users_router.py
 from fastapi import APIRouter, Depends, HTTPException, status
 from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility

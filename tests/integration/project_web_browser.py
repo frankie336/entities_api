@@ -1,164 +1,180 @@
 import asyncio
 import logging
-import math
-import platform
+import os
+import shutil
 import subprocess
+from typing import List, Optional
 
 import html2text
 import requests
 from playwright.async_api import async_playwright
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("WebReader")
+# Import your cache class
+from src.api.entities_api.cache.web_cache import WebSessionCache
+
+logger = logging.getLogger("UniversalWebReader")
 
 
 class UniversalWebReader:
-    def __init__(self):
-        # Configure HTML to Markdown converter
-        self.converter = html2text.HTML2Text()
-        self.converter.ignore_links = False  # Keep links (useful for citations)
-        self.converter.ignore_images = True  # Strip images (save tokens)
-        self.converter.ignore_tables = False
-        self.converter.body_width = 0  # No wrap
+    """
+    The 'Eyes' of the agent.
+    Responsibility: Fetch raw content (Static or Dynamic), clean it, chunk it,
+    and hand it off to the WebSessionCache.
+    """
 
-        # Heuristics: If the text contains these, the "Fast" fetch failed.
+    def __init__(self, cache_service: WebSessionCache):
+        self.cache = cache_service
+
+        # HTML to Markdown Configuration
+        self.converter = html2text.HTML2Text()
+        self.converter.ignore_links = False
+        self.converter.ignore_images = True
+        self.converter.ignore_tables = False
+        self.converter.body_width = 0
+
+        # Config
+        self.CHUNK_SIZE = 4000
+        self.browser_ws = os.getenv(
+            "BROWSER_WS_ENDPOINT", None
+        )  # e.g. ws://browser:3000
+        self.has_curl = shutil.which("curl") is not None
+
         self.garbage_triggers = [
             "enable javascript",
             "please wait",
             "loading...",
-            "cookie settings",
-            "browser not supported",
             "javascript is required",
             "checking your browser",
+            "turn on js",
         ]
 
-    async def read(self, url: str) -> str:
+    async def read(self, url: str, force_refresh: bool = False) -> str:
         """
-        The Main Tool for the Agent.
-        Returns: A Markdown string (chunked if too long).
+        Action: Scrape a URL.
+        1. Checks Redis (via WebSessionCache).
+        2. If missing, Fetches (Curl -> Browserless).
+        3. Saves to Redis.
+        4. Returns Page 0.
         """
-        logger.info(f"📖 Reading: {url}")
+        # 1. Check Cache
+        if not force_refresh:
+            # We check if the session exists in your Redis Cache
+            cached_session = await self.cache.get_session(url)
+            if cached_session:
+                logger.info(f"⚡ Cache Hit for {url}")
+                # Return Page 0 using your cache's formatting logic
+                return await self.cache.get_page_view(url, 0)
 
-        # --- PHASE 1: The "Speed Run" (Static Request) ---
-        # 1. Try to fetch raw HTML without a browser (Cheap/Fast)
+        # 2. Fetch Content
+        logger.info(f"🌐 Fetching fresh content: {url}")
         content = self._fetch_static(url)
+        source = "Static (Fast)"
 
-        # 2. Check if the content is valid (not a JS stub)
-        if self._is_valid_content(content):
-            logger.info("⚡ Static fetch successful.")
-            return self._format_output(content, source="Static (Fast)")
+        # 3. Validate & Failover to Browser
+        if not self._is_valid_content(content):
+            logger.info(
+                "⚠️ Static fetch failed/garbage. Switching to Sidecar Browser..."
+            )
+            content = await self._fetch_dynamic(url)
+            source = "Dynamic (Browser)"
 
-        # --- PHASE 2: The "Heavy Lift" (Headless Browser) ---
-        # 3. If static failed, launch the browser
-        logger.info("⚠️  Static fetch failed/garbage. Switching to Headless Browser...")
-        content = await self._fetch_dynamic(url)
+        # 4. Process & Chunk
+        clean_text = content.strip()
+        if not clean_text:
+            return "❌ Error: Could not extract any text from this URL."
 
-        return self._format_output(content, source="Dynamic (High-Fidelity)")
+        chunks = self._chunk_text(clean_text)
+
+        # 5. Save to your Redis Cache
+        await self.cache.save_session(
+            url=url, full_text=clean_text, chunks=chunks, source=source
+        )
+
+        # 6. Return Page 0
+        return await self.cache.get_page_view(url, 0)
+
+    async def scroll(self, url: str, page: int) -> str:
+        """
+        Action: Scroll.
+        Direct pass-through to the cache logic.
+        """
+        return await self.cache.get_page_view(url, page)
+
+    # --- INTERNAL HELPERS ---
+
+    def _chunk_text(self, text: str) -> List[str]:
+        """Splits text into 4000-char pages."""
+        return [
+            text[i : i + self.CHUNK_SIZE] for i in range(0, len(text), self.CHUNK_SIZE)
+        ]
+
+    def _is_valid_content(self, text: str) -> bool:
+        """Detects if we got a 'Please enable JS' stub."""
+        if not text or len(text) < 300:
+            return False
+        header = text.lower()[:500]
+        return not any(trigger in header for trigger in self.garbage_triggers)
+
+    # --- NETWORK LAYERS (Docker Optimized) ---
 
     def _fetch_static(self, url: str) -> str:
-        """
-        Attempts to fetch content without launching a full browser.
-        Adapts automatically between Windows (requests) and Linux (w3m).
-        """
+        """Layer 1: Curl (Fastest, avoids some bot blocks)."""
+        if self.has_curl:
+            try:
+                # -L follows redirects, -s silent, --max-time prevents hangs
+                cmd = [
+                    "curl",
+                    "-L",
+                    "-s",
+                    "--max-time",
+                    "10",
+                    "--user-agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                    url,
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+
+                if result.returncode == 0 and len(result.stdout) > 100:
+                    return self.converter.handle(result.stdout)
+            except Exception as e:
+                logger.warning(f"Curl error: {e}")
+
+        # Fallback: Requests
         try:
-            # WINDOWS DEV MODE: Use Python Requests
-            if platform.system() == "Windows":
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-                }
-                response = requests.get(url, headers=headers, timeout=10)
-                response.raise_for_status()
-                return self.converter.handle(response.text)
-
-            # LINUX / DOCKER MODE: Use w3m (Faster, native)
-            else:
-                result = subprocess.run(
-                    ["w3m", "-dump", "-T", "text/html", url],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                return result.stdout.strip()
-
-        except Exception as e:
-            logger.error(f"Static fetch error: {e}")
+            resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+            return self.converter.handle(resp.text)
+        except Exception:
             return ""
 
     async def _fetch_dynamic(self, url: str) -> str:
-        """
-        Launches Playwright to render JavaScript and extract content.
-        """
+        """Layer 2: Browserless Sidecar (Heavy duty)."""
         async with async_playwright() as p:
+            browser = None
             try:
-                # Launch Chromium (Headless)
-                browser = await p.chromium.launch(headless=True)
+                if self.browser_ws:
+                    # Connect to the 'browser' container defined in docker-compose
+                    browser = await p.chromium.connect_over_cdp(self.browser_ws)
+                else:
+                    # Local fallback (dev mode)
+                    browser = await p.chromium.launch(headless=True)
 
-                # Context with User Agent (Avoids basic bot detection)
-                context = await browser.new_context(
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-                )
+                context = await browser.new_context()
                 page = await context.new_page()
 
-                # Navigate and wait for network to settle (JS loaded)
-                await page.goto(url, timeout=60000, wait_until="networkidle")
+                # Extended timeout for heavy sites
+                await page.goto(url, timeout=45000, wait_until="domcontentloaded")
 
-                # Get the HTML and convert to Markdown
+                # Optional: Smart wait for text hydration
+                try:
+                    await page.wait_for_selector("body", timeout=5000)
+                except:
+                    pass
+
                 html = await page.content()
-                await browser.close()
-
                 return self.converter.handle(html)
-
             except Exception as e:
-                return f"Error reading page: {e}"
-
-    def _is_valid_content(self, text: str) -> bool:
-        """Checks if the fetched text is actual content or just a 'Loading' screen."""
-        if not text or len(text) < 300:  # Too short? Probably garbage.
-            return False
-
-        # Check for specific "JS Required" phrases in the first 1000 chars
-        header = text.lower()[:1000]
-        if any(trigger in header for trigger in self.garbage_triggers):
-            return False
-        return True
-
-    def _format_output(self, text: str, source: str) -> str:
-        """
-        Prepares the text for the LLM.
-        - Adds Metadata
-        - Truncates if huge (Context Window Safety)
-        """
-        token_estimate = len(text) // 4
-
-        # Hard cap for "Phase 1": If it's huge, just give the first 10k chars (approx 2500 tokens)
-        # In the future, you can implement the "Scroll" tool here.
-        limit = 10000
-        is_truncated = len(text) > limit
-        clean_text = text[:limit]
-
-        output = f"--- WEB SOURCE: {source} ---\n"
-        output += f"--- LENGTH: {len(text)} chars (~{token_estimate} tokens) ---\n"
-        if is_truncated:
-            output += (
-                "--- NOTICE: Content truncated. (Ask to read more if needed) ---\n\n"
-            )
-
-        output += clean_text
-        return output
-
-
-# --- TEST BLOCK (Run this file directly) ---
-if __name__ == "__main__":
-
-    async def main():
-        reader = UniversalWebReader()
-
-        # Test 1: Static Site (Fast)
-        print(await reader.read("http://example.com"))
-
-        # Test 2: Dynamic Site (Slow) - Requires Playwright
-        print("\n" + "=" * 50 + "\n")
-        print(await reader.read("https://react.dev"))
-
-    asyncio.run(main())
+                logger.error(f"Browser error: {e}")
+                return f"Error reading page via browser: {e}"
+            finally:
+                if browser:
+                    await browser.close()

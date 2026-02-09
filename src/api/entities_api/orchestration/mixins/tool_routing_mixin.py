@@ -79,8 +79,9 @@ class ToolRoutingMixin:
         Scans text for tool call payloads.
         Level 3: Isolates planning blocks and ensures every tool in the batch has a unique ID.
         """
-        from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
-            JsonUtilsMixin
+        from src.api.entities_api.orchestration.mixins.json_utils_mixin import (
+            JsonUtilsMixin,
+        )
 
         if not isinstance(self, JsonUtilsMixin):
             raise TypeError("ToolRoutingMixin must be mixed with JsonUtilsMixin")
@@ -100,8 +101,6 @@ class ToolRoutingMixin:
             parsed = self.ensure_valid_json(raw_payload)
             if parsed:
                 # [L3 ID GENERATION]
-                # If the model didn't provide a call ID, we generate one here.
-                # This ID links the Assistant Request to the Tool Result in Turn 2.
                 if not parsed.get("id"):
                     parsed["id"] = f"call_{uuid.uuid4().hex[:8]}"
 
@@ -155,7 +154,7 @@ class ToolRoutingMixin:
         thread_id: str,
         run_id: str,
         assistant_id: str,
-        tool_call_id: Optional[str] = None,  # Contextual ID (optional)
+        tool_call_id: Optional[str] = None,
         *,
         model: str | None = None,
         api_key: str | None = None,
@@ -176,8 +175,7 @@ class ToolRoutingMixin:
             args = fc.get("arguments")
 
             # [L3] Prioritize the ID assigned by the parser/model
-            # current_call_id = fc.get("id") or tool_call_id
-            current_call_id = tool_call_id
+            current_call_id = tool_call_id or fc.get("id")
 
             # --- LEVEL 2 HEALING (Per-item) ---
             if not name and decision:
@@ -199,7 +197,9 @@ class ToolRoutingMixin:
 
             LOG.info("TOOL-ROUTER ▶ dispatching: %s (ID: %s)", name, current_call_id)
 
-            # 1. PLATFORM TOOLS
+            # ---------------------------------------------------------
+            # 1. PLATFORM TOOLS (Explicit Routing)
+            # ---------------------------------------------------------
             if name == "code_interpreter":
                 async for chunk in self._yield_maybe_async(
                     self.handle_code_interpreter_action(
@@ -227,7 +227,8 @@ class ToolRoutingMixin:
                     yield chunk
 
             elif name == "file_search":
-                await self._yield_maybe_async(
+                # Changed from await to async for
+                async for chunk in self._yield_maybe_async(
                     self.handle_file_search(
                         thread_id=thread_id,
                         run_id=run_id,
@@ -236,9 +237,52 @@ class ToolRoutingMixin:
                         tool_call_id=current_call_id,
                         decision=decision,
                     )
-                )
+                ):
+                    yield chunk
 
-            # 2. SYSTEM TOOLS
+            # --- [NEW] WEB SEARCH TOOLS ROUTING ---
+            # FIX: Use 'async for' because _yield_maybe_async returns a generator
+            elif name == "read_web_page":
+                async for chunk in self._yield_maybe_async(
+                    self.handle_read_web_page(
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        assistant_id=assistant_id,
+                        arguments_dict=args,
+                        tool_call_id=current_call_id,
+                        decision=decision,
+                    )
+                ):
+                    yield chunk
+
+            elif name == "scroll_web_page":
+                async for chunk in self._yield_maybe_async(
+                    self.handle_scroll_web_page(
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        assistant_id=assistant_id,
+                        arguments_dict=args,
+                        tool_call_id=current_call_id,
+                        decision=decision,
+                    )
+                ):
+                    yield chunk
+
+            elif name == "search_web_page":
+                async for chunk in self._yield_maybe_async(
+                    self.handle_search_web_page(
+                        thread_id=thread_id,
+                        run_id=run_id,
+                        assistant_id=assistant_id,
+                        arguments_dict=args,
+                        tool_call_id=current_call_id,
+                        decision=decision,
+                    )
+                ):
+                    yield chunk
+            # ---------------------------------------------------------
+
+            # 2. SYSTEM TOOLS (Dynamic/Legacy Routing)
             elif name in PLATFORM_TOOLS:
                 if name in SPECIAL_CASE_TOOL_HANDLING:
                     gen = self._process_tool_calls(

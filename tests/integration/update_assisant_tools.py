@@ -17,6 +17,9 @@ client = Entity(
 update_assistant = client.assistants.update_assistant(
     assistant_id=config.get("assistant_id"),
     tools=[
+        {"type": "code_interpreter"},
+        {"type": "computer"},
+        {"type": "web_search"},
         {
             "type": "function",
             "function": {

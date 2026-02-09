@@ -8,8 +8,13 @@ from fastapi.security import APIKeyHeader
 from redis.asyncio import Redis
 from sqlalchemy.orm import Session
 
+# --- CACHE IMPORTS ---
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.cache.message_cache import MessageCache
+from entities_api.cache.web_cache import WebSessionCache
+
+# --- SERVICE IMPORTS (NEW) ---
+from entities_api.services.web_reader import UniversalWebReader
 from src.api.entities_api.db.database import get_db
 from src.api.entities_api.models.models import ApiKey, User
 
@@ -108,3 +113,23 @@ async def get_assistant_cache(redis: Redis = Depends(get_redis)) -> AssistantCac
 
 async def get_message_cache(redis: Redis = Depends(get_redis)) -> MessageCache:
     return MessageCache(redis=redis)
+
+
+async def get_web_cache(redis: Redis = Depends(get_redis)) -> WebSessionCache:
+    """
+    Provides the WebSessionCache for managing browsing contexts.
+    """
+    return WebSessionCache(redis=redis)
+
+
+# -----------------------------------------------------------------------------
+# Service Dependencies (NEW)
+# -----------------------------------------------------------------------------
+async def get_web_reader(
+    cache: WebSessionCache = Depends(get_web_cache),
+) -> UniversalWebReader:
+    """
+    Injects the UniversalWebReader service.
+    Automatically handles the Redis connection via WebSessionCache.
+    """
+    return UniversalWebReader(cache_service=cache)

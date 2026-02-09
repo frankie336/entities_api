@@ -1,3 +1,4 @@
+# src/api/entities_api/cache/assistant_cache.py
 import asyncio
 import json
 import os

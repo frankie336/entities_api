@@ -1,22 +1,88 @@
 import json
+import os
 
-from fastapi import Query, WebSocket, WebSocketDisconnect
-from fastapi.routing import APIRouter
-from sandbox.services.code_execution_service import \
-    StreamingCodeExecutionHandler
+import jwt
+from dotenv import load_dotenv
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
+from sandbox.services.code_execution_service import StreamingCodeExecutionHandler
 from sandbox.services.logging_service import LoggingUtility
 from sandbox.services.room_manager import RoomManager
 from sandbox.services.shell_session import PersistentShellSession
 
+# Load environment variables
+load_dotenv()
+
+# Configuration
+SECRET_KEY = os.getenv("SANDBOX_AUTH_SECRET")
+ALGORITHM = "HS256"
+
 logging_utility = LoggingUtility()
-v1_router = APIRouter()  # No prefix here
+v1_router = APIRouter()
 room_manager = RoomManager()
 
 
+async def validate_token(websocket: WebSocket, token: str) -> str | None:
+    """
+    Validates the JWT token from the WebSocket query parameter.
+    Returns the user_id if valid, None otherwise.
+    Closes the WebSocket with a policy violation error if invalid.
+    """
+    if not token:
+        await websocket.close(
+            code=status.WS_1008_POLICY_VIOLATION, reason="Missing authentication token"
+        )
+        return None
+
+    try:
+        # Decode and verify the token
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("sub")
+
+        if not user_id:
+            await websocket.close(
+                code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token payload"
+            )
+            return None
+
+        return str(user_id)
+
+    except jwt.ExpiredSignatureError:
+        logging_utility.warning("Connection rejected: Token expired")
+        await websocket.close(
+            code=status.WS_1008_POLICY_VIOLATION, reason="Token expired"
+        )
+        return None
+    except jwt.InvalidTokenError:
+        logging_utility.warning("Connection rejected: Invalid token")
+        await websocket.close(
+            code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token"
+        )
+        return None
+    except Exception as e:
+        logging_utility.error(f"Token validation error: {str(e)}")
+        await websocket.close(
+            code=status.WS_1011_INTERNAL_ERROR, reason="Authentication error"
+        )
+        return None
+
+
 @v1_router.websocket("/execute")
-async def websocket_execute(websocket: WebSocket):
-    """Handles code execution via WebSocket."""
+async def websocket_execute(
+    websocket: WebSocket,
+    token: str = Query(..., description="Short-lived JWT from Main API"),
+):
+    """
+    Handles code execution via WebSocket.
+    Secured via JWT Query parameter.
+    """
     await websocket.accept()
+
+    # 1. Security Check
+    user_id = await validate_token(websocket, token)
+    if not user_id:
+        return  # Connection closed inside validate_token
+
+    logging_utility.info(f"Execution connection established for User: {user_id}")
     handler = StreamingCodeExecutionHandler()
 
     try:
@@ -29,10 +95,12 @@ async def websocket_execute(websocket: WebSocket):
             await websocket.close(code=1003)
             return
 
+        # 2. Execute with Trusted Identity
+        # We ignore 'user_id' in parsed_data and use the one from the JWT
         await handler.execute_code_streaming(
             websocket=websocket,
             code=parsed_data["code"],
-            user_id=parsed_data.get("user_id", "anonymous"),
+            user_id=user_id,
         )
 
     except json.JSONDecodeError:
@@ -42,7 +110,7 @@ async def websocket_execute(websocket: WebSocket):
         await websocket.send_json({"error": f"Missing required field: {str(e)}"})
         await websocket.close(code=1003)
     except WebSocketDisconnect:
-        logging_utility.info("Client disconnected")
+        logging_utility.info(f"Client {user_id} disconnected")
     except Exception as e:
         logging_utility.error(f"Unexpected error: {str(e)}")
         await websocket.send_json({"error": "Internal server error"})
@@ -51,14 +119,38 @@ async def websocket_execute(websocket: WebSocket):
 
 @v1_router.websocket("/computer")
 async def websocket_endpoint(
-    websocket: WebSocket, room: str = Query("default"), elevated: bool = Query(False)
+    websocket: WebSocket,
+    room: str = Query(..., description="The Thread/Room ID"),
+    elevated: bool = Query(False),
+    token: str = Query(..., description="Signed JWT from Main API"),
 ):
     """
-    WebSocket endpoint for interactive computer sessions.
-
-    :param websocket: The WebSocket connection.
-    :param room: The session room ID.
-    :param elevated: Whether to start the computer with sudo privileges.
+    SECURED: Interactive Shell Session.
     """
+    await websocket.accept()
+
+    # 1. Validate Token Signature
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except Exception as e:
+        logging_utility.warning(f"Connection rejected: {str(e)}")
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    # 2. Validate Room Access (Multi-Tenancy Security)
+    # The token MUST contain a "room" claim matching the requested room
+    allowed_room = payload.get("room")
+    user_id = payload.get("sub")
+
+    if allowed_room != room and allowed_room != "*":
+        logging_utility.warning(
+            f"Unauthorized Room Access: User {user_id} tried to join {room} but ticket was for {allowed_room}"
+        )
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    logging_utility.info(f"Shell session started for User: {user_id} in Room: {room}")
+
+    # 3. Start Session
     session = PersistentShellSession(websocket, room, room_manager, elevated=elevated)
     await session.start()

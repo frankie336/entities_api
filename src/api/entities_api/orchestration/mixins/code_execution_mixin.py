@@ -1,11 +1,17 @@
 # src/api/entities_api/orchestration/mixins/code_execution_mixin.py
+
 from __future__ import annotations
 
 import asyncio
 import json
 import mimetypes
+import os
 import re
+import time
 from typing import Any, AsyncGenerator, Dict, List, Optional
+
+import jwt
+from projectdavid_common import ToolValidator
 
 from src.api.entities_api.services.logging_service import LoggingUtility
 
@@ -14,17 +20,18 @@ LOG = LoggingUtility()
 
 class CodeExecutionMixin:
     """
-    Mixin that handles the `code_interpreter` tool from registration,
-    through real-time streaming, to final summary/attachment handling.
+    Mixin that handles the `code_interpreter` tool.
 
-    Level 2 Enhancement: Implementation of automated self-correction for
-    code failures (SyntaxErrors, RuntimeErrors, etc.).
+    Level 2 Enhancements:
+    1. Shared Input Validation: Rejects malformed JSON via shared ToolValidator before execution.
+    2. Runtime Correction: Catches Python exceptions and prompts for fixes (Self-Correction).
+    3. Secured Execution: Generates short-lived JWTs to authorize Sandbox access.
     """
 
     @staticmethod
     def _format_level2_code_error(error_content: str) -> str:
         """
-        Translates raw Python execution errors into actionable hints for the LLM.
+        Translates execution errors into actionable hints for the LLM.
         """
         return (
             f"Code Execution Failed: {error_content}\n\n"
@@ -32,6 +39,25 @@ class CodeExecutionMixin:
             "logical bug, or missing import, correct your code and retry execution. "
             "If a data file was missing, ensure you used the correct file path from the context."
         )
+
+    def _generate_sandbox_token(self, subject_id: str) -> str:
+        """
+        Generates a short-lived JWT to authorize the connection to the Sandbox API.
+        """
+        secret = os.getenv("SANDBOX_AUTH_SECRET")
+        if not secret:
+            LOG.error("CRITICAL: SANDBOX_AUTH_SECRET is missing in environment variables.")
+            raise ValueError("Server configuration error: Sandbox secret missing.")
+
+        payload = {
+            "sub": subject_id,
+            "iat": int(time.time()),
+            "exp": int(time.time()) + 60,  # Token valid for 60 seconds (connection setup only)
+            "scopes": ["execution"],
+        }
+
+        # Generates a token signed with HS256
+        return jwt.encode(payload, secret, algorithm="HS256")
 
     async def handle_code_interpreter_action(
         self,
@@ -51,7 +77,58 @@ class CodeExecutionMixin:
             }
         )
 
-        # 2. Create the Action Record
+        # --- [L2] SHARED INPUT VALIDATION ---
+        # Instantiate validator and manually enforce schema for this platform tool.
+        # This replaces the standalone validate_code_payload function.
+        validator = ToolValidator()
+        validator.schema_registry = {"code_interpreter": ["code"]}
+
+        # validate_args returns an error string if invalid, or None if valid
+        validation_error = validator.validate_args("code_interpreter", arguments_dict)
+        is_valid = validation_error is None
+
+        if not is_valid:
+            LOG.warning(f"CodeInterpreter ▸ Validation Failed: {validation_error}")
+
+            # Create a failed action record for history tracking
+            try:
+                action = await asyncio.to_thread(
+                    self.project_david_client.actions.create_action,
+                    tool_name="code_interpreter",
+                    run_id=run_id,
+                    tool_call_id=tool_call_id,
+                    function_args=arguments_dict,
+                    decision=decision,
+                )
+            except Exception:
+                pass
+
+            # Send the Validation Error directly back to the LLM
+            error_msg = (
+                f"{validation_error}\n" "Please correct the function arguments and try again."
+            )
+
+            # Stream the error to frontend
+            yield json.dumps(
+                {
+                    "stream_type": "code_execution",
+                    "chunk": {"type": "error", "content": validation_error},
+                }
+            )
+
+            # Submit to Orchestrator as an error result to trigger Turn 2
+            await self.submit_tool_output(
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                tool_call_id=tool_call_id,
+                content=error_msg,
+                action=action if "action" in locals() else None,
+                is_error=True,  # <--- CRITICAL: Flags the orchestrator to loop back
+            )
+            return
+        # -----------------------------
+
+        # 2. Create the Action Record (DB)
         try:
             action = await asyncio.to_thread(
                 self.project_david_client.actions.create_action,
@@ -73,7 +150,7 @@ class CodeExecutionMixin:
 
         code: str = arguments_dict.get("code", "")
 
-        # ⚡ HOT CODE REPLAY (Visual feedback)
+        # ⚡ HOT CODE REPLAY (Visual Matrix Effect)
         if code:
             yield json.dumps(
                 {
@@ -81,6 +158,7 @@ class CodeExecutionMixin:
                     "chunk": {"type": "hot_code", "content": "```python\n"},
                 }
             )
+
             for line in code.splitlines(keepends=True):
                 yield json.dumps(
                     {
@@ -103,7 +181,12 @@ class CodeExecutionMixin:
 
         # 3. Stream Execution Output
         try:
-            sync_iter = iter(self.code_execution_client.stream_output(code))
+            # --- [SECURE] Generate Auth Token ---
+            # We use the run_id as the identity for the sandbox logs
+            auth_token = self._generate_sandbox_token(subject_id=f"run_{run_id}")
+
+            # Pass the token to the client method
+            sync_iter = iter(self.code_execution_client.stream_output(code, token=auth_token))
 
             def safe_next(it):
                 try:
@@ -145,9 +228,10 @@ class CodeExecutionMixin:
                             clean_content = str(content).replace("\\n", "\n")
                             hot_code_buffer.append(clean_content)
 
-                            # Detection of failure within the stream
+                            # [L2] Detection of failure within the stream
                             if (
-                                "Traceback" in clean_content
+                                ctype == "stderr"
+                                or "Traceback" in clean_content
                                 or "Error:" in clean_content
                             ):
                                 execution_had_error = True
@@ -167,9 +251,7 @@ class CodeExecutionMixin:
                             payload.get("uploaded_files"), list
                         ):
                             uploaded_files.extend(payload["uploaded_files"])
-                        yield json.dumps(
-                            {"stream_type": "code_execution", "chunk": payload}
-                        )
+                        yield json.dumps({"stream_type": "code_execution", "chunk": payload})
 
                     elif ctype == "error":
                         execution_had_error = True
@@ -196,7 +278,7 @@ class CodeExecutionMixin:
         raw_output = "\n".join(hot_code_buffer).strip()
 
         if execution_had_error:
-            # LEVEL 2: Instead of raw failure, we provide a structured Hint
+            # [L2] Instead of raw failure, we provide a structured Hint
             final_content = self._format_level2_code_error(
                 raw_output or "Unknown execution failure."
             )
@@ -290,14 +372,12 @@ class CodeExecutionMixin:
         if (has_newline or is_long_enough or is_closed) and safe_cut:
             cursor += len(unsent_buffer)
             clean_segment = (
-                unsent_buffer.replace("\\n", "\n")
-                .replace('\\"', '"')
-                .replace("\\'", "'")
+                unsent_buffer.replace("\\n", "\n").replace('\\"', '"').replace("\\'", "'")
             )
             if len(clean_segment) == 1 and clean_segment in ('"', "}"):
                 return start_index, cursor, None
             payload_dict = {"type": "hot_code", "content": clean_segment}
-            self._shunt_to_redis_stream(redis_client, stream_key, payload_dict)
+            # Optional: self._shunt_to_redis_stream(redis_client, stream_key, payload_dict)
             return start_index, cursor, json.dumps(payload_dict)
 
         return start_index, cursor, None

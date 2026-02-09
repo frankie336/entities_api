@@ -5,6 +5,7 @@ import asyncio
 import json
 from typing import Any, Dict, Optional
 
+from projectdavid_common import ToolValidator
 from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.services.logging_service import LoggingUtility
@@ -17,7 +18,7 @@ class FileSearchMixin:
     Drive the **file_search** tool-call asynchronously.
 
     Level 2 Enhancement: Implementation of automated self-correction for
-    retrieval failures and empty search results.
+    retrieval failures, empty search results, and schema validation.
     """
 
     @staticmethod
@@ -43,13 +44,61 @@ class FileSearchMixin:
     ) -> None:
         """
         Asynchronous handler for file_search.
-        Signals the internal orchestrator loop for Turn 2 if retrieval fails
-        or returns empty results.
+        Signals the internal orchestrator loop for Turn 2 if validation fails,
+        retrieval fails, or returns empty results.
         """
         ts_start = asyncio.get_event_loop().time()
+
+        # --- [L2] SHARED INPUT VALIDATION ---
+        # Instantiate validator and enforce schema for 'file_search'.
+        validator = ToolValidator()
+        validator.schema_registry = {"file_search": ["query_text"]}
+
+        validation_error = validator.validate_args("file_search", arguments_dict)
+        is_valid = validation_error is None
+
+        if not is_valid:
+            LOG.warning(f"FileSearch ▸ Validation Failed: {validation_error}")
+
+            # Create a failed action record for history tracking
+            try:
+                action = await asyncio.to_thread(
+                    self.project_david_client.actions.create_action,
+                    tool_name="file_search",
+                    run_id=run_id,
+                    tool_call_id=tool_call_id,
+                    function_args=arguments_dict,
+                    decision=decision,
+                )
+                # Mark it failed immediately
+                await asyncio.to_thread(
+                    self.project_david_client.actions.update_action,
+                    action_id=action.id,
+                    status=StatusEnum.failed.value,
+                )
+            except Exception:
+                pass
+
+            error_msg = (
+                f"{validation_error}\n"
+                "Please provide a valid 'query_text' string for the search."
+            )
+
+            # Submit to Orchestrator as an error result to trigger Turn 2
+            await self.submit_tool_output(
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                tool_call_id=tool_call_id,
+                content=error_msg,
+                action=action if "action" in locals() else None,
+                is_error=True,  # <--- CRITICAL: Flags the orchestrator to loop back
+            )
+            return
+        # -----------------------------
+
         query_text: str = arguments_dict.get("query_text", "")
 
-        # 1. Create Action Record
+        # 1. Create Action Record (Success Path)
         try:
             action = await asyncio.to_thread(
                 self.project_david_client.actions.create_action,

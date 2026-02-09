@@ -7,12 +7,16 @@ from typing import Any, Dict, List, Optional, Tuple
 from projectdavid import Entity
 
 from entities_api.constants.tools import PLATFORM_TOOL_MAP
-from entities_api.orchestration.instructions.assembler import \
-    assemble_instructions
+from entities_api.orchestration.instructions.assembler import assemble_instructions
 from src.api.entities_api.orchestration.instructions.include_lists import (
-    L2_INSTRUCTIONS, L3_INSTRUCTIONS, NO_CORE_INSTRUCTIONS)
-from src.api.entities_api.platform_tools.definitions.record_tool_decision import \
-    record_tool_decision
+    L2_INSTRUCTIONS,
+    L3_INSTRUCTIONS,
+    L3_WEB_USE_INSTRUCTIONS,
+    NO_CORE_INSTRUCTIONS,
+)
+from src.api.entities_api.platform_tools.definitions.record_tool_decision import (
+    record_tool_decision,
+)
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 LOG = LoggingUtility()
@@ -24,8 +28,7 @@ class ConversationContextMixin:
     @property
     def message_cache(self):
         if not self._message_cache:
-            from src.api.entities_api.cache.message_cache import \
-                get_sync_message_cache
+            from src.api.entities_api.cache.message_cache import get_sync_message_cache
 
             self._message_cache = get_sync_message_cache()
         return self._message_cache
@@ -115,7 +118,13 @@ class ConversationContextMixin:
                 and tool_type != "function"
                 and "function" not in tool
             ):
-                resolved_platform_tools.append(PLATFORM_TOOL_MAP[tool_type])
+                platform_def = PLATFORM_TOOL_MAP[tool_type]
+
+                # --- FIX: Check for BOTH list and tuple ---
+                if isinstance(platform_def, (list, tuple)):
+                    resolved_platform_tools.extend(platform_def)
+                else:
+                    resolved_platform_tools.append(platform_def)
             else:
                 resolved_user_tools.append(tool)
 
@@ -126,8 +135,9 @@ class ConversationContextMixin:
 
         for tool in platform_tools_all:
             try:
+                # If tool is somehow a tuple/list, catching TypeError prevents a crash
                 name = tool["function"]["name"]
-            except KeyError:
+            except (KeyError, TypeError):
                 continue
 
             if name not in seen_names:
@@ -139,36 +149,42 @@ class ConversationContextMixin:
     async def _build_system_message(
         self,
         assistant_id: str,
-        decision_telemetry: bool = True,
+        decision_telemetry: bool = False,
         agent_mode: bool = False,
+        web_search: bool = True,
     ) -> Dict:
-        # 1. Setup & Retrieval
         cache = self.get_assistant_cache()
         cfg = await cache.retrieve(assistant_id)
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # 2. Select Instruction Set (Create a copy to avoid mutating constants)
         instruction_keys = list(L3_INSTRUCTIONS if agent_mode else L2_INSTRUCTIONS)
 
-        # 3. Inject Telemetry (if requested and not already present)
         if decision_telemetry and "TOOL_DECISION_PROTOCOL" not in instruction_keys:
             instruction_keys.insert(0, "TOOL_DECISION_PROTOCOL")
 
-        # 4. Resolve Tools & Instructions
+        # Inject Web Search Instructions to the main list
+        if web_search:
+            instruction_keys.extend(L3_WEB_USE_INSTRUCTIONS)
+
         platform_instructions = assemble_instructions(include_keys=instruction_keys)
 
-        # -------------------------------------------------
-        # - Resolves the assistants tools registry
-        # - Merges The assistants tools registry
-        # with selected platform tools
-        # -----------------------------------------------------
+        # Ensure tools list exists
+        raw_tools_list = cfg.get("tools") or []
+
+        if web_search:
+            has_web_tool = any(
+                isinstance(t, dict) and t.get("type") == "web_search"
+                for t in raw_tools_list
+            )
+            if not has_web_tool:
+                raw_tools_list = list(raw_tools_list)
+                raw_tools_list.append({"type": "web_search"})
+
         final_tools = self._resolve_and_prioritize_platform_tools(
-            tools=cfg["tools"],
+            tools=raw_tools_list,
             decision_telemetry=decision_telemetry,
         )
 
-        # 5. Build Content Blocks (Cleaner construction)
-        # Using a list allows us to join with double newlines, handling empty sections gracefully.
         content_blocks = [
             f"Today's date and time: {today}",
             "### ASSISTANT INSTRUCTIONS",
@@ -202,32 +218,42 @@ class ConversationContextMixin:
     async def _build_native_function_calls_system_message(
         self,
         assistant_id: str,
-        decision_telemetry: bool = True,
+        decision_telemetry: bool = False,
         agent_mode: bool = False,
+        web_search: bool = True,
     ) -> Dict:
-        # 1. Setup & Retrieval
         cache = self.get_assistant_cache()
         cfg = await cache.retrieve(assistant_id)
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # 2. Select Instruction Set
-        # If Agent Mode -> L3 Instructions
-        # If Standard  -> NO_CORE_INSTRUCTIONS (The "NONE" list)
         instruction_keys = list(L3_INSTRUCTIONS if agent_mode else NO_CORE_INSTRUCTIONS)
 
-        # 3. Inject Telemetry (if requested and not already present)
         if decision_telemetry and "TOOL_DECISION_PROTOCOL" not in instruction_keys:
             instruction_keys.insert(0, "TOOL_DECISION_PROTOCOL")
 
-        # 4. Resolve Tools & Instructions
+        # Inject Web Search Instructions to the main list
+        if web_search:
+            instruction_keys.extend(L3_WEB_USE_INSTRUCTIONS)
+
         platform_instructions = assemble_instructions(include_keys=instruction_keys)
 
+        # Ensure tools list exists
+        raw_tools_list = cfg.get("tools") or []
+
+        if web_search:
+            has_web_tool = any(
+                isinstance(t, dict) and t.get("type") == "web_search"
+                for t in raw_tools_list
+            )
+            if not has_web_tool:
+                raw_tools_list = list(raw_tools_list)
+                raw_tools_list.append({"type": "web_search"})
+
         final_tools = self._resolve_and_prioritize_platform_tools(
-            tools=cfg.get("tools", []),
+            tools=raw_tools_list,
             decision_telemetry=decision_telemetry,
         )
 
-        # 5. Build Content Blocks
         content_blocks = [
             f"Today's date and time: {today}",
             "### ASSISTANT INSTRUCTIONS",
@@ -256,6 +282,7 @@ class ConversationContextMixin:
         force_refresh: Optional[bool] = False,
         decision_telemetry: bool = False,
         agent_mode: bool = False,
+        web_search: bool = True,
     ) -> List[Dict]:
 
         # 1. Build the System Message (This part is solid)
