@@ -20,6 +20,7 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.dependencies import get_redis_sync
+from src.api.entities_api.constants.assistant import PLATFORM_TOOLS
 from src.api.entities_api.orchestration.mixins.client_factory_mixin import \
     ClientFactoryMixin
 from src.api.entities_api.orchestration.mixins.code_execution_mixin import \
@@ -210,8 +211,6 @@ class OrchestratorCore(
         Orchestrates multi-turn self-correction for Platform Tools.
         Supports batches of multiple tool calls emitted in a single turn.
         """
-        from src.api.entities_api.constants.assistant import PLATFORM_TOOLS
-
         turn_count = 0
         current_message_id = message_id
 

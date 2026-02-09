@@ -13,7 +13,7 @@ websockets==15.0.1
 transformers>=4.33.0,<5.0.0
 # ------------------------------------------------------------------ #
 # Internal packages
-projectdavid==1.47.4
+projectdavid==1.47.5
 
 # web search tools
 
