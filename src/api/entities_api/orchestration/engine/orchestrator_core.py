@@ -138,9 +138,10 @@ class OrchestratorCore(
         assistant_id: str,
         model: Any,
         *,
+        force_refresh: bool = False,
         stream_reasoning: bool = False,
         api_key: Optional[str] = None,
-    ) -> Generator[str, None, None]:
+    ) -> AsyncGenerator[str, None]:  # <--- FIXED (Asynchronous)
         """
         Must open a streaming connection to the underlying LLM provider,
         parse deltas into the mix-in JSON chunk format and `yield` them.

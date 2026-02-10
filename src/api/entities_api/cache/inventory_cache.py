@@ -1,8 +1,10 @@
 # src/api/entities_api/cache/inventory_cache.py
 
 import json
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
+
 from redis.asyncio import Redis
+
 
 class InventoryCache:
     """
@@ -38,23 +40,19 @@ class InventoryCache:
         """
         async with self.redis.pipeline() as pipe:
             for dev in devices:
-                hostname = dev['host_name']
+                hostname = dev["host_name"]
 
                 # 1. Store Device Data (Scoped to Assistant)
                 dev_key = self._dev_key(assistant_id, hostname)
 
                 # Add the assistant_id to the blob for sanity checking later
-                dev['owner_id'] = assistant_id
+                dev["owner_id"] = assistant_id
 
-                pipe.set(
-                    dev_key,
-                    json.dumps(dev),
-                    ex=self.ttl
-                )
+                pipe.set(dev_key, json.dumps(dev), ex=self.ttl)
 
                 # 2. Update Group Indexes (Scoped to Assistant)
-                if 'groups' in dev and isinstance(dev['groups'], list):
-                    for group in dev['groups']:
+                if "groups" in dev and isinstance(dev["groups"], list):
+                    for group in dev["groups"]:
                         g_key = self._group_key(assistant_id, group)
                         pipe.sadd(g_key, hostname)
                         pipe.expire(g_key, self.ttl)
@@ -79,7 +77,9 @@ class InventoryCache:
         if not hostnames_bytes:
             return []
 
-        hostnames = [h.decode('utf-8') if isinstance(h, bytes) else h for h in hostnames_bytes]
+        hostnames = [
+            h.decode("utf-8") if isinstance(h, bytes) else h for h in hostnames_bytes
+        ]
 
         # 2. Pipeline the retrieval using the Assistant's scoped keys
         async with self.redis.pipeline() as pipe:

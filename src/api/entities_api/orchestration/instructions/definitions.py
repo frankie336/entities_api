@@ -47,7 +47,16 @@ LEVEL_3_WEB_USE_INSTRUCTIONS = {
         "2. **VERTICAL SEQUENCING (STRICT):** Do NOT batch a `read` and a `search` for the *same* URL "
         "simultaneously. You must wait for the page to load first."
     ),
+    # 6. CRITICAL STOP RULE (NEW)
+    "STOP_RULE": (
+        "### 🛑 CRITICAL STOP RULE - NO EXCEPTIONS:\n"
+        "**IF search results contain the complete answer → STOP IMMEDIATELY and respond.**\n"
+        "**DO NOT make additional tool calls for 'more details' or 'confirmation'.**\n"
+        "**ONE-WAY FLOW:** Search results → Direct answer → STOP.\n"
+        '**RED FLAG CHECK:** Before ANY tool call ask: "Do I already have the answer?" If yes → DO NOT CALL.'
+    ),
 }
+
 
 LEVEL_3_INSTRUCTIONS = {
     "L3_IDENTITY": (

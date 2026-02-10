@@ -6,7 +6,6 @@ from fastapi import HTTPException
 from projectdavid import Entity
 from projectdavid_common import UtilsInterface, ValidationInterface
 
-# --- FIX: Removed Tool from imports ---
 from src.api.entities_api.db.database import SessionLocal
 from src.api.entities_api.models.models import Assistant, User, VectorStore
 from src.api.entities_api.services.logging_service import LoggingUtility
@@ -37,9 +36,6 @@ class AssistantService:
             elif isinstance(item, dict) and "id" in item:
                 ids.append(item["id"])
         return ids
-
-    # --- FIX: Removed _resolve_tool_ids ---
-    # We no longer create or resolve Tool rows in the database.
 
     # ────────────────────────────────────────────────
     # Constructor
@@ -80,9 +76,10 @@ class AssistantService:
                 top_p=assistant.top_p,
                 temperature=assistant.temperature,
                 response_format=assistant.response_format,
-                # --- New Agentic Fields ---
+                # --- Agentic Fields (Level 3) ---
                 max_turns=assistant.max_turns,
                 agent_mode=assistant.agent_mode,
+                web_access=assistant.web_access,  # <--- NEW: Integrated here
                 decision_telemetry=assistant.decision_telemetry,
             )
 
@@ -119,7 +116,8 @@ class AssistantService:
 
             data = assistant_update.model_dump(exclude_unset=True)
 
-            # Update basic fields (including tool_configs if passed directly)
+            # Update basic fields.
+            # NOTE: 'web_access' is a simple scalar, so this loop handles it automatically.
             for key, val in data.items():
                 if key not in self.RELATIONSHIP_FIELDS and key != "tools":
                     setattr(db_asst, key, val)

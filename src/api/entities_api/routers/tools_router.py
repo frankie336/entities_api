@@ -4,7 +4,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 # --- Core Dependencies ---
-from src.api.entities_api.dependencies import get_api_key, get_db, get_web_reader
+from src.api.entities_api.dependencies import (get_api_key, get_db,
+                                               get_web_reader)
 from src.api.entities_api.models.models import ApiKey as ApiKeyModel
 from src.api.entities_api.models.models import User as UserModel
 from src.api.entities_api.services.logging_service import LoggingUtility
@@ -38,9 +39,13 @@ def verify_admin_privileges(db: Session, auth_key: ApiKeyModel) -> UserModel:
     """
     Helper to enforce Admin-only access, mimicking the logic in users_router.
     """
-    requesting_admin = db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
+    requesting_admin = (
+        db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
+    )
     if not requesting_admin or not requesting_admin.is_admin:
-        logging_utility.warning(f"Unauthorized web access attempt by user ID: {auth_key.user_id}")
+        logging_utility.warning(
+            f"Unauthorized web access attempt by user ID: {auth_key.user_id}"
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required to use Web Tools.",
@@ -65,7 +70,9 @@ async def read_url(
     # 1. Admin Security Check
     admin_user = verify_admin_privileges(db, auth_key)
 
-    logging_utility.info(f"Admin '{admin_user.email}' requesting to read URL: {payload.url}")
+    logging_utility.info(
+        f"Admin '{admin_user.email}' requesting to read URL: {payload.url}"
+    )
 
     # 2. Execute Logic
     try:

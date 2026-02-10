@@ -336,18 +336,22 @@ class Run(Base):
 
 class Assistant(Base):
     __tablename__ = "assistants"
+
     id = Column(String(64), primary_key=True, index=True)
     object = Column(String(64), nullable=False)
     created_at = Column(Integer, nullable=False)
+
     name = Column(String(128), nullable=False)
     description = Column(String(256))
     model = Column(String(64))
     instructions = Column(Text)
+
     tool_configs = Column(JSON)
     meta_data = Column(JSON)
     top_p = Column(Integer)
     temperature = Column(Integer)
     response_format = Column(String(64))
+
     tool_resources = Column(
         JSON,
         nullable=True,
@@ -362,7 +366,6 @@ class Assistant(Base):
         comment="Max number of iterative loops for Level 3 agency. 1 = Standard Level 2 (ReAct).",
     )
 
-    # UPDATED: Changed from String to Boolean, default False
     agent_mode = Column(
         Boolean,
         default=False,
@@ -371,7 +374,15 @@ class Assistant(Base):
         comment="False = Standard (Level 2), True = Autonomous (Level 3).",
     )
 
-    # NEW: Added Decision Telemetry, default False
+    # NEW: Web Access Toggle
+    web_access = Column(
+        Boolean,
+        default=False,
+        server_default="0",
+        nullable=False,
+        comment="Enable live web search and browsing capabilities.",
+    )
+
     decision_telemetry = Column(
         Boolean,
         default=False,

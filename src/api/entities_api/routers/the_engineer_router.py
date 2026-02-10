@@ -1,16 +1,16 @@
 # src/api/entities_api/routers/the_engineer_router.py
 
 from fastapi import APIRouter, Depends, HTTPException, status
+# --- Schemas ---
+# Importing the schema we defined in projectdavid_common
+from projectdavid_common.schemas.device_ingest_scema import \
+    InventoryIngestRequest
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
+from src.api.entities_api.cache.inventory_cache import InventoryCache
 # --- Core Dependencies ---
 from src.api.entities_api.dependencies import get_api_key, get_inventory_cache
 from src.api.entities_api.models.models import ApiKey as ApiKeyModel
-from src.api.entities_api.cache.inventory_cache import InventoryCache
-
-# --- Schemas ---
-# Importing the schema we defined in projectdavid_common
-from projectdavid_common.schemas.device_ingest_scema import InventoryIngestRequest
 
 # --- Router Setup ---
 router = APIRouter()
@@ -20,7 +20,7 @@ logging_utility = LoggingUtility()
 @router.post(
     "/engineer/inventory/ingest",
     summary="Upload Network Map (The Engineer's Eyes)",
-    status_code=status.HTTP_200_OK
+    status_code=status.HTTP_200_OK,
 )
 async def ingest_network_inventory(
     payload: InventoryIngestRequest,
@@ -49,20 +49,19 @@ async def ingest_network_inventory(
 
         # 2. Ingest into the Assistant-Specific Scope
         count = await cache.ingest_inventory(
-            assistant_id=payload.assistant_id,
-            devices=device_dicts
+            assistant_id=payload.assistant_id, devices=device_dicts
         )
 
         return {
             "status": "success",
             "assistant_id": payload.assistant_id,
             "devices_ingested": count,
-            "message": "The Engineer's mental map has been updated."
+            "message": "The Engineer's mental map has been updated.",
         }
 
     except Exception as e:
         logging_utility.error(f"The Engineer Ingestion Failed: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to ingest inventory: {str(e)}"
+            detail=f"Failed to ingest inventory: {str(e)}",
         )
