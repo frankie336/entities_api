@@ -21,5 +21,5 @@ PLATFORM_TOOL_MAP = {
     "code_interpreter": code_interpreter,
     "computer": computer,
     "file_search": file_search,
-    "web_search": WEB_SEARCH_TOOLS,  # Maps to a List, not a Dict
+    "web_search": WEB_SEARCH_TOOLS,
 }

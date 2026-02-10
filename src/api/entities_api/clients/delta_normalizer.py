@@ -13,9 +13,12 @@ LOG = LoggingUtility()
 class DeltaNormalizer:
     # Standard XML tags
     FC_START, FC_END = "<fc>", "</fc>"
+    # [NEW] Qwen/Other Model Tool Call Tags
+    TC_START, TC_END = "<tool_call>", "</tool_call>"
+
     TH_START, TH_END = "<think>", "</think>"
     DEC_START, DEC_END = "<decision>", "</decision>"
-    PLAN_START, PLAN_END = "<plan>", "</plan>"  # [NEW] Level 3 Planning Tags
+    PLAN_START, PLAN_END = "<plan>", "</plan>"
 
     # GPT-OSS / Hermes Channel tags
     CH_ANALYSIS = "<|channel|>analysis"
@@ -102,8 +105,8 @@ class DeltaNormalizer:
                         }
 
             seg = (
-                delta.get("content", "") if is_dict else getattr(delta, "content", "")
-            ) or ""
+                      delta.get("content", "") if is_dict else getattr(delta, "content", "")
+                  ) or ""
 
             if finish_reason == "tool_calls":
                 for idx, data in list(pending_tool_calls.items()):
@@ -146,9 +149,10 @@ class DeltaNormalizer:
                         (cls.CH_FINAL, None),
                         (cls.MSG_TAG, None),
                         (cls.FC_START, "fc"),
+                        (cls.TC_START, "tool_call_xml"),  # [NEW] Handle <tool_call>
                         (cls.TH_START, "think"),
                         (cls.DEC_START, "decision"),
-                        (cls.PLAN_START, "plan"),  # [NEW] Handle Plan transition
+                        (cls.PLAN_START, "plan"),
                     ]
 
                     match_found = False
@@ -232,7 +236,6 @@ class DeltaNormalizer:
                     buffer = buffer[1:]
                     yielded_something = True
 
-                # [NEW] STATE: PLAN
                 elif state == "plan":
                     if "<" not in buffer:
                         yield {"type": "plan", "content": buffer, "run_id": run_id}
@@ -348,6 +351,24 @@ class DeltaNormalizer:
                     buffer = buffer[1:]
                     yielded_something = True
 
+                # [NEW] STATE: TOOL_CALL_XML (<tool_call>...</tool_call>)
+                elif state == "tool_call_xml":
+                    if buffer.startswith(cls.TC_END):
+                        buffer = buffer[len(cls.TC_END) :]
+                        state = "content"
+                        yielded_something = True
+                        continue
+                    if cls.TC_END.startswith(buffer):
+                        break
+
+                    yield {
+                        "type": "call_arguments",
+                        "content": buffer[0],
+                        "run_id": run_id,
+                    }
+                    buffer = buffer[1:]
+                    yielded_something = True
+
                 if not yielded_something:
                     break
 
@@ -366,11 +387,12 @@ class DeltaNormalizer:
         if buffer:
             if state in ["channel_reasoning", "think"]:
                 yield {"type": "reasoning", "content": buffer, "run_id": run_id}
-            elif state in ["channel_tool_payload", "fc"]:
+            # [NEW] Include tool_call_xml in final flush
+            elif state in ["channel_tool_payload", "fc", "tool_call_xml"]:
                 yield {"type": "call_arguments", "content": buffer, "run_id": run_id}
             elif state == "decision":
                 yield {"type": "decision", "content": buffer, "run_id": run_id}
-            elif state == "plan":  # [NEW] Yield remaining buffer as plan
+            elif state == "plan":
                 yield {"type": "plan", "content": buffer, "run_id": run_id}
             elif state == "content":
                 yield {"type": "content", "content": buffer, "run_id": run_id}
