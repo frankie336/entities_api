@@ -81,10 +81,14 @@ TEST_PROMPTS = {
     # 9. SERP Discovery / No URL Provided
     # Tests the "Discovery" loop: Search -> Select URL -> Read -> Synthesize.
     # The agent must realize it lacks a URL and initiate a search.
+    # "serp_discovery": (
+    #    "I don't have a link, but I need to know the latest status of the "
+    #    "SpaceX Starship program. Search for recent news or the official page "
+    #    "and summarize the outcome of the last major test flight."
+    # ),
     "serp_discovery": (
-        "I don't have a link, but I need to know the latest status of the "
-        "SpaceX Starship program. Search for recent news or the official page "
-        "and summarize the outcome of the last major test flight."
+        "I don't have a link, but I need to know the latest results of the "
+        "olympic women speed skating event. "
     ),
 }
 
@@ -95,9 +99,9 @@ config = {
     "entities_user_id": "",
     "base_url": "http://localhost:9000",
     "url": "https://api.together.xyz/v1/chat/completions",
-    "model": "hyperbolic/Qwen/Qwen2.5-VL-7B-Instruct",
-    # "provider": "together",
-    "provider": "hyperbolic",
+    "model": "together-ai/moonshotai/Kimi-K2-Instruct-0905",
+    "provider": "together",
+    # "provider": "hyperbolic",
     "assistant_id": "asst_13HyDgBnZxVwh5XexYu74F",
     "test_prompt": TEST_PROMPTS["serp_discovery"],
 }

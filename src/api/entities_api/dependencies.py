@@ -12,7 +12,9 @@ from sqlalchemy.orm import Session
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.cache.message_cache import MessageCache
 from entities_api.cache.web_cache import WebSessionCache
-# --- SERVICE IMPORTS (NEW) ---
+from entities_api.cache.inventory_cache import InventoryCache  # ✅ ADDED
+
+# --- SERVICE IMPORTS ---
 from entities_api.services.web_reader import UniversalWebReader
 from src.api.entities_api.db.database import get_db
 from src.api.entities_api.models.models import ApiKey, User
@@ -68,11 +70,7 @@ async def get_api_key(
             headers={"WWW-Authenticate": "APIKey"},
         )
 
-    key = (
-        db.query(ApiKey)
-        .filter(ApiKey.prefix == prefix, ApiKey.is_active.is_(True))
-        .first()
-    )
+    key = db.query(ApiKey).filter(ApiKey.prefix == prefix, ApiKey.is_active.is_(True)).first()
 
     if not key or not key.verify_key(api_key_header):
         raise HTTPException(
@@ -121,8 +119,17 @@ async def get_web_cache(redis: Redis = Depends(get_redis)) -> WebSessionCache:
     return WebSessionCache(redis=redis)
 
 
+# ✅ ADDED: Inventory Cache Dependency
+async def get_inventory_cache(redis: Redis = Depends(get_redis)) -> InventoryCache:
+    """
+    Provides the InventoryCache for storing/retrieving network device maps.
+    Note: assistant_id is passed at runtime in the method calls, not here.
+    """
+    return InventoryCache(redis=redis)
+
+
 # -----------------------------------------------------------------------------
-# Service Dependencies (NEW)
+# Service Dependencies
 # -----------------------------------------------------------------------------
 async def get_web_reader(
     cache: WebSessionCache = Depends(get_web_cache),
