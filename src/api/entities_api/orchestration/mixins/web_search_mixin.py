@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, AsyncGenerator
 
 from projectdavid_common import ToolValidator
 from projectdavid_common.utilities.logging_service import LoggingUtility
@@ -21,7 +21,19 @@ class WebSearchMixin:
     1. **Discovery (SERP)**: Finds URLs via DuckDuckGo.
     2. **Smart Navigation**: Injects next-page logic into read results.
     3. **Resilient Error Handling**: Translates HTTP errors into agent instructions.
+    4. **Live Status**: Yields real-time execution states to the frontend.
     """
+
+    def _create_status_payload(self, tool_name: str, message: str, state: str = "running") -> str:
+        """
+        Formats a status update for the frontend event manager.
+        """
+        return json.dumps({
+            "type": "status",
+            "tool": tool_name,
+            "status": state,
+            "message": message
+        })
 
     @staticmethod
     def _format_web_tool_error(tool_name: str, error_content: str, inputs: Dict) -> str:
@@ -61,7 +73,6 @@ class WebSearchMixin:
     def _inject_navigation_guidance(self, content: str, url: str) -> str:
         """
         Parses the content for pagination info and appends specific Level 3 instructions.
-        This forces the model to see the 'Next Step' immediately after the data.
         """
         # Regex to find "Page X of Y" (Matches: "Page 0 of 5", "Page 1 / 10")
         page_match = re.search(
@@ -101,7 +112,6 @@ class WebSearchMixin:
     def _parse_serp_results(self, raw_markdown: str, query: str) -> str:
         """
         Parses raw markdown from a SERP (DuckDuckGo HTML) into a clean list of URLs.
-        Includes a failsafe prompt if parsing fails (e.g. CAPTCHA).
         """
         lines = raw_markdown.split("\n")
         results = []
@@ -117,13 +127,11 @@ class WebSearchMixin:
                 match = re.search(r"\((https?://[^)]+)\)", line)
                 if match:
                     url = match.group(1)
-                    # Clean title: [Title] -> Title
                     title = line.split("](")[0].strip("[")
                     results.append(f"{count+1}. **{title}**\n   LINK: {url}")
                     count += 1
 
         if not results:
-            # FAILSAFE: If parsing failed, the page might be a CAPTCHA or raw HTML error.
             return (
                 f"❌ No clear search results found for '{query}'.\n"
                 "SYSTEM DIAGNOSTIC: The search engine returned content that could not be parsed (possibly a CAPTCHA).\n"
@@ -146,19 +154,25 @@ class WebSearchMixin:
         arguments_dict: Dict[str, Any],
         tool_call_id: Optional[str],
         decision: Optional[Dict],
-    ) -> None:
+    ) -> AsyncGenerator[str, None]:
         """
         Shared core logic for Read, Scroll, Search, and SERP (Global Search).
+        Yields status messages to the Orchestrator for frontend rendering.
         """
         ts_start = asyncio.get_event_loop().time()
 
-        # --- [1] VALIDATION ---
+        # --- [1] STATUS: VALIDATING ---
+        yield self._create_status_payload(tool_name, "Validating parameters...")
+
+        # --- VALIDATION ---
         validator = ToolValidator()
         validator.schema_registry = {tool_name: required_keys}
         validation_error = validator.validate_args(tool_name, arguments_dict)
 
         if validation_error:
             LOG.warning(f"{tool_name} ▸ Validation Failed: {validation_error}")
+            yield self._create_status_payload(tool_name, "Validation failed.", state="error")
+
             try:
                 action = await asyncio.to_thread(
                     self.project_david_client.actions.create_action,
@@ -186,7 +200,9 @@ class WebSearchMixin:
             )
             return
 
-        # --- [2] ACTION CREATION (Pending) ---
+        # --- [2] STATUS: CREATING ACTION ---
+        yield self._create_status_payload(tool_name, "Initializing tool action...")
+
         try:
             action = await asyncio.to_thread(
                 self.project_david_client.actions.create_action,
@@ -198,6 +214,7 @@ class WebSearchMixin:
             )
         except Exception as e:
             LOG.error(f"{tool_name} ▸ Action creation failed: {e}")
+            yield self._create_status_payload(tool_name, "Internal system error.", state="error")
             return
 
         # --- [3] EXECUTION (Threaded I/O) ---
@@ -207,11 +224,15 @@ class WebSearchMixin:
             # --- A. READ PAGE ---
             if tool_name == "read_web_page":
                 target_url = arguments_dict["url"]
+                yield self._create_status_payload(tool_name, f"Reading: {target_url}...")
+
                 raw_content = await asyncio.to_thread(
                     self.project_david_client.tools.web_read,
                     url=target_url,
                     force_refresh=arguments_dict.get("force_refresh", False),
                 )
+
+                yield self._create_status_payload(tool_name, "Analyzing page content...")
                 final_content = self._inject_navigation_guidance(
                     raw_content, target_url
                 )
@@ -219,10 +240,13 @@ class WebSearchMixin:
             # --- B. SCROLL PAGE ---
             elif tool_name == "scroll_web_page":
                 target_url = arguments_dict["url"]
+                page_num = arguments_dict["page"]
+                yield self._create_status_payload(tool_name, f"Scrolling to page {page_num}...")
+
                 raw_content = await asyncio.to_thread(
                     self.project_david_client.tools.web_scroll,
                     url=target_url,
-                    page=arguments_dict["page"],
+                    page=page_num,
                 )
                 final_content = self._inject_navigation_guidance(
                     raw_content, target_url
@@ -231,16 +255,22 @@ class WebSearchMixin:
             # --- C. INTERNAL SEARCH (Ctrl+F) ---
             elif tool_name == "search_web_page":
                 target_url = arguments_dict["url"]
+                query_val = arguments_dict["query"]
+                yield self._create_status_payload(tool_name, f"Searching page for '{query_val}'...")
+
                 final_content = await asyncio.to_thread(
                     self.project_david_client.tools.web_search,
                     url=target_url,
-                    query=arguments_dict["query"],
+                    query=query_val,
                 )
 
             # --- D. GLOBAL SEARCH (SERP) ---
             elif tool_name == "perform_web_search":
+                query_val = arguments_dict["query"]
+                yield self._create_status_payload(tool_name, f"Querying search engine: '{query_val}'...")
+
                 # Uses the existing 'web_read' capability to query DuckDuckGo HTML
-                query_str = arguments_dict["query"].replace(" ", "+")
+                query_str = query_val.replace(" ", "+")
                 serp_url = f"https://html.duckduckgo.com/html/?q={query_str}"
 
                 # We use force_refresh=True for SERP to avoid stale search results
@@ -249,8 +279,10 @@ class WebSearchMixin:
                     url=serp_url,
                     force_refresh=True,
                 )
+
+                yield self._create_status_payload(tool_name, "Parsing search results...")
                 final_content = self._parse_serp_results(
-                    raw_serp, arguments_dict["query"]
+                    raw_serp, query_val
                 )
 
             else:
@@ -262,9 +294,12 @@ class WebSearchMixin:
             )
 
             if is_soft_failure:
+                yield self._create_status_payload(tool_name, "Encountered external error (processing)...", state="warning")
                 final_content = self._format_web_tool_error(
                     tool_name, final_content, arguments_dict
                 )
+            else:
+                yield self._create_status_payload(tool_name, "Content retrieved successfully.", state="success")
 
             # --- [5] SUBMIT OUTPUT ---
             await self.submit_tool_output(
@@ -293,11 +328,14 @@ class WebSearchMixin:
                 tool_name,
                 asyncio.get_event_loop().time() - ts_start,
                 action.id,
-            )
+                )
 
         except Exception as exc:
             # --- [7] HARD FAILURE HANDLING ---
             LOG.error(f"[%s] %s HARD FAILURE: {exc}", run_id, tool_name)
+
+            yield self._create_status_payload(tool_name, f"Critical failure: {str(exc)}", state="error")
+
             error_hint = self._format_web_tool_error(
                 tool_name, str(exc), arguments_dict
             )
@@ -330,9 +368,9 @@ class WebSearchMixin:
         arguments_dict: Dict[str, Any],
         tool_call_id: Optional[str] = None,
         decision: Optional[Dict] = None,
-    ) -> None:
+    ) -> AsyncGenerator[str, None]:
         """Handler for 'perform_web_search' (Google/DDG Discovery)."""
-        await self._execute_web_tool_logic(
+        async for status in self._execute_web_tool_logic(
             tool_name="perform_web_search",
             required_keys=["query"],
             thread_id=thread_id,
@@ -341,7 +379,8 @@ class WebSearchMixin:
             arguments_dict=arguments_dict,
             tool_call_id=tool_call_id,
             decision=decision,
-        )
+        ):
+            yield status
 
     async def handle_read_web_page(
         self,
@@ -351,8 +390,8 @@ class WebSearchMixin:
         arguments_dict: Dict[str, Any],
         tool_call_id: Optional[str] = None,
         decision: Optional[Dict] = None,
-    ) -> None:
-        await self._execute_web_tool_logic(
+    ) -> AsyncGenerator[str, None]:
+        async for status in self._execute_web_tool_logic(
             tool_name="read_web_page",
             required_keys=["url"],
             thread_id=thread_id,
@@ -361,7 +400,8 @@ class WebSearchMixin:
             arguments_dict=arguments_dict,
             tool_call_id=tool_call_id,
             decision=decision,
-        )
+        ):
+            yield status
 
     async def handle_scroll_web_page(
         self,
@@ -371,8 +411,8 @@ class WebSearchMixin:
         arguments_dict: Dict[str, Any],
         tool_call_id: Optional[str] = None,
         decision: Optional[Dict] = None,
-    ) -> None:
-        await self._execute_web_tool_logic(
+    ) -> AsyncGenerator[str, None]:
+        async for status in self._execute_web_tool_logic(
             tool_name="scroll_web_page",
             required_keys=["url", "page"],
             thread_id=thread_id,
@@ -381,7 +421,8 @@ class WebSearchMixin:
             arguments_dict=arguments_dict,
             tool_call_id=tool_call_id,
             decision=decision,
-        )
+        ):
+            yield status
 
     async def handle_search_web_page(
         self,
@@ -391,8 +432,8 @@ class WebSearchMixin:
         arguments_dict: Dict[str, Any],
         tool_call_id: Optional[str] = None,
         decision: Optional[Dict] = None,
-    ) -> None:
-        await self._execute_web_tool_logic(
+    ) -> AsyncGenerator[str, None]:
+        async for status in self._execute_web_tool_logic(
             tool_name="search_web_page",
             required_keys=["url", "query"],
             thread_id=thread_id,
@@ -401,4 +442,5 @@ class WebSearchMixin:
             arguments_dict=arguments_dict,
             tool_call_id=tool_call_id,
             decision=decision,
-        )
+        ):
+            yield status
