@@ -26,7 +26,7 @@ jinja2
 mypy
 mypy-extensions
 numpy
-openai
+
 packaging
 pdfplumber~=0.11.6
 pluggy
@@ -54,14 +54,16 @@ redis
 pywin32==310 ; sys_platform == "win32"
 
 # ------------------------------------------------------------------
+# These have been removed because we no longer use third party clients
 # Inference providers
-azure-core
-azure-ai-inference
-google-generativeai
-groq
-
+# azure-core
+# azure-ai-inference
+# google-generativeai
+# groq
+# openai
 # ------------------------------------------------------------------
 # Samba
+
 pysmb
 
 # ------------------------------------------------------------------

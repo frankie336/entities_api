@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import List
 
-from projectdavid_common.utilities.logging_service import LoggingUtility
+from projectdavid_common import LoggingUtility
 from transformers import AutoTokenizer
 from transformers.utils import logging as hf_logging
 

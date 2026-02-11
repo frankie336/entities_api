@@ -7,12 +7,15 @@ import time
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import jwt
-from projectdavid_common import ToolValidator
+from projectdavid import StatusEvent
+from projectdavid_common.utilities.tool_validator import ToolValidator
+from projectdavid_common.validation import StatusEnum
 
 # --- DEPENDENCIES ---
 from entities_api.platform_tools.handlers.computer.shell_command_interface import \
     run_shell_commands_async
 from src.api.entities_api.services.logging_service import LoggingUtility
+from src.api.entities_api.utils.level3_utils import create_status_payload
 
 LOG = LoggingUtility()
 
@@ -37,14 +40,9 @@ class ShellExecutionMixin:
             "list the directory contents first. Correct your commands and retry execution."
         )
 
-        # -------------------------------------------------------------------------
-        # FIXED: Renamed method to avoid MRO collision with CodeExecutionMixin
-        # -------------------------------------------------------------------------
-
     def _generate_shell_auth_token(self, subject_id: str, room_id: str) -> str:
         """
         Generates a short-lived JWT to authorize the connection to the Sandbox API.
-        Renamed to avoid conflict with other mixins using _generate_sandbox_token.
         """
         secret = os.getenv("SANDBOX_AUTH_SECRET")
         if not secret:
@@ -71,34 +69,32 @@ class ShellExecutionMixin:
         arguments_dict: Dict[str, Any],
         tool_call_id: Optional[str] = None,
         decision: Optional[Dict] = None,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[StatusEvent, None]:
         """
         Asynchronous handler for shell commands.
         Signals the internal orchestrator loop for Turn 2 if execution fails.
         """
+        tool_name = "computer"
         LOG.info("ShellExecutionMixin: started for run_id=%s", run_id)
 
-        yield json.dumps(
-            {
-                "stream_type": "computer_execution",
-                "chunk": {"type": "status", "status": "started", "run_id": run_id},
-            }
-        )
+        # --- [1] STATUS: VALIDATING ---
+        yield create_status_payload(run_id, tool_name, "Validating shell parameters...")
 
         # --- [L2] SHARED INPUT VALIDATION ---
         validator = ToolValidator()
-        validator.schema_registry = {"computer": ["commands"]}
+        validator.schema_registry = {tool_name: ["commands"]}
 
-        validation_error = validator.validate_args("computer", arguments_dict)
+        validation_error = validator.validate_args(tool_name, arguments_dict)
         is_valid = validation_error is None
 
         if not is_valid:
             LOG.warning(f"ShellExecution ▸ Validation Failed: {validation_error}")
 
+            # Attempt to create a failed action record for history
             try:
                 action = await asyncio.to_thread(
                     self.project_david_client.actions.create_action,
-                    tool_name="computer",
+                    tool_name=tool_name,
                     run_id=run_id,
                     tool_call_id=tool_call_id,
                     function_args=arguments_dict,
@@ -107,16 +103,14 @@ class ShellExecutionMixin:
             except Exception:
                 pass
 
+            # Yield Error Status
+            yield create_status_payload(
+                run_id, tool_name, "Validation failed.", state="error"
+            )
+
             error_msg = (
                 f"{validation_error}\n"
                 "Please correct the function arguments and try again."
-            )
-
-            yield json.dumps(
-                {
-                    "stream_type": "computer_execution",
-                    "chunk": {"type": "error", "content": validation_error},
-                }
             )
 
             await self.submit_tool_output(
@@ -128,13 +122,14 @@ class ShellExecutionMixin:
                 is_error=True,
             )
             return
-        # -----------------------------
 
-        # 1. Create Action Record
+        # --- [2] STATUS: CREATING ACTION ---
+        yield create_status_payload(run_id, tool_name, "Initializing shell session...")
+
         try:
             action = await asyncio.to_thread(
                 self.project_david_client.actions.create_action,
-                tool_name="computer",
+                tool_name=tool_name,
                 run_id=run_id,
                 tool_call_id=tool_call_id,
                 function_args=arguments_dict,
@@ -142,11 +137,8 @@ class ShellExecutionMixin:
             )
         except Exception as e:
             LOG.error(f"ShellExecution ▸ Action creation failed: {e}")
-            yield json.dumps(
-                {
-                    "stream_type": "computer_execution",
-                    "chunk": {"type": "error", "content": f"Creation failed: {e}"},
-                }
+            yield create_status_payload(
+                run_id, tool_name, "Internal system error.", state="error"
             )
             return
 
@@ -159,33 +151,30 @@ class ShellExecutionMixin:
                 content="No commands provided.",
                 action=action,
             )
-            yield json.dumps(
-                {
-                    "stream_type": "computer_execution",
-                    "chunk": {"type": "status", "status": "complete", "run_id": run_id},
-                }
+            yield create_status_payload(
+                run_id, tool_name, "No commands to execute.", state="success"
             )
             return
 
         accumulated_content = ""
         execution_had_error = False
 
+        # --- [3] STATUS: EXECUTING ---
+        yield create_status_payload(run_id, tool_name, "Executing shell commands...")
+
         # 2. Native Async Streaming
         try:
-            # -----------------------------------------------------------------
-            # FIXED: Pass thread_id as room_id when generating the token
-            # -----------------------------------------------------------------
             auth_token = self._generate_shell_auth_token(
                 subject_id=f"run_{run_id}",
-                room_id=thread_id,  # <--- Pass the thread_id here
+                room_id=thread_id,
             )
 
-            # Pass the token (containing the room claim) to the websocket client
             async for chunk in run_shell_commands_async(
                 commands, thread_id=thread_id, token=auth_token
             ):
                 accumulated_content += chunk
 
+                # Check for basic shell error signatures in the stream
                 if any(
                     err_marker in chunk.lower()
                     for err_marker in [
@@ -197,6 +186,9 @@ class ShellExecutionMixin:
                 ):
                     execution_had_error = True
 
+                # NOTE: We keep the specific 'computer_execution' stream type here
+                # because the frontend likely renders this differently (e.g., in a terminal window)
+                # than standard status toasts.
                 yield json.dumps(
                     {
                         "stream_type": "computer_execution",
@@ -209,11 +201,8 @@ class ShellExecutionMixin:
             err_msg = f"Exception during shell execution: {e}"
             LOG.error(f"ShellExecution ▸ {err_msg}")
 
-            yield json.dumps(
-                {
-                    "stream_type": "computer_execution",
-                    "chunk": {"type": "error", "content": err_msg},
-                }
+            yield create_status_payload(
+                run_id, tool_name, "Shell execution crashed.", state="error"
             )
 
         # 3. Final Summary & Level 2 Correction Logic
@@ -222,11 +211,15 @@ class ShellExecutionMixin:
                 accumulated_content or "Unknown shell failure."
             )
             LOG.warning(f"ShellExecution ▸ Self-Correction Triggered for run {run_id}")
+            status_msg = "Execution finished with errors."
+            final_state = "warning"
         else:
             final_content = (
                 accumulated_content.strip()
                 or "Command executed successfully with no output."
             )
+            status_msg = "Execution completed successfully."
+            final_state = "success"
 
         # 4. Submit Result
         await self.submit_tool_output(
@@ -238,9 +231,16 @@ class ShellExecutionMixin:
             is_error=execution_had_error,
         )
 
-        yield json.dumps(
-            {
-                "stream_type": "computer_execution",
-                "chunk": {"type": "status", "status": "complete", "run_id": run_id},
-            }
+        # Update DB Action Status
+        await asyncio.to_thread(
+            self.project_david_client.actions.update_action,
+            action_id=action.id,
+            status=(
+                StatusEnum.completed.value
+                if not execution_had_error
+                else StatusEnum.failed.value
+            ),
         )
+
+        # --- [4] STATUS: COMPLETE ---
+        yield create_status_payload(run_id, tool_name, status_msg, state=final_state)

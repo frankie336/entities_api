@@ -23,22 +23,26 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.dependencies import get_redis_sync
 from src.api.entities_api.constants.assistant import PLATFORM_TOOLS
-from src.api.entities_api.orchestration.mixins.client_factory_mixin import ClientFactoryMixin
-from src.api.entities_api.orchestration.mixins.code_execution_mixin import CodeExecutionMixin
-from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import (
-    ConsumerToolHandlersMixin,
-)
-from src.api.entities_api.orchestration.mixins.conversation_context_mixin import (
-    ConversationContextMixin,
-)
-from src.api.entities_api.orchestration.mixins.json_utils_mixin import JsonUtilsMixin
-from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import (
-    PlatformToolHandlersMixin,
-)
-from src.api.entities_api.orchestration.mixins.service_registry_mixin import ServiceRegistryMixin
-from src.api.entities_api.orchestration.mixins.shell_execution_mixin import ShellExecutionMixin
-from src.api.entities_api.orchestration.mixins.streaming_mixin import StreamingMixin
-from src.api.entities_api.orchestration.mixins.tool_routing_mixin import ToolRoutingMixin
+from src.api.entities_api.orchestration.mixins.client_factory_mixin import \
+    ClientFactoryMixin
+from src.api.entities_api.orchestration.mixins.code_execution_mixin import \
+    CodeExecutionMixin
+from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import \
+    ConsumerToolHandlersMixin
+from src.api.entities_api.orchestration.mixins.conversation_context_mixin import \
+    ConversationContextMixin
+from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
+    JsonUtilsMixin
+from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import \
+    PlatformToolHandlersMixin
+from src.api.entities_api.orchestration.mixins.service_registry_mixin import \
+    ServiceRegistryMixin
+from src.api.entities_api.orchestration.mixins.shell_execution_mixin import \
+    ShellExecutionMixin
+from src.api.entities_api.orchestration.mixins.streaming_mixin import \
+    StreamingMixin
+from src.api.entities_api.orchestration.mixins.tool_routing_mixin import \
+    ToolRoutingMixin
 
 LOG = LoggingUtility()
 
@@ -77,7 +81,9 @@ class OrchestratorCore(
         # If passed explicitly, store it. If not, the Mixin will lazy-load it using self.redis
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
+        elif "assistant_cache" in extra and isinstance(
+            extra["assistant_cache"], AssistantCache
+        ):
             # Handle case where it might be passed via **extra
             self._assistant_cache = extra["assistant_cache"]
 
@@ -154,7 +160,9 @@ class OrchestratorCore(
         """
         if not self.assistant_config and self.assistant_id:
             # self.assistant_cache is provided by the Mixin
-            self.assistant_config = await self.assistant_cache.retrieve(self.assistant_id) or {}
+            self.assistant_config = (
+                await self.assistant_cache.retrieve(self.assistant_id) or {}
+            )
             LOG.debug(f"Loaded config for {self.assistant_id}")
 
     async def _ensure_config_loaded(self):
@@ -197,7 +205,7 @@ class OrchestratorCore(
         assistant_id: str,
         model: Any,
         api_key: Optional[str] = None,
-        max_turns: int = 10,
+        max_turns: int = 100,
         **kwargs,
     ) -> AsyncGenerator[Union[str, StreamEvent], None]:  # <--- ALLOW EVENTS
         """
@@ -231,9 +239,13 @@ class OrchestratorCore(
                 ):
                     yield chunk
             except Exception as stream_exc:
-                LOG.error(f"ORCHESTRATOR ▸ Turn {turn_count} stream failed: {stream_exc}")
+                LOG.error(
+                    f"ORCHESTRATOR ▸ Turn {turn_count} stream failed: {stream_exc}"
+                )
                 # Return a proper error event if possible, otherwise JSON string
-                yield json.dumps({"type": "error", "content": f"Stream failure: {stream_exc}"})
+                yield json.dumps(
+                    {"type": "error", "content": f"Stream failure: {stream_exc}"}
+                )
                 break
 
             # --- 3. BATCH EVALUATION ---
@@ -243,7 +255,9 @@ class OrchestratorCore(
                 LOG.info(f"ORCHESTRATOR ▸ Turn {turn_count} completed with text.")
                 break
 
-            has_consumer_tool = any(tool.get("name") not in PLATFORM_TOOLS for tool in batch)
+            has_consumer_tool = any(
+                tool.get("name") not in PLATFORM_TOOLS for tool in batch
+            )
 
             # --- 4. THE TOOL PROCESSING TURN ---
             # This loop receives StatusEvent objects from WebSearchMixin
@@ -262,12 +276,16 @@ class OrchestratorCore(
 
             # --- 5. RECURSION DECISION ---
             if not has_consumer_tool:
-                LOG.info(f"ORCHESTRATOR ▸ Platform batch {turn_count} complete. Stabilizing...")
+                LOG.info(
+                    f"ORCHESTRATOR ▸ Platform batch {turn_count} complete. Stabilizing..."
+                )
                 await asyncio.sleep(0.5)
                 current_message_id = None
                 continue
             else:
-                LOG.info(f"ORCHESTRATOR ▸ Consumer tool detected in batch. Handing over to SDK.")
+                LOG.info(
+                    f"ORCHESTRATOR ▸ Consumer tool detected in batch. Handing over to SDK."
+                )
                 return
 
         if turn_count >= max_turns:

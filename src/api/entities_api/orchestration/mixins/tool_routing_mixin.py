@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import json
 import re
 import uuid
@@ -129,23 +128,6 @@ class ToolRoutingMixin:
         return []
 
     # -----------------------------------------------------
-    # Async Helpers
-    # -----------------------------------------------------
-    async def _yield_maybe_async(self, obj):
-        if obj is None:
-            return
-        if inspect.isasyncgen(obj):
-            async for chunk in obj:
-                yield chunk
-        elif inspect.isgenerator(obj):
-            for chunk in obj:
-                yield chunk
-        elif inspect.iscoroutine(obj):
-            result = await obj
-            if result:
-                yield result
-
-    # -----------------------------------------------------
     # Tool Processing & Dispatching (Level 3 Batch Enabled)
     # -----------------------------------------------------
     async def process_tool_calls(
@@ -200,104 +182,136 @@ class ToolRoutingMixin:
             # 1. PLATFORM TOOLS (Explicit Routing)
             # ---------------------------------------------------------
             if name == "code_interpreter":
-                async for chunk in self._yield_maybe_async(
-                    self.handle_code_interpreter_action(
-                        thread_id=thread_id,
-                        run_id=run_id,
-                        assistant_id=assistant_id,
-                        arguments_dict=args,
-                        tool_call_id=current_call_id,
-                        decision=decision,
-                    )
+                async for chunk in self.handle_code_interpreter_action(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    assistant_id=assistant_id,
+                    arguments_dict=args,
+                    tool_call_id=current_call_id,
+                    decision=decision,
                 ):
                     yield chunk
 
             elif name == "computer":
-                async for chunk in self._yield_maybe_async(
-                    self.handle_shell_action(
-                        thread_id=thread_id,
-                        run_id=run_id,
-                        assistant_id=assistant_id,
-                        arguments_dict=args,
-                        tool_call_id=current_call_id,
-                        decision=decision,
-                    )
+                async for chunk in self.handle_shell_action(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    assistant_id=assistant_id,
+                    arguments_dict=args,
+                    tool_call_id=current_call_id,
+                    decision=decision,
                 ):
                     yield chunk
 
             elif name == "file_search":
-                # Changed from await to async for
-                async for chunk in self._yield_maybe_async(
-                    self.handle_file_search(
-                        thread_id=thread_id,
-                        run_id=run_id,
-                        assistant_id=assistant_id,
-                        arguments_dict=args,
-                        tool_call_id=current_call_id,
-                        decision=decision,
-                    )
+                async for chunk in self.handle_file_search(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    assistant_id=assistant_id,
+                    arguments_dict=args,
+                    tool_call_id=current_call_id,
+                    decision=decision,
                 ):
                     yield chunk
 
-            # --- [NEW] WEB SEARCH TOOLS ROUTING ---
+            # --- WEB SEARCH TOOLS ---
             elif name == "read_web_page":
-                async for chunk in self._yield_maybe_async(
-                    self.handle_read_web_page(
-                        thread_id=thread_id,
-                        run_id=run_id,
-                        assistant_id=assistant_id,
-                        arguments_dict=args,
-                        tool_call_id=current_call_id,
-                        decision=decision,
-                    )
+                async for chunk in self.handle_read_web_page(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    assistant_id=assistant_id,
+                    arguments_dict=args,
+                    tool_call_id=current_call_id,
+                    decision=decision,
                 ):
                     yield chunk
 
             elif name == "scroll_web_page":
-                async for chunk in self._yield_maybe_async(
-                    self.handle_scroll_web_page(
-                        thread_id=thread_id,
-                        run_id=run_id,
-                        assistant_id=assistant_id,
-                        arguments_dict=args,
-                        tool_call_id=current_call_id,
-                        decision=decision,
-                    )
+                async for chunk in self.handle_scroll_web_page(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    assistant_id=assistant_id,
+                    arguments_dict=args,
+                    tool_call_id=current_call_id,
+                    decision=decision,
                 ):
                     yield chunk
 
             elif name == "search_web_page":
-                async for chunk in self._yield_maybe_async(
-                    self.handle_search_web_page(
-                        thread_id=thread_id,
-                        run_id=run_id,
-                        assistant_id=assistant_id,
-                        arguments_dict=args,
-                        tool_call_id=current_call_id,
-                        decision=decision,
-                    )
+                async for chunk in self.handle_search_web_page(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    assistant_id=assistant_id,
+                    arguments_dict=args,
+                    tool_call_id=current_call_id,
+                    decision=decision,
                 ):
                     yield chunk
 
-            # ✅ ADDED SERP HANDLER
             elif name == "perform_web_search":
-                async for chunk in self._yield_maybe_async(
-                    self.handle_perform_web_search(
-                        thread_id=thread_id,
-                        run_id=run_id,
-                        assistant_id=assistant_id,
-                        arguments_dict=args,
-                        tool_call_id=current_call_id,
-                        decision=decision,
-                    )
+                async for chunk in self.handle_perform_web_search(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    assistant_id=assistant_id,
+                    arguments_dict=args,
+                    tool_call_id=current_call_id,
+                    decision=decision,
                 ):
                     yield chunk
-            # ---------------------------------------------------------
 
+            # ---------------------------------------------------------
+            # ✅ DEEP RESEARCH / MEMORY TOOLS
+            # ---------------------------------------------------------
+            elif name == "delegate_research_task":
+                async for chunk in self.handle_delegate_research_task(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    assistant_id=assistant_id,
+                    arguments_dict=args,
+                    tool_call_id=current_call_id,
+                    decision=decision,
+                ):
+                    yield chunk
+
+            elif name == "read_scratchpad":
+                async for chunk in self.handle_read_scratchpad(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    assistant_id=assistant_id,
+                    arguments_dict=args,
+                    tool_call_id=current_call_id,
+                    decision=decision,
+                ):
+                    yield chunk
+
+            elif name == "update_scratchpad":
+                async for chunk in self.handle_update_scratchpad(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    assistant_id=assistant_id,
+                    arguments_dict=args,
+                    tool_call_id=current_call_id,
+                    decision=decision,
+                ):
+                    yield chunk
+
+            elif name == "append_scratchpad":
+                async for chunk in self.handle_append_scratchpad(
+                    thread_id=thread_id,
+                    run_id=run_id,
+                    assistant_id=assistant_id,
+                    arguments_dict=args,
+                    tool_call_id=current_call_id,
+                    decision=decision,
+                ):
+                    yield chunk
+
+            # ---------------------------------------------------------
             # 2. SYSTEM TOOLS (Dynamic/Legacy Routing)
+            # ---------------------------------------------------------
             elif name in PLATFORM_TOOLS:
                 if name in SPECIAL_CASE_TOOL_HANDLING:
-                    gen = self._process_tool_calls(
+                    async for chunk in self._process_tool_calls(
                         thread_id=thread_id,
                         assistant_id=assistant_id,
                         content=fc,
@@ -305,32 +319,30 @@ class ToolRoutingMixin:
                         tool_call_id=current_call_id,
                         api_key=api_key,
                         decision=decision,
-                    )
+                    ):
+                        yield chunk
                 else:
-                    gen = self._process_platform_tool_calls(
+                    async for chunk in self._process_platform_tool_calls(
                         thread_id=thread_id,
                         assistant_id=assistant_id,
                         content=fc,
                         run_id=run_id,
                         tool_call_id=current_call_id,
                         decision=decision,
-                    )
-                async for chunk in self._yield_maybe_async(gen):
-                    yield chunk
+                    ):
+                        yield chunk
 
             # 3. CONSUMER TOOLS (Handover to SDK)
             else:
                 # We yield individual manifests for the SDK to collect
-                async for chunk in self._yield_maybe_async(
-                    self._process_tool_calls(
-                        thread_id=thread_id,
-                        assistant_id=assistant_id,
-                        content=fc,
-                        run_id=run_id,
-                        tool_call_id=current_call_id,
-                        api_key=api_key,
-                        decision=decision,
-                    )
+                async for chunk in self._process_tool_calls(
+                    thread_id=thread_id,
+                    assistant_id=assistant_id,
+                    content=fc,
+                    run_id=run_id,
+                    tool_call_id=current_call_id,
+                    api_key=api_key,
+                    decision=decision,
                 ):
                     yield chunk
 

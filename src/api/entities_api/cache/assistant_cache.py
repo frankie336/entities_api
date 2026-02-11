@@ -20,7 +20,9 @@ REDIS_ASSISTANT_TTL = int(os.getenv("REDIS_ASSISTANT_TTL_SECONDS", "300"))
 
 class AssistantCache:
 
-    def __init__(self, redis: Union[SyncRedis, "AsyncRedis"], pd_base_url: str, pd_api_key: str):
+    def __init__(
+        self, redis: Union[SyncRedis, "AsyncRedis"], pd_base_url: str, pd_api_key: str
+    ):
         self.redis = redis
         self.pd_base_url = pd_base_url
         self.pd_api_key = pd_api_key
@@ -97,7 +99,9 @@ class AssistantCache:
 
     def invalidate_sync(self, assistant_id: str):
         key = self._cache_key(assistant_id)
-        if hasattr(self.redis, "delete") and not asyncio.iscoroutinefunction(self.redis.delete):
+        if hasattr(self.redis, "delete") and not asyncio.iscoroutinefunction(
+            self.redis.delete
+        ):
             self.redis.delete(key)
         else:
             try:

@@ -383,6 +383,14 @@ class Assistant(Base):
         comment="Enable live web search and browsing capabilities.",
     )
 
+    deep_research = Column(
+        Boolean,
+        default=False,
+        server_default="0",
+        nullable=False,
+        comment="Enable live web search and browsing capabilities.",
+    )
+
     decision_telemetry = Column(
         Boolean,
         default=False,

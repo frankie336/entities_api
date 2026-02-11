@@ -105,8 +105,8 @@ class DeltaNormalizer:
                         }
 
             seg = (
-                      delta.get("content", "") if is_dict else getattr(delta, "content", "")
-                  ) or ""
+                delta.get("content", "") if is_dict else getattr(delta, "content", "")
+            ) or ""
 
             if finish_reason == "tool_calls":
                 for idx, data in list(pending_tool_calls.items()):

@@ -3,8 +3,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from entities_api.services.scratchpad_service import ScratchpadService
 # --- Core Dependencies ---
 from src.api.entities_api.dependencies import (get_api_key, get_db,
+                                               get_scratchpad_service,
                                                get_web_reader)
 from src.api.entities_api.models.models import ApiKey as ApiKeyModel
 from src.api.entities_api.models.models import User as UserModel
@@ -32,6 +34,20 @@ class WebScrollRequest(BaseModel):
 class WebSearchRequest(BaseModel):
     url: str
     query: str
+
+
+class ScratchpadReadRequest(BaseModel):
+    thread_id: str
+
+
+class ScratchpadUpdateRequest(BaseModel):
+    thread_id: str
+    content: str
+
+
+class ScratchpadAppendRequest(BaseModel):
+    thread_id: str
+    note: str
 
 
 # --- Helper for Code Reuse (Optional, but keeps routes clean) ---
@@ -128,4 +144,69 @@ async def search_url(
         result = await reader.search(payload.url, payload.query)
         return {"content": result}
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# -----------------------------------------------------------------------------
+# SCRATCHPAD TOOL ROUTES (New)
+# -----------------------------------------------------------------------------
+
+
+@router.post("/tools/scratchpad/read", summary="Read the current research plan/notes")
+async def read_scratchpad(
+    payload: ScratchpadReadRequest,
+    service: ScratchpadService = Depends(get_scratchpad_service),
+    db: Session = Depends(get_db),
+    auth_key: ApiKeyModel = Depends(get_api_key),
+):
+    """
+    **Agent Action:** Retrieve the current state of the scratchpad.
+    """
+    verify_admin_privileges(db, auth_key)
+
+    try:
+        content = await service.get_formatted_view(payload.thread_id)
+        return {"content": content}
+    except Exception as e:
+        logging_utility.error(f"Scratchpad read failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/tools/scratchpad/update", summary="Overwrite the research plan")
+async def update_scratchpad(
+    payload: ScratchpadUpdateRequest,
+    service: ScratchpadService = Depends(get_scratchpad_service),
+    db: Session = Depends(get_db),
+    auth_key: ApiKeyModel = Depends(get_api_key),
+):
+    """
+    **Agent Action:** Rewrite the scratchpad (e.g., updating the plan after a step is done).
+    """
+    verify_admin_privileges(db, auth_key)
+
+    try:
+        msg = await service.update_content(payload.thread_id, payload.content)
+        return {"status": "success", "message": msg}
+    except Exception as e:
+        logging_utility.error(f"Scratchpad update failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/tools/scratchpad/append", summary="Add a note to the scratchpad")
+async def append_scratchpad(
+    payload: ScratchpadAppendRequest,
+    service: ScratchpadService = Depends(get_scratchpad_service),
+    db: Session = Depends(get_db),
+    auth_key: ApiKeyModel = Depends(get_api_key),
+):
+    """
+    **Agent Action:** Quick-add a finding (e.g., a URL or fact) without rewriting everything.
+    """
+    verify_admin_privileges(db, auth_key)
+
+    try:
+        msg = await service.append_note(payload.thread_id, payload.note)
+        return {"status": "success", "message": msg}
+    except Exception as e:
+        logging_utility.error(f"Scratchpad append failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

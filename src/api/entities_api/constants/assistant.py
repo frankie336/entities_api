@@ -7,11 +7,14 @@ PLATFORM_TOOLS = [
     "perform_web_search",
     "vector_store_search",
     "computer",
+    "delegate_research_task",
+    "read_scratchpad",
+    "update_scratchpad",
+    "append_scratchpad",
 ]
 
 
 DEFAULT_MODEL = "llama3.1"
-
 
 
 CODE_INTERPRETER_MESSAGE = "Return the tool output clearly and directly.If a file URL is present, include it as a user-friendly download link."

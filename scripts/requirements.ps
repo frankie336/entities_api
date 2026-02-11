@@ -1,0 +1,15 @@
+pip-compile `
+  api_requirements.in `
+  --resolver=backtracking `
+  --generate-hashes `
+  --strip-extras `
+  -o api_reqs_hashed.txt
+
+
+
+pip-compile `
+  api_requirements.in `
+  --resolver=backtracking `
+  --generate-hashes `
+  --strip-extras `
+  -o api_reqs_hashed.txt

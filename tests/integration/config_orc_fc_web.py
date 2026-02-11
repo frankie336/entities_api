@@ -99,7 +99,7 @@ config = {
     "entities_user_id": "",
     "base_url": "http://localhost:9000",
     "url": "https://api.together.xyz/v1/chat/completions",
-    "model": "together-ai/moonshotai/Kimi-K2-Instruct-0905",
+    "model": "together-ai/Qwen/Qwen3-Next-80B-A3B-Instruct",
     "provider": "together",
     # "provider": "hyperbolic",
     "assistant_id": "asst_13HyDgBnZxVwh5XexYu74F",
