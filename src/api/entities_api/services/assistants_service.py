@@ -79,7 +79,8 @@ class AssistantService:
                 # --- Agentic Fields (Level 3) ---
                 max_turns=assistant.max_turns,
                 agent_mode=assistant.agent_mode,
-                web_access=assistant.web_access,  # <--- NEW: Integrated here
+                web_access=assistant.web_access,
+                deep_research=assistant.deep_research,  # <--- NEW: Integrated here
                 decision_telemetry=assistant.decision_telemetry,
             )
 
@@ -117,7 +118,8 @@ class AssistantService:
             data = assistant_update.model_dump(exclude_unset=True)
 
             # Update basic fields.
-            # NOTE: 'web_access' is a simple scalar, so this loop handles it automatically.
+            # NOTE: 'deep_research' is a scalar Boolean, so this loop handles it automatically
+            # as long as it is present in the AssistantUpdate Pydantic model.
             for key, val in data.items():
                 if key not in self.RELATIONSHIP_FIELDS and key != "tools":
                     setattr(db_asst, key, val)

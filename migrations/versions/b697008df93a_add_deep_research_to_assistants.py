@@ -8,16 +8,14 @@ Create Date: 2026-02-11 19:11:17.619961
 
 from typing import Sequence, Union
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import mysql
 
 # Import the safe DDL helpers
-from migrations.utils.safe_ddl import (
-    add_column_if_missing,
-    drop_column_if_exists,
-    safe_alter_column,
-)
+from migrations.utils.safe_ddl import (add_column_if_missing,
+                                       drop_column_if_exists,
+                                       safe_alter_column)
 
 # revision identifiers, used by Alembic.
 revision: str = "b697008df93a"
