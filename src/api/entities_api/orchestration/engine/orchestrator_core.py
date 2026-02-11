@@ -1,3 +1,4 @@
+# src/api/entities_api/orchestration/engine/orchestrator_core.py
 """
 orchestrator_core.py
 ────────────────────
@@ -14,33 +15,30 @@ from __future__ import annotations
 import asyncio
 import json
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict, Generator, Optional
+from typing import Any, AsyncGenerator, Dict, Generator, Optional, Union
 
+from projectdavid import StreamEvent
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.dependencies import get_redis_sync
 from src.api.entities_api.constants.assistant import PLATFORM_TOOLS
-from src.api.entities_api.orchestration.mixins.client_factory_mixin import \
-    ClientFactoryMixin
-from src.api.entities_api.orchestration.mixins.code_execution_mixin import \
-    CodeExecutionMixin
-from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import \
-    ConsumerToolHandlersMixin
-from src.api.entities_api.orchestration.mixins.conversation_context_mixin import \
-    ConversationContextMixin
-from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
-    JsonUtilsMixin
-from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import \
-    PlatformToolHandlersMixin
-from src.api.entities_api.orchestration.mixins.service_registry_mixin import \
-    ServiceRegistryMixin
-from src.api.entities_api.orchestration.mixins.shell_execution_mixin import \
-    ShellExecutionMixin
-from src.api.entities_api.orchestration.mixins.streaming_mixin import \
-    StreamingMixin
-from src.api.entities_api.orchestration.mixins.tool_routing_mixin import \
-    ToolRoutingMixin
+from src.api.entities_api.orchestration.mixins.client_factory_mixin import ClientFactoryMixin
+from src.api.entities_api.orchestration.mixins.code_execution_mixin import CodeExecutionMixin
+from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import (
+    ConsumerToolHandlersMixin,
+)
+from src.api.entities_api.orchestration.mixins.conversation_context_mixin import (
+    ConversationContextMixin,
+)
+from src.api.entities_api.orchestration.mixins.json_utils_mixin import JsonUtilsMixin
+from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import (
+    PlatformToolHandlersMixin,
+)
+from src.api.entities_api.orchestration.mixins.service_registry_mixin import ServiceRegistryMixin
+from src.api.entities_api.orchestration.mixins.shell_execution_mixin import ShellExecutionMixin
+from src.api.entities_api.orchestration.mixins.streaming_mixin import StreamingMixin
+from src.api.entities_api.orchestration.mixins.tool_routing_mixin import ToolRoutingMixin
 
 LOG = LoggingUtility()
 
@@ -79,9 +77,7 @@ class OrchestratorCore(
         # If passed explicitly, store it. If not, the Mixin will lazy-load it using self.redis
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(
-            extra["assistant_cache"], AssistantCache
-        ):
+        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
             # Handle case where it might be passed via **extra
             self._assistant_cache = extra["assistant_cache"]
 
@@ -158,9 +154,7 @@ class OrchestratorCore(
         """
         if not self.assistant_config and self.assistant_id:
             # self.assistant_cache is provided by the Mixin
-            self.assistant_config = (
-                await self.assistant_cache.retrieve(self.assistant_id) or {}
-            )
+            self.assistant_config = await self.assistant_cache.retrieve(self.assistant_id) or {}
             LOG.debug(f"Loaded config for {self.assistant_id}")
 
     async def _ensure_config_loaded(self):
@@ -205,12 +199,10 @@ class OrchestratorCore(
         api_key: Optional[str] = None,
         max_turns: int = 10,
         **kwargs,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[Union[str, StreamEvent], None]:  # <--- ALLOW EVENTS
         """
         Level 3 Recursive Orchestrator (Batch-Aware).
-
-        Orchestrates multi-turn self-correction for Platform Tools.
-        Supports batches of multiple tool calls emitted in a single turn.
+        Yields mixed stream of Text Tokens and Structured Events.
         """
         turn_count = 0
         current_message_id = message_id
@@ -221,11 +213,12 @@ class OrchestratorCore(
 
             # --- 1. RESET INTERNAL STATE ---
             self.set_tool_response_state(False)
-            self.set_function_call_state(None)  # Clears the list
+            self.set_function_call_state(None)
             self._current_tool_call_id = None
 
             # --- 2. THE INFERENCE TURN ---
             try:
+                # The 'stream' method might yield strings (LLM tokens) OR Events
                 async for chunk in self.stream(
                     thread_id=thread_id,
                     message_id=current_message_id,
@@ -238,30 +231,22 @@ class OrchestratorCore(
                 ):
                     yield chunk
             except Exception as stream_exc:
-                LOG.error(
-                    f"ORCHESTRATOR ▸ Turn {turn_count} stream failed: {stream_exc}"
-                )
-                yield json.dumps(
-                    {"type": "error", "content": f"Stream failure: {stream_exc}"}
-                )
+                LOG.error(f"ORCHESTRATOR ▸ Turn {turn_count} stream failed: {stream_exc}")
+                # Return a proper error event if possible, otherwise JSON string
+                yield json.dumps({"type": "error", "content": f"Stream failure: {stream_exc}"})
                 break
 
             # --- 3. BATCH EVALUATION ---
-            # Retrieve the batch queue (List[Dict])
             batch = self.get_function_call_state()
 
             if not batch:
                 LOG.info(f"ORCHESTRATOR ▸ Turn {turn_count} completed with text.")
                 break
 
-            # Determine if we need to hand over to the SDK.
-            # If any tool in the batch is NOT in PLATFORM_TOOLS, we must stop looping.
-            has_consumer_tool = any(
-                tool.get("name") not in PLATFORM_TOOLS for tool in batch
-            )
+            has_consumer_tool = any(tool.get("name") not in PLATFORM_TOOLS for tool in batch)
 
             # --- 4. THE TOOL PROCESSING TURN ---
-            # The dispatcher now handles the entire batch internally
+            # This loop receives StatusEvent objects from WebSearchMixin
             async for chunk in self.process_tool_calls(
                 thread_id=thread_id,
                 run_id=run_id,
@@ -271,24 +256,18 @@ class OrchestratorCore(
                 api_key=api_key,
                 decision=self._decision_payload,
             ):
+                # We yield the Object directly.
+                # The API endpoint must check `isinstance(chunk, StreamEvent)`
                 yield chunk
 
             # --- 5. RECURSION DECISION ---
             if not has_consumer_tool:
-                # All tools in this turn were direct-execution Platform Tools.
-                LOG.info(
-                    f"ORCHESTRATOR ▸ Platform batch {turn_count} complete. Stabilizing..."
-                )
-
+                LOG.info(f"ORCHESTRATOR ▸ Platform batch {turn_count} complete. Stabilizing...")
                 await asyncio.sleep(0.5)
                 current_message_id = None
-                continue  # Jumps back to Turn N+1
+                continue
             else:
-                # At least one Consumer Tool was detected.
-                # Connection closes so SDK can execute and start Request Turn 2.
-                LOG.info(
-                    f"ORCHESTRATOR ▸ Consumer tool detected in batch. Handing over to SDK."
-                )
+                LOG.info(f"ORCHESTRATOR ▸ Consumer tool detected in batch. Handing over to SDK.")
                 return
 
         if turn_count >= max_turns:

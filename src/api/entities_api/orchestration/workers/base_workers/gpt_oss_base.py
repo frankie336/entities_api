@@ -4,21 +4,22 @@ import asyncio
 import json
 import os
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any, AsyncGenerator, Dict, Optional, Union
 
 from dotenv import load_dotenv
+from projectdavid import StreamEvent
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
+
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
+
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.provider_mixins import \
-    _ProviderMixins
+from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -55,9 +56,7 @@ class GptOssBaseWorker(
         # If passed explicitly, store it. If not, the Mixin will lazy-load it using self.redis
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(
-            extra["assistant_cache"], AssistantCache
-        ):
+        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
             # Handle case where it might be passed via **extra
             self._assistant_cache = extra["assistant_cache"]
 
@@ -109,7 +108,7 @@ class GptOssBaseWorker(
         stream_reasoning: bool = False,
         api_key: str | None = None,
         **kwargs,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[Union[str, StreamEvent], None]:
         import re
         import uuid
 
@@ -129,9 +128,7 @@ class GptOssBaseWorker(
         current_block: str | None = None
 
         try:
-            if hasattr(self, "_get_model_map") and (
-                mapped := self._get_model_map(model)
-            ):
+            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
                 model = mapped
 
             self.assistant_id = assistant_id
@@ -139,6 +136,7 @@ class GptOssBaseWorker(
             await self._ensure_config_loaded()
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", True)
+            web_access_setting = self.assistant_config.get("decision_telemetry", False)
 
             raw_ctx = await self._set_up_context_window(
                 assistant_id,
@@ -148,6 +146,7 @@ class GptOssBaseWorker(
                 force_refresh=force_refresh,
                 agent_mode=agent_mode_setting,
                 decision_telemetry=decision_telemetry,
+                web_access=web_access_setting,
             )
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
@@ -158,9 +157,7 @@ class GptOssBaseWorker(
             client = self._get_client_instance(api_key=api_key)
 
             # --- [DEBUG] RAW CONTEXT DUMP ---
-            LOG.info(
-                f"\nRAW_CTX_DUMP:\n{json.dumps(cleaned_ctx, indent=2, ensure_ascii=False)}"
-            )
+            LOG.info(f"\nRAW_CTX_DUMP:\n{json.dumps(cleaned_ctx, indent=2, ensure_ascii=False)}")
 
             raw_stream = client.stream_chat_completion(
                 messages=cleaned_ctx,
@@ -292,9 +289,7 @@ class GptOssBaseWorker(
             except Exception as e:
                 LOG.error(f"Error during tool call sanitization: {e}")
 
-        tool_calls_batch = self.parse_and_set_function_calls(
-            accumulated, assistant_reply
-        )
+        tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
         message_to_save = assistant_reply
         final_status = StatusEnum.completed.value
 
@@ -329,17 +324,13 @@ class GptOssBaseWorker(
             message_to_save = json.dumps(tool_calls_structure)
 
             # [LOGGING] Verify ID Parity
-            LOG.info(
-                f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}"
-            )
+            LOG.info(f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}")
             for item in tool_calls_structure:
                 LOG.info(f"   ▸ Tool: {item['function']['name']} | ID: {item['id']}")
 
         # Persistence: Assistant Plan/Actions saved to Thread
         if message_to_save:
-            await self.finalize_conversation(
-                message_to_save, thread_id, assistant_id, run_id
-            )
+            await self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
 
         # Update Run status to trigger Dispatch Turn
         if self.project_david_client:

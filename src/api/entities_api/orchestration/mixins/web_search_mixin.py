@@ -1,5 +1,4 @@
 # src/api/entities_api/orchestration/mixins/web_search_mixin.py
-# src/api/entities_api/orchestration/mixins/web_search_mixin.py
 from __future__ import annotations
 
 import asyncio
@@ -23,6 +22,7 @@ class WebSearchMixin:
     def _create_status_payload(
         self, run_id: str, tool_name: str, message: str, state: str = "running"
     ) -> StatusEvent:
+
         return StatusEvent(
             run_id=run_id,
             status=state,
@@ -78,9 +78,7 @@ class WebSearchMixin:
             return ""
 
         # Regex to find "Page X of Y" (Matches: "Page 0 of 5", "Page 1 / 10")
-        page_match = re.search(
-            r"Page\s+(\d+)\s*(?:of|/)\s*(\d+)", content, re.IGNORECASE
-        )
+        page_match = re.search(r"Page\s+(\d+)\s*(?:of|/)\s*(\d+)", content, re.IGNORECASE)
 
         # HALLUCINATION FIX:
         # If no pagination is detected, DO NOT INJECT ANYTHING.
@@ -180,9 +178,7 @@ class WebSearchMixin:
             return
 
         # --- [2] STATUS: CREATING ACTION ---
-        yield self._create_status_payload(
-            run_id, tool_name, "Initializing tool action..."
-        )
+        yield self._create_status_payload(run_id, tool_name, "Initializing tool action...")
 
         try:
             action = await asyncio.to_thread(
@@ -207,9 +203,7 @@ class WebSearchMixin:
             # --- A. READ PAGE ---
             if tool_name == "read_web_page":
                 target_url = arguments_dict["url"]
-                yield self._create_status_payload(
-                    run_id, tool_name, f"Reading: {target_url}..."
-                )
+                yield self._create_status_payload(run_id, tool_name, f"Reading: {target_url}...")
 
                 raw_content = await asyncio.to_thread(
                     self.project_david_client.tools.web_read,
@@ -219,14 +213,12 @@ class WebSearchMixin:
 
                 # CRASH FIX: Catch None return
                 if raw_content is None:
-                    raw_content = "❌ Error: Failed to retrieve page content (Connection Failed or Empty)."
+                    raw_content = (
+                        "❌ Error: Failed to retrieve page content (Connection Failed or Empty)."
+                    )
 
-                yield self._create_status_payload(
-                    run_id, tool_name, "Analyzing page content..."
-                )
-                final_content = self._inject_navigation_guidance(
-                    raw_content, target_url
-                )
+                yield self._create_status_payload(run_id, tool_name, "Analyzing page content...")
+                final_content = self._inject_navigation_guidance(raw_content, target_url)
 
             # --- B. SCROLL PAGE ---
             elif tool_name == "scroll_web_page":
@@ -246,9 +238,7 @@ class WebSearchMixin:
                 if raw_content is None:
                     raw_content = f"❌ Error: Failed to scroll to page {page_num}."
 
-                final_content = self._inject_navigation_guidance(
-                    raw_content, target_url
-                )
+                final_content = self._inject_navigation_guidance(raw_content, target_url)
 
             # --- C. INTERNAL SEARCH (Ctrl+F) ---
             elif tool_name == "search_web_page":
@@ -288,9 +278,7 @@ class WebSearchMixin:
                 if raw_serp is None:
                     raw_serp = ""  # _parse_serp_results handles empty string
 
-                yield self._create_status_payload(
-                    run_id, tool_name, "Parsing search results..."
-                )
+                yield self._create_status_payload(run_id, tool_name, "Parsing search results...")
                 final_content = self._parse_serp_results(raw_serp, query_val)
 
             else:
@@ -301,9 +289,7 @@ class WebSearchMixin:
             if final_content is None:
                 final_content = "❌ Error: Tool execution returned no data."
 
-            is_soft_failure = (
-                "❌ Error" in final_content or "Error:" in final_content[0:50]
-            )
+            is_soft_failure = "❌ Error" in final_content or "Error:" in final_content[0:50]
 
             if is_soft_failure:
                 yield self._create_status_payload(
@@ -338,9 +324,7 @@ class WebSearchMixin:
                 self.project_david_client.actions.update_action,
                 action_id=action.id,
                 status=(
-                    StatusEnum.completed.value
-                    if not is_soft_failure
-                    else StatusEnum.failed.value
+                    StatusEnum.completed.value if not is_soft_failure else StatusEnum.failed.value
                 ),
             )
 
@@ -360,9 +344,7 @@ class WebSearchMixin:
                 run_id, tool_name, f"Critical failure: {str(exc)}", state="error"
             )
 
-            error_hint = self._format_web_tool_error(
-                tool_name, str(exc), arguments_dict
-            )
+            error_hint = self._format_web_tool_error(tool_name, str(exc), arguments_dict)
 
             try:
                 await asyncio.to_thread(

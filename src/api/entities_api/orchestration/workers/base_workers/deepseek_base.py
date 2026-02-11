@@ -13,13 +13,13 @@ from projectdavid_common.validation import StatusEnum
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
+
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
+
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.provider_mixins import \
-    _ProviderMixins
+from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -55,9 +55,7 @@ class DeepSeekBaseWorker(
         # If passed explicitly, store it. If not, the Mixin will lazy-load it using self.redis
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(
-            extra["assistant_cache"], AssistantCache
-        ):
+        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
             # Handle case where it might be passed via **extra
             self._assistant_cache = extra["assistant_cache"]
 
@@ -111,7 +109,7 @@ class DeepSeekBaseWorker(
         stream_reasoning: bool = True,
         api_key: str | None = None,
         **kwargs,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[Union[str, StreamEvent], None]:
         """
         Level 3 Agentic Stream (Native Mode):
         - Uses raw XML/Tag persistence to prevent Llama/DeepSeek persona breakage.
@@ -134,9 +132,7 @@ class DeepSeekBaseWorker(
         current_block: str | None = None
 
         try:
-            if hasattr(self, "_get_model_map") and (
-                mapped := self._get_model_map(model)
-            ):
+            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
                 model = mapped
 
             # [NEW] Ensure cache is hot before starting
@@ -144,11 +140,10 @@ class DeepSeekBaseWorker(
             await self._ensure_config_loaded()
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", True)
+            web_access_setting = self.assistant_config.get("decision_telemetry", False)
 
             test_cache = self.assistant_config.get("agent_mode")
-            LOG.debug(
-                f"Test_cache -> Agent: {agent_mode_setting}, Telemetry: {decision_telemetry}"
-            )
+            LOG.debug(f"Test_cache -> Agent: {agent_mode_setting}, Telemetry: {decision_telemetry}")
 
             ctx = await self._set_up_context_window(
                 assistant_id,
@@ -157,6 +152,7 @@ class DeepSeekBaseWorker(
                 force_refresh=force_refresh,
                 agent_mode=agent_mode_setting,
                 decision_telemetry=decision_telemetry,
+                web_access=web_access_setting,
             )
 
             if not api_key:
@@ -168,9 +164,7 @@ class DeepSeekBaseWorker(
             client = self._get_client_instance(api_key=api_key)
 
             # --- [DEBUG] RAW CONTEXT DUMP ---
-            LOG.info(
-                f"\nRAW_CTX_DUMP:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}"
-            )
+            LOG.info(f"\nRAW_CTX_DUMP:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}")
 
             raw_stream = client.stream_chat_completion(
                 messages=ctx,
@@ -268,9 +262,7 @@ class DeepSeekBaseWorker(
 
         # --- [LEVEL 3] NATIVE PERSISTENCE ---
         # The parser finds the tools to drive the backend (Action records).
-        tool_calls_batch = self.parse_and_set_function_calls(
-            accumulated, assistant_reply
-        )
+        tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
 
         # [THE FIX]: We save the RAW text emitted by Llama.
         # No formal JSON structure, no ID injection into the dialogue content.
@@ -287,9 +279,7 @@ class DeepSeekBaseWorker(
 
         # Persistence: Save the raw <plan> and <fc> text exactly as Llama intended
         if message_to_save:
-            await self.finalize_conversation(
-                message_to_save, thread_id, assistant_id, run_id
-            )
+            await self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
 
         if self.project_david_client:
             await asyncio.to_thread(

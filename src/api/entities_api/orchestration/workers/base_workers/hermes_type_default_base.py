@@ -3,21 +3,22 @@ from __future__ import annotations
 import json
 import os
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
 from dotenv import load_dotenv
+from projectdavid import StreamEvent
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from entities_api.cache import assistant_cache
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
+
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
+
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.provider_mixins import \
-    _ProviderMixins
+from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -59,9 +60,7 @@ class HermesDefaultBaseWorker(
 
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(
-            extra["assistant_cache"], AssistantCache
-        ):
+        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
             self._assistant_cache = extra["assistant_cache"]
 
         # 4. Setup the Data/Config (The "Old Way" renamed)
@@ -80,9 +79,7 @@ class HermesDefaultBaseWorker(
         self.base_url = base_url or os.getenv("BASE_URL")
         self.api_key = api_key or extra.get("api_key")
 
-        self.model_name = extra.get(
-            "model_name", "deepcogito/cogito-v2-preview-llama-405B"
-        )
+        self.model_name = extra.get("model_name", "deepcogito/cogito-v2-preview-llama-405B")
         self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
 
@@ -118,7 +115,7 @@ class HermesDefaultBaseWorker(
         stream_reasoning: bool = True,
         api_key: str | None = None,
         **kwargs,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[Union[str, StreamEvent], None]:
         """
         Level 3 Agentic Stream with ID-Parity:
         - Orchestrates Plan vs Action cycles.
@@ -147,9 +144,7 @@ class HermesDefaultBaseWorker(
         current_block: str | None = None
 
         try:
-            if hasattr(self, "_get_model_map") and (
-                mapped := self._get_model_map(model)
-            ):
+            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
                 model = mapped
 
             self.assistant_id = assistant_id
@@ -157,6 +152,7 @@ class HermesDefaultBaseWorker(
             await self._ensure_config_loaded()
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", True)
+            web_access_setting = self.assistant_config.get("decision_telemetry", False)
 
             ctx = await self._set_up_context_window(
                 assistant_id,
@@ -165,6 +161,7 @@ class HermesDefaultBaseWorker(
                 force_refresh=force_refresh,
                 agent_mode=agent_mode_setting,
                 decision_telemetry=decision_telemetry,
+                web_access=web_access_setting,
             )
 
             if not api_key:
@@ -267,9 +264,7 @@ class HermesDefaultBaseWorker(
 
         # --- [LEVEL 3] PARSE BATCH & SYNC IDs ---
         # The parser ensures every tool in the list has a 'id' key.
-        tool_calls_batch = self.parse_and_set_function_calls(
-            accumulated, assistant_reply
-        )
+        tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
 
         message_to_save = assistant_reply
         final_status = StatusEnum.completed.value
@@ -304,17 +299,13 @@ class HermesDefaultBaseWorker(
             message_to_save = json.dumps(tool_calls_structure)
 
             # [LOGGING] Verify ID Parity
-            LOG.info(
-                f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}"
-            )
+            LOG.info(f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}")
             for item in tool_calls_structure:
                 LOG.info(f"   ▸ Tool: {item['function']['name']} | ID: {item['id']}")
 
         # Persistence: Assistant Plan/Actions saved to Thread
         if message_to_save:
-            await self.finalize_conversation(
-                message_to_save, thread_id, assistant_id, run_id
-            )
+            await self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
 
         # Update Run status to trigger Dispatch Turn
         if self.project_david_client:

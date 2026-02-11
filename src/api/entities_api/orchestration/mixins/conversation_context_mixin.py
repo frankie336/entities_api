@@ -7,13 +7,16 @@ from typing import Any, Dict, List, Optional, Tuple
 from projectdavid import Entity
 
 from entities_api.constants.tools import PLATFORM_TOOL_MAP
-from entities_api.orchestration.instructions.assembler import \
-    assemble_instructions
+from entities_api.orchestration.instructions.assembler import assemble_instructions
 from src.api.entities_api.orchestration.instructions.include_lists import (
-    L2_INSTRUCTIONS, L3_INSTRUCTIONS, L3_WEB_USE_INSTRUCTIONS,
-    NO_CORE_INSTRUCTIONS)
-from src.api.entities_api.platform_tools.definitions.record_tool_decision import \
-    record_tool_decision
+    L2_INSTRUCTIONS,
+    L3_INSTRUCTIONS,
+    L3_WEB_USE_INSTRUCTIONS,
+    NO_CORE_INSTRUCTIONS,
+)
+from src.api.entities_api.platform_tools.definitions.record_tool_decision import (
+    record_tool_decision,
+)
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 LOG = LoggingUtility()
@@ -25,8 +28,7 @@ class ConversationContextMixin:
     @property
     def message_cache(self):
         if not self._message_cache:
-            from src.api.entities_api.cache.message_cache import \
-                get_sync_message_cache
+            from src.api.entities_api.cache.message_cache import get_sync_message_cache
 
             self._message_cache = get_sync_message_cache()
         return self._message_cache
@@ -149,7 +151,7 @@ class ConversationContextMixin:
         assistant_id: str,
         decision_telemetry: bool = False,
         agent_mode: bool = False,
-        web_search: bool = True,
+        web_access: bool = True,
     ) -> Dict:
         cache = self.get_assistant_cache()
         cfg = await cache.retrieve(assistant_id)
@@ -161,7 +163,7 @@ class ConversationContextMixin:
             instruction_keys.insert(0, "TOOL_DECISION_PROTOCOL")
 
         # Inject Web Search Instructions to the main list
-        if web_search:
+        if web_access:
             instruction_keys.extend(L3_WEB_USE_INSTRUCTIONS)
 
         platform_instructions = assemble_instructions(include_keys=instruction_keys)
@@ -169,10 +171,9 @@ class ConversationContextMixin:
         # Ensure tools list exists
         raw_tools_list = cfg.get("tools") or []
 
-        if web_search:
+        if web_access:
             has_web_tool = any(
-                isinstance(t, dict) and t.get("type") == "web_search"
-                for t in raw_tools_list
+                isinstance(t, dict) and t.get("type") == "web_search" for t in raw_tools_list
             )
             if not has_web_tool:
                 raw_tools_list = list(raw_tools_list)
@@ -204,9 +205,7 @@ class ConversationContextMixin:
 
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        excluded_instructions = assemble_instructions(
-            exclude_keys=["TOOL_USAGE_PROTOCOL"]
-        )
+        excluded_instructions = assemble_instructions(exclude_keys=["TOOL_USAGE_PROTOCOL"])
 
         return {
             "role": "system",
@@ -218,7 +217,7 @@ class ConversationContextMixin:
         assistant_id: str,
         decision_telemetry: bool = False,
         agent_mode: bool = False,
-        web_search: bool = True,
+        web_access: bool = True,
     ) -> Dict:
         cache = self.get_assistant_cache()
         cfg = await cache.retrieve(assistant_id)
@@ -230,7 +229,7 @@ class ConversationContextMixin:
             instruction_keys.insert(0, "TOOL_DECISION_PROTOCOL")
 
         # Inject Web Search Instructions to the main list
-        if web_search:
+        if web_access:
             instruction_keys.extend(L3_WEB_USE_INSTRUCTIONS)
 
         platform_instructions = assemble_instructions(include_keys=instruction_keys)
@@ -238,10 +237,9 @@ class ConversationContextMixin:
         # Ensure tools list exists
         raw_tools_list = cfg.get("tools") or []
 
-        if web_search:
+        if web_access:
             has_web_tool = any(
-                isinstance(t, dict) and t.get("type") == "web_search"
-                for t in raw_tools_list
+                isinstance(t, dict) and t.get("type") == "web_search" for t in raw_tools_list
             )
             if not has_web_tool:
                 raw_tools_list = list(raw_tools_list)
@@ -280,7 +278,7 @@ class ConversationContextMixin:
         force_refresh: Optional[bool] = False,
         decision_telemetry: bool = False,
         agent_mode: bool = False,
-        web_search: bool = True,
+        web_access: bool = True,
     ) -> List[Dict]:
 
         # 1. Build the System Message (This part is solid)
@@ -288,6 +286,7 @@ class ConversationContextMixin:
             system_msg = await self._build_native_function_calls_system_message(
                 assistant_id=assistant_id,
                 decision_telemetry=decision_telemetry,
+                web_access=web_access,
                 # agent_mode=agent_mode,
             )
         else:
@@ -295,6 +294,7 @@ class ConversationContextMixin:
                 assistant_id=assistant_id,
                 decision_telemetry=decision_telemetry,
                 agent_mode=agent_mode,
+                web_access=web_access,
             )
 
         if force_refresh:
@@ -324,9 +324,7 @@ class ConversationContextMixin:
                     base_url="http://localhost:9000",  # Ensure this points to the internal network
                     api_key=os.getenv("ADMIN_API_KEY"),
                 )
-                full_hist = client.messages.get_formatted_messages(
-                    thread_id, system_message=None
-                )
+                full_hist = client.messages.get_formatted_messages(thread_id, system_message=None)
             # --- CRITICAL CHANGE END ---
 
             last_role = full_hist[-1].get("role") if full_hist else "N/A"
@@ -386,14 +384,10 @@ class ConversationContextMixin:
                     if "\n" in tools_json_str:
                         json_part, instructions_part = tools_json_str.split("\n", 1)
                         extracted_tools = json.loads(json_part)
-                        new_msg["content"] = (
-                            f"{system_text}\n{instructions_part}".strip()
-                        )
+                        new_msg["content"] = f"{system_text}\n{instructions_part}".strip()
                     else:
                         extracted_tools = json.loads(tools_json_str)
-                        new_msg["content"] = (
-                            system_text or "You are a helpful assistant."
-                        )
+                        new_msg["content"] = system_text or "You are a helpful assistant."
                 except Exception as e:
                     LOG.error(f"[CTX-MIXIN] Failed tool extraction: {e}")
 
