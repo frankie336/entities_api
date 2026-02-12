@@ -5,12 +5,11 @@ import json
 import os
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, Dict, List, Optional, Union
+from typing import AsyncGenerator, Dict
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
-from src.api.entities_api.clients.delta_normalizer import DeltaNormalizer
 from src.api.entities_api.constants.worker import WORKER_TOOLS
 
 LOG = LoggingUtility()
@@ -31,11 +30,23 @@ class DelegationMixin:
         original_submit = self.submit_tool_output
 
         async def intercept_submit(
-            thread_id, assistant_id, tool_call_id, content, action=None, is_error=False, **kwargs
+            thread_id,
+            assistant_id,
+            tool_call_id,
+            content,
+            action=None,
+            is_error=False,
+            **kwargs,
         ):
             capture_dict[tool_call_id] = str(content)
             await original_submit(
-                thread_id, assistant_id, tool_call_id, content, action, is_error, **kwargs
+                thread_id,
+                assistant_id,
+                tool_call_id,
+                content,
+                action,
+                is_error,
+                **kwargs,
             )
 
         self.submit_tool_output = intercept_submit
@@ -47,181 +58,336 @@ class DelegationMixin:
     async def _run_worker_loop(
         self, task: str, requirements: str, run_id: str, parent_thread_id: str
     ) -> str:
-        """
-        Standard Level 3 lifecycle for the Research Worker.
-        """
-        model = "Qwen/Qwen2.5-72B-Instruct-Turbo"
-
-        # 1. Spawn Worker (Strict Client Call)
-        # Fix for potential WORKER_TOOLS tuple errors
-        sanitized_tools = [t[0] if isinstance(t, tuple) else t for t in WORKER_TOOLS]
-
-        try:
-            ephemeral_worker = await asyncio.to_thread(
-                self.project_david_client.assistants.create,
-                name=f"research_worker_{uuid.uuid4().hex[:4]}",
-                model=model,
-                tools=sanitized_tools,
-            )
-        except Exception as e:
-            return f"Failed to spawn worker via client: {e}"
-
-        # 2. Setup Thread (Strict Client Call)
-        try:
-            child_thread = await asyncio.to_thread(
-                self.project_david_client.threads.create,
-                meta_data={"parent_thread_id": parent_thread_id},
-            )
-        except Exception as e:
-            return f"Failed to create research thread: {e}"
-
-        # 3. Initial Message
-        await asyncio.to_thread(
-            self.project_david_client.messages.create_message,
-            thread_id=child_thread.id,
-            role="user",
-            content=f"TASK: {task}\nREQUIREMENTS: {requirements}",
+        LOG.info(
+            f"🛑 DELEGATION STUB: Received task '{task}' from thread {parent_thread_id}"
         )
+        return f"Delegation Acknowledged. Task: {task}. Requirements: {requirements}"
 
-        client = self._get_client_instance(api_key=os.environ.get("TOGETHER_API_KEY"))
+    async def create_ephemeral_worker_assistant(self):
 
-        for turn in range(20):
-            # --- TURN START: SYNC CONTEXT FROM DB (Hygiene) ---
-            ctx = await self._set_up_context_window(
-                assistant_id=ephemeral_worker.id,
-                thread_id=child_thread.id,
-                trunk=True,
-                force_refresh=True,  # Forces hydration from the client/DB
-                research_worker=True,
+        ephemeral_worker = await asyncio.to_thread(
+            self.project_david_client.assistants.create_assistant,
+            name=f"worker_{uuid.uuid4().hex[:8]}",
+            description="Temp assistant for deep research",
+            tools=WORKER_TOOLS,
+            deep_research=False,
+        )
+        return ephemeral_worker
+
+    async def create_ephemeral_thread(self):
+
+        ephemeral_thread = await asyncio.to_thread(
+            self.project_david_client.threads.create_thread
+        )
+        return ephemeral_thread
+
+    async def create_ephemeral_message(
+        self,
+        thread_id: str,
+        content: str,
+        assistant_id: str,
+    ):
+        ephemeral_message = await asyncio.to_thread(
+            self.project_david_client.messages.create_message,
+            thread_id=thread_id,
+            assistant_id=assistant_id,
+            content=content,
+        )
+        return ephemeral_message
+
+    async def create_ephemeral_run(self, assistant_id: str, thread_id: str):
+
+        ephemeral_run = await asyncio.to_thread(
+            self.project_david_client.runs.create_run,
+            assistant_id=assistant_id,
+            thread_id=thread_id,
+        )
+        return ephemeral_run
+
+    async def _fetch_ephemeral_result(
+        self, thread_id: str, assistant_id: str
+    ) -> str | None:
+        """
+        Retrieves the final text response from the ephemeral thread using the SDK.
+        """
+        LOG.info(
+            f"🔍 [FETCH-RESULT] Starting fetch for Thread: {thread_id} | Assistant: {assistant_id}"
+        )
+        try:
+            envelope = await asyncio.to_thread(
+                self.project_david_client.messages.list_messages,
+                thread_id=thread_id,
+                limit=5,
+                order="desc",
             )
 
-            accumulated, assistant_reply, current_block = "", "", None
+            if not envelope or not envelope.data:
+                return None
 
-            # --- A. INFERENCE ---
-            try:
-                raw_stream = client.stream_chat_completion(
-                    model=model,
-                    messages=ctx,
-                    tool_choice="auto",
-                    max_tokens=4096,
-                    temperature=0.3,
-                )
+            for msg in envelope.data:
+                if msg.role == "assistant" and msg.assistant_id == assistant_id:
+                    content_text = ""
+                    if hasattr(msg, "content") and isinstance(msg.content, list):
+                        for block in msg.content:
+                            if getattr(block, "type", "") == "text":
+                                content_text += block.text.value
+                    elif hasattr(msg, "content") and isinstance(msg.content, str):
+                        content_text = msg.content
 
-                async for chunk in DeltaNormalizer.async_iter_deltas(raw_stream, run_id):
-                    ctype, ccontent = chunk.get("type"), chunk.get("content") or ""
-                    if ctype == "content":
-                        if current_block in ["fc", "think", "plan"]:
-                            accumulated += f"</{current_block}>"
-                        current_block = None
-                        assistant_reply += ccontent
-                        accumulated += ccontent
-                    elif ctype == "call_arguments":
-                        if current_block != "fc":
-                            if current_block:
-                                accumulated += f"</{current_block}>"
-                            accumulated += "<fc>"
-                            current_block = "fc"
-                        accumulated += ccontent
-                    # DeltaNormalizer handles think/plan blocks
-            except Exception as e:
-                return f"Worker LLM Error: {e}"
-
-            if current_block:
-                accumulated += f"</{current_block}>"
-
-            # --- B. PARSE LIFECYCLE (Copy from stream) ---
-            tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
-
-            message_to_save = assistant_reply
-            if tool_calls_batch:
-                # Build Structured Envelope
-                tool_calls_structure = []
-                for tool in tool_calls_batch:
-                    t_id = tool.get("id") or f"call_{uuid.uuid4().hex[:8]}"
-                    tool_calls_structure.append(
-                        {
-                            "id": t_id,
-                            "type": "function",
-                            "function": {
-                                "name": tool.get("name"),
-                                "arguments": json.dumps(tool.get("arguments", {})),
-                            },
-                        }
-                    )
-                message_to_save = json.dumps(tool_calls_structure)
-
-            # Persist Assistant turn to DB (Strict Client Call)
-            await asyncio.to_thread(
-                self.project_david_client.messages.create_message,
-                thread_id=child_thread.id,
-                role="assistant",
-                content=message_to_save,
-            )
-
-            # --- C. EXIT OR DISPATCH ---
-            if not tool_calls_batch:
-                return assistant_reply
-
-            # Tool Execution (Mixins handle their own DB updates)
-            captured_results: Dict[str, str] = {}
-            async with self._capture_tool_outputs(captured_results):
-                async for _ in self.process_tool_calls(
-                    thread_id=child_thread.id,
-                    run_id=run_id,
-                    assistant_id=ephemeral_worker.id,
-                    tool_call_id=None,
-                    decision=None,
-                ):
-                    pass  # We just wait for the results to be captured
-
-        return "Worker research depth limit reached (20 turns)."
+                    if content_text:
+                        return content_text
+            return None
+        except Exception as e:
+            LOG.error(f"❌ [FETCH-RESULT] Exception: {e}", exc_info=True)
+            return None
 
     async def handle_delegate_research_task(
         self, thread_id, run_id, assistant_id, arguments_dict, tool_call_id, decision
     ) -> AsyncGenerator[str, None]:
         """
         Supervisor tool handler for delegation.
+        Now uses plain JSON status updates for high-fidelity UX tracking.
         """
-        # Yield JSON status for SDK compatibility
+        LOG.info(f"🔄 [DELEGATE] STARTING. Run: {run_id} | ToolCall: {tool_call_id}")
+
+        from projectdavid.events import ContentEvent, ReasoningEvent
+
+        # --- [1] STATUS: INITIALIZING ---
         yield json.dumps(
             {
                 "type": "status",
-                "status": "Spawning research worker...",
+                "status": "Initializing delegation action...",
                 "state": "in_progress",
                 "run_id": run_id,
             }
         )
 
-        # Track delegation action
-        action = await asyncio.to_thread(
-            self.project_david_client.actions.create_action,  # Standard client method
-            tool_name="delegate_research_task",
-            run_id=run_id,
-            tool_call_id=tool_call_id,
-            function_args=arguments_dict,
-            decision=decision,
-        )
+        # =========================================================================
+        # 0. CREATE ACTION RECORD (DB)
+        # =========================================================================
+        action = None
+        try:
+            action = await asyncio.to_thread(
+                self.project_david_client.actions.create_action,
+                tool_name="delegate_research_task",
+                run_id=run_id,
+                tool_call_id=tool_call_id,
+                function_args=arguments_dict,
+                decision=decision,
+            )
+        except Exception as e:
+            LOG.error(f"❌ [DELEGATE] Action creation failed: {e}")
 
-        final_output = await self._run_worker_loop(
-            arguments_dict.get("task"), arguments_dict.get("requirements", ""), run_id, thread_id
-        )
+        # =========================================================================
+        # 1. SETUP EPHEMERAL ENVIRONMENT
+        # =========================================================================
+        try:
+            # --- STATUS: SPAWNING ---
+            yield json.dumps(
+                {
+                    "type": "status",
+                    "status": "Spawning ephemeral research assistant...",
+                    "state": "in_progress",
+                    "run_id": run_id,
+                }
+            )
+            ephemeral_worker = await self.create_ephemeral_worker_assistant()
 
+            # --- STATUS: THREAD PREP ---
+            yield json.dumps(
+                {
+                    "type": "status",
+                    "status": "Preparing secure research thread...",
+                    "state": "in_progress",
+                    "run_id": run_id,
+                }
+            )
+            ephemeral_thread = await self.create_ephemeral_thread()
+
+            research_task = arguments_dict.get("task")
+
+            # --- STATUS: TRANSMITTING ---
+            yield json.dumps(
+                {
+                    "type": "status",
+                    "status": "Transmitting task context to sub-worker...",
+                    "state": "in_progress",
+                    "run_id": run_id,
+                }
+            )
+            ephemeral_message = await self.create_ephemeral_message(
+                thread_id=ephemeral_thread.id,
+                assistant_id=ephemeral_worker.id,
+                content=research_task,
+            )
+
+            # --- STATUS: RUN START ---
+            yield json.dumps(
+                {
+                    "type": "status",
+                    "status": "Starting sub-worker execution loop...",
+                    "state": "in_progress",
+                    "run_id": run_id,
+                }
+            )
+            ephemeral_run = await self.create_ephemeral_run(
+                assistant_id=ephemeral_worker.id, thread_id=ephemeral_thread.id
+            )
+            LOG.info(f"🔄 [DELEGATE] Ephemeral Run Ready: {ephemeral_run.id}")
+
+        except Exception as e:
+            LOG.error(f"❌ [DELEGATE] Setup Phase Failed: {e}", exc_info=True)
+            yield json.dumps(
+                {
+                    "type": "status",
+                    "status": f"Setup failed: {str(e)}",
+                    "state": "error",
+                    "run_id": run_id,
+                }
+            )
+            return
+
+        # =========================================================================
+        # 2. CONFIGURE & EXECUTE STREAM (THREAD-SAFE BRIDGE)
+        # =========================================================================
+
+        # --- STATUS: STREAMING ---
         yield json.dumps(
-            {"type": "status", "status": "Research complete.", "state": "success", "run_id": run_id}
+            {
+                "type": "status",
+                "status": "Sub-worker active. Streaming insights...",
+                "state": "in_progress",
+                "run_id": run_id,
+            }
         )
 
-        # Finalize Delegation Action
-        await asyncio.to_thread(
-            self.project_david_client.actions.update_action,
-            action_id=action.id,
-            status=StatusEnum.completed.value,
+        sync_stream = self.project_david_client.synchronous_inference_stream
+        sync_stream.setup(
+            thread_id=ephemeral_thread.id,
+            assistant_id=ephemeral_worker.id,
+            message_id=ephemeral_message.id,
+            run_id=ephemeral_run.id,
+            api_key=os.environ.get("TOGETHER_API_KEY"),
         )
 
-        # Return Worker report to the Supervisor
-        await self.submit_tool_output(
-            thread_id=thread_id,
-            assistant_id=assistant_id,
-            tool_call_id=tool_call_id,
-            content=final_output,
-            action=action,
+        event_queue = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+        execution_had_error = False
+        error_message = None
+
+        def background_stream_worker():
+            try:
+                for event in sync_stream.stream_events(
+                    provider="together-ai",
+                    model="together-ai/deepseek-ai/DeepSeek-V3.1",
+                ):
+                    loop.call_soon_threadsafe(event_queue.put_nowait, event)
+            except Exception as e:
+                loop.call_soon_threadsafe(event_queue.put_nowait, e)
+            finally:
+                loop.call_soon_threadsafe(event_queue.put_nowait, None)
+
+        asyncio.create_task(asyncio.to_thread(background_stream_worker))
+
+        try:
+            while True:
+                event = await event_queue.get()
+                if event is None:
+                    break
+                if isinstance(event, Exception):
+                    raise event
+
+                if isinstance(event, ContentEvent):
+                    yield json.dumps(
+                        {"type": "content", "content": event.content, "run_id": run_id}
+                    )
+                elif isinstance(event, ReasoningEvent):
+                    yield json.dumps(
+                        {
+                            "type": "reasoning",
+                            "content": event.content,
+                            "run_id": run_id,
+                        }
+                    )
+
+        except Exception as e:
+            execution_had_error = True
+            error_message = str(e)
+            LOG.error(f"❌ [DELEGATE] Stream execution failed: {e}", exc_info=True)
+            yield json.dumps(
+                {
+                    "type": "status",
+                    "status": f"Worker error: {error_message}",
+                    "state": "error",
+                    "run_id": run_id,
+                }
+            )
+
+        # =========================================================================
+        # 3. FETCH RESULT & CLOSE LOOP
+        # =========================================================================
+
+        # --- STATUS: SYNTHESIZING ---
+        yield json.dumps(
+            {
+                "type": "status",
+                "status": "Collecting sub-worker final report...",
+                "state": "in_progress",
+                "run_id": run_id,
+            }
+        )
+
+        final_content = await self._fetch_ephemeral_result(
+            thread_id=ephemeral_thread.id, assistant_id=ephemeral_worker.id
+        )
+
+        if not final_content:
+            final_content = (
+                f"Delegation error: {error_message}"
+                if execution_had_error
+                else "No report generated."
+            )
+
+        try:
+            # --- STATUS: SUBMITTING ---
+            yield json.dumps(
+                {
+                    "type": "status",
+                    "status": "Submitting report to supervisor...",
+                    "state": "in_progress",
+                    "run_id": run_id,
+                }
+            )
+
+            await self.submit_tool_output(
+                thread_id=thread_id,
+                assistant_id=assistant_id,
+                tool_call_id=tool_call_id,
+                content=final_content,
+                action=action,
+                is_error=execution_had_error,
+            )
+
+            if action:
+                await asyncio.to_thread(
+                    self.project_david_client.actions.update_action,
+                    action_id=action.id,
+                    status=(
+                        StatusEnum.completed.value
+                        if not execution_had_error
+                        else StatusEnum.failed.value
+                    ),
+                )
+            LOG.info("✅ [DELEGATE] Tool Output Submitted.")
+        except Exception as e:
+            LOG.error(f"❌ [DELEGATE] Submission failure: {e}")
+
+        # --- FINAL STATUS ---
+        yield json.dumps(
+            {
+                "type": "status",
+                "status": "Delegation complete.",
+                "state": "completed" if not execution_had_error else "error",
+                "run_id": run_id,
+            }
         )

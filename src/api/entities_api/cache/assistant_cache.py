@@ -85,7 +85,7 @@ class AssistantCache:
             "agent_mode": assistant.agent_mode,
             "decision_telemetry": assistant.decision_telemetry,
             "web_access": assistant.web_access,
-            # "deep_research": assistant.deep_research,
+            "deep_research": assistant.deep_research,
         }
 
         await self.set(assistant_id, payload)

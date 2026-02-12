@@ -19,8 +19,10 @@ update_assistant = client.assistants.update_assistant(
     agent_mode=False,
     decision_telemetry=False,
     web_access=True,
+    deep_research=True,
 )
 print(update_assistant.agent_mode)
 print(update_assistant.decision_telemetry)
 print(update_assistant.web_access)
+print(update_assistant.deep_research)
 print(update_assistant.id)
