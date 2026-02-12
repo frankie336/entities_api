@@ -11,6 +11,7 @@ from entities_api.orchestration.instructions.assembler import \
     assemble_instructions
 from src.api.entities_api.orchestration.instructions.include_lists import (
     L2_INSTRUCTIONS, L3_INSTRUCTIONS, L3_WEB_USE_INSTRUCTIONS,
+    L4_RESEARCH_INSTRUCTIONS, LEVEL_4_SUPERVISOR_INSTRUCTIONS,
     NO_CORE_INSTRUCTIONS)
 from src.api.entities_api.platform_tools.definitions.record_tool_decision import \
     record_tool_decision
@@ -198,6 +199,116 @@ class ConversationContextMixin:
             "content": "\n\n".join(block for block in content_blocks if block),
         }
 
+    async def _build_research_supervisor_message(
+        self,
+        assistant_id: str,
+        decision_telemetry: bool = False,
+        agent_mode: bool = False,
+        web_access: bool = True,
+        deep_research: bool = True,
+    ) -> Dict:
+        cache = self.get_assistant_cache()
+        cfg = await cache.retrieve(assistant_id)
+        today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        instruction_keys = LEVEL_4_SUPERVISOR_INSTRUCTIONS
+
+        if decision_telemetry and "TOOL_DECISION_PROTOCOL" not in instruction_keys:
+            instruction_keys.insert(0, "TOOL_DECISION_PROTOCOL")
+
+        # Inject Web Search Instructions to the main list
+        if web_access:
+            instruction_keys.extend(L3_WEB_USE_INSTRUCTIONS)
+
+        platform_instructions = assemble_instructions(include_keys=instruction_keys)
+
+        # Ensure tools list exists
+        raw_tools_list = cfg.get("tools") or []
+
+        if web_access:
+            has_web_tool = any(
+                isinstance(t, dict) and t.get("type") == "web_search"
+                for t in raw_tools_list
+            )
+            if not has_web_tool:
+                raw_tools_list = list(raw_tools_list)
+                raw_tools_list.append({"type": "web_search"})
+
+        final_tools = self._resolve_and_prioritize_platform_tools(
+            tools=raw_tools_list,
+            decision_telemetry=decision_telemetry,
+        )
+
+        content_blocks = [
+            f"Today's date and time: {today}",
+            "### ASSISTANT INSTRUCTIONS",
+            cfg.get("instructions", ""),
+            "### OPERATIONAL PROTOCOLS",
+            platform_instructions,
+            "### AVAILABLE TOOLS",
+            f"tools:\n{json.dumps(final_tools)}",
+        ]
+
+        return {
+            "role": "system",
+            "content": "\n\n".join(block for block in content_blocks if block),
+        }
+
+    async def _build_research_worker_message(
+        self,
+        assistant_id: str,
+        decision_telemetry: bool = False,
+        agent_mode: bool = False,
+        web_access: bool = True,
+        deep_research: bool = True,
+    ) -> Dict:
+        cache = self.get_assistant_cache()
+        cfg = await cache.retrieve(assistant_id)
+        today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        instruction_keys = L4_RESEARCH_INSTRUCTIONS
+
+        if decision_telemetry and "TOOL_DECISION_PROTOCOL" not in instruction_keys:
+            instruction_keys.insert(0, "TOOL_DECISION_PROTOCOL")
+
+        # Inject Web Search Instructions to the main list
+        if web_access:
+            instruction_keys.extend(L3_WEB_USE_INSTRUCTIONS)
+
+        platform_instructions = assemble_instructions(include_keys=instruction_keys)
+
+        # Ensure tools list exists
+        raw_tools_list = cfg.get("tools") or []
+
+        if web_access:
+            has_web_tool = any(
+                isinstance(t, dict) and t.get("type") == "web_search"
+                for t in raw_tools_list
+            )
+            if not has_web_tool:
+                raw_tools_list = list(raw_tools_list)
+                raw_tools_list.append({"type": "web_search"})
+
+        final_tools = self._resolve_and_prioritize_platform_tools(
+            tools=raw_tools_list,
+            decision_telemetry=decision_telemetry,
+        )
+
+        content_blocks = [
+            f"Today's date and time: {today}",
+            "### ASSISTANT INSTRUCTIONS",
+            cfg.get("instructions", ""),
+            "### OPERATIONAL PROTOCOLS",
+            platform_instructions,
+            "### AVAILABLE TOOLS",
+            f"tools:\n{json.dumps(final_tools)}",
+        ]
+
+        return {
+            "role": "system",
+            "content": "\n\n".join(block for block in content_blocks if block),
+        }
+
     async def _build_amended_system_message(self, assistant_id: str) -> Dict:
         cache = self.get_assistant_cache()
         cfg = await cache.retrieve(assistant_id)
@@ -270,7 +381,6 @@ class ConversationContextMixin:
     # -----------------------------------------------------
     # ASYNC CONTEXT WINDOW (FIXED)
     # -----------------------------------------------------
-
     async def _set_up_context_window(
         self,
         assistant_id: str,
@@ -281,15 +391,33 @@ class ConversationContextMixin:
         decision_telemetry: bool = False,
         agent_mode: bool = False,
         web_access: bool = True,
+        deep_research: bool = False,
+        research_worker: bool = False,  # Added flag
     ) -> List[Dict]:
 
-        # 1. Build the System Message (This part is solid)
-        if structured_tool_call:
+        # 1. Build the System Message
+        # PRIORITY: Research Worker > Deep Research > Structured Tool Call > Standard
+        if research_worker:
+            system_msg = await self._build_research_worker_message(
+                assistant_id=assistant_id,
+                decision_telemetry=decision_telemetry,
+                agent_mode=agent_mode,
+                web_access=web_access,
+                deep_research=True,
+            )
+        elif deep_research:
+            system_msg = await self._build_research_supervisor_message(
+                assistant_id=assistant_id,
+                decision_telemetry=decision_telemetry,
+                agent_mode=agent_mode,
+                web_access=web_access,
+                deep_research=True,
+            )
+        elif structured_tool_call:
             system_msg = await self._build_native_function_calls_system_message(
                 assistant_id=assistant_id,
                 decision_telemetry=decision_telemetry,
                 web_access=web_access,
-                # agent_mode=agent_mode,
             )
         else:
             system_msg = await self._build_system_message(
@@ -299,56 +427,39 @@ class ConversationContextMixin:
                 web_access=web_access,
             )
 
+        # 2. Retrieve Message History
         if force_refresh:
             LOG.debug(f"[CTX-REFRESH] 🔄 Force Refresh Active for {thread_id}")
 
-            # --- CRITICAL CHANGE START: BYPASS HTTP ---
-            # Instead of: client = Entity(...), use the internal service directly.
-            # Assuming you have self.message_service or similar available via the Mixin.
-
-            # If you don't have the service injected, utilize the direct DB lookup logic
-            # that your 'get_formatted_messages' endpoint uses.
-
             try:
-                # Bypass the HTTP request to prevent deadlock
                 full_hist = await asyncio.to_thread(
-                    self.message_service.get_formatted_messages,  # Use the SERVICE, not the CLIENT
+                    self.message_service.get_formatted_messages,
                     thread_id=thread_id,
                     system_message=None,
                 )
             except AttributeError:
-                # Fallback: If service isn't available, we MUST increase the timeout
-                # and use a non-blocking internal URL.
                 LOG.warning(
-                    "[CTX-REFRESH] Service not found, falling back to internal API (Danger of Deadlock)"
+                    "[CTX-REFRESH] Service not found, falling back to internal API"
                 )
                 client = Entity(
-                    base_url="http://localhost:9000",  # Ensure this points to the internal network
+                    base_url="http://localhost:9000",
                     api_key=os.getenv("ADMIN_API_KEY"),
                 )
                 full_hist = client.messages.get_formatted_messages(
                     thread_id, system_message=None
                 )
-            # --- CRITICAL CHANGE END ---
-
-            last_role = full_hist[-1].get("role") if full_hist else "N/A"
-            LOG.info(
-                f"[CTX-REFRESH] Fresh DB Fetch: {len(full_hist)} msgs | Last Role: {last_role}"
-            )
 
             self.message_cache.set_history_sync(thread_id, full_hist)
             msgs = full_hist
         else:
             msgs = self.message_cache.get_history_sync(thread_id)
-            LOG.debug(f"[CTX-CACHE] Redis Hit for {thread_id}: {len(msgs)} msgs found.")
+            LOG.debug(f"[CTX-CACHE] Redis Hit for {thread_id}")
 
-        # Filter and prepend
+        # 3. Filter, Prepend, and Normalize
         msgs = [m for m in msgs if m.get("role") != "system"]
         full_context = [system_msg] + msgs
-
         normalized = self._normalize_roles(full_context)
 
-        # Logging the context is great for debugging Turn 2
         LOG.info(f"=== 🚀 OUTBOUND CONTEXT (Size: {len(normalized)}) ===")
 
         if trunk:

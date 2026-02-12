@@ -1,5 +1,4 @@
-from entities_api.orchestration.instructions.definitions import \
-    LEVEL_3_WEB_USE_INSTRUCTIONS
+from entities_api.orchestration.instructions.definitions import LEVEL_3_WEB_USE_INSTRUCTIONS
 
 L2_INSTRUCTIONS = [
     "TOOL_USAGE_PROTOCOL",
@@ -16,6 +15,16 @@ L3_INSTRUCTIONS = [
     "FUNCTION_CALL_FORMATTING",
     "FUNCTION_CALL_WRAPPING",
     "L3_SYNTAX_ENFORCEMENT",
+]
+
+
+LEVEL_4_SUPERVISOR_INSTRUCTIONS = [
+    "L4_SUPERVISOR_IDENTITY",
+    "L4_EXECUTION_PROTOCOL",
+    "L4_SUPERVISOR_CONSTRAINTS",
+    "TOOL_USAGE_PROTOCOL",
+    "FUNCTION_CALL_FORMATTING",
+    "FUNCTION_CALL_WRAPPING",
 ]
 
 

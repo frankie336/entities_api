@@ -15,21 +15,20 @@ from projectdavid_common.validation import StatusEnum
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
+from entities_api.utils.david_json_encoder import david_dumps
+
 # --- DEFINITIONS FOR HOT-SWAPPING ---
 from src.api.entities_api.constants.delegator import SUPERVISOR_TOOLS
+
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
-from src.api.entities_api.orchestration.instructions.definitions import \
-    SUPERVISOR_SYSTEM_PROMPT
-from src.api.entities_api.orchestration.mixins.delegation_mixin import \
-    DelegationMixin
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
+
+
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.provider_mixins import \
-    _ProviderMixins
-from src.api.entities_api.orchestration.mixins.scratchpad_mixin import \
-    ScratchpadMixin
+from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
+from src.api.entities_api.utils.david_json_encoder import DavidJSONEncoder
+
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -46,8 +45,6 @@ INTERNAL_TOOLS = {
 class QwenBaseWorker(
     _ProviderMixins,
     OrchestratorCore,
-    DelegationMixin,
-    ScratchpadMixin,
     ABC,
 ):
     """
@@ -71,9 +68,7 @@ class QwenBaseWorker(
 
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(
-            extra["assistant_cache"], AssistantCache
-        ):
+        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
             self._assistant_cache = extra["assistant_cache"]
 
         legacy_config = extra.get("assistant_config") or extra.get("assistant_cache")
@@ -128,314 +123,186 @@ class QwenBaseWorker(
         **kwargs,
     ) -> AsyncGenerator[Union[str, StreamEvent], None]:
         """
-        Level 3 Agentic Stream with ID-Parity AND Level 4 Deep Research Loops.
+        Level 4 Deep Research Stream (Flat Logic).
+        Swaps identity if in deep_research mode, then processes a single turn.
+        Recursion is handled by the outer process_conversation loop.
         """
+        import asyncio
+        import uuid
+        from src.api.entities_api.services.assistants_service import AssistantService
+        from projectdavid_common.validation import StatusEnum, ValidationInterface
+
+        validator = ValidationInterface()
+        asst_service = AssistantService()
         redis = self.redis
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
+        # 1. State Initialization
         self._current_tool_call_id = None
         self._decision_payload = None
-        self._tool_queue: List[Dict] = []
+        self._tool_queue = []
 
-        # --- [1] DETERMINE MODE ---
-        is_deep_research = self.assistant_config.get("deep_research_enabled", False)
-
-        # FIX 1: Enforce valid Together AI Model
-        # If the run was created with 'gpt-4', map it to Qwen to prevent 400 Errors.
-        if model in ["gpt-4", "gpt-3.5-turbo"]:
-            model = "Qwen/Qwen2.5-72B-Instruct-Turbo"
-        elif hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
-            model = mapped
-
-        max_loops = 30 if is_deep_research else 1
-        current_loop_index = 0
-
-        # Define active tools for this session
-        active_tools = kwargs.get("tools", None)
+        accumulated: str = ""
+        assistant_reply: str = ""
+        current_block: str | None = None
 
         try:
+            # 2. Model Mapping
+            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
+                model = mapped
+
+            # 3. Mode Determination & Identity Morphing
             self.assistant_id = assistant_id
             await self._ensure_config_loaded()
+            is_deep_research = getattr(self.assistant_config, "deep_research", True)
 
-            # --- [2] SETUP CONTEXT (MAIN ASSISTANT) ---
-            ctx = await self._set_up_context_window(
-                assistant_id,
-                thread_id,
-                trunk=True,
-                force_refresh=force_refresh,
-                agent_mode=self.assistant_config.get("agent_mode", False),
-                decision_telemetry=self.assistant_config.get(
-                    "decision_telemetry", True
-                ),
-                web_access=self.assistant_config.get("web_access", False),
-            )
+            active_tools = kwargs.get("tools", None)
 
-            # --- [3] EPHEMERAL SUPERVISOR INJECTION ---
             if is_deep_research:
-                LOG.info(
-                    f"🧬 [MORPH] Run {run_id}: Swapping Main Persona for Deep Research Supervisor."
+                from src.api.entities_api.constants.delegator import SUPERVISOR_TOOLS
+
+                LOG.info(f"🧬 [MORPH] Run {run_id}: Swapping to Supervisor via Service Layer.")
+
+                asst_payload = validator.AssistantCreate(
+                    name="Deep Research Supervisor",
+                    model=model,
+                    tools=SUPERVISOR_TOOLS,
+                    instructions="You are the Strategic Commander. Execute research via delegation. Maintain the scratchpad.",
+                    deep_research=True,
                 )
 
-                # A. Hot-Swap System Prompt
-                if ctx and ctx[0].get("role") == "system":
-                    ctx[0]["content"] = SUPERVISOR_SYSTEM_PROMPT
-                else:
-                    ctx.insert(
-                        0, {"role": "system", "content": SUPERVISOR_SYSTEM_PROMPT}
-                    )
+                # Direct DB transaction to prevent deadlock
+                research_supervisor = await asyncio.to_thread(
+                    asst_service.create_assistant, asst_payload
+                )
 
-                # B. Force Supervisor Tools
+                # SWAP: Use Supervisor ID and Supervisor Tools
+                self.assistant_id = research_supervisor.id
                 active_tools = SUPERVISOR_TOOLS
+
+            # 4. Context Setup
+            ctx = await self._set_up_context_window(
+                assistant_id=self.assistant_id,
+                thread_id=thread_id,
+                trunk=True,
+                force_refresh=force_refresh,
+                agent_mode=getattr(self.assistant_config, "agent_mode", False),
+                decision_telemetry=getattr(self.assistant_config, "decision_telemetry", False),
+                web_access=getattr(self.assistant_config, "web_access", False),
+                deep_research=is_deep_research,
+            )
 
             if not api_key:
                 yield json.dumps({"type": "error", "content": "Missing API key."})
                 return
 
-            yield json.dumps(
-                {
-                    "type": "status",
-                    "status": "started",
-                    "state": "started",
-                    "run_id": run_id,
-                }
-            )
-            client = self._get_client_instance(api_key=api_key)
+            yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
-            # --- [4] THE LOOP ---
-            while current_loop_index < max_loops:
-                current_loop_index += 1
+            # 5. LLM Turn (Single Lifecycle)
+            client = self._get_client_instance(api_key=api_key)
+            raw_stream = client.stream_chat_completion(
+                messages=ctx,
+                model=model,
+                max_tokens=10000,
+                temperature=kwargs.get("temperature", 0.6),
+                stream=True,
+                tools=active_tools,
+                tool_choice="auto" if active_tools else None,
+            )
+
+            async for chunk in DeltaNormalizer.async_iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
                     break
 
-                accumulated: str = ""
-                assistant_reply: str = ""
-                reasoning_reply: str = ""
-                decision_buffer: str = ""
-                plan_buffer: str = ""
-                current_block: str | None = None
+                ctype = chunk.get("type")
+                ccontent = chunk.get("content") or ""
 
-                # Call LLM
-                try:
-                    # FIX 2: Reduce max_tokens to 4096 (Safe limit for Together AI)
-                    raw_stream = client.stream_chat_completion(
-                        messages=ctx,
-                        model=model,
-                        max_tokens=4096,  # <--- CHANGED FROM 10000
-                        temperature=kwargs.get("temperature", 0.6),
-                        stream=True,
-                        tools=active_tools,
-                        tool_choice="auto" if active_tools else None,
-                    )
+                if ctype == "content":
+                    if current_block in ["fc", "think", "plan"]:
+                        accumulated += f"</{current_block}>"
+                    current_block = None
+                    assistant_reply += ccontent
+                    accumulated += ccontent
+                elif ctype == "call_arguments":
+                    if current_block != "fc":
+                        if current_block:
+                            accumulated += f"</{current_block}>"
+                        accumulated += "<fc>"
+                        current_block = "fc"
+                    accumulated += ccontent
+                elif ctype == "reasoning":
+                    if current_block != "think":
+                        if current_block:
+                            accumulated += f"</{current_block}>"
+                        accumulated += "<think>"
+                        current_block = "think"
+                elif ctype == "plan":
+                    if current_block != "plan":
+                        if current_block:
+                            accumulated += f"</{current_block}>"
+                        accumulated += "<plan>"
+                        current_block = "plan"
+                    accumulated += ccontent
 
-                    async for chunk in DeltaNormalizer.async_iter_deltas(
-                        raw_stream, run_id
-                    ):
-                        if stop_event.is_set():
-                            break
+                if ctype == "call_arguments":
+                    continue
 
-                        ctype = chunk.get("type")
-                        ccontent = chunk.get("content") or ""
+                yield json.dumps(chunk)
+                await self._shunt_to_redis_stream(redis, stream_key, chunk)
 
-                        # --- BLOCK PARSING (Qwen/Deepseek Style) ---
-                        if ctype == "content":
-                            if current_block == "fc":
-                                accumulated += "</fc>"
-                            elif current_block == "think":
-                                accumulated += "</think>"
-                            elif current_block == "plan":
-                                accumulated += "</plan>"
-                            current_block = None
-                            assistant_reply += ccontent
-                            accumulated += ccontent
-                        elif ctype == "call_arguments":
-                            if current_block != "fc":
-                                if current_block == "think":
-                                    accumulated += "</think>"
-                                elif current_block == "plan":
-                                    accumulated += "</plan>"
-                                accumulated += "<fc>"
-                                current_block = "fc"
-                            accumulated += ccontent
-                        elif ctype == "reasoning":
-                            if current_block != "think":
-                                if current_block == "fc":
-                                    accumulated += "</fc>"
-                                elif current_block == "plan":
-                                    accumulated += "</plan>"
-                                accumulated += "<think>"
-                                current_block = "think"
-                            reasoning_reply += ccontent
-                        elif ctype == "plan":
-                            if current_block != "plan":
-                                if current_block == "fc":
-                                    accumulated += "</fc>"
-                                elif current_block == "think":
-                                    accumulated += "</think>"
-                                accumulated += "<plan>"
-                                current_block = "plan"
-                            plan_buffer += ccontent
-                            accumulated += ccontent
-                        elif ctype == "decision":
-                            decision_buffer += ccontent
-                            if current_block == "fc":
-                                accumulated += "</fc>"
-                            elif current_block == "think":
-                                accumulated += "</think>"
-                            elif current_block == "plan":
-                                accumulated += "</plan>"
-                            current_block = "decision"
-
-                        if ctype == "call_arguments":
-                            continue
-
-                        # Yield to Frontend
-                        yield json.dumps(chunk)
-                        await self._shunt_to_redis_stream(redis, stream_key, chunk)
-
-                except Exception as e:
-                    LOG.error(f"Supervisor LLM Error: {e}")
-                    yield json.dumps(
-                        {"type": "error", "content": f"Supervisor LLM Error: {e}"}
-                    )
-                    break
-
-                # ... (Rest of parsing logic remains same) ...
-
-                # Close blocks
-                if current_block == "fc":
-                    accumulated += "</fc>"
-                elif current_block == "think":
-                    accumulated += "</think>"
-                elif current_block == "plan":
-                    accumulated += "</plan>"
-
-                if decision_buffer:
-                    try:
-                        self._decision_payload = json.loads(decision_buffer.strip())
-                    except Exception:
-                        pass
-
-                # Parse Tools
-                tool_calls_batch = self.parse_and_set_function_calls(
-                    accumulated, assistant_reply
-                )
-
-                # --- [5] BRANCHING LOGIC ---
-                if not tool_calls_batch:
-                    break  # Done
-
-                # Check if Supervisor Tools are being used
-                is_internal_batch = is_deep_research and all(
-                    t["name"] in INTERNAL_TOOLS for t in tool_calls_batch
-                )
-
-                if is_internal_batch:
-                    # 1. Update History (Assistant Turn)
-                    tool_calls_structure = self._build_tool_structure(tool_calls_batch)
-                    ctx.append(
-                        {
-                            "role": "assistant",
-                            "content": assistant_reply or None,
-                            "tool_calls": tool_calls_structure,
-                        }
-                    )
-
-                    # 2. Execute Inline (The Supervisor Actions)
-                    for tool, struct in zip(tool_calls_batch, tool_calls_structure):
-                        t_name = tool["name"]
-                        t_args = tool.get("arguments", {})
-                        t_id = struct["id"]
-
-                        yield json.dumps(
-                            {
-                                "type": "status",
-                                "status": "processing",
-                                "state": "in_progress",
-                                "content": f"Supervisor: {t_name}...",
-                            }
-                        )
-
-                        output_result = "Action Completed."
-
-                        # --- EXECUTION ---
-                        try:
-                            if t_name == "delegate_research_task":
-                                # EPHEMERAL WORKER SPAWNS HERE
-                                res_list = []
-                                async for event in self._run_worker_loop_generator(
-                                    t_args.get("task"),
-                                    t_args.get("requirements", ""),
-                                    run_id,
-                                    res_list,
-                                ):
-                                    if isinstance(event, StatusEvent):
-                                        evt_state = getattr(
-                                            event, "state", "in_progress"
-                                        )
-                                        yield json.dumps(
-                                            {
-                                                "type": "status",
-                                                "status": "processing",
-                                                "state": evt_state,
-                                                "content": f"Worker: {event.message}",
-                                            }
-                                        )
-                                output_result = (
-                                    res_list[0] if res_list else "No worker output."
-                                )
-
-                            elif t_name == "read_scratchpad":
-                                output_result = await asyncio.to_thread(
-                                    self.project_david_client.tools.scratchpad_read,
-                                    thread_id=thread_id,
-                                )
-                            elif t_name == "update_scratchpad":
-                                output_result = await asyncio.to_thread(
-                                    self.project_david_client.tools.scratchpad_update,
-                                    thread_id=thread_id,
-                                    content=t_args.get("content"),
-                                )
-                            elif t_name == "append_scratchpad":
-                                output_result = await asyncio.to_thread(
-                                    self.project_david_client.tools.scratchpad_append,
-                                    thread_id=thread_id,
-                                    note=t_args.get("note"),
-                                )
-                        except Exception as e:
-                            output_result = f"Error: {e}"
-
-                        # 3. Update History (Tool Result)
-                        ctx.append(
-                            {
-                                "role": "tool",
-                                "tool_call_id": t_id,
-                                "name": t_name,
-                                "content": str(output_result),
-                            }
-                        )
-
-                    continue  # Loop back to Supervisor
-
-                else:
-                    break  # External tool or finish
+            # Close dangling XML tags
+            if current_block:
+                accumulated += f"</{current_block}>"
 
         except Exception as exc:
-            LOG.error(f"DEBUG: Stream Exception: {exc}")
-            err = {"type": "error", "content": f"Stream error: {exc}", "run_id": run_id}
-            yield json.dumps(err)
-            await self._shunt_to_redis_stream(redis, stream_key, err)
+            LOG.error(f"Stream Exception: {exc}")
+            yield json.dumps({"type": "error", "content": str(exc), "run_id": run_id})
         finally:
             stop_event.set()
 
-        yield json.dumps(
-            {
-                "type": "status",
-                "status": "processing",
-                "state": "processing",
-                "run_id": run_id,
-            }
-        )
+        # 6. Post-Turn Processing (Parsing & Persistence)
+        tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
+
+        message_to_save = assistant_reply
+        final_status = StatusEnum.completed.value
+
+        if tool_calls_batch:
+            # Prepare internal queue for the Tool Router
+            self._tool_queue = tool_calls_batch
+            final_status = StatusEnum.pending_action.value
+
+            # Build Hermes/OpenAI envelope for Turn 2 parity
+            tool_calls_structure = []
+            for tool in tool_calls_batch:
+                t_id = tool.get("id") or f"call_{uuid.uuid4().hex[:8]}"
+                tool_calls_structure.append(
+                    {
+                        "id": t_id,
+                        "type": "function",
+                        "function": {
+                            "name": tool.get("name"),
+                            "arguments": json.dumps(tool.get("arguments", {})),
+                        },
+                    }
+                )
+
+            # Use structure as the message content to ensure context hygiene
+            message_to_save = json.dumps(tool_calls_structure)
+            yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
+
+        # Persist turn to DB Thread
+        if message_to_save:
+            await self.finalize_conversation(message_to_save, thread_id, self.assistant_id, run_id)
+
+        # Update Run state to allow consumer to trigger tool execution
+        if self.project_david_client:
+            await asyncio.to_thread(
+                self.project_david_client.runs.update_run_status, run_id, final_status
+            )
+
+        if not tool_calls_batch:
+            yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
     def _build_tool_structure(self, batch):
         """Helper to format tool calls for history."""
