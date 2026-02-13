@@ -54,7 +54,9 @@ class DeepResearchBaseWorker(
 
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
+        elif "assistant_cache" in extra and isinstance(
+            extra["assistant_cache"], AssistantCache
+        ):
             self._assistant_cache = extra["assistant_cache"]
 
         legacy_config = extra.get("assistant_config") or extra.get("assistant_cache")
@@ -138,7 +140,9 @@ class DeepResearchBaseWorker(
 
         try:
             # 2. Model Mapping
-            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
+            if hasattr(self, "_get_model_map") and (
+                mapped := self._get_model_map(model)
+            ):
                 model = mapped
 
             # 3. Mode Determination & Identity Morphing
@@ -147,13 +151,17 @@ class DeepResearchBaseWorker(
 
             is_deep_research = self.assistant_config.get("deep_research", False)
 
-            LOG.info(f"🧬 [QWEN_WORKER] Starting Stream. Deep Research: {is_deep_research}")
+            LOG.info(
+                f"🧬 [QWEN_WORKER] Starting Stream. Deep Research: {is_deep_research}"
+            )
 
             if is_deep_research:
                 from src.api.entities_api.constants.delegator import SUPERVISOR_TOOLS
 
                 assistant_manager = AssistantManager()
-                ephemeral_supervisor = await assistant_manager.create_ephemeral_supervisor()
+                ephemeral_supervisor = (
+                    await assistant_manager.create_ephemeral_supervisor()
+                )
                 self.assistant_id = ephemeral_supervisor.id
 
             # 4. Context Setup
@@ -163,7 +171,9 @@ class DeepResearchBaseWorker(
                 trunk=True,
                 force_refresh=force_refresh,
                 agent_mode=getattr(self.assistant_config, "agent_mode", False),
-                decision_telemetry=getattr(self.assistant_config, "decision_telemetry", False),
+                decision_telemetry=getattr(
+                    self.assistant_config, "decision_telemetry", False
+                ),
                 web_access=getattr(self.assistant_config, "web_access", False),
                 deep_research=is_deep_research,
             )
@@ -255,12 +265,18 @@ class DeepResearchBaseWorker(
         # 6. Post-Turn Processing (Parsing & Persistence)
 
         # Parse the raw 'accumulated' string to find tools for the Executor
-        tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
+        tool_calls_batch = self.parse_and_set_function_calls(
+            accumulated, assistant_reply
+        )
 
         # [SAFETY CHECK] If parser failed but we saw activity, try fallback extraction
         if not tool_calls_batch and has_tool_activity:
-            LOG.warning("⚠️ Parser missed tools but activity detected. Attempting raw extraction.")
-            tool_calls_batch = self.extract_function_calls_within_body_of_text(accumulated)
+            LOG.warning(
+                "⚠️ Parser missed tools but activity detected. Attempting raw extraction."
+            )
+            tool_calls_batch = self.extract_function_calls_within_body_of_text(
+                accumulated
+            )
             if tool_calls_batch:
                 self.set_function_call_state(tool_calls_batch)
 
@@ -277,11 +293,15 @@ class DeepResearchBaseWorker(
             self._tool_queue = tool_calls_batch
             final_status = StatusEnum.pending_action.value
 
-            yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
+            yield json.dumps(
+                {"type": "status", "status": "processing", "run_id": run_id}
+            )
 
         # Persist the RAW TURN to the Database
         if message_to_save:
-            await self.finalize_conversation(message_to_save, thread_id, self.assistant_id, run_id)
+            await self.finalize_conversation(
+                message_to_save, thread_id, self.assistant_id, run_id
+            )
 
         # Update Run status (Pending Action or Completed)
         if self.project_david_client:

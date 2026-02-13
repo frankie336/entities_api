@@ -21,6 +21,10 @@ class DelegationMixin:
     Lifecycle matches the central Orchestrator stream logic.
     """
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._delegation_api_key = None
+
     @asynccontextmanager
     async def _capture_tool_outputs(self, capture_dict: Dict[str, str]):
         """
@@ -58,7 +62,9 @@ class DelegationMixin:
     async def _run_worker_loop(
         self, task: str, requirements: str, run_id: str, parent_thread_id: str
     ) -> str:
-        LOG.info(f"🛑 DELEGATION STUB: Received task '{task}' from thread {parent_thread_id}")
+        LOG.info(
+            f"🛑 DELEGATION STUB: Received task '{task}' from thread {parent_thread_id}"
+        )
         return f"Delegation Acknowledged. Task: {task}. Requirements: {requirements}"
 
     async def create_ephemeral_worker_assistant(self):
@@ -74,7 +80,9 @@ class DelegationMixin:
 
     async def create_ephemeral_thread(self):
 
-        ephemeral_thread = await asyncio.to_thread(self.project_david_client.threads.create_thread)
+        ephemeral_thread = await asyncio.to_thread(
+            self.project_david_client.threads.create_thread
+        )
         return ephemeral_thread
 
     async def create_ephemeral_message(
@@ -100,7 +108,9 @@ class DelegationMixin:
         )
         return ephemeral_run
 
-    async def _fetch_ephemeral_result(self, thread_id: str, assistant_id: str) -> str | None:
+    async def _fetch_ephemeral_result(
+        self, thread_id: str, assistant_id: str
+    ) -> str | None:
         """
         Retrieves the final text response from the ephemeral thread using the SDK.
         """
@@ -280,7 +290,7 @@ class DelegationMixin:
             assistant_id=ephemeral_worker.id,
             message_id=ephemeral_message.id,
             run_id=ephemeral_run.id,
-            api_key=os.environ.get("TOGETHER_API_KEY"),
+            api_key=self._delegation_api_key,
         )
 
         event_queue = asyncio.Queue()
@@ -293,7 +303,7 @@ class DelegationMixin:
                 # [NOTE] Ensure this model string matches your config
                 for event in sync_stream.stream_events(
                     provider="together-ai",
-                    model="together-ai/deepseek-ai/DeepSeek-V3.1",
+                    model="together-ai/deepseek-ai/DeepSeek-R1",
                 ):
                     loop.call_soon_threadsafe(event_queue.put_nowait, event)
             except Exception as e:
@@ -317,7 +327,11 @@ class DelegationMixin:
                     )
                 elif isinstance(event, ReasoningEvent):
                     yield json.dumps(
-                        {"type": "reasoning", "content": event.content, "run_id": run_id}
+                        {
+                            "type": "reasoning",
+                            "content": event.content,
+                            "run_id": run_id,
+                        }
                     )
 
         except Exception as e:

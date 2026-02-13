@@ -12,8 +12,9 @@ from projectdavid_common.utilities.tool_validator import ToolValidator
 from projectdavid_common.validation import StatusEnum
 
 # --- DEPENDENCIES ---
-from entities_api.platform_tools.handlers.computer.shell_command_interface import \
-    run_shell_commands_async
+from entities_api.platform_tools.handlers.computer.shell_command_interface import (
+    run_shell_commands_async,
+)
 from src.api.entities_api.services.logging_service import LoggingUtility
 from src.api.entities_api.utils.level3_utils import create_status_payload
 

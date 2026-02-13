@@ -1,8 +1,9 @@
 import os
 
 from entities_api.clients.unified_async_client import get_cached_client
-from entities_api.orchestration.workers.base_workers.deep_research_base import \
-    DeepResearchBaseWorker
+from entities_api.orchestration.workers.base_workers.deep_research_base import (
+    DeepResearchBaseWorker,
+)
 
 
 class TogetherDeepResearchWorker(DeepResearchBaseWorker):

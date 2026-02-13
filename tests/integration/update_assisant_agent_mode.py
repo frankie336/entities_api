@@ -49,3 +49,9 @@ change_deep_research_state = client.assistants.update_assistant(
     assistant_id=config.get("assistant_id"),
     deep_research=True,
 )
+
+
+grant_web_access = client.assistants.update_assistant(
+    assistant_id=config.get("assistant_id"),
+    web_access=True,
+)

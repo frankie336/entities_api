@@ -54,6 +54,16 @@ class DeltaNormalizer:
     KIMI_ARG_START = "<|tool_call_argument_begin|>"
     KIMI_TC_END = "<|tool_call_end|>"
 
+    # ---------------------------------------------------------
+    # [Model: Unicode Block Format] Special character tool tags
+    # ---------------------------------------------------------
+    # Uses ▁ (U+2581 Lower One Eighth Block) as separator
+    UNICODE_TC_BEGIN = "<｜tool▁calls▁begin｜>"
+    UNICODE_TC_END = "<｜tool▁calls▁end｜>"
+    UNICODE_CALL_BEGIN = "<｜tool▁call▁begin｜>"
+    UNICODE_CALL_END = "<｜tool▁call▁end｜>"
+    UNICODE_SEP = "<｜tool▁sep｜>"
+
     @classmethod
     async def async_iter_deltas(
         cls, raw_stream: AsyncGenerator[Any, None], run_id: str
@@ -99,7 +109,9 @@ class DeltaNormalizer:
                 yield {"type": "reasoning", "content": r_content, "run_id": run_id}
 
             t_calls = (
-                delta.get("tool_calls") if is_dict else getattr(delta, "tool_calls", None)
+                delta.get("tool_calls")
+                if is_dict
+                else getattr(delta, "tool_calls", None)
             )
             if t_calls:
                 for tc in t_calls:
@@ -133,8 +145,8 @@ class DeltaNormalizer:
                         }
 
             seg = (
-                      (delta.get("content", "") if is_dict else getattr(delta, "content", ""))
-                  ) or ""
+                (delta.get("content", "") if is_dict else getattr(delta, "content", ""))
+            ) or ""
 
             if finish_reason == "tool_calls":
                 for idx, data in list(pending_tool_calls.items()):
@@ -211,6 +223,8 @@ class DeltaNormalizer:
                         (cls.PLAN_START, "plan"),
                         # [Kimi K2.5]
                         (cls.KIMI_SEC_START, "kimi_router"),
+                        # [Unicode Block Format]
+                        (cls.UNICODE_TC_BEGIN, "unicode_tool_router"),
                     ]
 
                     match_found = False
@@ -385,6 +399,88 @@ class DeltaNormalizer:
                     buffer = buffer[1:]
                     yielded_something = True
 
+                # --- STATE: UNICODE BLOCK FORMAT ---
+                elif state == "unicode_tool_router":
+                    # Check for end of entire tool calls section
+                    if buffer.startswith(cls.UNICODE_TC_END):
+                        buffer = buffer[len(cls.UNICODE_TC_END) :]
+                        state = "content"
+                        yielded_something = True
+                        continue
+
+                    # Check for individual call begin
+                    if buffer.startswith(cls.UNICODE_CALL_BEGIN):
+                        buffer = buffer[len(cls.UNICODE_CALL_BEGIN) :]
+                        state = "unicode_tool_parsing"
+                        yielded_something = True
+                        continue
+
+                    # Check for individual call end
+                    if buffer.startswith(cls.UNICODE_CALL_END):
+                        buffer = buffer[len(cls.UNICODE_CALL_END) :]
+                        yielded_something = True
+                        continue
+
+                    router_tags = [
+                        cls.UNICODE_TC_END,
+                        cls.UNICODE_CALL_BEGIN,
+                        cls.UNICODE_CALL_END,
+                    ]
+                    if any(tag.startswith(buffer) for tag in router_tags):
+                        break
+
+                    # Discard router noise (whitespace, etc.)
+                    buffer = buffer[1:]
+                    yielded_something = True
+
+                elif state == "unicode_tool_parsing":
+                    # Look for separator between function name and arguments
+                    if buffer.startswith(cls.UNICODE_SEP):
+                        buffer = buffer[len(cls.UNICODE_SEP) :]
+                        state = "unicode_tool_args"
+                        yielded_something = True
+                        continue
+
+                    # Check for call end without args (shouldn't happen but defensive)
+                    if buffer.startswith(cls.UNICODE_CALL_END):
+                        buffer = buffer[len(cls.UNICODE_CALL_END) :]
+                        state = "unicode_tool_router"
+                        yielded_something = True
+                        continue
+
+                    check_tags = [cls.UNICODE_SEP, cls.UNICODE_CALL_END]
+                    if any(tag.startswith(buffer) for tag in check_tags):
+                        break
+
+                    # Accumulate function name as call_arguments
+                    yield {
+                        "type": "call_arguments",
+                        "content": buffer[0],
+                        "run_id": run_id,
+                    }
+                    buffer = buffer[1:]
+                    yielded_something = True
+
+                elif state == "unicode_tool_args":
+                    # Check for end of this tool call
+                    if buffer.startswith(cls.UNICODE_CALL_END):
+                        buffer = buffer[len(cls.UNICODE_CALL_END) :]
+                        state = "unicode_tool_router"
+                        yielded_something = True
+                        continue
+
+                    if cls.UNICODE_CALL_END.startswith(buffer):
+                        break
+
+                    # Accumulate arguments
+                    yield {
+                        "type": "call_arguments",
+                        "content": buffer[0],
+                        "run_id": run_id,
+                    }
+                    buffer = buffer[1:]
+                    yielded_something = True
+
                 # --- STATE: HERMES CHANNELS ---
                 elif state == "channel_reasoning":
                     if buffer.startswith(cls.CH_FINAL):
@@ -468,6 +564,8 @@ class DeltaNormalizer:
                 "tool_code_xml",
                 "md_json_block",
                 "kimi_args",
+                "unicode_tool_parsing",
+                "unicode_tool_args",
             ]:
                 yield {"type": "call_arguments", "content": buffer, "run_id": run_id}
             elif state == "decision":

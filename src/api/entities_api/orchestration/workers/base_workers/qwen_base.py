@@ -15,13 +15,13 @@ from projectdavid_common.validation import StatusEnum
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
+
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
+
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.provider_mixins import \
-    _ProviderMixins
+from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
 from src.api.entities_api.utils.ephemeral_worker_maker import AssistantManager
 
 # --- DEFINITIONS FOR HOT-SWAPPING ---
@@ -53,6 +53,9 @@ class QwenBaseWorker(
         assistant_cache_service: Optional[AssistantCache] = None,
         **extra,
     ) -> None:
+
+        self.api_key = api_key or extra.get("api_key")
+        self._delegation_api_key = self.api_key
         self.redis = redis or get_redis_sync()
 
         if assistant_cache_service:
@@ -119,6 +122,12 @@ class QwenBaseWorker(
         Recursion is handled by the outer process_conversation loop.
         """
 
+        if not api_key:
+            yield json.dumps({"type": "error", "content": "Missing API key."})
+            return
+
+        self._delegation_api_key = api_key
+
         redis = self.redis
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
@@ -155,8 +164,7 @@ class QwenBaseWorker(
             )
 
             if is_deep_research:
-                from src.api.entities_api.constants.delegator import \
-                    SUPERVISOR_TOOLS
+                from src.api.entities_api.constants.delegator import SUPERVISOR_TOOLS
 
                 LOG.info(
                     f"🧬 [MORPH] Run {run_id}: Swapping to Supervisor via Service Layer."
