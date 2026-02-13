@@ -15,13 +15,13 @@ from projectdavid_common.validation import StatusEnum
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
+
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
+
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.provider_mixins import \
-    _ProviderMixins
+from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
 from src.api.entities_api.utils.ephemeral_worker_maker import AssistantManager
 
 load_dotenv()
@@ -54,9 +54,7 @@ class DeepResearchBaseWorker(
 
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(
-            extra["assistant_cache"], AssistantCache
-        ):
+        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
             self._assistant_cache = extra["assistant_cache"]
 
         legacy_config = extra.get("assistant_config") or extra.get("assistant_cache")
@@ -111,9 +109,11 @@ class DeepResearchBaseWorker(
         **kwargs,
     ) -> AsyncGenerator[Union[str, StreamEvent], None]:
         """
-        Level 4 Deep Research Stream (Flat Logic).
-        Swaps identity if in deep_research mode, then processes a single turn.
-        Recursion is handled by the outer process_conversation loop.
+        Level 4 Deep Research Stream (Native Persistence Mode).
+        Fixes:
+        1. Preserves <think>/<plan> tags in DB (Critical for Supervisor/Deep Research memory).
+        2. Bypasses _build_tool_structure for DB saving to prevent context loss.
+        3. Prevents premature 'completed' status if tool JSON is slightly malformed.
         """
 
         redis = self.redis
@@ -125,15 +125,20 @@ class DeepResearchBaseWorker(
         self._decision_payload = None
         self._tool_queue = []
 
+        # 'accumulated' will store the raw XML-tagged string (The "Native" format)
         accumulated: str = ""
+
+        # 'assistant_reply' is just the visible text for the user (stripped of tags usually)
         assistant_reply: str = ""
+
         current_block: str | None = None
+
+        # Flag to detect if model is TRYING to use tools, even if parser fails later
+        has_tool_activity: bool = False
 
         try:
             # 2. Model Mapping
-            if hasattr(self, "_get_model_map") and (
-                mapped := self._get_model_map(model)
-            ):
+            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
                 model = mapped
 
             # 3. Mode Determination & Identity Morphing
@@ -142,31 +147,13 @@ class DeepResearchBaseWorker(
 
             is_deep_research = self.assistant_config.get("deep_research", False)
 
-            LOG.info("[DEEP_RESEARCH_MODE]=%s", is_deep_research)
-
-            active_tools = kwargs.get("tools", None)
-
-            LOG.critical("██████ [DEEP_RESEARCH_MODE]=%s ██████", is_deep_research)
-            print(
-                f"\n\n########## DEEP_RESEARCH_MODE={is_deep_research} ##########\n\n"
-            )
+            LOG.info(f"🧬 [QWEN_WORKER] Starting Stream. Deep Research: {is_deep_research}")
 
             if is_deep_research:
-                from src.api.entities_api.constants.delegator import \
-                    SUPERVISOR_TOOLS
+                from src.api.entities_api.constants.delegator import SUPERVISOR_TOOLS
 
-                LOG.info(
-                    f"🧬 [MORPH] Run {run_id}: Swapping to Supervisor via Service Layer."
-                )
-
-                # -------------------------------------------------------
-                # Create supervisor assistant here
-                #
-                # ----------------------------------------------------------
                 assistant_manager = AssistantManager()
-                ephemeral_supervisor = (
-                    await assistant_manager.create_ephemeral_supervisor()
-                )
+                ephemeral_supervisor = await assistant_manager.create_ephemeral_supervisor()
                 self.assistant_id = ephemeral_supervisor.id
 
             # 4. Context Setup
@@ -176,12 +163,12 @@ class DeepResearchBaseWorker(
                 trunk=True,
                 force_refresh=force_refresh,
                 agent_mode=getattr(self.assistant_config, "agent_mode", False),
-                decision_telemetry=getattr(
-                    self.assistant_config, "decision_telemetry", False
-                ),
+                decision_telemetry=getattr(self.assistant_config, "decision_telemetry", False),
                 web_access=getattr(self.assistant_config, "web_access", False),
                 deep_research=is_deep_research,
             )
+
+            # Note: For Qwen/DeepSeek, we usually want 'prepare_native_tool_context'
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
             if not api_key:
@@ -190,7 +177,7 @@ class DeepResearchBaseWorker(
 
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
-            # 5. LLM Turn (Single Lifecycle)
+            # 5. LLM Turn
             client = self._get_client_instance(api_key=api_key)
 
             raw_stream = client.stream_chat_completion(
@@ -200,7 +187,7 @@ class DeepResearchBaseWorker(
                 temperature=kwargs.get("temperature", 0.6),
                 stream=True,
                 tools=extracted_tools,
-                tool_choice="auto" if active_tools else None,
+                tool_choice="auto" if kwargs.get("tools") else None,
             )
 
             async for chunk in DeltaNormalizer.async_iter_deltas(raw_stream, run_id):
@@ -210,25 +197,34 @@ class DeepResearchBaseWorker(
                 ctype = chunk.get("type")
                 ccontent = chunk.get("content") or ""
 
+                # --- STREAMING LOGIC ---
+                # We build 'accumulated' to match exactly what the model output, including tags.
+
                 if ctype == "content":
-                    if current_block in ["fc", "think", "plan"]:
+                    if current_block:
                         accumulated += f"</{current_block}>"
-                    current_block = None
+                        current_block = None
                     assistant_reply += ccontent
                     accumulated += ccontent
+
                 elif ctype == "call_arguments":
+                    has_tool_activity = True
                     if current_block != "fc":
                         if current_block:
                             accumulated += f"</{current_block}>"
                         accumulated += "<fc>"
                         current_block = "fc"
                     accumulated += ccontent
+
                 elif ctype == "reasoning":
                     if current_block != "think":
                         if current_block:
                             accumulated += f"</{current_block}>"
                         accumulated += "<think>"
                         current_block = "think"
+                    # Reasoning goes into accumulated history, but NOT assistant_reply (usually)
+                    accumulated += ccontent
+
                 elif ctype == "plan":
                     if current_block != "plan":
                         if current_block:
@@ -237,13 +233,16 @@ class DeepResearchBaseWorker(
                         current_block = "plan"
                     accumulated += ccontent
 
+                # Emit to Frontend
+                # Note: We don't emit raw tool args to frontend here to keep UI clean,
+                # but DeltaNormalizer helps handling this upstream usually.
                 if ctype == "call_arguments":
                     continue
 
                 yield json.dumps(chunk)
                 await self._shunt_to_redis_stream(redis, stream_key, chunk)
 
-            # Close dangling XML tags
+            # Close dangling XML tags at end of stream
             if current_block:
                 accumulated += f"</{current_block}>"
 
@@ -254,46 +253,37 @@ class DeepResearchBaseWorker(
             stop_event.set()
 
         # 6. Post-Turn Processing (Parsing & Persistence)
-        tool_calls_batch = self.parse_and_set_function_calls(
-            accumulated, assistant_reply
-        )
 
-        message_to_save = assistant_reply
+        # Parse the raw 'accumulated' string to find tools for the Executor
+        tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
+
+        # [SAFETY CHECK] If parser failed but we saw activity, try fallback extraction
+        if not tool_calls_batch and has_tool_activity:
+            LOG.warning("⚠️ Parser missed tools but activity detected. Attempting raw extraction.")
+            tool_calls_batch = self.extract_function_calls_within_body_of_text(accumulated)
+            if tool_calls_batch:
+                self.set_function_call_state(tool_calls_batch)
+
+        # [CRITICAL FIX] NATIVE PERSISTENCE
+        # We save 'accumulated' (the raw string with tags).
+        # We DO NOT use _build_tool_structure(tool_calls_batch) for the save,
+        # because that would strip the <think> and <plan> tags.
+        message_to_save = accumulated
+
         final_status = StatusEnum.completed.value
 
         if tool_calls_batch:
-            # Prepare internal queue for the Tool Router
+            # We populate the queue for the Orchestrator to read
             self._tool_queue = tool_calls_batch
             final_status = StatusEnum.pending_action.value
 
-            # Build Hermes/OpenAI envelope for Turn 2 parity
-            tool_calls_structure = []
-            for tool in tool_calls_batch:
-                t_id = tool.get("id") or f"call_{uuid.uuid4().hex[:8]}"
-                tool_calls_structure.append(
-                    {
-                        "id": t_id,
-                        "type": "function",
-                        "function": {
-                            "name": tool.get("name"),
-                            "arguments": json.dumps(tool.get("arguments", {})),
-                        },
-                    }
-                )
+            yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
-            # Use structure as the message content to ensure context hygiene
-            message_to_save = json.dumps(tool_calls_structure)
-            yield json.dumps(
-                {"type": "status", "status": "processing", "run_id": run_id}
-            )
-
-        # Persist turn to DB Thread
+        # Persist the RAW TURN to the Database
         if message_to_save:
-            await self.finalize_conversation(
-                message_to_save, thread_id, self.assistant_id, run_id
-            )
+            await self.finalize_conversation(message_to_save, thread_id, self.assistant_id, run_id)
 
-        # Update Run state to allow consumer to trigger tool execution
+        # Update Run status (Pending Action or Completed)
         if self.project_david_client:
             await asyncio.to_thread(
                 self.project_david_client.runs.update_run_status, run_id, final_status

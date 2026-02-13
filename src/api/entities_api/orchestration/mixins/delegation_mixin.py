@@ -58,9 +58,7 @@ class DelegationMixin:
     async def _run_worker_loop(
         self, task: str, requirements: str, run_id: str, parent_thread_id: str
     ) -> str:
-        LOG.info(
-            f"🛑 DELEGATION STUB: Received task '{task}' from thread {parent_thread_id}"
-        )
+        LOG.info(f"🛑 DELEGATION STUB: Received task '{task}' from thread {parent_thread_id}")
         return f"Delegation Acknowledged. Task: {task}. Requirements: {requirements}"
 
     async def create_ephemeral_worker_assistant(self):
@@ -76,9 +74,7 @@ class DelegationMixin:
 
     async def create_ephemeral_thread(self):
 
-        ephemeral_thread = await asyncio.to_thread(
-            self.project_david_client.threads.create_thread
-        )
+        ephemeral_thread = await asyncio.to_thread(self.project_david_client.threads.create_thread)
         return ephemeral_thread
 
     async def create_ephemeral_message(
@@ -104,9 +100,7 @@ class DelegationMixin:
         )
         return ephemeral_run
 
-    async def _fetch_ephemeral_result(
-        self, thread_id: str, assistant_id: str
-    ) -> str | None:
+    async def _fetch_ephemeral_result(self, thread_id: str, assistant_id: str) -> str | None:
         """
         Retrieves the final text response from the ephemeral thread using the SDK.
         """
@@ -146,13 +140,11 @@ class DelegationMixin:
     ) -> AsyncGenerator[str, None]:
         """
         Supervisor tool handler for delegation.
-        Now uses plain JSON status updates for high-fidelity UX tracking.
         """
         LOG.info(f"🔄 [DELEGATE] STARTING. Run: {run_id} | ToolCall: {tool_call_id}")
 
         from projectdavid.events import ContentEvent, ReasoningEvent
 
-        # --- [1] STATUS: INITIALIZING ---
         yield json.dumps(
             {
                 "type": "status",
@@ -162,11 +154,38 @@ class DelegationMixin:
             }
         )
 
+        # --- [CRITICAL FIX] PARSE & FORMAT ARGUMENTS ---
+        # Ensure we have a dict, even if the model passed a stringified JSON
+        if isinstance(arguments_dict, str):
+            try:
+                args = json.loads(arguments_dict)
+            except:
+                args = {"task": arguments_dict}  # Fallback if raw string
+        else:
+            args = arguments_dict
+
+        # Extract fields
+        task_text = args.get("task", "No specific task description provided.")
+        requirements_text = args.get("requirements", "No specific constraints.")
+        context_text = args.get("context", "")
+
+        # Create a clean, human-readable prompt for the worker
+        # This prevents "JSON confusion" and ensures requirements aren't ignored.
+        formatted_handoff_prompt = (
+            f"### 📋 Research Assignment\n\n"
+            f"**Task:**\n{task_text}\n\n"
+            f"**Requirements & Constraints:**\n{requirements_text}\n"
+        )
+
+        if context_text:
+            formatted_handoff_prompt += f"\n**Additional Context:**\n{context_text}\n"
+
         # =========================================================================
         # 0. CREATE ACTION RECORD (DB)
         # =========================================================================
         action = None
         try:
+            # We save the RAW dict to DB for auditing
             action = await asyncio.to_thread(
                 self.project_david_client.actions.create_action,
                 tool_name="delegate_research_task",
@@ -182,7 +201,6 @@ class DelegationMixin:
         # 1. SETUP EPHEMERAL ENVIRONMENT
         # =========================================================================
         try:
-            # --- STATUS: SPAWNING ---
             yield json.dumps(
                 {
                     "type": "status",
@@ -193,7 +211,6 @@ class DelegationMixin:
             )
             ephemeral_worker = await self.create_ephemeral_worker_assistant()
 
-            # --- STATUS: THREAD PREP ---
             yield json.dumps(
                 {
                     "type": "status",
@@ -204,28 +221,26 @@ class DelegationMixin:
             )
             ephemeral_thread = await self.create_ephemeral_thread()
 
-            research_task = arguments_dict.get("task")
-
-            # --- STATUS: TRANSMITTING ---
             yield json.dumps(
                 {
                     "type": "status",
-                    "status": "Transmitting task context to sub-worker...",
+                    "status": "Transmitting task context...",
                     "state": "in_progress",
                     "run_id": run_id,
                 }
             )
+
+            # [FIX] Send the formatted prompt, not just the task key
             ephemeral_message = await self.create_ephemeral_message(
                 thread_id=ephemeral_thread.id,
                 assistant_id=ephemeral_worker.id,
-                content=research_task,
+                content=formatted_handoff_prompt,
             )
 
-            # --- STATUS: RUN START ---
             yield json.dumps(
                 {
                     "type": "status",
-                    "status": "Starting sub-worker execution loop...",
+                    "status": "Starting execution loop...",
                     "state": "in_progress",
                     "run_id": run_id,
                 }
@@ -248,10 +263,8 @@ class DelegationMixin:
             return
 
         # =========================================================================
-        # 2. CONFIGURE & EXECUTE STREAM (THREAD-SAFE BRIDGE)
+        # 2. CONFIGURE & EXECUTE STREAM
         # =========================================================================
-
-        # --- STATUS: STREAMING ---
         yield json.dumps(
             {
                 "type": "status",
@@ -277,9 +290,10 @@ class DelegationMixin:
 
         def background_stream_worker():
             try:
+                # [NOTE] Ensure this model string matches your config
                 for event in sync_stream.stream_events(
                     provider="together-ai",
-                    model="together-ai/Qwen/Qwen3-Next-80B-A3B-Instruct/deep-research",
+                    model="together-ai/deepseek-ai/DeepSeek-V3.1",
                 ):
                     loop.call_soon_threadsafe(event_queue.put_nowait, event)
             except Exception as e:
@@ -303,11 +317,7 @@ class DelegationMixin:
                     )
                 elif isinstance(event, ReasoningEvent):
                     yield json.dumps(
-                        {
-                            "type": "reasoning",
-                            "content": event.content,
-                            "run_id": run_id,
-                        }
+                        {"type": "reasoning", "content": event.content, "run_id": run_id}
                     )
 
         except Exception as e:
@@ -326,12 +336,10 @@ class DelegationMixin:
         # =========================================================================
         # 3. FETCH RESULT & CLOSE LOOP
         # =========================================================================
-
-        # --- STATUS: SYNTHESIZING ---
         yield json.dumps(
             {
                 "type": "status",
-                "status": "Collecting sub-worker final report...",
+                "status": "Collecting final report...",
                 "state": "in_progress",
                 "run_id": run_id,
             }
@@ -349,11 +357,10 @@ class DelegationMixin:
             )
 
         try:
-            # --- STATUS: SUBMITTING ---
             yield json.dumps(
                 {
                     "type": "status",
-                    "status": "Submitting report to supervisor...",
+                    "status": "Submitting report...",
                     "state": "in_progress",
                     "run_id": run_id,
                 }
@@ -382,7 +389,6 @@ class DelegationMixin:
         except Exception as e:
             LOG.error(f"❌ [DELEGATE] Submission failure: {e}")
 
-        # --- FINAL STATUS ---
         yield json.dumps(
             {
                 "type": "status",
