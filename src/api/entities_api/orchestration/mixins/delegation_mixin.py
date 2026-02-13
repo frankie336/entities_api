@@ -279,7 +279,7 @@ class DelegationMixin:
             try:
                 for event in sync_stream.stream_events(
                     provider="together-ai",
-                    model="together-ai/deepseek-ai/DeepSeek-V3.1",
+                    model="together-ai/Qwen/Qwen3-Next-80B-A3B-Instruct/deep-research",
                 ):
                     loop.call_soon_threadsafe(event_queue.put_nowait, event)
             except Exception as e:

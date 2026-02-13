@@ -5,7 +5,7 @@ import asyncio
 import json
 import os
 import uuid
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Dict, Optional, Union
 
 from dotenv import load_dotenv
@@ -15,7 +15,6 @@ from projectdavid_common.validation import StatusEnum
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
-from entities_api.constants.assistant import PLATFORM_TOOLS
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
 from src.api.entities_api.orchestration.engine.orchestrator_core import \
@@ -23,6 +22,7 @@ from src.api.entities_api.orchestration.engine.orchestrator_core import \
 # --- MIXINS ---
 from src.api.entities_api.orchestration.mixins.provider_mixins import \
     _ProviderMixins
+from src.api.entities_api.utils.ephemeral_worker_maker import AssistantManager
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -31,6 +31,7 @@ LOG = LoggingUtility()
 class DeepResearchBaseWorker(
     _ProviderMixins,
     OrchestratorCore,
+    ABC,
 ):
     """
     Async Base for Qwen Providers (Hyperbolic, Together, etc.).
@@ -49,11 +50,6 @@ class DeepResearchBaseWorker(
         assistant_cache_service: Optional[AssistantCache] = None,
         **extra,
     ) -> None:
-
-        super().__init__(**extra)  # <--- THIS IS MISSING
-
-        self.api_key = api_key  # <-- need a solution to dynamically send this
-
         self.redis = redis or get_redis_sync()
 
         if assistant_cache_service:
@@ -142,21 +138,51 @@ class DeepResearchBaseWorker(
 
             # 3. Mode Determination & Identity Morphing
             self.assistant_id = assistant_id
+            await self._ensure_config_loaded()
 
-            # await self._ensure_config_loaded()
+            is_deep_research = self.assistant_config.get("deep_research", False)
+
+            LOG.info("[DEEP_RESEARCH_MODE]=%s", is_deep_research)
+
+            active_tools = kwargs.get("tools", None)
+
+            LOG.critical("██████ [DEEP_RESEARCH_MODE]=%s ██████", is_deep_research)
+            print(
+                f"\n\n########## DEEP_RESEARCH_MODE={is_deep_research} ##########\n\n"
+            )
+
+            if is_deep_research:
+                from src.api.entities_api.constants.delegator import \
+                    SUPERVISOR_TOOLS
+
+                LOG.info(
+                    f"🧬 [MORPH] Run {run_id}: Swapping to Supervisor via Service Layer."
+                )
+
+                # -------------------------------------------------------
+                # Create supervisor assistant here
+                #
+                # ----------------------------------------------------------
+                assistant_manager = AssistantManager()
+                ephemeral_supervisor = (
+                    await assistant_manager.create_ephemeral_supervisor()
+                )
+                self.assistant_id = ephemeral_supervisor.id
 
             # 4. Context Setup
-            ctx = await self._set_up_context_window(
+            raw_ctx = await self._set_up_context_window(
                 assistant_id=self.assistant_id,
                 thread_id=thread_id,
                 trunk=True,
                 force_refresh=force_refresh,
-                agent_mode=False,
-                decision_telemetry=False,
-                web_access=False,
-                deep_research=False,
-                research_worker=True,
+                agent_mode=getattr(self.assistant_config, "agent_mode", False),
+                decision_telemetry=getattr(
+                    self.assistant_config, "decision_telemetry", False
+                ),
+                web_access=getattr(self.assistant_config, "web_access", False),
+                deep_research=is_deep_research,
             )
+            cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
             if not api_key:
                 yield json.dumps({"type": "error", "content": "Missing API key."})
@@ -165,15 +191,16 @@ class DeepResearchBaseWorker(
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
             # 5. LLM Turn (Single Lifecycle)
-
             client = self._get_client_instance(api_key=api_key)
 
             raw_stream = client.stream_chat_completion(
-                messages=ctx,
+                messages=cleaned_ctx,
                 model=model,
                 max_tokens=10000,
                 temperature=kwargs.get("temperature", 0.6),
                 stream=True,
+                tools=extracted_tools,
+                tool_choice="auto" if active_tools else None,
             )
 
             async for chunk in DeltaNormalizer.async_iter_deltas(raw_stream, run_id):
@@ -295,97 +322,3 @@ class DeepResearchBaseWorker(
                 }
             )
         return structure
-
-    async def process_conversation(
-        self,
-        thread_id: str,
-        message_id: Optional[str],
-        run_id: str,
-        assistant_id: str,
-        model: Any,
-        api_key: Optional[str] = None,
-        max_turns: int = 10,
-        **kwargs,
-    ) -> AsyncGenerator[Union[str, StreamEvent], None]:  # <--- ALLOW EVENTS
-        """
-        Level 3 Recursive Orchestrator (Batch-Aware).
-        Yields mixed stream of Text Tokens and Structured Events.
-        """
-        turn_count = 0
-        current_message_id = message_id
-
-        while turn_count < max_turns:
-            turn_count += 1
-            LOG.info(f"ORCHESTRATOR ▸ Turn {turn_count} start [Run: {run_id}]")
-
-            # --- 1. RESET INTERNAL STATE ---
-            self.set_tool_response_state(False)
-            self.set_function_call_state(None)
-            self._current_tool_call_id = None
-
-            # --- 2. THE INFERENCE TURN ---
-            try:
-                # The 'stream' method might yield strings (LLM tokens) OR Events
-                async for chunk in self.stream(
-                    thread_id=thread_id,
-                    message_id=current_message_id,
-                    run_id=run_id,
-                    assistant_id=assistant_id,
-                    model=model,
-                    force_refresh=(turn_count > 1),
-                    api_key=api_key,
-                    **kwargs,
-                ):
-                    yield chunk
-            except Exception as stream_exc:
-                LOG.error(
-                    f"ORCHESTRATOR ▸ Turn {turn_count} stream failed: {stream_exc}"
-                )
-                # Return a proper error event if possible, otherwise JSON string
-                yield json.dumps(
-                    {"type": "error", "content": f"Stream failure: {stream_exc}"}
-                )
-                break
-
-            # --- 3. BATCH EVALUATION ---
-            batch = self.get_function_call_state()
-
-            if not batch:
-                LOG.info(f"ORCHESTRATOR ▸ Turn {turn_count} completed with text.")
-                break
-
-            has_consumer_tool = any(
-                tool.get("name") not in PLATFORM_TOOLS for tool in batch
-            )
-
-            # --- 4. THE TOOL PROCESSING TURN ---
-            # This loop receives StatusEvent objects from WebSearchMixin
-            async for chunk in self.process_tool_calls(
-                thread_id=thread_id,
-                run_id=run_id,
-                assistant_id=assistant_id,
-                tool_call_id=self._current_tool_call_id,
-                model=model,
-                api_key=api_key,
-                decision=self._decision_payload,
-            ):
-                # We yield the Object directly.
-                # The API endpoint must check `isinstance(chunk, StreamEvent)`
-                yield chunk
-
-            # --- 5. RECURSION DECISION ---
-            if not has_consumer_tool:
-                LOG.info(
-                    f"ORCHESTRATOR ▸ Platform batch {turn_count} complete. Stabilizing..."
-                )
-                await asyncio.sleep(0.5)
-                current_message_id = None
-                continue
-            else:
-                LOG.info(
-                    f"ORCHESTRATOR ▸ Consumer tool detected in batch. Handing over to SDK."
-                )
-                return
-
-        if turn_count >= max_turns:
-            LOG.error(f"ORCHESTRATOR ▸ Max turns reached.")

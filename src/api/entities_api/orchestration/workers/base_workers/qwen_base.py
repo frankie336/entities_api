@@ -30,14 +30,6 @@ from src.api.entities_api.utils.ephemeral_worker_maker import AssistantManager
 load_dotenv()
 LOG = LoggingUtility()
 
-# Tools that trigger a Re-Entrant Loop (The Supervisor Logic)
-INTERNAL_TOOLS = {
-    "delegate_research_task",
-    "read_scratchpad",
-    "update_scratchpad",
-    "append_scratchpad",
-}
-
 
 class QwenBaseWorker(
     _ProviderMixins,

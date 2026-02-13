@@ -6,6 +6,8 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from src.api.entities_api.orchestration.engine.inference_arbiter import \
     InferenceArbiter
+from src.api.entities_api.orchestration.workers.togeterai.together_deep_research import \
+    TogetherDeepResearchWorker
 from src.api.entities_api.orchestration.workers.togeterai.together_deepseek import \
     TogetherDs1
 from src.api.entities_api.orchestration.workers.togeterai.together_default import \
@@ -41,6 +43,8 @@ class TogetherAIHandler:
         # "mistralai/": TogetherLlamaWorker,
         # "google/": TogetherLlamaWorker,
         # --- Qwen Family (All versions: 2, 2.5, 3, Coder, VL) ---
+        # --- Deep  Research ---
+        "together-ai/Qwen/Qwen3-Next-80B-A3B-Instruct/deep-research": TogetherDeepResearchWorker,
         "Qwen/": TogetherQwenWorker,
         # --- Specialized Providers ---
         "ServiceNow": TogetherServiceNowWorker,
