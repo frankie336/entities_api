@@ -15,13 +15,13 @@ from projectdavid_common.validation import StatusEnum
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
-
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
-from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
-
+from src.api.entities_api.orchestration.engine.orchestrator_core import \
+    OrchestratorCore
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
+from src.api.entities_api.orchestration.mixins.provider_mixins import \
+    _ProviderMixins
 from src.api.entities_api.utils.ephemeral_worker_maker import AssistantManager
 
 # --- DEFINITIONS FOR HOT-SWAPPING ---
@@ -164,7 +164,8 @@ class QwenBaseWorker(
             )
 
             if is_deep_research:
-                from src.api.entities_api.constants.delegator import SUPERVISOR_TOOLS
+                from src.api.entities_api.constants.delegator import \
+                    SUPERVISOR_TOOLS
 
                 LOG.info(
                     f"🧬 [MORPH] Run {run_id}: Swapping to Supervisor via Service Layer."

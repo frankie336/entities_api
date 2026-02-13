@@ -62,7 +62,9 @@ class DelegationMixin:
     async def _run_worker_loop(
         self, task: str, requirements: str, run_id: str, parent_thread_id: str
     ) -> str:
-        LOG.info(f"🛑 DELEGATION STUB: Received task '{task}' from thread {parent_thread_id}")
+        LOG.info(
+            f"🛑 DELEGATION STUB: Received task '{task}' from thread {parent_thread_id}"
+        )
         return f"Delegation Acknowledged. Task: {task}. Requirements: {requirements}"
 
     async def create_ephemeral_worker_assistant(self):
@@ -78,7 +80,9 @@ class DelegationMixin:
 
     async def create_ephemeral_thread(self):
 
-        ephemeral_thread = await asyncio.to_thread(self.project_david_client.threads.create_thread)
+        ephemeral_thread = await asyncio.to_thread(
+            self.project_david_client.threads.create_thread
+        )
         return ephemeral_thread
 
     async def create_ephemeral_message(
@@ -104,7 +108,9 @@ class DelegationMixin:
         )
         return ephemeral_run
 
-    async def _fetch_ephemeral_result(self, thread_id: str, assistant_id: str) -> str | None:
+    async def _fetch_ephemeral_result(
+        self, thread_id: str, assistant_id: str
+    ) -> str | None:
         """
         Retrieves the final text response from the ephemeral thread using the SDK.
         """

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections import defaultdict
 from typing import Any, AsyncGenerator, Dict, Optional
 
 from projectdavid.events import StatusEvent
@@ -18,31 +19,153 @@ LOG = LoggingUtility()
 class WebSearchMixin:
     """
     Drive the **Level 3 Agentic Web Tools** (read, scroll, search, discovery).
+
+    Features:
+    - Lazy-loaded session state (crash-proof).
+    - Query Tiering (adjusts research depth based on complexity).
+    - Navigation Guidance (detects pagination).
+    - SERP Quality Analysis.
     """
+
+    # ------------------------------------------------------------------
+    # 1. BULLETPROOF STATE MANAGEMENT (Lazy Load)
+    # ------------------------------------------------------------------
+    @property
+    def _research_sessions(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Safely retrieves the session store.
+        If 'OrchestratorCore' didn't initialize it, we do it ourselves here.
+        This prevents 'AttributeError' in complex Mixin hierarchies.
+        """
+        if not hasattr(self, "_internal_sessions_storage"):
+            self._internal_sessions_storage = defaultdict(
+                lambda: {
+                    "sources_read": 0,
+                    "urls_visited": set(),
+                    "query_tier": None,
+                    "search_performed": False,
+                    "initial_query": None,
+                }
+            )
+        return self._internal_sessions_storage
+
+    # ------------------------------------------------------------------
+    # 2. HELPER METHODS & LOGIC
+    # ------------------------------------------------------------------
+
+    def _classify_query_tier(self, query: str) -> int:
+        """
+        Classifies query complexity to determine required source count.
+
+        Returns:
+            1: Simple factual query (2 sources)
+            2: Moderate multi-faceted query (3-4 sources)
+            3: Complex analytical query (5-6 sources)
+        """
+        query_lower = query.lower()
+
+        # Tier 3 indicators: comparison, analysis, "why", "how do X differ"
+        tier_3_keywords = [
+            "compare",
+            "difference",
+            "why",
+            "analyze",
+            "trend",
+            "versus",
+            "vs",
+            "impact of",
+            "how do",
+            "what are the effects",
+        ]
+        if any(keyword in query_lower for keyword in tier_3_keywords):
+            return 3
+
+        # Tier 2 indicators: multi-part questions, "what are", lists
+        tier_2_keywords = [
+            "what are",
+            "list",
+            "benefits",
+            "advantages",
+            "disadvantages",
+            "types of",
+            "examples of",
+            "methods",
+            "ways to",
+        ]
+        if any(keyword in query_lower for keyword in tier_2_keywords):
+            return 2
+
+        # Tier 1: Simple factual queries
+        return 1
+
+    def _get_or_create_session(
+        self, run_id: str, query: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Get or initialize research session for this run safely."""
+        # Access via the property to ensure it exists
+        session = self._research_sessions[run_id]
+
+        if query and session["query_tier"] is None:
+            session["query_tier"] = self._classify_query_tier(query)
+            session["initial_query"] = query
+            LOG.info(
+                f"[{run_id}] Query classified as Tier {session['query_tier']}: {query}"
+            )
+
+        return session
+
+    async def _validate_research_completeness(
+        self,
+        run_id: str,
+        session: Optional[Dict[str, Any]] = None,
+    ) -> tuple[bool, str]:
+        """
+        Validates if research meets quality standards.
+        Useful for internal checks even if not blocking the orchestrator.
+        """
+        if session is None:
+            # Use safe get logic
+            if run_id not in self._research_sessions:
+                return True, "No active research session"
+            session = self._research_sessions[run_id]
+
+        query_tier = session.get("query_tier", 1)
+        sources_read = session.get("sources_read", 0)
+        search_performed = session.get("search_performed", False)
+
+        min_sources = {1: 2, 2: 3, 3: 5}
+        required = min_sources.get(query_tier, 2)
+
+        # Check if search was even performed
+        if not search_performed:
+            return True, "No web search performed, skipping validation"
+
+        # Check source count
+        if sources_read < required:
+            shortage = required - sources_read
+            return False, (
+                f"⚠️ RESEARCH INCOMPLETE: Tier {query_tier} query requires {required} sources.\n"
+                f"Currently read: {sources_read} source(s).\n"
+                f"ACTION REQUIRED: Read {shortage} more source(s) before providing final answer."
+            )
+
+        return True, f"Research complete: {sources_read}/{required} sources read."
+
+    def _clear_session(self, run_id: str):
+        """Clear research session after completion."""
+        if run_id in self._research_sessions:
+            del self._research_sessions[run_id]
 
     @staticmethod
     def _format_web_tool_error(tool_name: str, error_content: str, inputs: Dict) -> str:
-        """
-        Translates web/validation failures into actionable Level 2 instructions.
-        """
+        """Translates failures into actionable instructions."""
         if not error_content:
             error_content = "Unknown Error (Empty Response)"
 
         error_lower = error_content.lower()
 
-        # --- 1. SCHEMA/VALIDATION RECOVERY (The Fix for your issue) ---
+        # --- 1. SCHEMA/VALIDATION RECOVERY ---
         if "validation error" in error_lower or "missing arguments" in error_lower:
-            # Specific handling for the search_web_page 'query' issue
-            if tool_name == "search_web_page" and "query" in error_lower:
-                return (
-                    f"❌ CRITICAL SCHEMA ERROR: The tool '{tool_name}' failed.\n"
-                    f"REASON: You forgot the required 'query' argument.\n"
-                    f"YOU SENT: {inputs}\n"
-                    f"REQUIRED FORMAT: search_web_page(url='...', query='TARGET_KEYWORD')\n"
-                    "SYSTEM INSTRUCTION: Immediate Correction Required. Call the tool again with the 'query' parameter included."
-                )
-
-            # Generic Schema Fix
             return (
                 f"❌ SCHEMA ERROR: Invalid arguments for '{tool_name}'.\n"
                 f"ERROR DETAILS: {error_content}\n"
@@ -64,25 +187,17 @@ class WebSearchMixin:
                 "SYSTEM INSTRUCTION: No more pages. Synthesize collected info."
             )
 
-        # --- 4. EMPTY SEARCH RESULTS ---
-        if "not found" in error_lower and tool_name == "search_web_page":
-            query = inputs.get("query", "unknown")
-            return (
-                f"⚠️ Web Search Result for '{query}': 0 matches found.\n"
-                "SYSTEM INSTRUCTION: Keyword not found.\n"
-                "1. Try a broader keyword (e.g., 'Revenue' instead of 'Q3 2024 Revenue').\n"
-                "2. Or call `read_web_page` to check metadata."
-            )
-
         return (
             f"❌ Web Tool '{tool_name}' Error: {error_content}\n"
             "SYSTEM INSTRUCTION: Review arguments. If error persists, stop using this tool."
         )
 
-    # ... (_inject_navigation_guidance and _parse_serp_results remain the same) ...
     def _inject_navigation_guidance(self, content: str, url: str) -> str:
+        """Injects hints if content looks like a paginated document."""
         if not content:
             return ""
+
+        # Regex to find "Page X of Y" or "Page X/Y"
         page_match = re.search(
             r"Page\s+(\d+)\s*(?:of|/)\s*(\d+)", content, re.IGNORECASE
         )
@@ -102,26 +217,68 @@ class WebSearchMixin:
             f"3. [SCROLL] 'scroll_web_page' to page {next_p}."
         )
 
-    def _parse_serp_results(self, raw_markdown: str, query: str) -> str:
+    def _parse_serp_results(self, raw_markdown: str, query: str, run_id: str) -> str:
+        """Enhanced SERP parsing with quality hints and progress tracking."""
         if not raw_markdown:
             return f"Error: No data for '{query}'."
+
+        # Update session
+        session = self._get_or_create_session(run_id, query)
+        session["search_performed"] = True
+
         lines = raw_markdown.split("\n")
         results = []
         count = 0
+
         for line in lines:
-            if count >= 5:
+            if count >= 10:  # Limit results to keep context clean
                 break
+            # Parsing logic for markdown links [Title](URL)
             if "](" in line and "duckduckgo" not in line:
                 match = re.search(r"\((https?://[^)]+)\)", line)
                 if match:
                     title = line.split("](")[0].strip("[")
-                    results.append(f"{count+1}. **{title}** -> {match.group(1)}")
+                    url = match.group(1)
+
+                    # Add source quality hints
+                    quality_hint = ""
+                    if any(domain in url for domain in [".gov", ".edu", ".org"]):
+                        quality_hint = " [HIGH AUTHORITY]"
+                    elif "wikipedia.org" in url:
+                        quality_hint = " [ENCYCLOPEDIA]"
+
+                    results.append(
+                        f"{count+1}. **{title}**{quality_hint}\n   URL: {url}"
+                    )
                     count += 1
-        return (
-            f"SEARCH RESULTS for '{query}':\n" + "\n".join(results)
-            if results
-            else "No results."
+
+        if not results:
+            return "No results found."
+
+        # Determine required sources based on tier
+        query_tier = session["query_tier"]
+        min_sources = {1: 2, 2: 3, 3: 5}.get(query_tier, 3)
+
+        output = (
+            f"🔍 SEARCH RESULTS for '{query}' ({count} found):\n"
+            f"📊 Query Classification: Tier {query_tier} (Requires {min_sources} sources)\n\n"
+            + "\n".join(results)
         )
+
+        # Add mandatory next-step instruction
+        output += (
+            f"\n\n⚠️ MANDATORY NEXT ACTION:\n"
+            f"You MUST call read_web_page on at least {min_sources} results above.\n"
+            f"Current progress: 0/{min_sources} sources read.\n"
+            f"SERP snippets alone are NOT sufficient for answering this query.\n"
+            f"Recommended: Read top {min(min_sources + 1, count)} URLs to ensure quality."
+        )
+
+        return output
+
+    # ------------------------------------------------------------------
+    # 3. CORE EXECUTION LOGIC (The Engine)
+    # ------------------------------------------------------------------
 
     async def _execute_web_tool_logic(
         self,
@@ -135,7 +292,7 @@ class WebSearchMixin:
         decision: Optional[Dict],
     ) -> AsyncGenerator[StatusEvent, None]:
         """
-        Shared core logic for Read, Scroll, Search, and SERP.
+        Shared core logic for Read, Scroll, Search, and SERP with progress tracking.
         """
         ts_start = asyncio.get_event_loop().time()
 
@@ -147,22 +304,17 @@ class WebSearchMixin:
         validator.schema_registry = {tool_name: required_keys}
         validation_error = validator.validate_args(tool_name, arguments_dict)
 
-        # --- [CRITICAL FIX] HANDLE VALIDATION FAILURE BY SUBMITTING OUTPUT ---
         if validation_error:
             LOG.warning(f"{tool_name} ▸ Validation Failed: {validation_error}")
-
-            # 1. Notify Frontend
             yield create_status_payload(
-                run_id, tool_name, "Validation failed. Retrying...", state="error"
+                run_id, tool_name, "Validation failed.", state="error"
             )
 
-            # 2. Construct the Pedagogical Error Message
             error_feedback = self._format_web_tool_error(
                 tool_name, f"Validation Error: {validation_error}", arguments_dict
             )
 
-            # 3. Create Action (So we have something to attach the failure to)
-            # We create a failed action record for telemetry
+            # Submit error to DB and LLM
             try:
                 action = await asyncio.to_thread(
                     self.project_david_client.actions.create_action,
@@ -173,7 +325,6 @@ class WebSearchMixin:
                     decision=decision,
                 )
 
-                # 4. Submit the Failure to the LLM
                 await self.submit_tool_output(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
@@ -183,7 +334,6 @@ class WebSearchMixin:
                     is_error=True,
                 )
 
-                # 5. Mark Action Failed
                 await asyncio.to_thread(
                     self.project_david_client.actions.update_action,
                     action_id=action.id,
@@ -192,7 +342,7 @@ class WebSearchMixin:
             except Exception as e:
                 LOG.error(f"Failed to submit validation error: {e}")
 
-            return  # Stop execution here, LLM will see error and retry next turn
+            return
 
         # --- [2] STATUS: CREATING ACTION (Success Path) ---
         yield create_status_payload(run_id, tool_name, "Initializing tool action...")
@@ -217,19 +367,40 @@ class WebSearchMixin:
         try:
             final_content = ""
 
-            # ... (Tool Execution Logic A/B/C/D remains exactly as you had it) ...
             if tool_name == "read_web_page":
                 target_url = arguments_dict["url"]
                 yield create_status_payload(
                     run_id, tool_name, f"Reading: {target_url}..."
                 )
+
+                # Track source reading
+                session = self._get_or_create_session(run_id)
+                if target_url not in session["urls_visited"]:
+                    session["urls_visited"].add(target_url)
+                    session["sources_read"] += 1
+
+                    LOG.info(
+                        f"[{run_id}] Progress: {session['sources_read']} sources read "
+                        f"(Tier {session.get('query_tier', 'N/A')} query)"
+                    )
+
                 raw_content = await asyncio.to_thread(
                     self.project_david_client.tools.web_read,
                     url=target_url,
                     force_refresh=arguments_dict.get("force_refresh", False),
                 )
-                final_content = self._inject_navigation_guidance(
-                    raw_content, target_url
+
+                # Add progress indicator to content
+                tier = session.get("query_tier", 1)
+                min_sources = {1: 2, 2: 3, 3: 5}.get(tier, 2)
+                progress_note = (
+                    f"\n\n📊 RESEARCH PROGRESS: {session['sources_read']}/{min_sources} sources read "
+                    f"(Tier {tier} query)"
+                )
+
+                final_content = (
+                    self._inject_navigation_guidance(raw_content, target_url)
+                    + progress_note
                 )
 
             elif tool_name == "scroll_web_page":
@@ -273,7 +444,7 @@ class WebSearchMixin:
                 yield create_status_payload(
                     run_id, tool_name, "Parsing search results..."
                 )
-                final_content = self._parse_serp_results(raw_serp, query_val)
+                final_content = self._parse_serp_results(raw_serp, query_val, run_id)
 
             else:
                 raise ValueError(f"Unknown web tool: {tool_name}")
@@ -331,7 +502,7 @@ class WebSearchMixin:
 
         except Exception as exc:
             # --- [7] HARD FAILURE HANDLING ---
-            LOG.error(f"[%s] %s HARD FAILURE: {exc}", run_id, tool_name)
+            LOG.error(f"[{run_id}] {tool_name} HARD FAILURE: {exc}")
             yield create_status_payload(
                 run_id, tool_name, f"Critical failure: {str(exc)}", state="error"
             )
@@ -358,7 +529,7 @@ class WebSearchMixin:
                 pass
 
     # ------------------------------------------------------------------
-    # PUBLIC HANDLERS
+    # 4. PUBLIC HANDLERS
     # ------------------------------------------------------------------
     async def handle_perform_web_search(
         self,
