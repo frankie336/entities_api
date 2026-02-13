@@ -62,9 +62,7 @@ class DelegationMixin:
     async def _run_worker_loop(
         self, task: str, requirements: str, run_id: str, parent_thread_id: str
     ) -> str:
-        LOG.info(
-            f"🛑 DELEGATION STUB: Received task '{task}' from thread {parent_thread_id}"
-        )
+        LOG.info(f"🛑 DELEGATION STUB: Received task '{task}' from thread {parent_thread_id}")
         return f"Delegation Acknowledged. Task: {task}. Requirements: {requirements}"
 
     async def create_ephemeral_worker_assistant(self):
@@ -80,9 +78,7 @@ class DelegationMixin:
 
     async def create_ephemeral_thread(self):
 
-        ephemeral_thread = await asyncio.to_thread(
-            self.project_david_client.threads.create_thread
-        )
+        ephemeral_thread = await asyncio.to_thread(self.project_david_client.threads.create_thread)
         return ephemeral_thread
 
     async def create_ephemeral_message(
@@ -108,9 +104,7 @@ class DelegationMixin:
         )
         return ephemeral_run
 
-    async def _fetch_ephemeral_result(
-        self, thread_id: str, assistant_id: str
-    ) -> str | None:
+    async def _fetch_ephemeral_result(self, thread_id: str, assistant_id: str) -> str | None:
         """
         Retrieves the final text response from the ephemeral thread using the SDK.
         """
@@ -157,9 +151,10 @@ class DelegationMixin:
 
         yield json.dumps(
             {
-                "type": "status",
-                "status": "Initializing delegation action...",
+                "type": "activity",
+                "activity": "Initializing delegation action...",
                 "state": "in_progress",
+                "tool": "delegate_research_task",
                 "run_id": run_id,
             }
         )
@@ -213,9 +208,10 @@ class DelegationMixin:
         try:
             yield json.dumps(
                 {
-                    "type": "status",
-                    "status": "Spawning ephemeral research assistant...",
+                    "type": "activity",
+                    "activity": "Spawning ephemeral research assistant...",
                     "state": "in_progress",
+                    "tool": "delegate_research_task",
                     "run_id": run_id,
                 }
             )
@@ -223,9 +219,10 @@ class DelegationMixin:
 
             yield json.dumps(
                 {
-                    "type": "status",
-                    "status": "Preparing secure research thread...",
+                    "type": "activity",
+                    "activity": "Preparing secure research thread...",
                     "state": "in_progress",
+                    "tool": "delegate_research_task",
                     "run_id": run_id,
                 }
             )
@@ -233,9 +230,10 @@ class DelegationMixin:
 
             yield json.dumps(
                 {
-                    "type": "status",
-                    "status": "Transmitting task context...",
+                    "type": "activity",
+                    "activity": "Transmitting task context...",
                     "state": "in_progress",
+                    "tool": "delegate_research_task",
                     "run_id": run_id,
                 }
             )
@@ -249,9 +247,10 @@ class DelegationMixin:
 
             yield json.dumps(
                 {
-                    "type": "status",
-                    "status": "Starting execution loop...",
+                    "type": "activity",
+                    "activity": "Starting execution loop...",
                     "state": "in_progress",
+                    "tool": "delegate_research_task",
                     "run_id": run_id,
                 }
             )
@@ -264,9 +263,10 @@ class DelegationMixin:
             LOG.error(f"❌ [DELEGATE] Setup Phase Failed: {e}", exc_info=True)
             yield json.dumps(
                 {
-                    "type": "status",
-                    "status": f"Setup failed: {str(e)}",
+                    "type": "activity",
+                    "activity": f"Setup failed: {str(e)}",
                     "state": "error",
+                    "tool": "delegate_research_task",
                     "run_id": run_id,
                 }
             )
@@ -277,9 +277,10 @@ class DelegationMixin:
         # =========================================================================
         yield json.dumps(
             {
-                "type": "status",
-                "status": "Sub-worker active. Streaming insights...",
+                "type": "activity",
+                "activity": "Sub-worker active. Streaming insights...",
                 "state": "in_progress",
+                "tool": "delegate_research_task",
                 "run_id": run_id,
             }
         )
@@ -303,7 +304,7 @@ class DelegationMixin:
                 # [NOTE] Ensure this model string matches your config
                 for event in sync_stream.stream_events(
                     provider="together-ai",
-                    model="together-ai/deepseek-ai/DeepSeek-R1",
+                    model="together-ai/Qwen/Qwen3-235B-A22B-Thinking-2507",
                 ):
                     loop.call_soon_threadsafe(event_queue.put_nowait, event)
             except Exception as e:
@@ -340,9 +341,10 @@ class DelegationMixin:
             LOG.error(f"❌ [DELEGATE] Stream execution failed: {e}", exc_info=True)
             yield json.dumps(
                 {
-                    "type": "status",
-                    "status": f"Worker error: {error_message}",
+                    "type": "activity",
+                    "activity": f"Worker error: {error_message}",
                     "state": "error",
+                    "tool": "delegate_research_task",
                     "run_id": run_id,
                 }
             )
@@ -352,9 +354,10 @@ class DelegationMixin:
         # =========================================================================
         yield json.dumps(
             {
-                "type": "status",
-                "status": "Collecting final report...",
+                "type": "activity",
+                "activity": "Collecting final report...",
                 "state": "in_progress",
+                "tool": "delegate_research_task",
                 "run_id": run_id,
             }
         )
@@ -373,9 +376,10 @@ class DelegationMixin:
         try:
             yield json.dumps(
                 {
-                    "type": "status",
-                    "status": "Submitting report...",
+                    "type": "activity",
+                    "activity": "Submitting report...",
                     "state": "in_progress",
+                    "tool": "delegate_research_task",
                     "run_id": run_id,
                 }
             )
@@ -405,9 +409,10 @@ class DelegationMixin:
 
         yield json.dumps(
             {
-                "type": "status",
-                "status": "Delegation complete.",
+                "type": "activity",
+                "activity": "Delegation complete.",
                 "state": "completed" if not execution_had_error else "error",
+                "tool": "delegate_research_task",
                 "run_id": run_id,
             }
         )
