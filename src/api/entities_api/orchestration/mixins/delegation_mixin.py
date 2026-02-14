@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import uuid
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Dict
+from typing import Any, AsyncGenerator, Dict
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
-from src.api.entities_api.constants.worker import WORKER_TOOLS
+from src.api.entities_api.utils.assistant_manager import AssistantManager
 
 LOG = LoggingUtility()
 
@@ -23,6 +22,45 @@ class DelegationMixin:
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._delegation_api_key = None
+
+    # --- NEW HELPER METHOD ---
+    async def _ephemeral_clean_up(
+        self,
+        assistant_id: str,
+        thread_id: str,
+        delete_thread: bool = False,  # Default to False to keep data
+    ):
+        """
+        Cleans up the temporary assistant and optionally the thread.
+        """
+        LOG.info(
+            f"🧹 [CLEANUP] Starting cleanup. Assistant: {assistant_id} | Thread: {thread_id}"
+        )
+
+        # 1. Delete the Thread (Optional)
+        if delete_thread:
+            try:
+                LOG.info(f"🗑️ [CLEANUP] Deleting ephemeral thread {thread_id}...")
+                await asyncio.to_thread(
+                    self.project_david_client.threads.delete_thread,
+                    thread_id=thread_id,
+                )
+                LOG.info(f"✅ [CLEANUP] Thread {thread_id} deleted.")
+            except Exception as e:
+                # Log but continue - we still need to delete the assistant
+                LOG.warning(f"⚠️ [CLEANUP] Failed to delete thread {thread_id}: {e}")
+        else:
+            LOG.info(
+                f"💾 [CLEANUP] Skipping thread deletion. Thread {thread_id} preserved for auditing."
+            )
+
+        # 2. Delete the Assistant (Mandatory)
+        try:
+            manager = AssistantManager()
+            await manager.delete_assistant(assistant_id=assistant_id, permanent=True)
+            LOG.info(f"✅ [CLEANUP] Assistant {assistant_id} deleted successfully.")
+        except Exception as e:
+            LOG.error(f"❌ [CLEANUP] Failed to delete assistant {assistant_id}: {e}")
 
     @asynccontextmanager
     async def _capture_tool_outputs(self, capture_dict: Dict[str, str]):
@@ -67,18 +105,11 @@ class DelegationMixin:
         return f"Delegation Acknowledged. Task: {task}. Requirements: {requirements}"
 
     async def create_ephemeral_worker_assistant(self):
-
-        ephemeral_worker = await asyncio.to_thread(
-            self.project_david_client.assistants.create_assistant,
-            name=f"worker_{uuid.uuid4().hex[:8]}",
-            description="Temp assistant for deep research",
-            tools=WORKER_TOOLS,
-            deep_research=False,
-        )
+        assistant_manager = AssistantManager()
+        ephemeral_worker = await assistant_manager.create_ephemeral_worker_assistant()
         return ephemeral_worker
 
     async def create_ephemeral_thread(self):
-
         ephemeral_thread = await asyncio.to_thread(
             self.project_david_client.threads.create_thread
         )
@@ -99,7 +130,6 @@ class DelegationMixin:
         return ephemeral_message
 
     async def create_ephemeral_run(self, assistant_id: str, thread_id: str):
-
         ephemeral_run = await asyncio.to_thread(
             self.project_david_client.runs.create_run,
             assistant_id=assistant_id,
@@ -170,22 +200,17 @@ class DelegationMixin:
         )
 
         # --- [CRITICAL FIX] PARSE & FORMAT ARGUMENTS ---
-        # Ensure we have a dict, even if the model passed a stringified JSON
         if isinstance(arguments_dict, str):
             try:
                 args = json.loads(arguments_dict)
             except:
-                args = {"task": arguments_dict}  # Fallback if raw string
+                args = {"task": arguments_dict}
         else:
             args = arguments_dict
 
-        # Extract fields
         task_text = args.get("task", "No specific task description provided.")
         requirements_text = args.get("requirements", "No specific constraints.")
         context_text = args.get("context", "")
-
-        # Create a clean, human-readable prompt for the worker
-        # This prevents "JSON confusion" and ensures requirements aren't ignored.
 
         formatted_handoff_prompt = (
             f"### 📋 Research Assignment\n\n"
@@ -204,12 +229,9 @@ class DelegationMixin:
         if context_text:
             formatted_handoff_prompt += f"\n**Additional Context:**\n{context_text}\n"
 
-        # =========================================================================
         # 0. CREATE ACTION RECORD (DB)
-        # =========================================================================
         action = None
         try:
-            # We save the RAW dict to DB for auditing
             action = await asyncio.to_thread(
                 self.project_david_client.actions.create_action,
                 tool_name="delegate_research_task",
@@ -221,10 +243,15 @@ class DelegationMixin:
         except Exception as e:
             LOG.error(f"❌ [DELEGATE] Action creation failed: {e}")
 
-        # =========================================================================
-        # 1. SETUP EPHEMERAL ENVIRONMENT
-        # =========================================================================
+        # Initialize variable for cleanup check later
+        ephemeral_worker = None
+        execution_had_error = False
+        error_message = None
+
         try:
+            # =========================================================================
+            # 1. SETUP EPHEMERAL ENVIRONMENT
+            # =========================================================================
             yield json.dumps(
                 {
                     "type": "activity",
@@ -257,7 +284,6 @@ class DelegationMixin:
                 }
             )
 
-            # [FIX] Send the formatted prompt, not just the task key
             ephemeral_message = await self.create_ephemeral_message(
                 thread_id=ephemeral_thread.id,
                 assistant_id=ephemeral_worker.id,
@@ -278,62 +304,45 @@ class DelegationMixin:
             )
             LOG.info(f"🔄 [DELEGATE] Ephemeral Run Ready: {ephemeral_run.id}")
 
-        except Exception as e:
-            LOG.error(f"❌ [DELEGATE] Setup Phase Failed: {e}", exc_info=True)
+            # =========================================================================
+            # 2. CONFIGURE & EXECUTE STREAM
+            # =========================================================================
             yield json.dumps(
                 {
                     "type": "activity",
-                    "activity": f"Setup failed: {str(e)}",
-                    "state": "error",
+                    "activity": "Sub-worker active. Streaming insights...",
+                    "state": "in_progress",
                     "tool": "delegate_research_task",
                     "run_id": run_id,
                 }
             )
-            return
 
-        # =========================================================================
-        # 2. CONFIGURE & EXECUTE STREAM
-        # =========================================================================
-        yield json.dumps(
-            {
-                "type": "activity",
-                "activity": "Sub-worker active. Streaming insights...",
-                "state": "in_progress",
-                "tool": "delegate_research_task",
-                "run_id": run_id,
-            }
-        )
+            sync_stream = self.project_david_client.synchronous_inference_stream
+            sync_stream.setup(
+                thread_id=ephemeral_thread.id,
+                assistant_id=ephemeral_worker.id,
+                message_id=ephemeral_message.id,
+                run_id=ephemeral_run.id,
+                api_key=self._delegation_api_key,
+            )
 
-        sync_stream = self.project_david_client.synchronous_inference_stream
-        sync_stream.setup(
-            thread_id=ephemeral_thread.id,
-            assistant_id=ephemeral_worker.id,
-            message_id=ephemeral_message.id,
-            run_id=ephemeral_run.id,
-            api_key=self._delegation_api_key,
-        )
+            event_queue = asyncio.Queue()
+            loop = asyncio.get_running_loop()
 
-        event_queue = asyncio.Queue()
-        loop = asyncio.get_running_loop()
-        execution_had_error = False
-        error_message = None
+            def background_stream_worker():
+                try:
+                    for event in sync_stream.stream_events(
+                        provider="together-ai",
+                        model="together-ai/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
+                    ):
+                        loop.call_soon_threadsafe(event_queue.put_nowait, event)
+                except Exception as e:
+                    loop.call_soon_threadsafe(event_queue.put_nowait, e)
+                finally:
+                    loop.call_soon_threadsafe(event_queue.put_nowait, None)
 
-        def background_stream_worker():
-            try:
-                # [NOTE] Ensure this model string matches your config
-                for event in sync_stream.stream_events(
-                    provider="together-ai",
-                    model="together-ai/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
-                ):
-                    loop.call_soon_threadsafe(event_queue.put_nowait, event)
-            except Exception as e:
-                loop.call_soon_threadsafe(event_queue.put_nowait, e)
-            finally:
-                loop.call_soon_threadsafe(event_queue.put_nowait, None)
+            asyncio.create_task(asyncio.to_thread(background_stream_worker))
 
-        asyncio.create_task(asyncio.to_thread(background_stream_worker))
-
-        try:
             while True:
                 event = await event_queue.get()
                 if event is None:
@@ -354,48 +363,28 @@ class DelegationMixin:
                         }
                     )
 
-        except Exception as e:
-            execution_had_error = True
-            error_message = str(e)
-            LOG.error(f"❌ [DELEGATE] Stream execution failed: {e}", exc_info=True)
+            # =========================================================================
+            # 3. FETCH WORKER'S FINAL REPORT & SUBMIT TO SUPERVISOR
+            # =========================================================================
             yield json.dumps(
                 {
                     "type": "activity",
-                    "activity": f"Worker error: {error_message}",
-                    "state": "error",
+                    "activity": "Collecting final report from worker thread...",
+                    "state": "in_progress",
                     "tool": "delegate_research_task",
                     "run_id": run_id,
                 }
             )
 
-        # =========================================================================
-        # 3. FETCH WORKER'S FINAL REPORT & SUBMIT TO SUPERVISOR
-        # =========================================================================
-        yield json.dumps(
-            {
-                "type": "activity",
-                "activity": "Collecting final report from worker thread...",
-                "state": "in_progress",
-                "tool": "delegate_research_task",
-                "run_id": run_id,
-            }
-        )
-
-        # Fetch ONLY the final assistant message from the worker thread
-        # This prevents the worker's tool calls from bleeding into the supervisor's context
-        final_content = await self._fetch_worker_final_report(
-            thread_id=ephemeral_thread.id
-        )
-
-        if not final_content:
-            final_content = (
-                f"Delegation error: {error_message}"
-                if execution_had_error
-                else "No report generated by worker."
+            final_content = await self._fetch_worker_final_report(
+                thread_id=ephemeral_thread.id
             )
-            execution_had_error = True
 
-        try:
+            if not final_content:
+                final_content = "No report generated by worker."
+                # We mark error internally, but we still return the "No report" message to the supervisor
+                execution_had_error = True
+
             yield json.dumps(
                 {
                     "type": "activity",
@@ -406,8 +395,6 @@ class DelegationMixin:
                 }
             )
 
-            # Submit the worker's final report as the tool response
-            # This keeps the worker's internal tool usage isolated
             await self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
@@ -428,15 +415,45 @@ class DelegationMixin:
                     ),
                 )
             LOG.info("✅ [DELEGATE] Tool Output Submitted to Supervisor.")
-        except Exception as e:
-            LOG.error(f"❌ [DELEGATE] Submission failure: {e}")
 
-        yield json.dumps(
-            {
-                "type": "activity",
-                "activity": "Delegation complete.",
-                "state": "completed" if not execution_had_error else "error",
-                "tool": "delegate_research_task",
-                "run_id": run_id,
-            }
-        )
+        except Exception as e:
+            execution_had_error = True
+            error_message = str(e)
+            LOG.error(f"❌ [DELEGATE] Execution failed: {e}", exc_info=True)
+            yield json.dumps(
+                {
+                    "type": "activity",
+                    "activity": f"Worker error: {error_message}",
+                    "state": "error",
+                    "tool": "delegate_research_task",
+                    "run_id": run_id,
+                }
+            )
+
+        # =========================================================================
+        # 4. CLEANUP (FINALLY BLOCK)
+        # =========================================================================
+        finally:
+            if ephemeral_worker:
+                yield json.dumps(
+                    {
+                        "type": "activity",
+                        "activity": "Cleaning up ephemeral worker resources...",
+                        "state": "in_progress",
+                        "tool": "delegate_research_task",
+                        "run_id": run_id,
+                    }
+                )
+                await self._ephemeral_clean_up(
+                    assistant_id=ephemeral_worker.id, thread_id=ephemeral_thread.id
+                )
+
+            yield json.dumps(
+                {
+                    "type": "activity",
+                    "activity": "Delegation cycle ended.",
+                    "state": "completed" if not execution_had_error else "error",
+                    "tool": "delegate_research_task",
+                    "run_id": run_id,
+                }
+            )

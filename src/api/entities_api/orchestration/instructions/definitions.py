@@ -195,6 +195,13 @@ LEVEL_3_WEB_USE_INSTRUCTIONS = {
         "- **SYNTHESIS:** Synthesize findings into natural language. Do not output raw JSON/Markdown.\n"
         "- **CITATION:** Always cite the source URL when providing facts."
     ),
+    "RICH_MEDIA_HANDLING": (
+        "### 🖼️ RICH MEDIA & IMAGES:\n"
+        "- The 'read_web_page' tool will return Markdown images (e.g., ![Alt](url)).\n"
+        "- **DO NOT remove these links.** Pass them through to the user so they can see the context.\n"
+        "- If a video link appears (e.g., YouTube), explicitly mention it: 'I found a relevant video: [Title]'.\n"
+        "- When synthesizing, you may embed the primary image at the top of your response."
+    ),
     # 4. ERROR RECOVERY
     "ERROR_HANDLING": (
         "### ⚠️ ERROR RECOVERY:\n"

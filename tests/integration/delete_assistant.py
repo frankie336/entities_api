@@ -55,10 +55,18 @@ assistant = client.assistants.create_assistant(
     ],
 )
 
+
+thread = client.threads.create_thread()
+delete_thread = client.threads.delete_thread(thread_id=thread.id)
+print(delete_thread)
+
 print(assistant.id)
 print(assistant.instructions)
 retrieve_assistant = client.assistants.retrieve_assistant(assistant.id)
 print(retrieve_assistant)
 
 
-delete_assistant = client.assistants.delete_assistant(assistant.id)
+delete_assistant = client.assistants.delete_assistant(
+    assistant_id=assistant.id, permanent=True
+)
+print(delete_assistant)

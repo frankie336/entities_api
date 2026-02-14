@@ -28,7 +28,12 @@ class UniversalWebReader:
         # HTML to Markdown Configuration
         self.converter = html2text.HTML2Text()
         self.converter.ignore_links = False
-        self.converter.ignore_images = True
+
+        # --- RICH MEDIA CONFIGURATION ---
+        self.converter.ignore_images = (
+            False  # ALLOW images (rendered as markdown links)
+        )
+        self.converter.images_to_alt = True  # Use alt text for accessibility
         self.converter.ignore_tables = False
         self.converter.body_width = 0
 
@@ -108,15 +113,11 @@ class UniversalWebReader:
         raw_markdown = await self.read(search_url, force_refresh=True)
 
         # --- PARSE THE MARKDOWN TO CLEAN LIST ---
-        # The raw markdown from html2text will be messy. We need to extract the relevant links.
-        # This is a heuristic parser for DDG HTML results.
-
         lines = raw_markdown.split("\n")
         results = []
         count = 0
 
         # Simple parser logic: look for links that look like external results
-        # Note: This is brittle. For production, use an API like Serper.dev or Bing API.
         for i, line in enumerate(lines):
             if count >= 5:
                 break  # Top 5 results
@@ -146,7 +147,8 @@ class UniversalWebReader:
     async def _fetch_via_browserless(self, url: str) -> str:
         """
         Connects to the `browser` container via WebSocket.
-        Includes optimization to BLOCK images/fonts for speed.
+        Includes optimization to BLOCK binary images/fonts for speed,
+        BUT preserves the HTML tags and injects Metadata so the LLM sees the rich content.
         """
         async with async_playwright() as p:
             browser = None
@@ -164,7 +166,8 @@ class UniversalWebReader:
                 page = await context.new_page()
 
                 # --- OPTIMIZATION: Network Interception ---
-                # This makes the browser nearly as fast as curl by blocking heavy assets
+                # This makes the browser nearly as fast as curl by blocking heavy assets.
+                # Note: We still get the HTML <img> tags, just not the binary data!
                 await page.route("**/*", lambda route: self._handle_route(route))
 
                 # Navigate with a generous timeout for the container communication
@@ -176,11 +179,66 @@ class UniversalWebReader:
                 except:
                     pass
 
+                # --- RICH MEDIA EXTRACTION ---
+
+                # 1. Extract Open Graph Metadata (Hero Image & Description)
+                metadata = await page.evaluate(
+                    """() => {
+                    const getMeta = (prop) => document.querySelector(`meta[property='${prop}']`)?.content || document.querySelector(`meta[name='${prop}']`)?.content || '';
+                    return {
+                        title: document.title,
+                        image: getMeta('og:image') || getMeta('twitter:image'),
+                        description: getMeta('og:description') || getMeta('description'),
+                        site_name: getMeta('og:site_name')
+                    }
+                }"""
+                )
+
+                # 2. Transform YouTube Iframes into Markdown-friendly Link-Images
+                # html2text usually strips iframes. We swap them for a div containing the thumbnail.
+                await page.evaluate(
+                    """() => {
+                    const iframes = document.querySelectorAll('iframe');
+                    iframes.forEach(iframe => {
+                        const src = iframe.src;
+                        if (src.includes('youtube.com/embed/')) {
+                            // Extract ID
+                            const parts = src.split('/');
+                            const vidId = parts[parts.length - 1].split('?')[0];
+
+                            // Create a replacement link with thumbnail
+                            const replacement = document.createElement('div');
+                            replacement.innerHTML = `
+                                <br/>
+                                <strong>🎥 EMBEDDED VIDEO:</strong><br/>
+                                <a href="https://www.youtube.com/watch?v=${vidId}">
+                                    <img src="https://img.youtube.com/vi/${vidId}/0.jpg" alt="Click to Watch Video" />
+                                </a><br/>
+                            `;
+                            iframe.replaceWith(replacement);
+                        }
+                    });
+                }"""
+                )
+
                 # Extract HTML
                 html = await page.content()
 
-                # Convert to Markdown
-                return self.converter.handle(html)
+                # Convert Body to Markdown
+                markdown_body = self.converter.handle(html)
+
+                # --- CONSTRUCT RICH RESPONSE ---
+                # Prepend the Hero Image and Description to the Markdown content
+                rich_header = ""
+                if metadata["image"]:
+                    rich_header += f"![{metadata['title']}]({metadata['image']})\n\n"
+
+                if metadata["description"]:
+                    rich_header += f"> *{metadata['description']}*\n\n"
+
+                full_content = f"# {metadata['title']}\n\n{rich_header}{markdown_body}"
+
+                return full_content
 
             except Exception as e:
                 logger.error(f"Remote Browser Error: {e}")
@@ -190,7 +248,8 @@ class UniversalWebReader:
                     await browser.close()
 
     async def _handle_route(self, route):
-        """Block images, fonts, and media to speed up scraping."""
+        """Block binary images, fonts, and media downloads to speed up scraping."""
+        # We block the DOWNLOAD of the image file, but the HTML tag <img> remains.
         if route.request.resource_type in ["image", "media", "font", "stylesheet"]:
             await route.abort()
         else:

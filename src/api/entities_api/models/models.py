@@ -169,8 +169,8 @@ class User(Base):
 
     threads = relationship(
         "Thread",
-        secondary="thread_vector_stores",
-        back_populates="vector_stores",  # ✅ CORRECT - matches the property name in Thread model
+        secondary=thread_participants,
+        back_populates="participants",
         lazy="select",
     )
 
@@ -599,8 +599,8 @@ class VectorStore(Base):
 
     threads = relationship(
         "Thread",
-        secondary=thread_participants,
-        back_populates="participants",
+        secondary=thread_vector_stores,
+        back_populates="vector_stores",
         lazy="select",
     )
 

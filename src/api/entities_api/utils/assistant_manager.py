@@ -1,11 +1,13 @@
+# src/api/entities_api/utils/assistant_manager.py
 import asyncio
 import os
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 from dotenv import load_dotenv
 from projectdavid import Entity
 
+from entities_api.constants.worker import WORKER_TOOLS
 from src.api.entities_api.constants.delegator import SUPERVISOR_TOOLS
 
 load_dotenv()
@@ -55,9 +57,24 @@ class AssistantManager:
         )
         return ephemeral_worker
 
-    async def delete_ephemeral_supervisor(self):
+    async def create_ephemeral_worker_assistant(self):
+        # Using asyncio.to_thread to run the blocking client call
+        ephemeral_worker = await asyncio.to_thread(
+            self.client.assistants.create_assistant,
+            name=f"worker_{uuid.uuid4().hex[:8]}",
+            description="Temp assistant for deep research",
+            tools=WORKER_TOOLS,
+            deep_research=False,
+        )
+
+        return ephemeral_worker
+
+    async def delete_assistant(self, assistant_id: str, permanent: bool = False) -> Any:
         """
-        Creates a temporary worker assistant with a unique UUID.
-        Wraps the blocking SDK call in a thread for async compatibility.
+        Deletes a temporary worker assistant.
         """
-        pass
+        return await asyncio.to_thread(
+            self.client.assistants.delete_assistant,
+            assistant_id=assistant_id,
+            permanent=permanent,
+        )
