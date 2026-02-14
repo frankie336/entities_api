@@ -55,25 +55,9 @@ class AssistantManager:
         )
         return ephemeral_worker
 
-
-# ------------------------------------------------------------------
-# Usage Example
-# ------------------------------------------------------------------
-if __name__ == "__main__":
-    # 1. Initialize the manager
-    manager = AssistantManager()
-
-    # 2. Create the primary assistant (Sync)
-    try:
-        main_assistant = manager.create_primary_assistant()
-        print(f"Created Main Assistant: {main_assistant}")
-    except Exception as e:
-        print(f"Error creating main assistant: {e}")
-
-    # 3. Create an ephemeral worker (Async)
-    async def main():
-        print("Creating ephemeral worker...")
-        worker = await manager.create_ephemeral_supervisor()
-        print(f"Created Worker: {worker}")
-
-    asyncio.run(main())
+    async def delete_ephemeral_supervisor(self):
+        """
+        Creates a temporary worker assistant with a unique UUID.
+        Wraps the blocking SDK call in a thread for async compatibility.
+        """
+        pass

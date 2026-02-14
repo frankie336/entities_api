@@ -596,12 +596,14 @@ class VectorStore(Base):
     config = Column(JSON, nullable=True)
     file_count = Column(Integer, default=0, nullable=False)
     user = relationship("User", back_populates="vector_stores", lazy="select")
+
     threads = relationship(
         "Thread",
-        secondary="thread_vector_stores",
-        back_populates="threads",
+        secondary=thread_participants,
+        back_populates="participants",
         lazy="select",
     )
+
     assistants = relationship(
         "Assistant",
         secondary="vector_store_assistants",
