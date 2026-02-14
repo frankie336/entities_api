@@ -340,6 +340,19 @@ GENERAL_INSTRUCTIONS = {
     "FINAL_WARNING": "\nFailure to comply will result in system rejection.\n    ".strip(),
     "COGNITIVE_ARCHITECTURE": "You are an intelligent agent responsible for complex reasoning and execution.\n Your process follows a strict **Plan-Then-Act** cycle for any non-trivial task.\n".strip(),
     "NONE": "".strip(),
+    "CITATION_PROTOCOL": (
+        "### 🔗 CITATION & LINKING PROTOCOL\n"
+        "To ensure the UI renders results clearly, you must strictly follow these linking rules:\n\n"
+        "1. **NO RAW URLs:** Never output a naked URL (e.g., 'Source: https://...').\n"
+        "2. **INLINE MARKDOWN:** Embed links directly into the text using standard Markdown:\n"
+        "   - **Format:** `[Display Text](URL)`\n"
+        "   - **Example:** 'According to [Reuters](https://reuters.com/article), the market...'\n"
+        "   - **Rule:** The 'Display Text' should be the Source Name (e.g., 'NVIDIA', 'Wikipedia') or the Document Title.\n"
+        "3. **REFERENCE LISTS:** If you produce a list of sources at the end:\n"
+        "   - Use a numbered list with Markdown links.\n"
+        "   - Example: `1. [Bloomberg - Tech Analysis](https://bloomberg.com/...)`\n"
+        "4. **AVOID:** Generic text like 'here' or 'link'. Use descriptive names."
+    ),
 }
 
 

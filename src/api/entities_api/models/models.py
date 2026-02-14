@@ -166,12 +166,14 @@ class User(Base):
     api_keys = relationship(
         "ApiKey", back_populates="user", cascade="all, delete-orphan", lazy="select"
     )
+
     threads = relationship(
         "Thread",
-        secondary=thread_participants,
-        back_populates="participants",
+        secondary="thread_vector_stores",
+        back_populates="vector_stores",  # ✅ CORRECT - matches the property name in Thread model
         lazy="select",
     )
+
     assistants = relationship(
         "Assistant", secondary=user_assistants, back_populates="users", lazy="select"
     )

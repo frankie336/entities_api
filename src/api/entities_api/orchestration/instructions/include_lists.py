@@ -12,6 +12,7 @@ L3_INSTRUCTIONS = [
     "L3_PLANNING_PROTOCOL",
     "TOOL_DECISION_PROTOCOL",
     "L3_PARALLEL_EXECUTION",
+    "CITATION_PROTOCOL",
     "TOOL_USAGE_PROTOCOL",
     "FUNCTION_CALL_FORMATTING",
     "FUNCTION_CALL_WRAPPING",
@@ -24,6 +25,7 @@ LEVEL_4_SUPERVISOR_INSTRUCTIONS = [
     "L4_TRIAGE_PROTOCOL",  # 2. FIRST STEP: Classify query (decision gate)
     "L4_SUPERVISOR_CONSTRAINTS",  # 3. WHAT you cannot do (boundaries)
     "L4_EXECUTION_PROTOCOL",  # 4. HOW you must act (the Double-Tap)
+    "CITATION_PROTOCOL",
     "TOOL_USAGE_PROTOCOL",  # 5. Syntax rules (before using tools)
     "FUNCTION_CALL_FORMATTING",  # 6. Formatting specifics
     "FUNCTION_CALL_WRAPPING",  # 7. Wrapping specifics
@@ -40,6 +42,7 @@ L4_RESEARCH_INSTRUCTIONS = [
     "L4_TOOL_CHEATSHEET",  # 3. WHAT tools exist (reference)
     "TOOL_STRATEGY",  # 4. HOW to choose tools
     "L4_EXECUTION_ALGORITHM",  # 5. The basic research workflow
+    "CITATION_PROTOCOL",
     "L4_DEPTH_PROTOCOL",  # 6. Enhanced workflow for complex queries
     "BATCH_OPERATIONS",  # 7. Parallelization rules
     "L3_PARALLEL_EXECUTION",  # 8. Advanced batching
@@ -58,6 +61,7 @@ L3_WEB_USE_INSTRUCTIONS = [
     "WEB_CORE_IDENTITY",
     "STOP_RULE",
     "WEB_RECURSIVE_MANDATE",  # NEW: Explicit loop protocol
+    "CITATION_PROTOCOL",
     "TOOL_STRATEGY",
     "BATCH_OPERATIONS",
     "CONTEXT_MANAGEMENT",
