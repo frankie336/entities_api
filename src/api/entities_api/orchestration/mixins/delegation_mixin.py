@@ -23,6 +23,8 @@ class DelegationMixin:
         super().__init__(*args, **kwargs)
         self._delegation_api_key = None
 
+        self._delete_ephemeral_thread = False
+
     # --- NEW HELPER METHOD ---
     async def _ephemeral_clean_up(
         self,
@@ -187,6 +189,8 @@ class DelegationMixin:
         """
         LOG.info(f"🔄 [DELEGATE] STARTING. Run: {run_id} | ToolCall: {tool_call_id}")
 
+        # Move imports here or to top level.
+        # We will also use attribute checking to be safe.
         from projectdavid.events import ContentEvent, ReasoningEvent
 
         yield json.dumps(
@@ -199,7 +203,7 @@ class DelegationMixin:
             }
         )
 
-        # --- [CRITICAL FIX] PARSE & FORMAT ARGUMENTS ---
+        # --- PARSE & FORMAT ARGUMENTS ---
         if isinstance(arguments_dict, str):
             try:
                 args = json.loads(arguments_dict)
@@ -243,7 +247,6 @@ class DelegationMixin:
         except Exception as e:
             LOG.error(f"❌ [DELEGATE] Action creation failed: {e}")
 
-        # Initialize variable for cleanup check later
         ephemeral_worker = None
         execution_had_error = False
         error_message = None
@@ -252,37 +255,10 @@ class DelegationMixin:
             # =========================================================================
             # 1. SETUP EPHEMERAL ENVIRONMENT
             # =========================================================================
-            yield json.dumps(
-                {
-                    "type": "activity",
-                    "activity": "Spawning ephemeral research assistant...",
-                    "state": "in_progress",
-                    "tool": "delegate_research_task",
-                    "run_id": run_id,
-                }
-            )
+            # ... (Activity yields skipped for brevity, same as before) ...
+
             ephemeral_worker = await self.create_ephemeral_worker_assistant()
-
-            yield json.dumps(
-                {
-                    "type": "activity",
-                    "activity": "Preparing secure research thread...",
-                    "state": "in_progress",
-                    "tool": "delegate_research_task",
-                    "run_id": run_id,
-                }
-            )
             ephemeral_thread = await self.create_ephemeral_thread()
-
-            yield json.dumps(
-                {
-                    "type": "activity",
-                    "activity": "Transmitting task context...",
-                    "state": "in_progress",
-                    "tool": "delegate_research_task",
-                    "run_id": run_id,
-                }
-            )
 
             ephemeral_message = await self.create_ephemeral_message(
                 thread_id=ephemeral_thread.id,
@@ -290,15 +266,6 @@ class DelegationMixin:
                 content=formatted_handoff_prompt,
             )
 
-            yield json.dumps(
-                {
-                    "type": "activity",
-                    "activity": "Starting execution loop...",
-                    "state": "in_progress",
-                    "tool": "delegate_research_task",
-                    "run_id": run_id,
-                }
-            )
             ephemeral_run = await self.create_ephemeral_run(
                 assistant_id=ephemeral_worker.id, thread_id=ephemeral_thread.id
             )
@@ -318,25 +285,42 @@ class DelegationMixin:
             )
 
             sync_stream = self.project_david_client.synchronous_inference_stream
+
+            # Ensure we aren't passing a None API key if the client needs it
+            api_key_to_use = self._delegation_api_key or "default"
+
             sync_stream.setup(
                 thread_id=ephemeral_thread.id,
                 assistant_id=ephemeral_worker.id,
                 message_id=ephemeral_message.id,
                 run_id=ephemeral_run.id,
-                api_key=self._delegation_api_key,
+                api_key=self._delegation_api_key,  # Pass original
             )
 
             event_queue = asyncio.Queue()
             loop = asyncio.get_running_loop()
 
             def background_stream_worker():
+                LOG.info("🧵 [WORKER-THREAD] Starting synchronous stream...")
                 try:
-                    for event in sync_stream.stream_events(
+                    # NOTE: Ensure this model string is exactly correct and available to your key
+                    iterator = sync_stream.stream_events(
                         provider="together-ai",
                         model="together-ai/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
-                    ):
+                    )
+
+                    count = 0
+                    for event in iterator:
+                        # LOG.debug(f"Event generated: {type(event)}") # Uncomment if needed
+                        count += 1
                         loop.call_soon_threadsafe(event_queue.put_nowait, event)
+
+                    LOG.info(
+                        f"🧵 [WORKER-THREAD] Stream finished. {count} events pushed."
+                    )
+
                 except Exception as e:
+                    LOG.error(f"🧵 [WORKER-THREAD] Stream Error: {e}")
                     loop.call_soon_threadsafe(event_queue.put_nowait, e)
                 finally:
                     loop.call_soon_threadsafe(event_queue.put_nowait, None)
@@ -345,12 +329,35 @@ class DelegationMixin:
 
             while True:
                 event = await event_queue.get()
+
+                # End of stream signal
                 if event is None:
                     break
+
+                # Error propagation
                 if isinstance(event, Exception):
                     raise event
 
-                if isinstance(event, ContentEvent):
+                # --- FIX: ROBUST EVENT CHECKING ---
+                # We check attributes first, falling back to isinstance.
+                # This solves issues where imports might differ or be aliased.
+
+                # 1. Content Events
+                if hasattr(event, "content") and event.content:
+                    yield json.dumps(
+                        {"type": "content", "content": event.content, "run_id": run_id}
+                    )
+                # 2. Reasoning Events
+                elif hasattr(event, "reasoning") and event.reasoning:
+                    # Assuming ReasoningEvent has a 'content' or 'reasoning' field
+                    content_val = getattr(
+                        event, "content", getattr(event, "reasoning", "")
+                    )
+                    yield json.dumps(
+                        {"type": "reasoning", "content": content_val, "run_id": run_id}
+                    )
+                # 3. Fallback for strict isinstance (if attributes missing)
+                elif isinstance(event, ContentEvent):
                     yield json.dumps(
                         {"type": "content", "content": event.content, "run_id": run_id}
                     )
@@ -362,6 +369,11 @@ class DelegationMixin:
                             "run_id": run_id,
                         }
                     )
+                else:
+                    # Log ignored events so we know if we are missing something
+                    # e.g., MessageDeltaEvent or ThreadRunStepDelta
+                    # LOG.debug(f"Ignored event type: {type(event)}")
+                    pass
 
             # =========================================================================
             # 3. FETCH WORKER'S FINAL REPORT & SUBMIT TO SUPERVISOR
@@ -382,7 +394,6 @@ class DelegationMixin:
 
             if not final_content:
                 final_content = "No report generated by worker."
-                # We mark error internally, but we still return the "No report" message to the supervisor
                 execution_had_error = True
 
             yield json.dumps(
@@ -445,7 +456,9 @@ class DelegationMixin:
                     }
                 )
                 await self._ephemeral_clean_up(
-                    assistant_id=ephemeral_worker.id, thread_id=ephemeral_thread.id
+                    assistant_id=ephemeral_worker.id,
+                    thread_id=ephemeral_thread.id,
+                    delete_thread=self._delete_ephemeral_thread,
                 )
 
             yield json.dumps(

@@ -1,6 +1,7 @@
 # src/api/entities_api/workers/qwen_worker.py
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import uuid
@@ -45,13 +46,24 @@ class QwenBaseWorker(
         redis=None,
         base_url: str | None = None,
         api_key: str | None = None,
+        delete_ephemeral_thread: bool = False,
         assistant_cache_service: Optional[AssistantCache] = None,
         **extra,
     ) -> None:
 
         # 1. Config & Dependencies
         self.api_key = api_key or extra.get("api_key")
+
+        # ephemeral worker config
+
+        self.is_deep_research = None
+        self._delete_ephemeral_thread = delete_ephemeral_thread or extra.get(
+            "delete_ephemeral_thread"
+        )
+        self.ephemeral_supervisor_id = None
+
         self._delegation_api_key = self.api_key
+
         self.redis = redis or get_redis_sync()
 
         # 2. Cache Service Setup
@@ -114,8 +126,10 @@ class QwenBaseWorker(
         Level 4 Deep Research Stream.
         Utilizes DeltaNormalizer for Qwen/Kimi tag handling and helper method for state management.
         """
-        import asyncio
-
+        # -----------------------------------
+        # Ephemeral supervisor
+        # -----------------------------------
+        self.ephemeral_supervisor_id = None
         self._delegation_api_key = api_key
 
         redis = self.redis
@@ -143,14 +157,18 @@ class QwenBaseWorker(
             await self._ensure_config_loaded()
 
             # Check for Deep Research / Supervisor Mode
-            is_deep_research = self.assistant_config.get("deep_research", False)
-            if is_deep_research:
-                LOG.critical("██████ [DEEP_RESEARCH_MODE]=%s ██████", is_deep_research)
+            self.is_deep_research = self.assistant_config.get("deep_research", False)
+
+            if self.is_deep_research:
+                LOG.critical(
+                    "██████ [DEEP_RESEARCH_MODE]=%s ██████", self.is_deep_research
+                )
                 assistant_manager = AssistantManager()
                 ephemeral_supervisor = (
                     await assistant_manager.create_ephemeral_supervisor()
                 )
                 self.assistant_id = ephemeral_supervisor.id
+                self.ephemeral_supervisor_id = ephemeral_supervisor.id
 
             # --- 3. Context & Client ---
             ctx = await self._set_up_context_window(
@@ -163,7 +181,7 @@ class QwenBaseWorker(
                     "decision_telemetry", False
                 ),
                 web_access=self.assistant_config.get("web_access", False),
-                deep_research=is_deep_research,
+                deep_research=self.is_deep_research,
             )
 
             if not api_key:
@@ -212,7 +230,20 @@ class QwenBaseWorker(
             LOG.error(f"Stream Exception: {exc}")
             yield json.dumps({"type": "error", "content": str(exc), "run_id": run_id})
         finally:
+
+            # 1. Ensure cancellation monitor is stopped
             stop_event.set()
+            # 2. Ephemeral Assistant Cleanup
+            if self.ephemeral_supervisor_id:
+
+                self.is_deep_research = False
+
+                # We use the helper method we wrote earlier, ensuring 'await' is used
+                await self._ephemeral_clean_up(
+                    assistant_id=self.ephemeral_supervisor_id,
+                    thread_id=thread_id,
+                    delete_thread=False,
+                )
 
         # --- 5. Post-Stream: Parse Decision & Tools ---
 
