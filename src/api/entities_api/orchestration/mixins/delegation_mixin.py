@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import uuid
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Dict
@@ -108,41 +107,46 @@ class DelegationMixin:
         )
         return ephemeral_run
 
-    async def _fetch_ephemeral_result(
-        self, thread_id: str, assistant_id: str
-    ) -> str | None:
+    async def _fetch_worker_final_report(self, thread_id: str) -> str | None:
         """
-        Retrieves the final text response from the ephemeral thread using the SDK.
+        Retrieves ONLY the final assistant message from the worker thread.
+        Uses get_formatted_messages to access the complete conversation,
+        then extracts just the last assistant response to prevent tool call bleed.
         """
-        LOG.info(
-            f"🔍 [FETCH-RESULT] Starting fetch for Thread: {thread_id} | Assistant: {assistant_id}"
-        )
+        LOG.info(f"🔍 [FETCH-REPORT] Retrieving final report from Thread: {thread_id}")
         try:
-            envelope = await asyncio.to_thread(
-                self.project_david_client.messages.list_messages,
+            messages_on_thread = await asyncio.to_thread(
+                self.project_david_client.messages.get_formatted_messages,
                 thread_id=thread_id,
-                limit=5,
-                order="desc",
             )
 
-            if not envelope or not envelope.data:
+            if not messages_on_thread or len(messages_on_thread) == 0:
+                LOG.warning(f"⚠️ [FETCH-REPORT] No messages found on thread {thread_id}")
                 return None
 
-            for msg in envelope.data:
-                if msg.role == "assistant" and msg.assistant_id == assistant_id:
-                    content_text = ""
-                    if hasattr(msg, "content") and isinstance(msg.content, list):
-                        for block in msg.content:
-                            if getattr(block, "type", "") == "text":
-                                content_text += block.text.value
-                    elif hasattr(msg, "content") and isinstance(msg.content, str):
-                        content_text = msg.content
+            # Get the last message (most recent)
+            last_message = messages_on_thread[-1]
 
-                    if content_text:
-                        return content_text
+            LOG.info(f"🔍 [FETCH-REPORT] Last message role: {last_message.get('role')}")
+
+            # Extract content from the last assistant message
+            if last_message.get("role") == "assistant":
+                # The 'content' key contains the actual text we need
+                content = last_message.get("content")
+
+                if content:
+                    LOG.info(
+                        f"✅ [FETCH-REPORT] Extracted {len(content)} characters from worker report"
+                    )
+                    return content
+
+            LOG.warning(
+                f"⚠️ [FETCH-REPORT] Last message was not from assistant: {last_message.get('role')}"
+            )
             return None
+
         except Exception as e:
-            LOG.error(f"❌ [FETCH-RESULT] Exception: {e}", exc_info=True)
+            LOG.error(f"❌ [FETCH-REPORT] Exception: {e}", exc_info=True)
             return None
 
     async def handle_delegate_research_task(
@@ -182,10 +186,19 @@ class DelegationMixin:
 
         # Create a clean, human-readable prompt for the worker
         # This prevents "JSON confusion" and ensures requirements aren't ignored.
+
         formatted_handoff_prompt = (
             f"### 📋 Research Assignment\n\n"
-            f"**Task:**\n{task_text}\n\n"
-            f"**Requirements & Constraints:**\n{requirements_text}\n"
+            f"**Primary Task:**\n{task_text}\n\n"
+            f"**Success Criteria:**\n"
+            f"- Provide specific data/facts (not summaries)\n"
+            f"- Cite at least 2 sources per claim\n"
+            f"- Include URLs for verification\n\n"
+            f"**Requirements & Constraints:**\n{requirements_text}\n\n"
+            f"**CRITICAL:**\n"
+            f"If this is a comparison, you MUST research ALL entities mentioned.\n"
+            f"If this requires multiple data points, you MUST find ALL of them.\n"
+            f"Do NOT stop until your checklist is complete.\n"
         )
 
         if context_text:
@@ -310,7 +323,7 @@ class DelegationMixin:
                 # [NOTE] Ensure this model string matches your config
                 for event in sync_stream.stream_events(
                     provider="together-ai",
-                    model="together-ai/Qwen/Qwen3-235B-A22B-Thinking-2507",
+                    model="together-ai/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
                 ):
                     loop.call_soon_threadsafe(event_queue.put_nowait, event)
             except Exception as e:
@@ -356,40 +369,45 @@ class DelegationMixin:
             )
 
         # =========================================================================
-        # 3. FETCH RESULT & CLOSE LOOP
+        # 3. FETCH WORKER'S FINAL REPORT & SUBMIT TO SUPERVISOR
         # =========================================================================
         yield json.dumps(
             {
                 "type": "activity",
-                "activity": "Collecting final report...",
+                "activity": "Collecting final report from worker thread...",
                 "state": "in_progress",
                 "tool": "delegate_research_task",
                 "run_id": run_id,
             }
         )
 
-        final_content = await self._fetch_ephemeral_result(
-            thread_id=ephemeral_thread.id, assistant_id=ephemeral_worker.id
+        # Fetch ONLY the final assistant message from the worker thread
+        # This prevents the worker's tool calls from bleeding into the supervisor's context
+        final_content = await self._fetch_worker_final_report(
+            thread_id=ephemeral_thread.id
         )
 
         if not final_content:
             final_content = (
                 f"Delegation error: {error_message}"
                 if execution_had_error
-                else "No report generated."
+                else "No report generated by worker."
             )
+            execution_had_error = True
 
         try:
             yield json.dumps(
                 {
                     "type": "activity",
-                    "activity": "Submitting report...",
+                    "activity": "Submitting worker report to supervisor...",
                     "state": "in_progress",
                     "tool": "delegate_research_task",
                     "run_id": run_id,
                 }
             )
 
+            # Submit the worker's final report as the tool response
+            # This keeps the worker's internal tool usage isolated
             await self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
@@ -409,7 +427,7 @@ class DelegationMixin:
                         else StatusEnum.failed.value
                     ),
                 )
-            LOG.info("✅ [DELEGATE] Tool Output Submitted.")
+            LOG.info("✅ [DELEGATE] Tool Output Submitted to Supervisor.")
         except Exception as e:
             LOG.error(f"❌ [DELEGATE] Submission failure: {e}")
 

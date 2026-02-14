@@ -7,6 +7,31 @@ LEVEL_4_SUPERVISOR_INSTRUCTIONS = {
         "**CRITICAL RULE:** You never update the scratchpad without also issuing a command. "
         "Every turn must result in action."
     ),
+    "L4_TRIAGE_PROTOCOL": (
+        "### 🎯 QUERY TRIAGE (MANDATORY FIRST STEP)\n\n"
+        "Before launching ANY research, classify the user's intent:\n\n"
+        "**TIER 0 - CONVERSATIONAL (NO RESEARCH)**\n"
+        "- Greetings: 'hello', 'hi', 'hey'\n"
+        "- Meta questions: 'what can you do?', 'how does this work?'\n"
+        "- Clarifications: 'what did you mean?'\n"
+        "→ ACTION: Respond conversationally. DO NOT call any tools.\n\n"
+        "**TIER 1 - SIMPLE LOOKUP (2-3 sources)**\n"
+        "- Single fact: 'What is X's revenue?', 'Who is the CEO of Y?'\n"
+        "→ ACTION: Call update_scratchpad + delegate ONE focused task.\n\n"
+        "**TIER 2 - COMPARATIVE (4-6 sources)**\n"
+        "- Multi-entity: 'Compare X vs Y', 'What are the top Z in category?'\n"
+        "→ ACTION: Call update_scratchpad with multi-step plan + delegate FIRST step.\n\n"
+        "**TIER 3 - ANALYTICAL (7+ sources)**\n"
+        "- Trend analysis: 'How has X evolved?', 'What factors influence Y?'\n"
+        "→ ACTION: Call update_scratchpad with detailed research plan + delegate FIRST step.\n\n"
+        "**CRITICAL RULES:**\n"
+        "1. If TIER 0 → Respond directly, zero tool calls.\n"
+        "2. If TIER 1-3 → ALWAYS ask 1-2 clarifying questions BEFORE starting research:\n"
+        "   - 'What time period are you interested in?'\n"
+        "   - 'Do you need detailed financials or just revenue?'\n"
+        "   - 'Are you comparing by metric X or Y?'\n"
+        "3. After clarification → Execute the Double-Tap protocol.\n"
+    ),
     # 2. PARALLEL EXECUTION PROTOCOL: The "Double-Tap" logic
     "L4_EXECUTION_PROTOCOL": (
         "### ⚡ PARALLEL EXECUTION PROTOCOL (MANDATORY):\n"
@@ -27,6 +52,11 @@ LEVEL_4_SUPERVISOR_INSTRUCTIONS = {
         "- **NO SINGLE CALLS:** Issuing only a scratchpad update is considered a system failure. You MUST always pair it with a delegation call.\n"
         "- **SPECIFICITY:** Do not give workers vague tasks. Give them the specific URL or Query you want them to snip.\n"
         "- **STOPPING CONDITION:** Only when the scratchpad contains 100% of the evidence required to answer the user should you stop calling tools and provide the final report."
+        "**PREMATURE STOP DETECTION:**\n"
+        "If a worker returns results that seem incomplete:\n"
+        "- Check if the scratchpad has BOTH entities (in comparisons)\n"
+        "- Check if sources are cited\n"
+        "- If incomplete → append_scratchpad('Incomplete data') + delegate again with more specific requirements\n"
     ),
     # 4. FINAL OUTPUT
     "L4_OUTPUT_FORMAT": (
@@ -63,6 +93,32 @@ LEVEL_4_DEEP_RESEARCH_INSTRUCTIONS = {
         "    -   *Use for:* Moving to the next page if `read_web_page` indicated 'Page 1 of 5'.\n"
         "    -   *Warning:* Expensive. Use only if necessary."
     ),
+    "L4_DEPTH_PROTOCOL": (
+        "### 📊 RESEARCH DEPTH REQUIREMENTS\n\n"
+        "**FOR COMPARATIVE QUERIES (e.g., 'NVIDIA vs AMD revenue'):**\n"
+        "You MUST research BOTH entities with equal rigor:\n\n"
+        "1. **Discovery Phase** (perform_web_search):\n"
+        "   - Search for EACH entity separately\n"
+        "   - Example: 'NVIDIA 2024 revenue' → read top 3 results\n"
+        "   - Then: 'AMD 2024 revenue' → read top 3 results\n\n"
+        "2. **Verification Phase** (cross-reference):\n"
+        "   - Find at least 2 sources per entity\n"
+        "   - If sources conflict, find a 3rd tie-breaker\n\n"
+        "3. **Depth Checklist** (before stopping):\n"
+        "   - [ ] Found Entity 1 data from 2+ sources\n"
+        "   - [ ] Found Entity 2 data from 2+ sources\n"
+        "   - [ ] Verified time period matches (Q4 2024, FY 2024, etc.)\n"
+        "   - [ ] Checked official sources (investor relations, 10-K filings)\n\n"
+        "**FORBIDDEN PATTERNS:**\n"
+        "- ❌ Researching only one entity in a comparison\n"
+        "- ❌ Using one source per entity\n"
+        "- ❌ Stopping after first search without verification\n\n"
+        "**WHEN TO GO DEEPER:**\n"
+        "If the task says 'compare', 'analyze', or 'evaluate':\n"
+        "- Minimum 4 web_read calls (2 per entity)\n"
+        "- Use search_web_page to find specific sections like 'Q4 results'\n"
+        "- If official sources (nvidia.com/investor) exist, prioritize them\n"
+    ),
     # 3. THE LOGIC LOOP
     "L4_EXECUTION_ALGORITHM": (
         "### ⚡ EXECUTION ALGORITHM (The 'Level 3' Standard)\n\n"
@@ -77,6 +133,12 @@ LEVEL_4_DEEP_RESEARCH_INSTRUCTIONS = {
         "- **Condition:** If the page is long (multi-page) and the answer wasn't in the first chunk.\n"
         "- **Action:** DO NOT SCROLL YET. Use `search_web_page(url=..., query=...)`.\n"
         "- **Why?** It is faster and more accurate than scrolling blindly."
+        "**STEP 0.5: TASK DECOMPOSITION**\n"
+        "Before any tool use, break down the task:\n"
+        "- 'Compare X vs Y' → I need data for X AND data for Y\n"
+        "- 'Analyze X' → I need multiple sources on X\n"
+        "- 'Find X' → I need official sources for X\n\n"
+        "Create a mental checklist. Only stop when ALL items are checked.\n"
     ),
     # 4. STOPPING RULES
     "L4_STOPPING_CRITERIA": (

@@ -44,17 +44,16 @@ class TogetherAIHandler:
         # "google/": TogetherLlamaWorker,
         # --- Qwen Family (All versions: 2, 2.5, 3, Coder, VL) ---
         # --- Deep  Research ---
-        "together-ai/Qwen/Qwen3-Next-80B-A3B-Instruct/deep-research": TogetherDeepResearchWorker,
+        "together-ai/Qwen/Qwen3-Next-80B-A3B-Instruct/deep-research": TogetherQwenWorker,
         "Qwen/": TogetherQwenWorker,
         # --- Specialized Providers ---
         "ServiceNow": TogetherServiceNowWorker,
         "nvidia": TogetherNvidiaWorker,
         "gpt-oss": TogetherGptOssWorker,
-        "moonshotai/": TogetherDeepResearchWorker,
         # --- Default routes  ---
         # "deepcogito": TogetherDefaultWorker,
         "zai-org": TogetherHermesDefaultWorker,
-        "moonshotai": TogetherHermesDefaultWorker,
+        "moonshotai": TogetherQwenWorker,
         "mistralai/Ministral-3-14B-Instruct-2512": TogetherHermesDefaultWorker,
         "mistralai/Mistral-7B-Instruct-v0.2": TogetherHermesDefaultWorker,
         "mistralai/Mistral-7B-Instruct-v0.3": TogetherHermesDefaultWorker,

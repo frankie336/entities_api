@@ -22,7 +22,7 @@ from src.api.entities_api.orchestration.engine.orchestrator_core import \
 # --- MIXINS ---
 from src.api.entities_api.orchestration.mixins.provider_mixins import \
     _ProviderMixins
-from src.api.entities_api.utils.ephemeral_worker_maker import AssistantManager
+from src.api.entities_api.utils.assistant_manager import AssistantManager
 
 load_dotenv()
 LOG = LoggingUtility()

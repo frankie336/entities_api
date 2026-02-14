@@ -1,12 +1,15 @@
+# src/api/entities_api/workers/deepseek_worker.py
 from __future__ import annotations
 
 import asyncio
 import json
 import os
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict, Optional
+from dataclasses import dataclass
+from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
 from dotenv import load_dotenv
+from projectdavid import StreamEvent
 from projectdavid_common.constants import PLATFORM_TOOLS
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
@@ -14,12 +17,13 @@ from projectdavid_common.validation import StatusEnum
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
 # --- DEPENDENCIES ---
-from src.api.entities_api.dependencies import get_redis
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.dependencies import get_redis, get_redis_sync
+from src.api.entities_api.orchestration.engine.orchestrator_core import (
+    OrchestratorCore, StreamState)
 # --- MIXINS ---
 from src.api.entities_api.orchestration.mixins.provider_mixins import \
     _ProviderMixins
+from src.api.entities_api.utils.assistant_manager import AssistantManager
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -47,8 +51,9 @@ class DeepSeekBaseWorker(
         **extra,
     ) -> None:
 
-        # 2. Setup Redis (Critical for the Mixin fallback)
-        # We use get_redis_sync() if no client is provided, ensuring we have a connection.
+        self.api_key = api_key or extra.get("api_key")
+        self._delegation_api_key = self.api_key
+
         self.redis = redis or get_redis_sync()
 
         # 3. Setup the Cache Service (The "New Way")
@@ -117,6 +122,9 @@ class DeepSeekBaseWorker(
         - Uses raw XML/Tag persistence to prevent Llama/DeepSeek persona breakage.
         - Maintains internal batching for parallel tool execution.
         """
+
+        self._delegation_api_key = api_key
+
         redis = self.redis
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
@@ -126,12 +134,8 @@ class DeepSeekBaseWorker(
         self._decision_payload = None
         self._tool_queue: List[Dict] = []
 
-        accumulated: str = ""
-        assistant_reply: str = ""
-        reasoning_reply: str = ""
-        decision_buffer: str = ""
-        plan_buffer: str = ""
-        current_block: str | None = None
+        # Initialize the State Machine Container
+        state = StreamState()
 
         try:
             if hasattr(self, "_get_model_map") and (
@@ -139,11 +143,27 @@ class DeepSeekBaseWorker(
             ):
                 model = mapped
 
-            # [NEW] Ensure cache is hot before starting
+            # Ensure cache is hot before starting
             self.assistant_id = assistant_id
             await self._ensure_config_loaded()
+
+            # --- DEEP RESEARCH INTEGRATION ---
+            is_deep_research = self.assistant_config.get("deep_research", False)
+            LOG.info("[DEEP_RESEARCH_MODE]=%s", is_deep_research)
+
+            if is_deep_research:
+                LOG.critical("██████ [DEEP_RESEARCH_MODE]=%s ██████", is_deep_research)
+
+                # Create supervisor assistant here
+                assistant_manager = AssistantManager()
+                ephemeral_supervisor = (
+                    await assistant_manager.create_ephemeral_supervisor()
+                )
+                self.assistant_id = ephemeral_supervisor.id
+            # ---------------------------------
+
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
-            decision_telemetry = self.assistant_config.get("decision_telemetry", True)
+            decision_telemetry = self.assistant_config.get("decision_telemetry", False)
             web_access_setting = self.assistant_config.get("decision_telemetry", False)
 
             test_cache = self.assistant_config.get("agent_mode")
@@ -151,14 +171,16 @@ class DeepSeekBaseWorker(
                 f"Test_cache -> Agent: {agent_mode_setting}, Telemetry: {decision_telemetry}"
             )
 
+            # Updated to use self.assistant_id (handles identity swap) and pass deep_research flag
             ctx = await self._set_up_context_window(
-                assistant_id,
-                thread_id,
+                assistant_id=self.assistant_id,
+                thread_id=thread_id,
                 trunk=True,
                 force_refresh=force_refresh,
                 agent_mode=agent_mode_setting,
                 decision_telemetry=decision_telemetry,
                 web_access=web_access_setting,
+                deep_research=is_deep_research,
             )
 
             if not api_key:
@@ -186,70 +208,24 @@ class DeepSeekBaseWorker(
                 if stop_event.is_set():
                     break
 
+                # --- REAL-TIME STATE MACHINE UPDATE ---
+                self._update_stream_state(chunk, state)
+
+                # Handle Control Flow
                 ctype = chunk.get("type")
-                ccontent = chunk.get("content") or ""
-
-                # --- REAL-TIME STATE MACHINE ---
-                if ctype == "content":
-                    if current_block == "fc":
-                        accumulated += "</fc>"
-                    elif current_block == "think":
-                        accumulated += "</think>"
-                    elif current_block == "plan":
-                        accumulated += "</plan>"
-                    current_block = None
-                    assistant_reply += ccontent
-                    accumulated += ccontent
-                elif ctype == "call_arguments":
-                    if current_block != "fc":
-                        if current_block == "think":
-                            accumulated += "</think>"
-                        elif current_block == "plan":
-                            accumulated += "</plan>"
-                        accumulated += "<fc>"
-                        current_block = "fc"
-                    accumulated += ccontent
-                elif ctype == "reasoning":
-                    if current_block != "think":
-                        if current_block == "fc":
-                            accumulated += "</fc>"
-                        elif current_block == "plan":
-                            accumulated += "</plan>"
-                        accumulated += "<think>"
-                        current_block = "think"
-                    reasoning_reply += ccontent
-                elif ctype == "plan":
-                    if current_block != "plan":
-                        if current_block == "fc":
-                            accumulated += "</fc>"
-                        elif current_block == "think":
-                            accumulated += "</think>"
-                        accumulated += "<plan>"
-                        current_block = "plan"
-                    plan_buffer += ccontent
-                    accumulated += ccontent
-                elif ctype == "decision":
-                    decision_buffer += ccontent
-                    if current_block == "fc":
-                        accumulated += "</fc>"
-                    elif current_block == "think":
-                        accumulated += "</think>"
-                    elif current_block == "plan":
-                        accumulated += "</plan>"
-                    current_block = "decision"
-
                 if ctype == "call_arguments":
                     continue
+
                 yield json.dumps(chunk)
                 await self._shunt_to_redis_stream(redis, stream_key, chunk)
 
             # Cleanup open tags
-            if current_block == "fc":
-                accumulated += "</fc>"
-            elif current_block == "think":
-                accumulated += "</think>"
-            elif current_block == "plan":
-                accumulated += "</plan>"
+            if state.current_block == "fc":
+                state.accumulated += "</fc>"
+            elif state.current_block == "think":
+                state.accumulated += "</think>"
+            elif state.current_block == "plan":
+                state.accumulated += "</plan>"
 
         except Exception as exc:
             LOG.error(f"DEBUG: Stream Exception: {exc}")
@@ -260,9 +236,9 @@ class DeepSeekBaseWorker(
             stop_event.set()
 
         # --- POST-STREAM: BATCH VALIDATION ---
-        if decision_buffer:
+        if state.decision_buffer:
             try:
-                self._decision_payload = json.loads(decision_buffer.strip())
+                self._decision_payload = json.loads(state.decision_buffer.strip())
             except Exception:
                 pass
 
@@ -271,12 +247,12 @@ class DeepSeekBaseWorker(
         # --- [LEVEL 3] NATIVE PERSISTENCE ---
         # The parser finds the tools to drive the backend (Action records).
         tool_calls_batch = self.parse_and_set_function_calls(
-            accumulated, assistant_reply
+            state.accumulated, state.assistant_reply
         )
 
         # [THE FIX]: We save the RAW text emitted by Llama.
         # No formal JSON structure, no ID injection into the dialogue content.
-        message_to_save = accumulated
+        message_to_save = state.accumulated
         final_status = StatusEnum.completed.value
 
         if tool_calls_batch:

@@ -1,3 +1,4 @@
+# src/api/entities_api/models/models.py
 import secrets
 import time
 from datetime import datetime
@@ -160,6 +161,8 @@ class User(Base):
         index=True,
         comment="The unique ID assigned by the OAuth provider",
     )
+
+    # Relationships
     api_keys = relationship(
         "ApiKey", back_populates="user", cascade="all, delete-orphan", lazy="select"
     )
@@ -179,6 +182,11 @@ class User(Base):
     files = relationship(
         "File", back_populates="user", cascade="all, delete-orphan", lazy="select"
     )
+    runs = relationship("Run", back_populates="user", lazy="select")
+
+    # NEW: Audit Logs relationship
+    audit_logs = relationship("AuditLog", back_populates="user", lazy="dynamic")
+
     __table_args__ = (
         UniqueConstraint(
             "oauth_provider", "provider_user_id", name="uq_user_oauth_provider_id"
@@ -186,7 +194,49 @@ class User(Base):
         Index("idx_user_email", "email"),
         Index("idx_user_is_admin", "is_admin"),
     )
-    runs = relationship("Run", back_populates="user", lazy="select")
+
+
+# ───────────────────────────────────────────────
+#  AUDIT LOGGING (GDPR & Enterprise Compliance)
+# ───────────────────────────────────────────────
+class AuditLog(Base):
+    """
+    Immutable record of system actions.
+    Supports GDPR compliance by tracking deletions and administrative access.
+    """
+
+    __tablename__ = "audit_logs"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+
+    # Who performed the action
+    user_id = Column(String(64), ForeignKey("users.id"), nullable=True, index=True)
+
+    # What was done
+    action = Column(
+        String(32),
+        nullable=False,
+        index=True,
+        comment="e.g. CREATE, UPDATE, DELETE, HARD_DELETE",
+    )
+
+    # What entity was affected
+    entity_type = Column(
+        String(64), nullable=False, index=True, comment="e.g. Assistant, User, Thread"
+    )
+    entity_id = Column(String(64), nullable=False, index=True)
+
+    # Context
+    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    ip_address = Column(String(45), nullable=True)
+
+    # Detailed Payload (snapshot of changes)
+    details = Column(
+        JSON, nullable=True, comment="Stores before/after state or reasoning for action"
+    )
+
+    # Relationship
+    user = relationship("User", back_populates="audit_logs")
 
 
 class Thread(Base):
@@ -274,16 +324,11 @@ class Run(Base):
 
     incomplete_details = Column(String(256), nullable=True)
 
-    # --- FIX APPLIED HERE ---
-    # Changed from String(1024) to Text to support long system prompts/tool protocols
     instructions = Column(Text, nullable=True)
-    # ------------------------
-
     last_error = Column(String(256), nullable=True)
     max_completion_tokens = Column(Integer, nullable=True)
     max_prompt_tokens = Column(Integer, nullable=True)
 
-    # dict-like JSON uses MutableDict for in-place change tracking
     meta_data = Column(MutableDict.as_mutable(JSON), nullable=True, default=dict)
 
     model = Column(String(64), nullable=True)
@@ -296,7 +341,6 @@ class Run(Base):
     thread_id = Column(String(64), nullable=False)
     tool_choice = Column(String(64), nullable=True)
 
-    # list-valued JSON stays plain JSON (Definitions, not DB refs)
     tools = Column(JSON, nullable=True)
 
     # --- Agentic Behavior State (Level 3) ---
@@ -399,6 +443,14 @@ class Assistant(Base):
         comment="If True, captures detailed reasoning payloads and confidence scores.",
     )
 
+    # --- GDPR / Lifecycle Management ---
+    deleted_at = Column(
+        Integer,
+        nullable=True,
+        default=None,
+        comment="Unix timestamp of soft-deletion. If present, entity is in 'Recycle Bin'.",
+    )
+
     # --- Relationships ---
     users = relationship(
         "User", secondary=user_assistants, back_populates="assistants", lazy="select"
@@ -439,9 +491,6 @@ class Action(Base):
         comment="The iteration of the autonomous loop.",
     )
 
-    # =========================================================================
-    # DECISION TELEMETRY
-    # =========================================================================
     decision_payload = Column(
         JSON,
         nullable=True,
@@ -454,7 +503,6 @@ class Action(Base):
         index=True,
         comment="Extracted confidence score (0.0-1.0) to allow fast querying of 'uncertain' agent actions.",
     )
-    # =========================================================================
 
     triggered_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=True)
@@ -549,7 +597,7 @@ class VectorStore(Base):
     threads = relationship(
         "Thread",
         secondary="thread_vector_stores",
-        back_populates="vector_stores",
+        back_populates="threads",
         lazy="select",
     )
     assistants = relationship(

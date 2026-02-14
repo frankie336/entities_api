@@ -15,6 +15,7 @@ import asyncio
 import json
 import uuid
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
 # -------------------------------------------------------------------------
@@ -50,6 +51,18 @@ from src.api.entities_api.orchestration.mixins.tool_routing_mixin import \
     ToolRoutingMixin
 
 LOG = LoggingUtility()
+
+
+@dataclass
+class StreamState:
+    """Container for mutable state during the streaming process."""
+
+    accumulated: str = ""
+    assistant_reply: str = ""
+    reasoning_reply: str = ""
+    decision_buffer: str = ""
+    plan_buffer: str = ""
+    current_block: str | None = None
 
 
 class OrchestratorCore(
@@ -166,6 +179,144 @@ class OrchestratorCore(
                 await self.assistant_cache.retrieve(self.assistant_id) or {}
             )
             LOG.debug(f"Loaded config for {self.assistant_id}")
+
+    def _handle_chunk_accumulation(
+        self,
+        chunk: Dict[str, Any],
+        current_block: str | None,
+        accumulated: str,
+        assistant_reply: str,
+        decision_buffer: str = "",  # Added to capture raw decision JSON
+    ) -> tuple[str | None, str, str, str, bool]:
+        """
+        Handle chunk accumulation with XML block management.
+        Updates state for: content, call_arguments (fc), reasoning (think), plan, and decision.
+
+        Returns:
+            tuple: (current_block, accumulated, assistant_reply, decision_buffer, should_skip_yield)
+        """
+        ctype = chunk.get("type")
+        ccontent = chunk.get("content") or ""
+        should_skip = False
+
+        # --- 1. CONTENT (Standard Text) ---
+        if ctype == "content":
+            # Close any active XML block if we switch back to content
+            if current_block:
+                accumulated += f"</{current_block}>"
+                current_block = None
+
+            assistant_reply += ccontent
+            accumulated += ccontent
+
+        # --- 2. TOOL ARGUMENTS (<fc>) ---
+        # Normalized from Kimi's <|tool_call_argument_begin|> or Qwen's <tool_call>
+        elif ctype == "call_arguments":
+            if current_block != "fc":
+                if current_block:
+                    accumulated += f"</{current_block}>"
+                accumulated += "<fc>"
+                current_block = "fc"
+
+            accumulated += ccontent
+            should_skip = True  # We usually don't yield raw args to the frontend stream
+
+        # --- 3. REASONING (<think>) ---
+        elif ctype == "reasoning":
+            if current_block != "think":
+                if current_block:
+                    accumulated += f"</{current_block}>"
+                accumulated += "<think>"
+                current_block = "think"
+
+            # Note: We usually DO yield reasoning, so no accumulated += ccontent here strictly for 'assistant_reply'
+            # but we do add it to 'accumulated' for history preservation.
+            accumulated += ccontent
+
+        # --- 4. PLANNING (<plan>) ---
+        elif ctype == "plan":
+            if current_block != "plan":
+                if current_block:
+                    accumulated += f"</{current_block}>"
+                accumulated += "<plan>"
+                current_block = "plan"
+
+            accumulated += ccontent
+
+        # --- 5. DECISION (<decision>) ---
+        elif ctype == "decision":
+            if current_block != "decision":
+                if current_block:
+                    accumulated += f"</{current_block}>"
+                accumulated += "<decision>"
+                current_block = "decision"
+
+            accumulated += ccontent
+            decision_buffer += (
+                ccontent  # Capture specific buffer for JSON parsing later
+            )
+
+        return current_block, accumulated, assistant_reply, decision_buffer, should_skip
+
+    def _update_stream_state(self, chunk: dict, state: StreamState) -> None:
+        """
+        Updates the accumulation buffers based on the chunk type and current XML block state.
+        Encapsulates the Real-Time State Machine logic.
+        """
+        ctype = chunk.get("type")
+        ccontent = chunk.get("content") or ""
+
+        if ctype == "content":
+            if state.current_block == "fc":
+                state.accumulated += "</fc>"
+            elif state.current_block == "think":
+                state.accumulated += "</think>"
+            elif state.current_block == "plan":
+                state.accumulated += "</plan>"
+            state.current_block = None
+            state.assistant_reply += ccontent
+            state.accumulated += ccontent
+
+        elif ctype == "call_arguments":
+            if state.current_block != "fc":
+                if state.current_block == "think":
+                    state.accumulated += "</think>"
+                elif state.current_block == "plan":
+                    state.accumulated += "</plan>"
+                state.accumulated += "<fc>"
+                state.current_block = "fc"
+            state.accumulated += ccontent
+
+        elif ctype == "reasoning":
+            if state.current_block != "think":
+                if state.current_block == "fc":
+                    state.accumulated += "</fc>"
+                elif state.current_block == "plan":
+                    state.accumulated += "</plan>"
+                state.accumulated += "<think>"
+                state.current_block = "think"
+            state.reasoning_reply += ccontent
+
+        elif ctype == "plan":
+            if state.current_block != "plan":
+                if state.current_block == "fc":
+                    state.accumulated += "</fc>"
+                elif state.current_block == "think":
+                    state.accumulated += "</think>"
+                state.accumulated += "<plan>"
+                state.current_block = "plan"
+            state.plan_buffer += ccontent
+            state.accumulated += ccontent
+
+        elif ctype == "decision":
+            state.decision_buffer += ccontent
+            if state.current_block == "fc":
+                state.accumulated += "</fc>"
+            elif state.current_block == "think":
+                state.accumulated += "</think>"
+            elif state.current_block == "plan":
+                state.accumulated += "</plan>"
+            state.current_block = "decision"
 
     async def _ensure_config_loaded(self):
         """
@@ -326,9 +477,9 @@ class OrchestratorCore(
             ):
                 yield chunk
 
-            # ------------------------------------------------------------------
+            # ----------------------------------------------------------------------------
             # 6. RECURSION DECISION
-            # ------------------------------------------------------------------
+            # ----------------------------------------------------------------------------
             if not has_consumer_tool:
                 # If we only ran Platform Tools (Files, Search, etc.), we recurse immediately
                 # to let the LLM see the output and formulate a response.

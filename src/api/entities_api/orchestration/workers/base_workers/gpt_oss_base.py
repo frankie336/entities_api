@@ -1,8 +1,11 @@
+# src/api/entities_api/workers/gpt_oss_worker.py
 from __future__ import annotations
 
 import asyncio
 import json
 import os
+import re
+import uuid
 from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Dict, Optional, Union
 
@@ -13,6 +16,7 @@ from projectdavid_common.validation import StatusEnum
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
+from entities_api.utils.assistant_manager import AssistantManager
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
 from src.api.entities_api.orchestration.engine.orchestrator_core import \
@@ -43,35 +47,28 @@ class GptOssBaseWorker(
         redis=None,
         base_url: str | None = None,
         api_key: str | None = None,
-        # assistant_cache: dict | None = None,
         assistant_cache_service: Optional[AssistantCache] = None,
         **extra,
     ) -> None:
 
-        # 2. Setup Redis (Critical for the Mixin fallback)
-        # We use get_redis_sync() if no client is provided, ensuring we have a connection.
+        # 1. Setup Redis
         self.redis = redis or get_redis_sync()
 
-        # 3. Setup the Cache Service (The "New Way")
-        # If passed explicitly, store it. If not, the Mixin will lazy-load it using self.redis
+        # 2. Setup Cache Service
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
         elif "assistant_cache" in extra and isinstance(
             extra["assistant_cache"], AssistantCache
         ):
-            # Handle case where it might be passed via **extra
             self._assistant_cache = extra["assistant_cache"]
 
-        # 4. Setup the Data/Config (The "Old Way" renamed)
-        # We rename this to avoid overwriting the Mixin's property.
-        # We check if a raw dict was passed in 'extra' (legacy support)
+        # 3. Setup Config
         legacy_config = extra.get("assistant_config") or extra.get("assistant_cache")
         self.assistant_config: Dict[str, Any] = (
             legacy_config if isinstance(legacy_config, dict) else {}
         )
 
         self._david_client: Any = None
-
         self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
@@ -111,22 +108,22 @@ class GptOssBaseWorker(
         api_key: str | None = None,
         **kwargs,
     ) -> AsyncGenerator[Union[str, StreamEvent], None]:
-        import re
-        import uuid
+
+        # Ensure API key is available for mixins
+        self._delegation_api_key = api_key
 
         redis = self.redis
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
+        # 1. State Initialization
         self._current_tool_call_id = None
         self._pending_tool_payload = None
         self._decision_payload = None
 
         accumulated: str = ""
         assistant_reply: str = ""
-        reasoning_reply: str = ""
         decision_buffer: str = ""
-        plan_buffer: str = ""
         current_block: str | None = None
 
         try:
@@ -136,22 +133,40 @@ class GptOssBaseWorker(
                 model = mapped
 
             self.assistant_id = assistant_id
-            # [NEW] Ensure cache is hot before starting
             await self._ensure_config_loaded()
+
+            # --- [NEW] DEEP RESEARCH / SUPERVISOR LOGIC ---
+            is_deep_research = self.assistant_config.get("deep_research", False)
+            if is_deep_research:
+                LOG.critical(
+                    "██████ [DEEP_RESEARCH_MODE]=%s (GPT-OSS) ██████", is_deep_research
+                )
+                # Create supervisor assistant
+                assistant_manager = AssistantManager()
+                ephemeral_supervisor = (
+                    await assistant_manager.create_ephemeral_supervisor()
+                )
+                # Swap Identity
+                self.assistant_id = ephemeral_supervisor.id
+
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", True)
-            web_access_setting = self.assistant_config.get("decision_telemetry", False)
+            web_access_setting = self.assistant_config.get("web_access", False)
 
+            # 2. Context Setup
             raw_ctx = await self._set_up_context_window(
-                assistant_id,
-                thread_id,
+                assistant_id=self.assistant_id,
+                thread_id=thread_id,
                 trunk=True,
                 structured_tool_call=True,
                 force_refresh=force_refresh,
                 agent_mode=agent_mode_setting,
                 decision_telemetry=decision_telemetry,
                 web_access=web_access_setting,
+                deep_research=is_deep_research,  # Pass flag
             )
+
+            # GPT-OSS Specific: Prepare native tool context
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
 
             if not api_key:
@@ -175,73 +190,31 @@ class GptOssBaseWorker(
 
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
+            # 3. Stream Loop (Using Helper)
             async for chunk in DeltaNormalizer.async_iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
                     break
 
-                ctype = chunk.get("type")
-                ccontent = chunk.get("content") or ""
-                safe_content = ccontent if isinstance(ccontent, str) else ""
+                # Delegate state management to helper
+                (
+                    current_block,
+                    accumulated,
+                    assistant_reply,
+                    decision_buffer,
+                    should_skip,
+                ) = self._handle_chunk_accumulation(
+                    chunk, current_block, accumulated, assistant_reply, decision_buffer
+                )
 
-                if ctype == "content":
-                    if current_block == "fc":
-                        accumulated += "</fc>"
-                    elif current_block == "think":
-                        accumulated += "</think>"
-                    elif current_block == "plan":
-                        accumulated += "</plan>"
-                    current_block = None
-                    assistant_reply += ccontent
-                    accumulated += ccontent
-                elif ctype == "call_arguments":
-                    if current_block != "fc":
-                        if current_block == "think":
-                            accumulated += "</think>"
-                        elif current_block == "plan":
-                            accumulated += "</plan>"
-                        accumulated += "<fc>"
-                        current_block = "fc"
-                    accumulated += ccontent
-                elif ctype == "reasoning":
-                    if current_block != "think":
-                        if current_block == "fc":
-                            accumulated += "</fc>"
-                        elif current_block == "plan":
-                            accumulated += "</plan>"
-                        accumulated += "<think>"
-                        current_block = "think"
-                    reasoning_reply += ccontent
-                elif ctype == "plan":
-                    if current_block != "plan":
-                        if current_block == "fc":
-                            accumulated += "</fc>"
-                        elif current_block == "think":
-                            accumulated += "</think>"
-                        accumulated += "<plan>"
-                        current_block = "plan"
-                    plan_buffer += ccontent
-                    accumulated += ccontent
-                elif ctype == "decision":
-                    decision_buffer += ccontent
-                    if current_block == "fc":
-                        accumulated += "</fc>"
-                    elif current_block == "think":
-                        accumulated += "</think>"
-                    elif current_block == "plan":
-                        accumulated += "</plan>"
-                    current_block = "decision"
-
-                if ctype == "call_arguments":
+                if should_skip:
                     continue
+
                 yield json.dumps(chunk)
                 await self._shunt_to_redis_stream(redis, stream_key, chunk)
 
-            if current_block == "fc":
-                accumulated += "</fc>"
-            elif current_block == "think":
-                accumulated += "</think>"
-            elif current_block == "plan":
-                accumulated += "</plan>"
+            # Cleanup open tags
+            if current_block:
+                accumulated += f"</{current_block}>"
 
         except Exception as exc:
             LOG.error(f"DEBUG: Stream Exception: {exc}")
@@ -265,6 +238,7 @@ class GptOssBaseWorker(
         yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
         # --- SYNC-REPLICA 3: Post-Stream Sanitization ---
+        # (Preserved specifically for GPT-OSS malformed tags)
         if "<fc>" in accumulated:
             try:
                 fc_pattern = r"<fc>(.*?)</fc>"

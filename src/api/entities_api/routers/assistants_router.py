@@ -147,3 +147,35 @@ def disassociate_assistant_from_user(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unexpected error"
         ) from exc
+
+
+@router.delete("/assistants/{assistant_id}", status_code=204)
+def delete_assistant(
+    assistant_id: str,
+    permanent: bool = False,
+    auth_key: ApiKeyModel = Depends(get_api_key),
+):
+    """
+    Delete an assistant.
+
+    - **Standard Delete**: (Default) Soft delete. Moves to trash, recoverable.
+    - **Permanent Delete**: (permanent=True) GDPR-compliant hard delete. Irreversible.
+    """
+    action_type = "PERMANENTLY" if permanent else "soft"
+    logging_utility.info(
+        "User '%s' – %s deleting assistant id=%s",
+        auth_key.user_id,
+        action_type,
+        assistant_id,
+    )
+
+    service = AssistantService()
+    try:
+        service.delete_assistant(assistant_id, permanent=permanent)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logging_utility.error("Delete assistant error: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unexpected error"
+        ) from exc

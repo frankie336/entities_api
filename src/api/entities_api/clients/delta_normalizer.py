@@ -22,12 +22,16 @@ class DeltaNormalizer:
     TC_START, TC_END = "<tool_call>", "</tool_call>"
 
     # ---------------------------------------------------------
-    # [Model: Qwen 2.5/Drift] "Lazy" Tool Tags (CRITICAL FIX)
+    # [Model: Qwen 2.5/Drift] "Lazy" Tool Tags
     # ---------------------------------------------------------
-    # Qwen sometimes forgets XML and uses these instead:
     TCODE_START, TCODE_END = "<tool_code>", "</tool_code>"
     MD_JSON_START = "```json"
     MD_END = "```"
+
+    # ---------------------------------------------------------
+    # [Model: DeepSeek] Naked JSON Fix
+    # ---------------------------------------------------------
+    NAKED_JSON_START = "{"
 
     # ---------------------------------------------------------
     # [Model: DeepSeek/Generic] Reasoning & Chain of Thought
@@ -57,7 +61,6 @@ class DeltaNormalizer:
     # ---------------------------------------------------------
     # [Model: Unicode Block Format] Special character tool tags
     # ---------------------------------------------------------
-    # Uses ▁ (U+2581 Lower One Eighth Block) as separator
     UNICODE_TC_BEGIN = "<｜tool▁calls▁begin｜>"
     UNICODE_TC_END = "<｜tool▁calls▁end｜>"
     UNICODE_CALL_BEGIN = "<｜tool▁call▁begin｜>"
@@ -74,6 +77,7 @@ class DeltaNormalizer:
         """
         buffer = ""
         state = "content"
+        json_depth = 0  # [FIX] Track nested braces for naked JSON
 
         # State for Native Tool Accumulation (OpenAI/Azure Style)
         pending_tool_calls = defaultdict(
@@ -173,8 +177,8 @@ class DeltaNormalizer:
 
                 # --- STATE: CONTENT ---
                 if state == "content":
-                    # Optimization: Look ahead for '<' or '`'
-                    if "<" not in buffer and "`" not in buffer:
+                    # [FIX] Added "{" to lookahead optimization
+                    if "<" not in buffer and "`" not in buffer and "{" not in buffer:
                         yield {"type": "content", "content": buffer, "run_id": run_id}
                         buffer = ""
                         break
@@ -182,18 +186,19 @@ class DeltaNormalizer:
                     # Find earliest marker
                     lt_idx = buffer.find("<")
                     bt_idx = buffer.find("`")
+                    # [FIX] Find start of naked JSON
+                    cur_idx = buffer.find("{")
 
-                    # If both exist, take the smaller positive one; else take the positive one
-                    if lt_idx == -1 and bt_idx == -1:
-                        # Should be covered by first check, but safety
+                    # Filter out -1 to find strict positive minimum
+                    indices = [x for x in [lt_idx, bt_idx, cur_idx] if x != -1]
+
+                    if not indices:
+                        # Should be covered by optimization check, but safety fallback
                         yield {"type": "content", "content": buffer, "run_id": run_id}
                         buffer = ""
                         break
 
-                    if lt_idx != -1 and bt_idx != -1:
-                        cutoff = min(lt_idx, bt_idx)
-                    else:
-                        cutoff = lt_idx if lt_idx != -1 else bt_idx
+                    cutoff = min(indices)
 
                     if cutoff > 0:
                         yield {
@@ -221,6 +226,8 @@ class DeltaNormalizer:
                         (cls.TH_START, "think"),
                         (cls.DEC_START, "decision"),
                         (cls.PLAN_START, "plan"),
+                        # [DeepSeek - Naked JSON Fix]
+                        (cls.NAKED_JSON_START, "naked_json"),
                         # [Kimi K2.5]
                         (cls.KIMI_SEC_START, "kimi_router"),
                         # [Unicode Block Format]
@@ -232,7 +239,20 @@ class DeltaNormalizer:
                         if buffer.startswith(tag):
                             if new_state:
                                 state = new_state
+                                # [FIX] Initialize depth for JSON
+                                if state == "naked_json":
+                                    json_depth = 1
                             buffer = buffer[len(tag) :]
+
+                            # [FIX] If we found naked JSON start, that brace is actually content we want to keep
+                            # for the JSON parser, but for now we yield it as call_args to start the stream.
+                            if tag == cls.NAKED_JSON_START:
+                                yield {
+                                    "type": "call_arguments",
+                                    "content": tag,
+                                    "run_id": run_id,
+                                }
+
                             yielded_something = True
                             match_found = True
                             break
@@ -339,8 +359,6 @@ class DeltaNormalizer:
                         yielded_something = True
                         # Loop continues to hit .startswith check
                     else:
-                        # Buffer starts with the char, but wasn't the tag.
-                        # Yield char and advance.
                         yield {
                             "type": "call_arguments",
                             "content": buffer[0],
@@ -348,6 +366,44 @@ class DeltaNormalizer:
                         }
                         buffer = buffer[1:]
                         yielded_something = True
+
+                # --- [FIX] STATE: NAKED JSON ---
+                elif state == "naked_json":
+                    # Iterate explicitly to handle nested braces (e.g. arguments: { x: 1 })
+                    if not buffer:
+                        break
+
+                    chars_processed = 0
+                    complete_json = False
+
+                    for char in buffer:
+                        if char == "{":
+                            json_depth += 1
+                        elif char == "}":
+                            json_depth -= 1
+
+                        chars_processed += 1
+
+                        # If depth hits 0, the object is closed
+                        if json_depth == 0:
+                            complete_json = True
+                            break
+
+                    # Yield the processed chunk
+                    chunk = buffer[:chars_processed]
+                    yield {
+                        "type": "call_arguments",
+                        "content": chunk,
+                        "run_id": run_id,
+                    }
+                    buffer = buffer[chars_processed:]
+
+                    if complete_json:
+                        state = "content"
+                        yielded_something = True
+                    else:
+                        # Buffer exhausted but still in JSON, break to get more tokens
+                        break
 
                 # --- STATE: KIMI / MOONSHOT ---
                 elif state == "kimi_router":
@@ -566,6 +622,7 @@ class DeltaNormalizer:
                 "kimi_args",
                 "unicode_tool_parsing",
                 "unicode_tool_args",
+                "naked_json",
             ]:
                 yield {"type": "call_arguments", "content": buffer, "run_id": run_id}
             elif state == "decision":

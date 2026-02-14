@@ -1,3 +1,4 @@
+# src/api/entities_api/workers/llama_worker.py
 from __future__ import annotations
 
 import asyncio
@@ -11,13 +12,13 @@ from projectdavid import StreamEvent
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
-from entities_api.cache import assistant_cache
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
+from entities_api.utils.assistant_manager import AssistantManager
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import (
+    OrchestratorCore, StreamState)
 # --- MIXINS ---
 from src.api.entities_api.orchestration.mixins.provider_mixins import \
     _ProviderMixins
@@ -33,7 +34,7 @@ class LlamaBaseWorker(
 ):
     """
     Async Base for Llama-3.3 Providers (Hyperbolic, Together, etc.).
-    Migrated to Async-First Architecture.
+    Refactored to match DeepSeek architecture with Supervisor capabilities.
     """
 
     def __init__(
@@ -44,28 +45,24 @@ class LlamaBaseWorker(
         redis=None,
         base_url: str | None = None,
         api_key: str | None = None,
-        # assistant_cache: dict | None = None,
         assistant_cache_service: Optional[AssistantCache] = None,
         **extra,
     ) -> None:
 
-        # 2. Setup Redis (Critical for the Mixin fallback)
-        # We use get_redis_sync() if no client is provided, ensuring we have a connection.
+        self.api_key = api_key or extra.get("api_key")
+        self._delegation_api_key = self.api_key
+
         self.redis = redis or get_redis_sync()
 
-        # 3. Setup the Cache Service (The "New Way")
-        # If passed explicitly, store it. If not, the Mixin will lazy-load it using self.redis
+        # 3. Setup the Cache Service
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
         elif "assistant_cache" in extra and isinstance(
             extra["assistant_cache"], AssistantCache
         ):
-            # Handle case where it might be passed via **extra
             self._assistant_cache = extra["assistant_cache"]
 
-        # 4. Setup the Data/Config (The "Old Way" renamed)
-        # We rename this to avoid overwriting the Mixin's property.
-        # We check if a raw dict was passed in 'extra' (legacy support)
+        # 4. Setup Config
         legacy_config = extra.get("assistant_config") or extra.get("assistant_cache")
         self.assistant_config: Dict[str, Any] = (
             legacy_config if isinstance(legacy_config, dict) else {}
@@ -89,7 +86,7 @@ class LlamaBaseWorker(
 
         self.setup_services()
 
-        # Safety stubbing (Standardized from GptOss)
+        # Safety stubbing
         if not hasattr(self, "get_function_call_state"):
             LOG.error("CRITICAL: ToolRoutingMixin failed to load.")
             self.get_function_call_state = lambda: None
@@ -117,9 +114,11 @@ class LlamaBaseWorker(
     ) -> AsyncGenerator[Union[str, StreamEvent], None]:
         """
         Level 3 Agentic Stream (Native Mode):
-        - Uses raw XML/Tag persistence to prevent Llama/DeepSeek persona breakage.
-        - Maintains internal batching for parallel tool execution.
+        - Supports Deep Research Supervisor (Identity Swapping).
+        - Uses raw XML/Tag persistence to prevent Persona breakage.
+        - Uses centralized helper for stream state management.
         """
+        self._delegation_api_key = api_key
 
         redis = self.redis
         stream_key = f"stream:{run_id}"
@@ -130,12 +129,8 @@ class LlamaBaseWorker(
         self._decision_payload = None
         self._tool_queue: List[Dict] = []
 
-        accumulated: str = ""
-        assistant_reply: str = ""
-        reasoning_reply: str = ""
-        decision_buffer: str = ""
-        plan_buffer: str = ""
-        current_block: str | None = None
+        # Initialize the State Machine Container (Same as DeepSeek)
+        state = StreamState()
 
         try:
             if hasattr(self, "_get_model_map") and (
@@ -144,20 +139,34 @@ class LlamaBaseWorker(
                 model = mapped
 
             self.assistant_id = assistant_id
-            # [NEW] Ensure cache is hot before starting
             await self._ensure_config_loaded()
-            agent_mode_setting = self.assistant_config.get("agent_mode", False)
-            decision_telemetry = self.assistant_config.get("decision_telemetry", True)
-            web_access_setting = self.assistant_config.get("decision_telemetry", False)
 
+            # --- [NEW] DEEP RESEARCH / SUPERVISOR LOGIC ---
+            is_deep_research = self.assistant_config.get("deep_research", False)
+            if is_deep_research:
+                LOG.critical(
+                    "██████ [DEEP_RESEARCH_MODE]=%s (Llama) ██████", is_deep_research
+                )
+                # Create supervisor assistant
+                assistant_manager = AssistantManager()
+                ephemeral_supervisor = (
+                    await assistant_manager.create_ephemeral_supervisor()
+                )
+                # Identity Swap
+                self.assistant_id = ephemeral_supervisor.id
+
+            # Context Setup
             ctx = await self._set_up_context_window(
-                assistant_id,
-                thread_id,
+                assistant_id=self.assistant_id,
+                thread_id=thread_id,
                 trunk=True,
                 force_refresh=force_refresh,
-                agent_mode=agent_mode_setting,
-                decision_telemetry=decision_telemetry,
-                web_access=web_access_setting,
+                agent_mode=self.assistant_config.get("agent_mode", False),
+                decision_telemetry=self.assistant_config.get(
+                    "decision_telemetry", True
+                ),
+                web_access=self.assistant_config.get("web_access", False),
+                deep_research=is_deep_research,  # Pass flag
             )
 
             if not api_key:
@@ -185,70 +194,25 @@ class LlamaBaseWorker(
                 if stop_event.is_set():
                     break
 
+                # --- REAL-TIME STATE MACHINE UPDATE ---
+                # Using the helper from _ProviderMixins (matching DeepSeek pattern)
+                self._update_stream_state(chunk, state)
+
+                # Control Flow: Don't yield raw argument fragments
                 ctype = chunk.get("type")
-                ccontent = chunk.get("content") or ""
-
-                # --- REAL-TIME STATE MACHINE ---
-                if ctype == "content":
-                    if current_block == "fc":
-                        accumulated += "</fc>"
-                    elif current_block == "think":
-                        accumulated += "</think>"
-                    elif current_block == "plan":
-                        accumulated += "</plan>"
-                    current_block = None
-                    assistant_reply += ccontent
-                    accumulated += ccontent
-                elif ctype == "call_arguments":
-                    if current_block != "fc":
-                        if current_block == "think":
-                            accumulated += "</think>"
-                        elif current_block == "plan":
-                            accumulated += "</plan>"
-                        accumulated += "<fc>"
-                        current_block = "fc"
-                    accumulated += ccontent
-                elif ctype == "reasoning":
-                    if current_block != "think":
-                        if current_block == "fc":
-                            accumulated += "</fc>"
-                        elif current_block == "plan":
-                            accumulated += "</plan>"
-                        accumulated += "<think>"
-                        current_block = "think"
-                    reasoning_reply += ccontent
-                elif ctype == "plan":
-                    if current_block != "plan":
-                        if current_block == "fc":
-                            accumulated += "</fc>"
-                        elif current_block == "think":
-                            accumulated += "</think>"
-                        accumulated += "<plan>"
-                        current_block = "plan"
-                    plan_buffer += ccontent
-                    accumulated += ccontent
-                elif ctype == "decision":
-                    decision_buffer += ccontent
-                    if current_block == "fc":
-                        accumulated += "</fc>"
-                    elif current_block == "think":
-                        accumulated += "</think>"
-                    elif current_block == "plan":
-                        accumulated += "</plan>"
-                    current_block = "decision"
-
                 if ctype == "call_arguments":
                     continue
+
                 yield json.dumps(chunk)
                 await self._shunt_to_redis_stream(redis, stream_key, chunk)
 
-            # Cleanup open tags
-            if current_block == "fc":
-                accumulated += "</fc>"
-            elif current_block == "think":
-                accumulated += "</think>"
-            elif current_block == "plan":
-                accumulated += "</plan>"
+            # Cleanup open tags (Native Mode cleanup)
+            if state.current_block == "fc":
+                state.accumulated += "</fc>"
+            elif state.current_block == "think":
+                state.accumulated += "</think>"
+            elif state.current_block == "plan":
+                state.accumulated += "</plan>"
 
         except Exception as exc:
             LOG.error(f"DEBUG: Stream Exception: {exc}")
@@ -259,37 +223,31 @@ class LlamaBaseWorker(
             stop_event.set()
 
         # --- POST-STREAM: BATCH VALIDATION ---
-        if decision_buffer:
+        if state.decision_buffer:
             try:
-                self._decision_payload = json.loads(decision_buffer.strip())
+                self._decision_payload = json.loads(state.decision_buffer.strip())
             except Exception:
                 pass
 
         yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
         # --- [LEVEL 3] NATIVE PERSISTENCE ---
-        # The parser finds the tools to drive the backend (Action records).
+        # Llama/DeepSeek requirement: Save RAW text (<fc>...</fc>) not JSON structure.
         tool_calls_batch = self.parse_and_set_function_calls(
-            accumulated, assistant_reply
+            state.accumulated, state.assistant_reply
         )
 
-        # [THE FIX]: We save the RAW text emitted by Llama.
-        # No formal JSON structure, no ID injection into the dialogue content.
-        message_to_save = accumulated
+        message_to_save = state.accumulated
         final_status = StatusEnum.completed.value
 
         if tool_calls_batch:
-            # We still keep the tool_queue so the dispatcher knows what to execute
             self._tool_queue = tool_calls_batch
             final_status = StatusEnum.pending_action.value
-
-            # [LOGGING]
             LOG.info(f"🚀 [L3 NATIVE MODE] Turn 1 Batch size: {len(tool_calls_batch)}")
 
-        # Persistence: Save the raw <plan> and <fc> text exactly as Llama intended
         if message_to_save:
             await self.finalize_conversation(
-                message_to_save, thread_id, assistant_id, run_id
+                message_to_save, thread_id, self.assistant_id, run_id
             )
 
         if self.project_david_client:
