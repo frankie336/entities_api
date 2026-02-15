@@ -21,10 +21,9 @@ class DelegationMixin:
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
         self._delegation_api_key = None
+
         self._delete_ephemeral_thread = False
-        self._delegation_model = None
 
     # --- NEW HELPER METHOD ---
     async def _ephemeral_clean_up(
@@ -307,8 +306,7 @@ class DelegationMixin:
                     # NOTE: Ensure this model string is exactly correct and available to your key
                     iterator = sync_stream.stream_events(
                         provider="together-ai",
-                        model=self._delegation_model,
-                        # model="together-ai/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
+                        model="together-ai/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
                     )
 
                     count = 0
