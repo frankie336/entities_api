@@ -1,4 +1,3 @@
-# src/api/entities_api/utils/assistant_manager.py
 import asyncio
 import os
 import uuid
@@ -58,13 +57,19 @@ class AssistantManager:
         return ephemeral_worker
 
     async def create_ephemeral_worker_assistant(self):
-        # Using asyncio.to_thread to run the blocking client call
+        """
+        Creates the sub-worker.
+        Crucially, we inject 'research_worker_calling': True into meta_data.
+        This allows QwenBaseWorker to identify its role upon loading.
+        """
         ephemeral_worker = await asyncio.to_thread(
             self.client.assistants.create_assistant,
             name=f"worker_{uuid.uuid4().hex[:8]}",
             description="Temp assistant for deep research",
             tools=WORKER_TOOLS,
             deep_research=False,
+            # ✅ FIX: Pass state here so the worker knows what it is immediately
+            meta_data={"research_worker_calling": True},
         )
 
         return ephemeral_worker

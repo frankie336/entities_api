@@ -170,9 +170,15 @@ class DeepSeekBaseWorker(
                 ephemeral_supervisor = (
                     await assistant_manager.create_ephemeral_supervisor()
                 )
+                # Switch Identity to the Supervisor
                 self.assistant_id = ephemeral_supervisor.id
-                # set the delegated inference model for deep search
                 self.ephemeral_supervisor_id = ephemeral_supervisor.id
+
+                # 🔥 CRITICAL FIX: FLUSH AND RELOAD CONFIGURATION 🔥
+                # We must clear the old config and fetch the Supervisor's
+                # config (which contains the correct instructions & metadata)
+                self.assistant_config = {}
+                await self._ensure_config_loaded()
 
                 # [FIX 1] This works now because we added the import
                 self._delegation_model = get_delegated_model(requested_model=model)
@@ -181,9 +187,12 @@ class DeepSeekBaseWorker(
 
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", False)
-            web_access_setting = self.assistant_config.get(
-                "web_access", False
-            )  # Fixed typo (was decision_telemetry)
+            web_access_setting = self.assistant_config.get("web_access", False)
+
+            # ✅ Retrieve research worker flag (guaranteed boolean by AssistantCache)
+            research_worker_setting = self.assistant_config.get(
+                "is_research_worker", False
+            )
 
             # Updated to use self.assistant_id (handles identity swap) and pass deep_research flag
             ctx = await self._set_up_context_window(
@@ -195,6 +204,7 @@ class DeepSeekBaseWorker(
                 decision_telemetry=decision_telemetry,
                 web_access=web_access_setting,
                 deep_research=self.is_deep_research,
+                research_worker=research_worker_setting,
             )
 
             if not api_key:

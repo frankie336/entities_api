@@ -322,15 +322,19 @@ class ToolRoutingMixin:
                     ):
                         yield chunk
                 else:
-                    async for chunk in self._process_platform_tool_calls(
+                    # FIX: Changed from 'async for' to await since _process_platform_tool_calls
+                    # returns a coroutine, not an async generator
+                    result = await self._process_platform_tool_calls(
                         thread_id=thread_id,
                         assistant_id=assistant_id,
                         content=fc,
                         run_id=run_id,
                         tool_call_id=current_call_id,
                         decision=decision,
-                    ):
-                        yield chunk
+                    )
+                    # Yield the result if it exists
+                    if result:
+                        yield result
 
             # 3. CONSUMER TOOLS (Handover to SDK)
             else:

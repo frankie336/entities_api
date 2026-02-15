@@ -372,7 +372,7 @@ class OrchestratorCore(
         assistant_id: str,
         model: Any,
         api_key: Optional[str] = None,
-        max_turns: int = 30,
+        max_turns: int = 70,
         **kwargs,
     ) -> AsyncGenerator[Union[str, StreamEvent], None]:
         """

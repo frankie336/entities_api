@@ -153,9 +153,11 @@ class QwenBaseWorker(
                 model = mapped
 
             self.assistant_id = assistant_id
+
+            # Load initial configuration for the requested assistant
             await self._ensure_config_loaded()
 
-            # Check for Deep Research / Supervisor Mode
+            # Check for Deep Research / Supervisor Mode on the ORIGINAL assistant
             self.is_deep_research = self.assistant_config.get("deep_research", False)
 
             if self.is_deep_research:
@@ -166,15 +168,34 @@ class QwenBaseWorker(
                 ephemeral_supervisor = (
                     await assistant_manager.create_ephemeral_supervisor()
                 )
+
+                # Switch Identity to the Supervisor
                 self.assistant_id = ephemeral_supervisor.id
                 self.ephemeral_supervisor_id = ephemeral_supervisor.id
+
+                # 🔥 CRITICAL FIX: FLUSH AND RELOAD CONFIGURATION 🔥
+                # We must clear the old config and fetch the Supervisor's
+                # config (which contains the correct instructions & metadata)
+                self.assistant_config = {}
+                await self._ensure_config_loaded()
 
                 # set the delegated inference model for deep search
                 self._delegation_model = get_delegated_model(requested_model=model)
 
+            # Retrieve settings from the normalized cache
+            # (Now guarantees we are reading from the SUPERVISOR if deep_research is active)
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", False)
-            web_access_setting = self.assistant_config.get("decision_telemetry", False)
+            web_access_setting = self.assistant_config.get("web_access", False)
+
+            # ✅ Retrieve research worker flag (guaranteed boolean by AssistantCache)
+            research_worker_setting = self.assistant_config.get(
+                "is_research_worker", False
+            )
+
+            LOG.critical(
+                "██████ [RESEARCH_WORKER_SETTING]=%s ██████", research_worker_setting
+            )
 
             # --- 3. Context & Client ---
             ctx = await self._set_up_context_window(
@@ -186,6 +207,8 @@ class QwenBaseWorker(
                 decision_telemetry=decision_telemetry,
                 web_access=web_access_setting,
                 deep_research=self.is_deep_research,
+                # ✅ Pass the boolean flag here
+                research_worker=research_worker_setting,
             )
 
             if not api_key:
@@ -195,6 +218,11 @@ class QwenBaseWorker(
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
             client = self._get_client_instance(api_key=api_key)
+
+            # --- [DEBUG] RAW CONTEXT DUMP ---
+            LOG.info(
+                f"\nRAW_CTX_DUMP_QUEN:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}"
+            )
 
             # --- 4. The Stream Loop ---
             raw_stream = client.stream_chat_completion(

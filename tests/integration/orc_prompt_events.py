@@ -89,7 +89,6 @@ t_setup_end = time.perf_counter()
 # ------------------------------------------------------------------
 stream = client.synchronous_inference_stream
 stream.setup(
-    user_id=ENTITIES_USER_ID,
     thread_id=thread.id,
     assistant_id=ASSISTANT_ID,
     message_id=message.id,

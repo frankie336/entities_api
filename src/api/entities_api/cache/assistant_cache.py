@@ -1,4 +1,3 @@
-# src/api/entities_api/cache/assistant_cache.py
 import asyncio
 import json
 import os
@@ -46,26 +45,36 @@ class AssistantCache:
         else:
             await asyncio.to_thread(self.redis.set, key, data, ex=REDIS_ASSISTANT_TTL)
 
+    def _normalize_bool(self, value: Union[str, bool, int]) -> bool:
+        """Helper to safely convert metadata strings/ints to boolean."""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.lower() in ("true", "1", "yes", "on")
+        if isinstance(value, int):
+            return value == 1
+        return False
+
     async def retrieve(self, assistant_id: str):
         """
         Fetches assistant details and caches them.
-        Level 3 Update: Now captures agent_mode and decision_telemetry flags.
         """
+        # 1. Check Cache
         cached = await self.get(assistant_id)
         if cached:
             return cached
 
         client = Entity(base_url=self.pd_base_url, api_key=self.pd_api_key)
 
-        # 1. Fetch Assistant from the platform
+        # 2. Fetch Assistant from the platform
         assistant = await asyncio.to_thread(
             client.assistants.retrieve_assistant, assistant_id=assistant_id
         )
 
-        # 2. Extract Tools directly from the Assistant object
+        # 3. Extract Tools directly from the Assistant object
         raw_tools = getattr(assistant, "tools", []) or []
 
-        # 3. Normalize tools for JSON serialization
+        # Normalize tools for JSON serialization
         clean_tools = []
         for t in raw_tools:
             if isinstance(t, dict):
@@ -77,8 +86,15 @@ class AssistantCache:
             else:
                 clean_tools.append(dict(t))
 
-        # 4. Construct Level 3 Payload
-        # We explicitly cast to bool to handle DB variations (0/1 vs True/False)
+        # 4. Safely Extract Metadata
+        # We need the full dict so the worker can do: config.get("meta_data").get("key")
+        raw_meta = getattr(assistant, "meta_data", {}) or {}
+
+        # Safe extraction of the research worker flag (handling strings vs bools)
+        research_worker_val = raw_meta.get("research_worker_calling", False)
+        is_research_worker = self._normalize_bool(research_worker_val)
+
+        # 5. Construct Payload
         payload = {
             "instructions": assistant.instructions,
             "tools": clean_tools,
@@ -86,8 +102,13 @@ class AssistantCache:
             "decision_telemetry": assistant.decision_telemetry,
             "web_access": assistant.web_access,
             "deep_research": assistant.deep_research,
+            # ✅ STORE FULL METADATA
+            "meta_data": raw_meta,
+            # ✅ Flattened, type-safe flag for the worker
+            "is_research_worker": is_research_worker,
         }
 
+        # 6. Save to Redis
         await self.set(assistant_id, payload)
         return payload
 
