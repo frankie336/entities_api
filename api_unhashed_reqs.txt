@@ -27,12 +27,10 @@ jwt
 
 # -----------------------
 # Telemetry packages
-#
 #------------------------
 opentelemetry-api
 opentelemetry-sdk
 opentelemetry-exporter-otlp
-opentelemetry-instrumentation
 opentelemetry-instrumentation-fastapi
-opentelemetry-instrumentation-asyncio
-opentelemetry-instrumentation-request
+opentelemetry-instrumentation-asgi
+opentelemetry-instrumentation-requests
