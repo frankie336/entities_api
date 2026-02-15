@@ -1,6 +1,7 @@
 # src/api/entities_api/workers/hermes_worker.py
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import uuid
@@ -15,6 +16,7 @@ from projectdavid_common.validation import StatusEnum
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
 from entities_api.utils.assistant_manager import AssistantManager
+from entities_api.utils.delegation_model_map import get_delegated_model
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
 from src.api.entities_api.orchestration.engine.orchestrator_core import \
@@ -48,6 +50,14 @@ class HermesDefaultBaseWorker(
         assistant_cache_service: Optional[AssistantCache] = None,
         **extra,
     ) -> None:
+
+        # 1. Config & Dependencies
+        self.api_key = api_key or extra.get("api_key")
+        # ephemeral worker config
+        # These objects are used for deep search
+        self.is_deep_research = None
+        self.ephemeral_supervisor_id = None
+        self._delegation_api_key = self.api_key
 
         # 1. Capture the 'assistant_cache' argument manually
         arg_assistant_cache_dict = extra.get("assistant_cache")
@@ -120,9 +130,12 @@ class HermesDefaultBaseWorker(
         Level 3 Agentic Stream with ID-Parity.
         Includes Deep Research Supervisor Logic & Standardized State Management.
         """
-        import asyncio
 
-        self._delegation_api_key = api_key  # Ensure delegation key is set for tools
+        # -----------------------------------
+        # Ephemeral supervisor
+        # -----------------------------------
+        self.ephemeral_supervisor_id = None
+        self._delegation_api_key = api_key
 
         redis = self.redis
         stream_key = f"stream:{run_id}"
@@ -161,6 +174,13 @@ class HermesDefaultBaseWorker(
                 )
                 # Swap Identity: The model now acts as the ephemeral supervisor
                 self.assistant_id = ephemeral_supervisor.id
+                self.ephemeral_supervisor_id = ephemeral_supervisor.id
+                # set the delegated inference model for deep search
+                self._delegation_model = get_delegated_model(requested_model=model)
+
+            agent_mode_setting = self.assistant_config.get("agent_mode", False)
+            decision_telemetry = self.assistant_config.get("decision_telemetry", False)
+            web_access_setting = self.assistant_config.get("decision_telemetry", False)
 
             # 3. Context Setup
             ctx = await self._set_up_context_window(
@@ -168,11 +188,9 @@ class HermesDefaultBaseWorker(
                 thread_id=thread_id,
                 trunk=True,
                 force_refresh=force_refresh,
-                agent_mode=self.assistant_config.get("agent_mode", False),
-                decision_telemetry=self.assistant_config.get(
-                    "decision_telemetry", True
-                ),
-                web_access=self.assistant_config.get("web_access", False),
+                agent_mode=agent_mode_setting,
+                decision_telemetry=decision_telemetry,
+                web_access=web_access_setting,
                 deep_research=is_deep_research,  # Pass deep research flag to context builder
             )
 
@@ -223,7 +241,17 @@ class HermesDefaultBaseWorker(
             yield json.dumps(err)
             await self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
+            # 1. Ensure cancellation monitor is stopped
             stop_event.set()
+            # 2. Ephemeral Assistant Cleanup
+            if self.ephemeral_supervisor_id:
+
+                # We use the helper method we wrote earlier, ensuring 'await' is used
+                await self._ephemeral_clean_up(
+                    assistant_id=self.ephemeral_supervisor_id,
+                    thread_id=thread_id,
+                    delete_thread=False,
+                )
 
         # 5. Post-Processing (Decision Parsing)
         if decision_buffer:

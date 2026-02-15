@@ -15,6 +15,7 @@ from projectdavid_common.validation import StatusEnum
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
 from entities_api.utils.assistant_manager import AssistantManager
+from entities_api.utils.delegation_model_map import get_delegated_model
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
 from src.api.entities_api.orchestration.engine.orchestrator_core import (
@@ -50,6 +51,10 @@ class DefaultBaseWorker(
     ) -> None:
 
         self.api_key = api_key or extra.get("api_key")
+        # ephemeral worker config
+        # These objects are used for deep search
+        self.is_deep_research = None
+        self.ephemeral_supervisor_id = None
         self._delegation_api_key = self.api_key
 
         self.redis = redis or get_redis_sync()
@@ -118,6 +123,8 @@ class DefaultBaseWorker(
         - Supports Deep Research / Supervisor identity swapping.
         - Uses centralized StreamState helper.
         """
+
+        self.ephemeral_supervisor_id = None
         self._delegation_api_key = api_key
 
         redis = self.redis
@@ -142,10 +149,11 @@ class DefaultBaseWorker(
             await self._ensure_config_loaded()
 
             # --- DEEP RESEARCH INTEGRATION ---
-            is_deep_research = self.assistant_config.get("deep_research", False)
-            if is_deep_research:
+            self.is_deep_research = self.assistant_config.get("deep_research", False)
+            if self.is_deep_research:
                 LOG.critical(
-                    "██████ [DEEP_RESEARCH_MODE]=%s (Default) ██████", is_deep_research
+                    "██████ [DEEP_RESEARCH_MODE]=%s (Default) ██████",
+                    self.is_deep_research,
                 )
                 # Create supervisor assistant
                 assistant_manager = AssistantManager()
@@ -154,6 +162,10 @@ class DefaultBaseWorker(
                 )
                 # Swap Identity
                 self.assistant_id = ephemeral_supervisor.id
+                self.ephemeral_supervisor_id = ephemeral_supervisor.id
+
+                # set the delegated inference model for deep search
+                self._delegation_model = get_delegated_model(requested_model=model)
 
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", True)
@@ -168,7 +180,7 @@ class DefaultBaseWorker(
                 agent_mode=agent_mode_setting,
                 decision_telemetry=decision_telemetry,
                 web_access=web_access_setting,
-                deep_research=is_deep_research,  # Pass flag
+                deep_research=self.is_deep_research,  # Pass flag
             )
 
             if not api_key:
@@ -222,7 +234,18 @@ class DefaultBaseWorker(
             yield json.dumps(err)
             await self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
+
+            # 1. Ensure cancellation monitor is stopped
             stop_event.set()
+            # 2. Ephemeral Assistant Cleanup
+            if self.ephemeral_supervisor_id:
+
+                # We use the helper method we wrote earlier, ensuring 'await' is used
+                await self._ephemeral_clean_up(
+                    assistant_id=self.ephemeral_supervisor_id,
+                    thread_id=thread_id,
+                    delete_thread=False,
+                )
 
         # --- POST-STREAM: BATCH VALIDATION ---
         if state.decision_buffer:

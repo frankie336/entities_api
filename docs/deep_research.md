@@ -1,71 +1,36 @@
 
 
-```
-
-USER QUERY
-   │
-   ▼
-┌───────────────────────┐
-│  ORCHESTRATOR (L3)    │◄──────────────────────────────┐
-└──────────┬────────────┘                               │
-           │                                            │
-           ▼                                            │
-┌───────────────────────┐                               │
-│  LLM "BRAIN"          │                               │
-│  (System Prompt)      │                               │
-└────┬───────────┬──────┘                               │
-     │           │                                      │
-     │ (Decides) │ (Reads/Writes)                       │
-     │           ▼                                      │
-     │     ┌────────────┐                               │
-     │     │ SCRATCHPAD │  <-- [Redis Cache]            │
-     │     │ (The Plan) │  "1. Find Revenue..."         │
-     │     │ (Notes)    │  "2. Compare 2024..."         │
-     │     └────────────┘                               │
-     │                                                  │
-     ▼                                                  │
-┌──────────────┐      ┌─────────────────┐               │
-│ WEB TOOLS    │      │ COMPUTER TOOLS  │               │
-│ (Search/Read)│      │ (Python/Shell)  │               │
-└────┬─────────┘      └───────┬─────────┘               │
-     │                        │                         │
-     ▼                        ▼                         │
-  INTERNET              DATA PROCESSING ────────────────┘
-
-```
 
 
-### Visual Data Flow
+![Architecture Diagram](../assets/deep_research_lifecycle.svg)
 
 
-```
+### KEY ISOLATION POINTS:
 
-[Database / Redis]
-      |
-      | (Load History via thread_id)
-      v
-+---------------------+
-|  SUPERVISOR (Main)  | <--- "I need to find NVIDIA revenue."
-+---------------------+
-      |
-      | (Delegate: "Find NVIDIA Rev") -> NO thread_id context passed
-      v
-   +---------------------------+
-   |  WORKER (Ephemeral Loop)  |
-   |  - System Prompt          |
-   |  - Task: "Find Rev"       | <--- Starts Fresh!
-   |  - Web Search Tools       |
-   +---------------------------+
-      |
-      | (Return Text: "$60B")
-      v
-+---------------------+
-|  SUPERVISOR (Main)  | <--- "Ah, the answer is $60B."
-+---------------------+
-      |
-      | (Save to Scratchpad via thread_id)
-      v
-[Database / Redis]
+### KEY ISOLATION POINTS:
 
+1. Worker's internal tool calls (perform_web_search, read_web_page, etc.)
+   stay ONLY in ephemeral_thread - NEVER bleed into main thread
 
-```
+2. Only the FINAL assistant message content from worker is extracted
+   via messages_on_thread[-1].get('content')
+
+3. This clean report is submitted as tool response to supervisor
+
+4. Supervisor sees ONLY the final report, not the worker's tool execution
+
+### THREAD CONTEXTS:
+
+Main Thread Context (Supervisor sees):
+  - User: "Find NVIDIA Q4 2024 revenue"
+  - Assistant: <tool_call: delegate_research_task>
+  - Tool: "NVIDIA fiscal Q4 2024 revenue was $26.04B..." ✓ CLEAN
+  - Assistant: [Final synthesis to user]
+
+Worker Thread Context (Isolated):
+  - User: "### Research Assignment..."
+  - Assistant: <tool_call: perform_web_search>
+  - Tool: [search results]
+  - Assistant: <tool_call: read_web_page>
+  - Tool: [page content]
+  - Assistant: "NVIDIA fiscal Q4 2024..." ← EXTRACTED

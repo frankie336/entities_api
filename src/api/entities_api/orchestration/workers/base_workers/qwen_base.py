@@ -16,6 +16,7 @@ from projectdavid_common.validation import StatusEnum
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
 from entities_api.utils.assistant_manager import AssistantManager
+from entities_api.utils.delegation_model_map import get_delegated_model
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
 from src.api.entities_api.orchestration.engine.orchestrator_core import \
@@ -53,15 +54,10 @@ class QwenBaseWorker(
 
         # 1. Config & Dependencies
         self.api_key = api_key or extra.get("api_key")
-
         # ephemeral worker config
-
+        # These objects are used for deep search
         self.is_deep_research = None
-        self._delete_ephemeral_thread = delete_ephemeral_thread or extra.get(
-            "delete_ephemeral_thread"
-        )
         self.ephemeral_supervisor_id = None
-
         self._delegation_api_key = self.api_key
 
         self.redis = redis or get_redis_sync()
@@ -170,17 +166,22 @@ class QwenBaseWorker(
                 self.assistant_id = ephemeral_supervisor.id
                 self.ephemeral_supervisor_id = ephemeral_supervisor.id
 
+                # set the delegated inference model for deep search
+                self._delegation_model = get_delegated_model(requested_model=model)
+
+            agent_mode_setting = self.assistant_config.get("agent_mode", False)
+            decision_telemetry = self.assistant_config.get("decision_telemetry", False)
+            web_access_setting = self.assistant_config.get("decision_telemetry", False)
+
             # --- 3. Context & Client ---
             ctx = await self._set_up_context_window(
                 assistant_id=self.assistant_id,
                 thread_id=thread_id,
                 trunk=True,
                 force_refresh=force_refresh,
-                agent_mode=self.assistant_config.get("agent_mode", False),
-                decision_telemetry=self.assistant_config.get(
-                    "decision_telemetry", False
-                ),
-                web_access=self.assistant_config.get("web_access", False),
+                agent_mode=agent_mode_setting,
+                decision_telemetry=decision_telemetry,
+                web_access=web_access_setting,
                 deep_research=self.is_deep_research,
             )
 
@@ -235,8 +236,6 @@ class QwenBaseWorker(
             stop_event.set()
             # 2. Ephemeral Assistant Cleanup
             if self.ephemeral_supervisor_id:
-
-                self.is_deep_research = False
 
                 # We use the helper method we wrote earlier, ensuring 'await' is used
                 await self._ephemeral_clean_up(

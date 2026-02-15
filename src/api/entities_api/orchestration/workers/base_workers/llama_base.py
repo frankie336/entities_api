@@ -15,6 +15,7 @@ from projectdavid_common.validation import StatusEnum
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
 from entities_api.utils.assistant_manager import AssistantManager
+from entities_api.utils.delegation_model_map import get_delegated_model
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
 from src.api.entities_api.orchestration.engine.orchestrator_core import (
@@ -49,7 +50,12 @@ class LlamaBaseWorker(
         **extra,
     ) -> None:
 
+        # 1. Config & Dependencies
         self.api_key = api_key or extra.get("api_key")
+        # ephemeral worker config
+        # These objects are used for deep search
+        self.is_deep_research = None
+        self.ephemeral_supervisor_id = None
         self._delegation_api_key = self.api_key
 
         self.redis = redis or get_redis_sync()
@@ -118,6 +124,10 @@ class LlamaBaseWorker(
         - Uses raw XML/Tag persistence to prevent Persona breakage.
         - Uses centralized helper for stream state management.
         """
+        # -----------------------------------
+        # Ephemeral supervisor
+        # -----------------------------------
+        self.ephemeral_supervisor_id = None
         self._delegation_api_key = api_key
 
         redis = self.redis
@@ -142,10 +152,11 @@ class LlamaBaseWorker(
             await self._ensure_config_loaded()
 
             # --- [NEW] DEEP RESEARCH / SUPERVISOR LOGIC ---
-            is_deep_research = self.assistant_config.get("deep_research", False)
-            if is_deep_research:
+            self.is_deep_research = self.assistant_config.get("deep_research", False)
+            if self.is_deep_research:
                 LOG.critical(
-                    "██████ [DEEP_RESEARCH_MODE]=%s (Llama) ██████", is_deep_research
+                    "██████ [DEEP_RESEARCH_MODE]=%s (Llama) ██████",
+                    self.is_deep_research,
                 )
                 # Create supervisor assistant
                 assistant_manager = AssistantManager()
@@ -154,6 +165,9 @@ class LlamaBaseWorker(
                 )
                 # Identity Swap
                 self.assistant_id = ephemeral_supervisor.id
+                self.ephemeral_supervisor_id = ephemeral_supervisor.id
+                # set the delegated inference model for deep search
+                self._delegation_model = get_delegated_model(requested_model=model)
 
             # Context Setup
             ctx = await self._set_up_context_window(
@@ -166,7 +180,7 @@ class LlamaBaseWorker(
                     "decision_telemetry", True
                 ),
                 web_access=self.assistant_config.get("web_access", False),
-                deep_research=is_deep_research,  # Pass flag
+                deep_research=self.is_deep_research,  # Pass flag
             )
 
             if not api_key:
@@ -220,7 +234,17 @@ class LlamaBaseWorker(
             yield json.dumps(err)
             await self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
+            # 1. Ensure cancellation monitor is stopped
             stop_event.set()
+            # 2. Ephemeral Assistant Cleanup
+            if self.ephemeral_supervisor_id:
+
+                # We use the helper method we wrote earlier, ensuring 'await' is used
+                await self._ephemeral_clean_up(
+                    assistant_id=self.ephemeral_supervisor_id,
+                    thread_id=thread_id,
+                    delete_thread=False,
+                )
 
         # --- POST-STREAM: BATCH VALIDATION ---
         if state.decision_buffer:

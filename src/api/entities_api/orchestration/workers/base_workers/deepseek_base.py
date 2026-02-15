@@ -52,6 +52,8 @@ class DeepSeekBaseWorker(
     ) -> None:
 
         self.api_key = api_key or extra.get("api_key")
+        self.is_deep_research = None
+        self.ephemeral_supervisor_id = None
         self._delegation_api_key = self.api_key
 
         self.redis = redis or get_redis_sync()
@@ -124,6 +126,7 @@ class DeepSeekBaseWorker(
         """
 
         self._delegation_api_key = api_key
+        self.ephemeral_supervisor_id = None
 
         redis = self.redis
         stream_key = f"stream:{run_id}"
@@ -148,11 +151,13 @@ class DeepSeekBaseWorker(
             await self._ensure_config_loaded()
 
             # --- DEEP RESEARCH INTEGRATION ---
-            is_deep_research = self.assistant_config.get("deep_research", False)
-            LOG.info("[DEEP_RESEARCH_MODE]=%s", is_deep_research)
+            self.is_deep_research = self.assistant_config.get("deep_research", False)
+            LOG.info("[DEEP_RESEARCH_MODE]=%s", self.is_deep_research)
 
-            if is_deep_research:
-                LOG.critical("██████ [DEEP_RESEARCH_MODE]=%s ██████", is_deep_research)
+            if self.is_deep_research:
+                LOG.critical(
+                    "██████ [DEEP_RESEARCH_MODE]=%s ██████", self.is_deep_research
+                )
 
                 # Create supervisor assistant here
                 assistant_manager = AssistantManager()
@@ -160,16 +165,14 @@ class DeepSeekBaseWorker(
                     await assistant_manager.create_ephemeral_supervisor()
                 )
                 self.assistant_id = ephemeral_supervisor.id
+                # set the delegated inference model for deep search
+                self._delegation_model = get_delegated_model(requested_model=model)
+
             # ---------------------------------
 
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", False)
             web_access_setting = self.assistant_config.get("decision_telemetry", False)
-
-            test_cache = self.assistant_config.get("agent_mode")
-            LOG.debug(
-                f"Test_cache -> Agent: {agent_mode_setting}, Telemetry: {decision_telemetry}"
-            )
 
             # Updated to use self.assistant_id (handles identity swap) and pass deep_research flag
             ctx = await self._set_up_context_window(
@@ -180,7 +183,7 @@ class DeepSeekBaseWorker(
                 agent_mode=agent_mode_setting,
                 decision_telemetry=decision_telemetry,
                 web_access=web_access_setting,
-                deep_research=is_deep_research,
+                deep_research=self.is_deep_research,
             )
 
             if not api_key:
@@ -233,7 +236,17 @@ class DeepSeekBaseWorker(
             yield json.dumps(err)
             await self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
+            # 1. Ensure cancellation monitor is stopped
             stop_event.set()
+            # 2. Ephemeral Assistant Cleanup
+            if self.ephemeral_supervisor_id:
+
+                # We use the helper method we wrote earlier, ensuring 'await' is used
+                await self._ephemeral_clean_up(
+                    assistant_id=self.ephemeral_supervisor_id,
+                    thread_id=thread_id,
+                    delete_thread=False,
+                )
 
         # --- POST-STREAM: BATCH VALIDATION ---
         if state.decision_buffer:

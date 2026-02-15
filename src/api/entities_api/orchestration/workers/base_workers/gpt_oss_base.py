@@ -17,6 +17,7 @@ from projectdavid_common.validation import StatusEnum
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
 from entities_api.utils.assistant_manager import AssistantManager
+from entities_api.utils.delegation_model_map import get_delegated_model
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
 from src.api.entities_api.orchestration.engine.orchestrator_core import \
@@ -50,6 +51,14 @@ class GptOssBaseWorker(
         assistant_cache_service: Optional[AssistantCache] = None,
         **extra,
     ) -> None:
+
+        # 1. Config & Dependencies
+        self.api_key = api_key or extra.get("api_key")
+        # ephemeral worker config
+        # These objects are used for deep search
+        self.is_deep_research = None
+        self.ephemeral_supervisor_id = None
+        self._delegation_api_key = self.api_key
 
         # 1. Setup Redis
         self.redis = redis or get_redis_sync()
@@ -109,7 +118,10 @@ class GptOssBaseWorker(
         **kwargs,
     ) -> AsyncGenerator[Union[str, StreamEvent], None]:
 
-        # Ensure API key is available for mixins
+        # -----------------------------------
+        # Ephemeral supervisor
+        # -----------------------------------
+        self.ephemeral_supervisor_id = None
         self._delegation_api_key = api_key
 
         redis = self.redis
@@ -148,6 +160,9 @@ class GptOssBaseWorker(
                 )
                 # Swap Identity
                 self.assistant_id = ephemeral_supervisor.id
+                self.ephemeral_supervisor_id = ephemeral_supervisor.id
+                # set the delegated inference model for deep search
+                self._delegation_model = get_delegated_model(requested_model=model)
 
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", True)
@@ -222,7 +237,17 @@ class GptOssBaseWorker(
             yield json.dumps(err)
             await self._shunt_to_redis_stream(redis, stream_key, err)
         finally:
+            # 1. Ensure cancellation monitor is stopped
             stop_event.set()
+            # 2. Ephemeral Assistant Cleanup
+            if self.ephemeral_supervisor_id:
+
+                # We use the helper method we wrote earlier, ensuring 'await' is used
+                await self._ephemeral_clean_up(
+                    assistant_id=self.ephemeral_supervisor_id,
+                    thread_id=thread_id,
+                    delete_thread=False,
+                )
 
         yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
