@@ -6,8 +6,6 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from src.api.entities_api.orchestration.engine.inference_arbiter import \
     InferenceArbiter
-from src.api.entities_api.orchestration.workers.togeterai.together_deep_research import \
-    TogetherDeepResearchWorker
 from src.api.entities_api.orchestration.workers.togeterai.together_deepseek import \
     TogetherDs1
 from src.api.entities_api.orchestration.workers.togeterai.together_default import \
