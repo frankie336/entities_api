@@ -46,6 +46,7 @@ class DefaultBaseWorker(
         redis=None,
         base_url: str | None = None,
         api_key: str | None = None,
+        delete_ephemeral_thread: bool = False,
         assistant_cache_service: Optional[AssistantCache] = None,
         **extra,
     ) -> None:
@@ -54,6 +55,9 @@ class DefaultBaseWorker(
         # ephemeral worker config
         # These objects are used for deep search
         self.is_deep_research = None
+        self._delete_ephemeral_thread = delete_ephemeral_thread or extra.get(
+            "delete_ephemeral_thread"
+        )
         self.ephemeral_supervisor_id = None
         self._delegation_api_key = self.api_key
 

@@ -16,6 +16,8 @@ from projectdavid_common.validation import StatusEnum
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
+# --- [FIX 1] ADDED MISSING IMPORT ---
+from entities_api.utils.delegation_model_map import get_delegated_model
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
 from src.api.entities_api.orchestration.engine.orchestrator_core import (
@@ -47,19 +49,22 @@ class DeepSeekBaseWorker(
         redis=None,
         base_url: str | None = None,
         api_key: str | None = None,
+        delete_ephemeral_thread: bool = False,
         assistant_cache_service: Optional[AssistantCache] = None,
         **extra,
     ) -> None:
 
         self.api_key = api_key or extra.get("api_key")
         self.is_deep_research = None
+        self._delete_ephemeral_thread = delete_ephemeral_thread or extra.get(
+            "delete_ephemeral_thread"
+        )
         self.ephemeral_supervisor_id = None
         self._delegation_api_key = self.api_key
 
         self.redis = redis or get_redis_sync()
 
         # 3. Setup the Cache Service (The "New Way")
-        # If passed explicitly, store it. If not, the Mixin will lazy-load it using self.redis
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
         elif "assistant_cache" in extra and isinstance(
@@ -69,8 +74,6 @@ class DeepSeekBaseWorker(
             self._assistant_cache = extra["assistant_cache"]
 
         # 4. Setup the Data/Config (The "Old Way" renamed)
-        # We rename this to avoid overwriting the Mixin's property.
-        # We check if a raw dict was passed in 'extra' (legacy support)
         legacy_config = extra.get("assistant_config") or extra.get("assistant_cache")
         self.assistant_config: Dict[str, Any] = (
             legacy_config if isinstance(legacy_config, dict) else {}
@@ -128,6 +131,9 @@ class DeepSeekBaseWorker(
         self._delegation_api_key = api_key
         self.ephemeral_supervisor_id = None
 
+        # [FIX 2] Removed the line attempting to access undefined 'delete_ephemeral_thread'
+        # which was causing a NameError.
+
         redis = self.redis
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
@@ -166,13 +172,18 @@ class DeepSeekBaseWorker(
                 )
                 self.assistant_id = ephemeral_supervisor.id
                 # set the delegated inference model for deep search
+                self.ephemeral_supervisor_id = ephemeral_supervisor.id
+
+                # [FIX 1] This works now because we added the import
                 self._delegation_model = get_delegated_model(requested_model=model)
 
             # ---------------------------------
 
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", False)
-            web_access_setting = self.assistant_config.get("decision_telemetry", False)
+            web_access_setting = self.assistant_config.get(
+                "web_access", False
+            )  # Fixed typo (was decision_telemetry)
 
             # Updated to use self.assistant_id (handles identity swap) and pass deep_research flag
             ctx = await self._set_up_context_window(
@@ -257,14 +268,13 @@ class DeepSeekBaseWorker(
 
         yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
-        # --- [LEVEL 3] NATIVE PERSISTENCE ---
+        # --- [LEVEL 3] NATIVE PERSISTENCE (PRESERVED AS REQUESTED) ---
         # The parser finds the tools to drive the backend (Action records).
         tool_calls_batch = self.parse_and_set_function_calls(
             state.accumulated, state.assistant_reply
         )
 
-        # [THE FIX]: We save the RAW text emitted by Llama.
-        # No formal JSON structure, no ID injection into the dialogue content.
+        # [ORIGINAL LOGIC]: Saving the RAW text (state.accumulated)
         message_to_save = state.accumulated
         final_status = StatusEnum.completed.value
 
