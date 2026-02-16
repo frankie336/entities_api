@@ -39,10 +39,15 @@ class ScratchpadMixin:
             validator = ToolValidator()
             validator.schema_registry = {tool_name: required}
             if err := validator.validate_args(tool_name, arguments_dict):
+
                 await self.submit_tool_output(
-                    thread_id, assistant_id, tool_call_id, f"Error: {err}", None, True
+                    thread_id=thread_id,
+                    assistant_id=assistant_id,
+                    tool_call_id=tool_call_id,
+                    content=f"Error: {err}",
+                    action=None,
+                    is_error=True,
                 )
-                return
 
         action = await asyncio.to_thread(
             self.project_david_client.actions.create_action,
@@ -113,9 +118,7 @@ class ScratchpadMixin:
 
     # Handlers simply yield from logic...
     async def handle_read_scratchpad(self, *args, **kwargs):
-        async for s in self._execute_scratchpad_logic(
-            "read_scratchpad", "read", *args, **kwargs
-        ):
+        async for s in self._execute_scratchpad_logic("read_scratchpad", "read", *args, **kwargs):
             yield s
 
     async def handle_update_scratchpad(self, *args, **kwargs):
