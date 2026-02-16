@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from migrations.utils import safe_ddl  # <--- Added SafeDDL import here
 ${imports if imports else ""}
 
 # revision identifiers, used by Alembic.

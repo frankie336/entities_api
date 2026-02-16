@@ -167,11 +167,39 @@ class LlamaBaseWorker(
                 ephemeral_supervisor = (
                     await assistant_manager.create_ephemeral_supervisor()
                 )
-                # Identity Swap
+
+                # ------------------------------------------
+                # Swap Identity
+                # If deep research is true, swap the identity
+                # of the current assistant with the ephemeral
+                # research supervisor
+                # -------------------------------------------
                 self.assistant_id = ephemeral_supervisor.id
                 self.ephemeral_supervisor_id = ephemeral_supervisor.id
+                # -----------------------------------------------------------
+                # 🔥 CRITICAL FIX: FLUSH AND RELOAD CONFIGURATION 🔥
+                # We must clear the old config and fetch the Supervisor's
+                # config (which contains the correct instructions & metadata)
+                # -------------------------------------------------------------
+                self.assistant_config = {}
+                await self._ensure_config_loaded()
+
                 # set the delegated inference model for deep search
                 self._delegation_model = get_delegated_model(requested_model=model)
+
+            agent_mode_setting = self.assistant_config.get("agent_mode", False)
+            decision_telemetry = self.assistant_config.get("decision_telemetry", True)
+            web_access_setting = self.assistant_config.get("web_access", False)
+            # ----------------------------------------------------------------------
+            # The research worker is issued with its own instructions and tool set.
+            # We must set the flag.
+            # _______________________________________________________________________
+            research_worker_setting = self.assistant_config.get(
+                "is_research_worker", False
+            )
+            LOG.critical(
+                "██████ [RESEARCH_WORKER_SETTING]=%s ██████", research_worker_setting
+            )
 
             # Context Setup
             ctx = await self._set_up_context_window(
@@ -179,12 +207,11 @@ class LlamaBaseWorker(
                 thread_id=thread_id,
                 trunk=True,
                 force_refresh=force_refresh,
-                agent_mode=self.assistant_config.get("agent_mode", False),
-                decision_telemetry=self.assistant_config.get(
-                    "decision_telemetry", True
-                ),
-                web_access=self.assistant_config.get("web_access", False),
-                deep_research=self.is_deep_research,  # Pass flag
+                agent_mode=agent_mode_setting,
+                decision_telemetry=decision_telemetry,
+                web_access=web_access_setting,
+                deep_research=self.is_deep_research,
+                research_worker=research_worker_setting,
             )
 
             if not api_key:

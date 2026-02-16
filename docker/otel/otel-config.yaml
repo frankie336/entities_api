@@ -2,14 +2,20 @@ receivers:
   otlp:
     protocols:
       grpc:
+        endpoint: "0.0.0.0:4317" # Explicitly bind to all interfaces
       http:
+        endpoint: "0.0.0.0:4318"
+
+processors:
+  batch:
 
 exporters:
-  logging:
-    loglevel: info
+  debug:
+    verbosity: detailed
 
-  jaeger:
-    endpoint: jaeger:14250
+  # Exporting to Jaeger using OTLP protocol (Jaeger All-In-One supports this)
+  otlp/jaeger:
+    endpoint: jaeger:4317
     tls:
       insecure: true
 
@@ -17,4 +23,5 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      exporters: [logging, jaeger]
+      processors: [batch]
+      exporters: [debug, otlp/jaeger]

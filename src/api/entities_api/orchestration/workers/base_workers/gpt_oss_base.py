@@ -162,15 +162,42 @@ class GptOssBaseWorker(
                 ephemeral_supervisor = (
                     await assistant_manager.create_ephemeral_supervisor()
                 )
+
+                # ------------------------------------------
                 # Swap Identity
+                # If deep research is true, swap the identity
+                # of the current assistant with the ephemeral
+                # research supervisor
+                # -------------------------------------------
                 self.assistant_id = ephemeral_supervisor.id
                 self.ephemeral_supervisor_id = ephemeral_supervisor.id
-                # set the delegated inference model for deep search
+                # -----------------------------------------------------------
+                # 🔥 CRITICAL FIX: FLUSH AND RELOAD CONFIGURATION 🔥
+                # We must clear the old config and fetch the Supervisor's
+                # config (which contains the correct instructions & metadata)
+                # -------------------------------------------------------------
+                self.assistant_config = {}
+                await self._ensure_config_loaded()
+
+                # -----------------------------------------------------------
+                # We impose a specific LLM model on the inference worker
+                # - set the delegated inference model for deep search
+                # ------------------------------------------------------------
                 self._delegation_model = get_delegated_model(requested_model=model)
 
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", True)
             web_access_setting = self.assistant_config.get("web_access", False)
+            # ----------------------------------------------------------------------
+            # The research worker is issued with its own instructions and tool set.
+            # We must set the flag.
+            # _______________________________________________________________________
+            research_worker_setting = self.assistant_config.get(
+                "is_research_worker", False
+            )
+            LOG.critical(
+                "██████ [RESEARCH_WORKER_SETTING]=%s ██████", research_worker_setting
+            )
 
             # 2. Context Setup
             raw_ctx = await self._set_up_context_window(
@@ -182,7 +209,8 @@ class GptOssBaseWorker(
                 agent_mode=agent_mode_setting,
                 decision_telemetry=decision_telemetry,
                 web_access=web_access_setting,
-                deep_research=is_deep_research,  # Pass flag
+                deep_research=is_deep_research,
+                research_worker=research_worker_setting,
             )
 
             # GPT-OSS Specific: Prepare native tool context
@@ -194,7 +222,6 @@ class GptOssBaseWorker(
 
             client = self._get_client_instance(api_key=api_key)
 
-            # --- [DEBUG] RAW CONTEXT DUMP ---
             LOG.info(
                 f"\nRAW_CTX_DUMP:\n{json.dumps(cleaned_ctx, indent=2, ensure_ascii=False)}"
             )

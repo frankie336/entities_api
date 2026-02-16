@@ -9,6 +9,7 @@ from projectdavid import Entity
 # 0.  SDK init + env
 # ------------------------------------------------------------------
 load_dotenv()
+import dotenv
 
 client = Entity(
     base_url=os.getenv("BASE_URL", "http://localhost:9000"),

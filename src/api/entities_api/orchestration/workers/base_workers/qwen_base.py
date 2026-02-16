@@ -169,13 +169,19 @@ class QwenBaseWorker(
                     await assistant_manager.create_ephemeral_supervisor()
                 )
 
-                # Switch Identity to the Supervisor
+                # ------------------------------------------
+                # Swap Identity
+                # If deep research is true, swap the identity
+                # of the current assistant with the ephemeral
+                # research supervisor
+                # -------------------------------------------
                 self.assistant_id = ephemeral_supervisor.id
                 self.ephemeral_supervisor_id = ephemeral_supervisor.id
-
+                # -----------------------------------------------------------
                 # 🔥 CRITICAL FIX: FLUSH AND RELOAD CONFIGURATION 🔥
                 # We must clear the old config and fetch the Supervisor's
                 # config (which contains the correct instructions & metadata)
+                # -------------------------------------------------------------
                 self.assistant_config = {}
                 await self._ensure_config_loaded()
 
@@ -187,12 +193,9 @@ class QwenBaseWorker(
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", False)
             web_access_setting = self.assistant_config.get("web_access", False)
-
-            # ✅ Retrieve research worker flag (guaranteed boolean by AssistantCache)
             research_worker_setting = self.assistant_config.get(
                 "is_research_worker", False
             )
-
             LOG.critical(
                 "██████ [RESEARCH_WORKER_SETTING]=%s ██████", research_worker_setting
             )
@@ -207,7 +210,6 @@ class QwenBaseWorker(
                 decision_telemetry=decision_telemetry,
                 web_access=web_access_setting,
                 deep_research=self.is_deep_research,
-                # ✅ Pass the boolean flag here
                 research_worker=research_worker_setting,
             )
 

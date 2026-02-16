@@ -176,15 +176,38 @@ class HermesDefaultBaseWorker(
                 ephemeral_supervisor = (
                     await assistant_manager.create_ephemeral_supervisor()
                 )
-                # Swap Identity: The model now acts as the ephemeral supervisor
+
+                # ------------------------------------------
+                # Swap Identity
+                # If deep research is true, swap the identity
+                # of the current assistant with the ephemeral
+                # research supervisor
+                # -------------------------------------------
                 self.assistant_id = ephemeral_supervisor.id
                 self.ephemeral_supervisor_id = ephemeral_supervisor.id
+                # -----------------------------------------------------------
+                # 🔥 CRITICAL FIX: FLUSH AND RELOAD CONFIGURATION 🔥
+                # We must clear the old config and fetch the Supervisor's
+                # config (which contains the correct instructions & metadata)
+                # -------------------------------------------------------------
+                self.assistant_config = {}
+                await self._ensure_config_loaded()
                 # set the delegated inference model for deep search
                 self._delegation_model = get_delegated_model(requested_model=model)
 
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", False)
             web_access_setting = self.assistant_config.get("decision_telemetry", False)
+            # ----------------------------------------------------------------------
+            # The research worker is issued with its own instructions and tool set.
+            # We must set the flag.
+            # _______________________________________________________________________
+            research_worker_setting = self.assistant_config.get(
+                "is_research_worker", False
+            )
+            LOG.critical(
+                "██████ [RESEARCH_WORKER_SETTING]=%s ██████", research_worker_setting
+            )
 
             # 3. Context Setup
             ctx = await self._set_up_context_window(
@@ -195,7 +218,8 @@ class HermesDefaultBaseWorker(
                 agent_mode=agent_mode_setting,
                 decision_telemetry=decision_telemetry,
                 web_access=web_access_setting,
-                deep_research=is_deep_research,  # Pass deep research flag to context builder
+                deep_research=is_deep_research,
+                research_worker=research_worker_setting,
             )
 
             if not api_key:
