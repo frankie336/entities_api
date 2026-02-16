@@ -316,6 +316,22 @@ class CodeExecutionMixin:
                 else:
                     LOG.error(f"[FILE_DEBUG] Retrieved empty data for file {file_id}")
 
+                    # ---------------------------------------------------------
+                    # ✅ NEW: AUTO-CLEANUP
+                    # ---------------------------------------------------------
+                    try:
+                        LOG.info(
+                            f"[CLEANUP] Deleting ephemeral file {file_id} from storage..."
+                        )
+
+                        await asyncio.to_thread(
+                            self.project_david_client.files.delete_file, file_id=file_id
+                        )
+                        LOG.info(f"[CLEANUP] File {file_id} successfully purged.")
+                    except Exception as e:
+                        # Don't crash the stream if cleanup fails, just log it
+                        LOG.error(f"[CLEANUP] Failed to delete file {file_id}: {e}")
+
             except Exception as e:
                 LOG.error(
                     f"[FILE_DEBUG] Error fetching file ({file_id}): {e}", exc_info=True
