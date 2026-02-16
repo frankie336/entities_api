@@ -17,13 +17,13 @@ from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
 from entities_api.utils.assistant_manager import AssistantManager
 from entities_api.utils.delegation_model_map import get_delegated_model
+
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
+
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.provider_mixins import \
-    _ProviderMixins
+from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -73,9 +73,7 @@ class HermesDefaultBaseWorker(
         self._assistant_cache: AssistantCache | None = None
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(
-            extra["assistant_cache"], AssistantCache
-        ):
+        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
             self._assistant_cache = extra["assistant_cache"]
 
         # 4. Setup Config
@@ -91,9 +89,7 @@ class HermesDefaultBaseWorker(
         self.base_url = base_url or os.getenv("BASE_URL")
         self.api_key = api_key or extra.get("api_key")
 
-        self.model_name = extra.get(
-            "model_name", "deepcogito/cogito-v2-preview-llama-405B"
-        )
+        self.model_name = extra.get("model_name", "deepcogito/cogito-v2-preview-llama-405B")
         self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
 
@@ -155,11 +151,10 @@ class HermesDefaultBaseWorker(
         decision_buffer: str = ""
         current_block: str | None = None
 
+        pre_mapped_model = model
         try:
             # 2. Model Mapping
-            if hasattr(self, "_get_model_map") and (
-                mapped := self._get_model_map(model)
-            ):
+            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
                 model = mapped
 
             self.assistant_id = assistant_id
@@ -168,14 +163,10 @@ class HermesDefaultBaseWorker(
             # --- [NEW] DEEP RESEARCH / SUPERVISOR LOGIC ---
             is_deep_research = self.assistant_config.get("deep_research", False)
             if is_deep_research:
-                LOG.critical(
-                    "██████ [DEEP_RESEARCH_MODE]=%s (Hermes) ██████", is_deep_research
-                )
+                LOG.critical("██████ [DEEP_RESEARCH_MODE]=%s (Hermes) ██████", is_deep_research)
                 # Create supervisor assistant here
                 assistant_manager = AssistantManager()
-                ephemeral_supervisor = (
-                    await assistant_manager.create_ephemeral_supervisor()
-                )
+                ephemeral_supervisor = await assistant_manager.create_ephemeral_supervisor()
 
                 # ------------------------------------------
                 # Swap Identity
@@ -193,7 +184,7 @@ class HermesDefaultBaseWorker(
                 self.assistant_config = {}
                 await self._ensure_config_loaded()
                 # set the delegated inference model for deep search
-                self._delegation_model = get_delegated_model(requested_model=model)
+                self._delegation_model = get_delegated_model(requested_model=pre_mapped_model)
 
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", False)
@@ -202,12 +193,8 @@ class HermesDefaultBaseWorker(
             # The research worker is issued with its own instructions and tool set.
             # We must set the flag.
             # _______________________________________________________________________
-            research_worker_setting = self.assistant_config.get(
-                "is_research_worker", False
-            )
-            LOG.critical(
-                "██████ [RESEARCH_WORKER_SETTING]=%s ██████", research_worker_setting
-            )
+            research_worker_setting = self.assistant_config.get("is_research_worker", False)
+            LOG.critical("██████ [RESEARCH_WORKER_SETTING]=%s ██████", research_worker_setting)
 
             # 3. Context Setup
             ctx = await self._set_up_context_window(
@@ -286,17 +273,13 @@ class HermesDefaultBaseWorker(
             try:
                 self._decision_payload = json.loads(decision_buffer.strip())
             except Exception:
-                LOG.warning(
-                    f"Failed to parse decision buffer: {decision_buffer[:50]}..."
-                )
+                LOG.warning(f"Failed to parse decision buffer: {decision_buffer[:50]}...")
 
         yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
         # 6. Parse Tools & Sync IDs
         # The parser ensures every tool in the list has a 'id' key.
-        tool_calls_batch = self.parse_and_set_function_calls(
-            accumulated, assistant_reply
-        )
+        tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
 
         message_to_save = assistant_reply
         final_status = StatusEnum.completed.value
@@ -329,15 +312,11 @@ class HermesDefaultBaseWorker(
             # CRITICAL: We overwrite message_to_save with the standard tool structure
             message_to_save = json.dumps(tool_calls_structure)
 
-            LOG.info(
-                f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}"
-            )
+            LOG.info(f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}")
 
         # Persistence: Assistant Plan/Actions saved to Thread
         if message_to_save:
-            await self.finalize_conversation(
-                message_to_save, thread_id, self.assistant_id, run_id
-            )
+            await self.finalize_conversation(message_to_save, thread_id, self.assistant_id, run_id)
 
         # Update Run status to trigger Dispatch Turn
         if self.project_david_client:

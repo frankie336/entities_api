@@ -29,18 +29,20 @@ class AssistantManager:
             api_key=self.api_key,
         )
 
-    def create_primary_assistant(
-        self, name: str = "Test Assistant", model: str = "gpt-oss-120b"
-    ):
+    def create_primary_assistant(self, name: str = "Test Assistant", model: str = "gpt-oss-120b"):
         """
         Creates the main supervisor assistant (Synchronous).
         """
 
         return self.client.assistants.create_assistant(
-            name=name,
-            model=model,
-            tools=SUPERVISOR_TOOLS,
+            name=name, model=model, tools=SUPERVISOR_TOOLS, web_access=False
         )
+
+    def create_thread(self, name: str = "Test Assistant", model: str = "gpt-oss-120b"):
+        """
+        Creates the main supervisor assistant (Synchronous).
+        """
+        return self.client.threads.create_thread()
 
     async def create_ephemeral_supervisor(self):
         """

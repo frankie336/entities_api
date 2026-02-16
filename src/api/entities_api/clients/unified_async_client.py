@@ -22,7 +22,7 @@ class AsyncUnifiedInferenceClient:
         self,
         api_key: str,
         base_url: str,
-        timeout: int = 180,
+        timeout: int = 600,
         enable_chunk_logging: bool = False,
     ):
         self.api_key = api_key

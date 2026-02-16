@@ -22,33 +22,32 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 # IMPORTS
 # -------------------------------------------------------------------------
 from projectdavid import StreamEvent
-from projectdavid_common import \
-    ToolValidator  # Assumed available based on snippet
+from projectdavid_common import ToolValidator  # Assumed available based on snippet
 from projectdavid_common.schemas.enums import StatusEnum
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.dependencies import get_redis_sync
+from entities_api.utils.assistant_manager import AssistantManager
+from entities_api.utils.delegation_model_map import get_delegated_model
 from src.api.entities_api.constants.assistant import PLATFORM_TOOLS
+
 # Mixins
-from src.api.entities_api.orchestration.mixins.code_execution_mixin import \
-    CodeExecutionMixin
-from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import \
-    ConsumerToolHandlersMixin
-from src.api.entities_api.orchestration.mixins.conversation_context_mixin import \
-    ConversationContextMixin
-from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
-    JsonUtilsMixin
-from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import \
-    PlatformToolHandlersMixin
-from src.api.entities_api.orchestration.mixins.service_registry_mixin import \
-    ServiceRegistryMixin
-from src.api.entities_api.orchestration.mixins.shell_execution_mixin import \
-    ShellExecutionMixin
-from src.api.entities_api.orchestration.mixins.streaming_mixin import \
-    StreamingMixin
-from src.api.entities_api.orchestration.mixins.tool_routing_mixin import \
-    ToolRoutingMixin
+from src.api.entities_api.orchestration.mixins.code_execution_mixin import CodeExecutionMixin
+from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import (
+    ConsumerToolHandlersMixin,
+)
+from src.api.entities_api.orchestration.mixins.conversation_context_mixin import (
+    ConversationContextMixin,
+)
+from src.api.entities_api.orchestration.mixins.json_utils_mixin import JsonUtilsMixin
+from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import (
+    PlatformToolHandlersMixin,
+)
+from src.api.entities_api.orchestration.mixins.service_registry_mixin import ServiceRegistryMixin
+from src.api.entities_api.orchestration.mixins.shell_execution_mixin import ShellExecutionMixin
+from src.api.entities_api.orchestration.mixins.streaming_mixin import StreamingMixin
+from src.api.entities_api.orchestration.mixins.tool_routing_mixin import ToolRoutingMixin
 
 LOG = LoggingUtility()
 
@@ -90,15 +89,15 @@ class OrchestratorCore(
         **extra,
     ) -> None:
 
+        self.is_deep_research = None
+
         # 1. Setup Redis (Critical for the Mixin fallback)
         self.redis = redis or get_redis_sync()
 
         # 2. Setup the Cache Service
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(
-            extra["assistant_cache"], AssistantCache
-        ):
+        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
             self._assistant_cache = extra["assistant_cache"]
 
         # 3. Setup the Data/Config
@@ -175,10 +174,40 @@ class OrchestratorCore(
         Populates self.assistant_config from Redis if not already set.
         """
         if not self.assistant_config and self.assistant_id:
-            self.assistant_config = (
-                await self.assistant_cache.retrieve(self.assistant_id) or {}
-            )
+            self.assistant_config = await self.assistant_cache.retrieve(self.assistant_id) or {}
             LOG.debug(f"Loaded config for {self.assistant_id}")
+
+    async def _handle_deep_research_identity_swap(self, requested_model: Any) -> None:
+        """
+        If Deep Research is active, this method performs the 'Hot Swap':
+        1. Creates (or leases) a Supervisor Agent.
+        2. Swaps the current assistant_id to the Supervisor's ID.
+        3. Flushes and reloads the configuration to match the Supervisor.
+        4. Sets the inference model to the specific reasoning model required.
+        """
+        if not self.is_deep_research:
+            return
+
+        LOG.critical("██████ [DEEP_RESEARCH_MODE]=%s ██████", self.is_deep_research)
+
+        # 1. Acquire Supervisor (Ideally, this is where you'd implement pooling later)
+        assistant_manager = AssistantManager()
+        ephemeral_supervisor = await assistant_manager.create_ephemeral_supervisor()
+
+        # 2. Swap Identity
+        # The worker now 'becomes' the Supervisor for the duration of this run
+        self.assistant_id = ephemeral_supervisor.id
+        self.ephemeral_supervisor_id = ephemeral_supervisor.id
+
+        # 3. Flush and Reload Configuration
+        # We must clear the old config (user assistant) and fetch the Supervisor's
+        # config (which contains the system prompt for planning/delegation).
+        self.assistant_config = {}
+        await self._ensure_config_loaded()
+
+        # 4. Set Delegated Inference Model
+        # e.g., Swap from Qwen-7B-Chat to QwQ-32B for better reasoning
+        self._delegation_model = get_delegated_model(requested_model=requested_model)
 
     def _handle_chunk_accumulation(
         self,
@@ -252,9 +281,7 @@ class OrchestratorCore(
                 current_block = "decision"
 
             accumulated += ccontent
-            decision_buffer += (
-                ccontent  # Capture specific buffer for JSON parsing later
-            )
+            decision_buffer += ccontent  # Capture specific buffer for JSON parsing later
 
         return current_block, accumulated, assistant_reply, decision_buffer, should_skip
 
@@ -372,7 +399,7 @@ class OrchestratorCore(
         assistant_id: str,
         model: Any,
         api_key: Optional[str] = None,
-        max_turns: int = 70,
+        max_turns: int = 200,
         **kwargs,
     ) -> AsyncGenerator[Union[str, StreamEvent], None]:
         """
@@ -420,12 +447,8 @@ class OrchestratorCore(
                     yield chunk
 
             except Exception as stream_exc:
-                LOG.error(
-                    f"ORCHESTRATOR ▸ Turn {turn_count} stream failed: {stream_exc}"
-                )
-                yield json.dumps(
-                    {"type": "error", "content": f"Stream failure: {stream_exc}"}
-                )
+                LOG.error(f"ORCHESTRATOR ▸ Turn {turn_count} stream failed: {stream_exc}")
+                yield json.dumps({"type": "error", "content": f"Stream failure: {stream_exc}"})
                 break
 
             # ------------------------------------------------------------------
@@ -458,9 +481,7 @@ class OrchestratorCore(
                     yield validation_event
 
             # Check if we have "Consumer Tools" (External SDK tools) vs "Platform Tools" (Internal)
-            has_consumer_tool = any(
-                call.get("name") not in PLATFORM_TOOLS for call in batch
-            )
+            has_consumer_tool = any(call.get("name") not in PLATFORM_TOOLS for call in batch)
 
             # ------------------------------------------------------------------
             # 5. TOOL EXECUTION TURN
@@ -483,9 +504,7 @@ class OrchestratorCore(
             if not has_consumer_tool:
                 # If we only ran Platform Tools (Files, Search, etc.), we recurse immediately
                 # to let the LLM see the output and formulate a response.
-                LOG.info(
-                    f"ORCHESTRATOR ▸ Platform batch {turn_count} complete. Looping..."
-                )
+                LOG.info(f"ORCHESTRATOR ▸ Platform batch {turn_count} complete. Looping...")
 
                 # Small sleep to prevent tight loop race conditions in some DBs
                 await asyncio.sleep(0.5)
@@ -504,6 +523,4 @@ class OrchestratorCore(
         # ----------------------------------------------------------------------
         if turn_count >= max_turns:
             LOG.error("ORCHESTRATOR ▸ Max turns reached.")
-            yield json.dumps(
-                {"type": "error", "content": "Maximum conversation turns exceeded"}
-            )
+            yield json.dumps({"type": "error", "content": "Maximum conversation turns exceeded"})

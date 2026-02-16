@@ -18,13 +18,13 @@ from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
 from entities_api.utils.assistant_manager import AssistantManager
 from entities_api.utils.delegation_model_map import get_delegated_model
+
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
-from src.api.entities_api.orchestration.engine.orchestrator_core import \
-    OrchestratorCore
+from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
+
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.provider_mixins import \
-    _ProviderMixins
+from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -70,9 +70,7 @@ class GptOssBaseWorker(
         # 2. Setup Cache Service
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(
-            extra["assistant_cache"], AssistantCache
-        ):
+        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
             self._assistant_cache = extra["assistant_cache"]
 
         # 3. Setup Config
@@ -142,10 +140,9 @@ class GptOssBaseWorker(
         decision_buffer: str = ""
         current_block: str | None = None
 
+        pre_mapped_model = model
         try:
-            if hasattr(self, "_get_model_map") and (
-                mapped := self._get_model_map(model)
-            ):
+            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
                 model = mapped
 
             self.assistant_id = assistant_id
@@ -154,14 +151,10 @@ class GptOssBaseWorker(
             # --- [NEW] DEEP RESEARCH / SUPERVISOR LOGIC ---
             is_deep_research = self.assistant_config.get("deep_research", False)
             if is_deep_research:
-                LOG.critical(
-                    "██████ [DEEP_RESEARCH_MODE]=%s (GPT-OSS) ██████", is_deep_research
-                )
+                LOG.critical("██████ [DEEP_RESEARCH_MODE]=%s (GPT-OSS) ██████", is_deep_research)
                 # Create supervisor assistant
                 assistant_manager = AssistantManager()
-                ephemeral_supervisor = (
-                    await assistant_manager.create_ephemeral_supervisor()
-                )
+                ephemeral_supervisor = await assistant_manager.create_ephemeral_supervisor()
 
                 # ------------------------------------------
                 # Swap Identity
@@ -183,7 +176,7 @@ class GptOssBaseWorker(
                 # We impose a specific LLM model on the inference worker
                 # - set the delegated inference model for deep search
                 # ------------------------------------------------------------
-                self._delegation_model = get_delegated_model(requested_model=model)
+                self._delegation_model = get_delegated_model(requested_model=pre_mapped_model)
 
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", True)
@@ -192,12 +185,8 @@ class GptOssBaseWorker(
             # The research worker is issued with its own instructions and tool set.
             # We must set the flag.
             # _______________________________________________________________________
-            research_worker_setting = self.assistant_config.get(
-                "is_research_worker", False
-            )
-            LOG.critical(
-                "██████ [RESEARCH_WORKER_SETTING]=%s ██████", research_worker_setting
-            )
+            research_worker_setting = self.assistant_config.get("is_research_worker", False)
+            LOG.critical("██████ [RESEARCH_WORKER_SETTING]=%s ██████", research_worker_setting)
 
             # 2. Context Setup
             raw_ctx = await self._set_up_context_window(
@@ -222,9 +211,7 @@ class GptOssBaseWorker(
 
             client = self._get_client_instance(api_key=api_key)
 
-            LOG.info(
-                f"\nRAW_CTX_DUMP:\n{json.dumps(cleaned_ctx, indent=2, ensure_ascii=False)}"
-            )
+            LOG.info(f"\nRAW_CTX_DUMP:\n{json.dumps(cleaned_ctx, indent=2, ensure_ascii=False)}")
 
             raw_stream = client.stream_chat_completion(
                 messages=cleaned_ctx,
@@ -325,9 +312,7 @@ class GptOssBaseWorker(
             except Exception as e:
                 LOG.error(f"Error during tool call sanitization: {e}")
 
-        tool_calls_batch = self.parse_and_set_function_calls(
-            accumulated, assistant_reply
-        )
+        tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
         message_to_save = assistant_reply
         final_status = StatusEnum.completed.value
 
@@ -362,17 +347,13 @@ class GptOssBaseWorker(
             message_to_save = json.dumps(tool_calls_structure)
 
             # [LOGGING] Verify ID Parity
-            LOG.info(
-                f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}"
-            )
+            LOG.info(f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}")
             for item in tool_calls_structure:
                 LOG.info(f"   ▸ Tool: {item['function']['name']} | ID: {item['id']}")
 
         # Persistence: Assistant Plan/Actions saved to Thread
         if message_to_save:
-            await self.finalize_conversation(
-                message_to_save, thread_id, assistant_id, run_id
-            )
+            await self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
 
         # Update Run status to trigger Dispatch Turn
         if self.project_david_client:

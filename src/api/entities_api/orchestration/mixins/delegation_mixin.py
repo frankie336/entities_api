@@ -139,7 +139,7 @@ class DelegationMixin:
                 thread_id=thread_id,
             )
 
-            LOG.critical("██████ [MESSAGES_ON_THE_WORKERS_TREAD]=%s ██████", messages)
+            # LOG.critical("██████ [MESSAGES_ON_THE_WORKERS_TREAD]=%s ██████", messages)
 
             if not messages:
                 return None
@@ -242,10 +242,14 @@ class DelegationMixin:
 
             # 6. Stream Execution (Using helper to keep handler clean)
             #    We use the helper to avoid the 'background_stream_worker' def block
+            LOG.critical(
+                "🎬 WORKER STREAM STARTING - If you see this but no content chunks, check process_tool_calls wiring"
+            )
+
             async for event in self._stream_sync_generator(
                 sync_stream.stream_events,
                 provider="together-ai",
-                model="together-ai/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
+                model=self._delegation_model,
             ):
                 payload = None
                 if hasattr(event, "content") and event.content:
@@ -256,26 +260,25 @@ class DelegationMixin:
                     payload = event.text
 
                 if payload:
-                    captured_stream_content += payload  # Accumulate locally
-                    yield json.dumps({"content": payload, "run_id": run_id})
-
-            # 7. Final Report Gathering
-            yield json.dumps(
-                {
-                    "type": "activity",
-                    "activity": "Finalizing worker report...",
-                    "state": "in_progress",
-                    "tool": "delegate_research_task",
-                    "run_id": run_id,
-                }
-            )
+                    captured_stream_content += payload
+                    yield json.dumps(
+                        {
+                            "stream_type": "delegation",  # ← Helps frontend route correctly
+                            "chunk": {
+                                "type": "content",  # ← Type of chunk
+                                "content": payload,  # ← Actual text
+                                "run_id": run_id,
+                            },
+                        }
+                    )
 
             # Try fetching from DB first
             final_content = await self._fetch_worker_final_report(thread_id=ephemeral_thread.id)
-            LOG.critical(
-                "██████ [FINAL_THREAD_CONTENT_SUBMITTED_BY_RESEARCH_WORKER]=%s ██████",
-                final_content,
-            )
+
+            # LOG.critical(
+            #    "██████ [FINAL_THREAD_CONTENT_SUBMITTED_BY_RESEARCH_WORKER]=%s ██████",
+            #    final_content,
+            # )
 
             # FALLBACK: If DB fetch missed it, use our captured buffer
             if not final_content and captured_stream_content:
@@ -292,9 +295,10 @@ class DelegationMixin:
             #
             # -----------------------------
 
-            LOG.critical(
-                "██████ [FINAL_CONTENT_SUBMITTED_BY_RESEARCH_WORKER]=%s ██████", final_content
-            )
+            # LOG.critical(
+            #    "██████ [FINAL_CONTENT_SUBMITTED_BY_RESEARCH_WORKER]=%s ██████", final_content
+            # )
+
             await self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,

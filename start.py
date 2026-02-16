@@ -1306,6 +1306,53 @@ class DockerManager:
             )
             sys.exit(1)
 
+    def _handle_logs(self):
+        """Handles the 'logs' command to view container logs."""
+        target_services = self.args.services or []
+        target_desc = (
+            f" for services: {', '.join(target_services)}"
+            if target_services
+            else " for all services"
+        )
+
+        follow_desc = " (following/streaming)" if self.args.follow else ""
+        tail_desc = f" (last {self.args.tail} lines)" if self.args.tail else ""
+        timestamps_desc = " with timestamps" if self.args.timestamps else ""
+
+        self.log.info(
+            f"Fetching logs{target_desc}{follow_desc}{tail_desc}{timestamps_desc}..."
+        )
+
+        # Construct docker compose logs command
+        logs_cmd = ["docker", "compose", "-f", self._DOCKER_COMPOSE_FILE, "logs"]
+
+        if self.args.follow:
+            logs_cmd.append("-f")
+
+        if self.args.tail:
+            logs_cmd.extend(["--tail", str(self.args.tail)])
+
+        if self.args.timestamps:
+            logs_cmd.append("-t")
+
+        if self.args.no_log_prefix:
+            logs_cmd.append("--no-log-prefix")
+
+        # Add specific services if provided
+        if target_services:
+            logs_cmd.extend(target_services)
+            self.log.debug(f"Targeting specific services for logs: {target_services}")
+
+        # Execute command
+        try:
+            # Run logs command, show output directly
+            self._run_command(logs_cmd, check=False, suppress_logs=False)
+            self.log.info("Logs command completed.")
+        except KeyboardInterrupt:
+            self.log.info("\nLog streaming interrupted by user (Ctrl+C).")
+        except Exception as e:
+            self.log.error(f"Error fetching logs: {e}", exc_info=self.args.verbose)
+
     def _tag_images(self, tag, targeted_services=None):
         """Tags images built by docker compose."""
         if not tag:
@@ -1567,6 +1614,11 @@ class DockerManager:
         # --- Main workflow based on mode ---
         mode = self.args.mode
 
+        # Handle 'logs' action (standalone mode)
+        if mode == "logs":
+            self._handle_logs()
+            sys.exit(0)  # Exit after showing logs
+
         # Handle 'down' action first if requested or implied
         if self.args.down or self.args.clear_volumes:
             self._handle_down()
@@ -1606,9 +1658,9 @@ class DockerManager:
         # --- Main Operation Mode ---
         parser.add_argument(
             "--mode",
-            choices=["up", "build", "both", "down_only"],
+            choices=["up", "build", "both", "down_only", "logs"],  # Add "logs"
             default="up",
-            help="Primary action: 'up' (start services), 'build' (build images), 'both' (down, build, up), 'down_only' (just stop/remove services).",
+            help="Primary action: 'up' (start services), 'build' (build images), 'both' (down, build, up), 'down_only' (just stop/remove services), 'logs' (view container logs).",
         )
 
         # --- Targeting Services ---
@@ -1669,6 +1721,7 @@ class DockerManager:
             action="store_true",
             help="Run 'docker compose down' before other actions (build/up). If mode is 'up', this implies '--mode down_only' unless other actions like build/tag are specified.",
         )
+
         down_group.add_argument(
             "--clear-volumes",
             "-v",  # Common shortcut
@@ -1679,6 +1732,32 @@ class DockerManager:
             "--nuke",
             action="store_true",
             help="DANGER ZONE! Stops project stack, removes its volumes, AND runs 'docker system prune -a --volumes --force' to remove ALL unused Docker data system-wide. Requires interactive confirmation.",
+        )
+
+        # --- Logs Options ---
+        logs_group = parser.add_argument_group("Logs Options (used with --mode logs)")
+        logs_group.add_argument(
+            "--follow",
+            "-f",
+            action="store_true",
+            help="Follow log output (stream logs in real-time).",
+        )
+        logs_group.add_argument(
+            "--tail",
+            type=int,
+            metavar="N",
+            help="Number of lines to show from the end of the logs for each container (default: all).",
+        )
+        logs_group.add_argument(
+            "--timestamps",
+            "-t",
+            action="store_true",
+            help="Show timestamps in log output.",
+        )
+        logs_group.add_argument(
+            "--no-log-prefix",
+            action="store_true",
+            help="Don't print service name prefix in logs.",
         )
 
         # --- External Ollama Management ---

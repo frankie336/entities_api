@@ -59,3 +59,22 @@ python start.py --with-ollama --ollama-gpu
 | **Vector DB (Qdrant)** | `python start.py --mode build --services qdrant` |
 | **Sandbox**            | `python start.py --mode build --services sandbox` |
 | **File Server (Samba)**| `python start.py --mode build --services samba` |
+
+
+##  logging
+
+| Action                                           | Command                                                                                         |
+|--------------------------------------------------|-------------------------------------------------------------------------------------------------|
+| View all logs (last 100 lines)                   | python start.py --mode logs --tail 100                                                          |
+| Follow logs for all services                     | python start.py --mode logs --follow                                                            |
+| Follow logs for specific services with timestamps| python start.py --mode logs --follow --timestamps --services fastapi_cosmic_catalyst db         |
+| View logs without service name prefix            | python start.py --mode logs --tail 200 --no-log-prefix                                          |
+| Save logs to file (using shell redirection)      | python start.py --mode logs --tail 1000 > output.log                                            |
+| Follow logs for a single service                 | python start.py --mode logs -f --services otel_collector                                        |
+| Save all logs to file                            | python start.py --mode logs > docker_logs.log                                                   |
+| Save last 1000 lines to file                     | python start.py --mode logs --tail 1000 > docker_logs.log                                       |
+| Save logs with timestamps to file                | python start.py --mode logs --timestamps > docker_logs.log                                      |
+| Save logs for specific services to file          | python start.py --mode logs --services fastapi_cosmic_catalyst otel_collector > docker_logs.log |
+| Append to existing file (use >>)                 | python start.py --mode logs --tail 500 >> docker_logs.log                                       |
+| Save all available logs with timestamps          | python start.py --mode logs --timestamps --tail all > docker_logs.log                           |
+
