@@ -16,19 +16,15 @@ from projectdavid_common.validation import StatusEnum
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
-
 # --- [FIX 1] ADDED MISSING IMPORT ---
 from entities_api.utils.delegation_model_map import get_delegated_model
-
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
 from src.api.entities_api.orchestration.engine.orchestrator_core import (
-    OrchestratorCore,
-    StreamState,
-)
-
+    OrchestratorCore, StreamState)
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
+from src.api.entities_api.orchestration.mixins.provider_mixins import \
+    _ProviderMixins
 from src.api.entities_api.utils.assistant_manager import AssistantManager
 
 load_dotenv()
@@ -71,7 +67,9 @@ class DeepSeekBaseWorker(
         # 3. Setup the Cache Service (The "New Way")
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
+        elif "assistant_cache" in extra and isinstance(
+            extra["assistant_cache"], AssistantCache
+        ):
             # Handle case where it might be passed via **extra
             self._assistant_cache = extra["assistant_cache"]
 
@@ -150,7 +148,9 @@ class DeepSeekBaseWorker(
 
         pre_mapped_model = model
         try:
-            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
+            if hasattr(self, "_get_model_map") and (
+                mapped := self._get_model_map(model)
+            ):
                 model = mapped
 
             # Ensure cache is hot before starting
@@ -161,24 +161,11 @@ class DeepSeekBaseWorker(
             self.is_deep_research = self.assistant_config.get("deep_research", False)
             LOG.info("[DEEP_RESEARCH_MODE]=%s", self.is_deep_research)
 
-            if self.is_deep_research:
-                LOG.critical("██████ [DEEP_RESEARCH_MODE]=%s ██████", self.is_deep_research)
-
-                # Create supervisor assistant here
-                assistant_manager = AssistantManager()
-                ephemeral_supervisor = await assistant_manager.create_ephemeral_supervisor()
-                # Switch Identity to the Supervisor
-                self.assistant_id = ephemeral_supervisor.id
-                self.ephemeral_supervisor_id = ephemeral_supervisor.id
-
-                # 🔥 CRITICAL FIX: FLUSH AND RELOAD CONFIGURATION 🔥
-                # We must clear the old config and fetch the Supervisor's
-                # config (which contains the correct instructions & metadata)
-                self.assistant_config = {}
-                await self._ensure_config_loaded()
-
-                # [FIX 1] This works now because we added the import
-                self._delegation_model = get_delegated_model(requested_model=pre_mapped_model)
+            # C. Execute Identity Swap (Refactored)
+            # This handles the supervisor creation, ID swapping, and config reloading
+            await self._handle_deep_research_identity_swap(
+                requested_model=pre_mapped_model
+            )
 
             # ---------------------------------
 
@@ -187,7 +174,9 @@ class DeepSeekBaseWorker(
             web_access_setting = self.assistant_config.get("web_access", False)
 
             # ✅ Retrieve research worker flag (guaranteed boolean by AssistantCache)
-            research_worker_setting = self.assistant_config.get("is_research_worker", False)
+            research_worker_setting = self.assistant_config.get(
+                "is_research_worker", False
+            )
 
             # Updated to use self.assistant_id (handles identity swap) and pass deep_research flag
             ctx = await self._set_up_context_window(
@@ -211,7 +200,9 @@ class DeepSeekBaseWorker(
             client = self._get_client_instance(api_key=api_key)
 
             # --- [DEBUG] RAW CONTEXT DUMP ---
-            LOG.info(f"\nRAW_CTX_DUMP:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}")
+            LOG.info(
+                f"\nRAW_CTX_DUMP:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}"
+            )
 
             raw_stream = client.stream_chat_completion(
                 messages=ctx,
@@ -291,7 +282,9 @@ class DeepSeekBaseWorker(
 
         # Persistence: Save the raw <plan> and <fc> text exactly as Llama intended
         if message_to_save:
-            await self.finalize_conversation(message_to_save, thread_id, assistant_id, run_id)
+            await self.finalize_conversation(
+                message_to_save, thread_id, assistant_id, run_id
+            )
 
         if self.project_david_client:
             await asyncio.to_thread(

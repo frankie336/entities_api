@@ -1,5 +1,3 @@
-# src/api/sandbox/services/code_execution_service.py
-
 import ast
 import asyncio
 import os
@@ -13,10 +11,9 @@ from typing import Tuple
 from dotenv import load_dotenv
 from fastapi import WebSocket
 from projectdavid import Entity
+# Correct import for Sandbox context
+from sandbox.services.logging_service import LoggingUtility
 from starlette.websockets import WebSocketDisconnect
-
-
-from projectdavid_common.utilities.logging_service import LoggingUtility
 
 load_dotenv()
 
@@ -27,9 +24,11 @@ class StreamingCodeExecutionHandler:
         self.active_processes = {}
 
         # ───────────────────────── DIRS ──────────────────────────
-        # Ensure MPLCONFIGDIR is separate from generated files to prevent recursion
         self.root_dir = os.getcwd()
-        self.generated_files_dir = os.path.abspath(os.path.join(self.root_dir, "generated_files"))
+        self.generated_files_dir = os.path.abspath(
+            os.path.join(self.root_dir, "generated_files")
+        )
+        # Keep MPL cache separate
         self.mpl_cache_dir = os.path.abspath(os.path.join(self.root_dir, "mpl_cache"))
 
         os.makedirs(self.generated_files_dir, exist_ok=True)
@@ -64,7 +63,7 @@ class StreamingCodeExecutionHandler:
 
     def normalize_code(self, code: str) -> str:
         """
-        Normalizes code by replacing smart quotes/symbols and fixing indentation.
+        Normalizes code (smart quotes, indentation fixes).
         """
         replacements = {
             '"': '"',
@@ -83,7 +82,6 @@ class StreamingCodeExecutionHandler:
         lines, pending = [], False
         indent_size = 4
 
-        # 1. Join split lines
         for line in code.split("\n"):
             line = line.rstrip()
             if re.search(r"[+\-*/%=<>^|&@,{([:]\s*$", line):
@@ -97,7 +95,6 @@ class StreamingCodeExecutionHandler:
             else:
                 lines.append(line)
 
-        # 2. Re-indent
         formatted_lines, indent_level, block_started = [], 0, False
         for i, line in enumerate(lines):
             stripped = line.lstrip()
@@ -120,7 +117,6 @@ class StreamingCodeExecutionHandler:
                 formatted_line = " " * expected_indent + stripped
             formatted_lines.append(formatted_line)
 
-        # 3. Add 'pass' to empty blocks
         final_lines, i = [], 0
         while i < len(formatted_lines):
             line = formatted_lines[i]
@@ -138,12 +134,16 @@ class StreamingCodeExecutionHandler:
                         len(line) - len(stripped)
                     ) and next_stripped:
                         final_lines.append(line)
-                        final_lines.append(" " * (len(line) - len(stripped) + indent_size) + "pass")
+                        final_lines.append(
+                            " " * (len(line) - len(stripped) + indent_size) + "pass"
+                        )
                     else:
                         final_lines.append(line)
                 else:
                     final_lines.append(line)
-                    final_lines.append(" " * (len(line) - len(stripped) + indent_size) + "pass")
+                    final_lines.append(
+                        " " * (len(line) - len(stripped) + indent_size) + "pass"
+                    )
             else:
                 final_lines.append(line)
             i += 1
@@ -161,7 +161,9 @@ class StreamingCodeExecutionHandler:
             fixed_code, success = self._fix_common_syntax_errors(code, e)
             return fixed_code if success else code
 
-    def _fix_common_syntax_errors(self, code: str, error: SyntaxError) -> Tuple[str, bool]:
+    def _fix_common_syntax_errors(
+        self, code: str, error: SyntaxError
+    ) -> Tuple[str, bool]:
         lines = code.split("\n")
         line_number = error.lineno - 1
         if line_number >= len(lines) or line_number < 0:
@@ -170,13 +172,15 @@ class StreamingCodeExecutionHandler:
         if "indentation" in error_msg:
             if "expected an indented block" in error_msg:
                 lines[line_number] = (
-                    " " * (len(prob_line) - len(prob_line.lstrip()) + 4) + prob_line.lstrip()
+                    " " * (len(prob_line) - len(prob_line.lstrip()) + 4)
+                    + prob_line.lstrip()
                 )
                 return "\n".join(lines), True
             elif "unexpected indent" in error_msg:
                 prev_line = lines[line_number - 1] if line_number > 0 else ""
                 lines[line_number] = (
-                    " " * (len(prev_line) - len(prev_line.lstrip())) + prob_line.lstrip()
+                    " " * (len(prev_line) - len(prev_line.lstrip()))
+                    + prob_line.lstrip()
                 )
                 return "\n".join(lines), True
         elif "parentheses" in error_msg and "(" in prob_line:
@@ -219,7 +223,6 @@ class StreamingCodeExecutionHandler:
 
             self.last_executed_script_path = tmp_path
 
-            # Determine execution command
             cmd = (
                 ["python3", "-u", tmp_path]
                 if (os.name == "nt" or os.getenv("DISABLE_FIREJAIL") == "true")
@@ -232,17 +235,26 @@ class StreamingCodeExecutionHandler:
                 ]
             )
 
+            # [FIX] Force CWD to generated_files_dir so plot.savefig() lands in the right place
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                cwd=(None if os.name != "nt" else self.generated_files_dir),
+                cwd=self.generated_files_dir,  # <--- THE FIX
             )
             self.active_processes[execution_id] = proc
             await self._stream_process_output(proc, websocket, execution_id)
 
-            # Upload generated files
             uploaded_files = await self._upload_generated_files(user_id=user_id)
+
+            # [DEBUG] Log upload count
+            if uploaded_files:
+                self.logging_utility.info(
+                    f"Uploading {len(uploaded_files)} files: {uploaded_files}"
+                )
+            else:
+                self.logging_utility.warning("No generated files found to upload.")
+
             await websocket.send_json(
                 {
                     "status": "complete",
@@ -265,7 +277,9 @@ class StreamingCodeExecutionHandler:
             except:
                 pass
 
-    async def _stream_process_output(self, proc, websocket: WebSocket, execution_id: str) -> None:
+    async def _stream_process_output(
+        self, proc, websocket: WebSocket, execution_id: str
+    ) -> None:
         try:
             while True:
                 line = await asyncio.wait_for(proc.stdout.readline(), timeout=30)
@@ -296,7 +310,6 @@ class StreamingCodeExecutionHandler:
 
     async def _upload_generated_files(self, user_id: str) -> list:
         uploaded_files = []
-        # Use Service API key for uploads
         client = Entity(
             api_key=os.getenv("ADMIN_API_KEY"),
             base_url="http://fastapi_cosmic_catalyst:9000",
@@ -306,23 +319,28 @@ class StreamingCodeExecutionHandler:
             if os.path.isdir(file_path):
                 return None
             try:
-                upload = client.files.upload_file(file_path=file_path, purpose="assistants")
+                upload = client.files.upload_file(
+                    file_path=file_path, purpose="assistants"
+                )
                 return {
                     "filename": filename,
                     "id": upload.id,
-                    "url": client.files.get_signed_url(upload.id, use_real_filename=True),
+                    "url": client.files.get_signed_url(
+                        upload.id, use_real_filename=True
+                    ),
                 }
             except Exception as e:
                 self.logging_utility.error("Upload failed for %s: %s", filename, str(e))
                 return None
 
-        # Build tasks, strictly skipping the script itself and directories
+        # Build tasks
         tasks = []
+        # Check if dir exists first
         if os.path.exists(self.generated_files_dir):
             for fname in os.listdir(self.generated_files_dir):
                 fpath = os.path.join(self.generated_files_dir, fname)
 
-                # Skip the script that is currently running (if it exists)
+                # Skip the script that is currently running
                 if self.last_executed_script_path and os.path.exists(
                     self.last_executed_script_path
                 ):
@@ -332,12 +350,13 @@ class StreamingCodeExecutionHandler:
                 if os.path.isfile(fpath):
                     tasks.append(upload_single_file(fname, fpath))
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for res in results:
-            if isinstance(res, dict):
-                uploaded_files.append(res)
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for res in results:
+                if isinstance(res, dict):
+                    uploaded_files.append(res)
 
-        # Cleanup: Delete everything in generated_files_dir
+        # Cleanup
         if os.path.exists(self.generated_files_dir):
             for fname in os.listdir(self.generated_files_dir):
                 fpath = os.path.join(self.generated_files_dir, fname)
@@ -347,6 +366,8 @@ class StreamingCodeExecutionHandler:
                     elif os.path.isdir(fpath):
                         shutil.rmtree(fpath)
                 except Exception as e:
-                    self.logging_utility.error("Cleanup failed for %s: %s", fname, str(e))
+                    self.logging_utility.error(
+                        "Cleanup failed for %s: %s", fname, str(e)
+                    )
 
         return uploaded_files

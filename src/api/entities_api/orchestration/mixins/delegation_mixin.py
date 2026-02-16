@@ -273,7 +273,9 @@ class DelegationMixin:
                     )
 
             # Try fetching from DB first
-            final_content = await self._fetch_worker_final_report(thread_id=ephemeral_thread.id)
+            final_content = await self._fetch_worker_final_report(
+                thread_id=ephemeral_thread.id
+            )
 
             # LOG.critical(
             #    "██████ [FINAL_THREAD_CONTENT_SUBMITTED_BY_RESEARCH_WORKER]=%s ██████",

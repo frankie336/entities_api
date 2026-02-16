@@ -29,7 +29,9 @@ class AssistantManager:
             api_key=self.api_key,
         )
 
-    def create_primary_assistant(self, name: str = "Test Assistant", model: str = "gpt-oss-120b"):
+    def create_primary_assistant(
+        self, name: str = "Test Assistant", model: str = "gpt-oss-120b"
+    ):
         """
         Creates the main supervisor assistant (Synchronous).
         """

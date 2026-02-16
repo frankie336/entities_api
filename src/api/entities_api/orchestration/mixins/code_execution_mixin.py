@@ -1,5 +1,3 @@
-# src/api/entities_api/orchestration/mixins/code_execution_mixin.py
-
 from __future__ import annotations
 
 import asyncio
@@ -21,18 +19,10 @@ LOG = LoggingUtility()
 class CodeExecutionMixin:
     """
     Mixin that handles the `code_interpreter` tool.
-
-    Level 2 Enhancements:
-    1. Shared Input Validation: Rejects malformed JSON via shared ToolValidator before execution.
-    2. Runtime Correction: Catches Python exceptions and prompts for fixes (Self-Correction).
-    3. Secured Execution: Generates short-lived JWTs to authorize Sandbox access.
     """
 
     @staticmethod
     def _format_level2_code_error(error_content: str) -> str:
-        """
-        Translates execution errors into actionable hints for the LLM.
-        """
         return (
             f"Code Execution Failed: {error_content}\n\n"
             "Instructions: Please analyze the traceback above. If this is a syntax error, "
@@ -41,9 +31,6 @@ class CodeExecutionMixin:
         )
 
     def _generate_sandbox_token(self, subject_id: str) -> str:
-        """
-        Generates a short-lived JWT to authorize the connection to the Sandbox API.
-        """
         secret = os.getenv("SANDBOX_AUTH_SECRET")
         if not secret:
             LOG.error(
@@ -54,12 +41,9 @@ class CodeExecutionMixin:
         payload = {
             "sub": subject_id,
             "iat": int(time.time()),
-            "exp": int(time.time())
-            + 60,  # Token valid for 60 seconds (connection setup only)
+            "exp": int(time.time()) + 60,
             "scopes": ["execution"],
         }
-
-        # Generates a token signed with HS256
         return jwt.encode(payload, secret, algorithm="HS256")
 
     async def handle_code_interpreter_action(
@@ -80,20 +64,14 @@ class CodeExecutionMixin:
             }
         )
 
-        # --- [L2] SHARED INPUT VALIDATION ---
-        # Instantiate validator and manually enforce schema for this platform tool.
-        # This replaces the standalone validate_code_payload function.
+        # --- VALIDATION ---
         validator = ToolValidator()
         validator.schema_registry = {"code_interpreter": ["code"]}
-
-        # validate_args returns an error string if invalid, or None if valid
         validation_error = validator.validate_args("code_interpreter", arguments_dict)
-        is_valid = validation_error is None
 
-        if not is_valid:
+        if validation_error:
+            # ... (Validation error handling unchanged) ...
             LOG.warning(f"CodeInterpreter ▸ Validation Failed: {validation_error}")
-
-            # Create a failed action record for history tracking
             try:
                 action = await asyncio.to_thread(
                     self.project_david_client.actions.create_action,
@@ -106,33 +84,23 @@ class CodeExecutionMixin:
             except Exception:
                 pass
 
-            # Send the Validation Error directly back to the LLM
-            error_msg = (
-                f"{validation_error}\n"
-                "Please correct the function arguments and try again."
-            )
-
-            # Stream the error to frontend
             yield json.dumps(
                 {
                     "stream_type": "code_execution",
                     "chunk": {"type": "error", "content": validation_error},
                 }
             )
-
-            # Submit to Orchestrator as an error result to trigger Turn 2
             await self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
-                content=error_msg,
+                content=f"{validation_error}\nPlease correct arguments.",
                 action=action if "action" in locals() else None,
-                is_error=True,  # <--- CRITICAL: Flags the orchestrator to loop back
+                is_error=True,
             )
             return
-        # -----------------------------
 
-        # 2. Create the Action Record (DB)
+        # 2. Create Action
         try:
             action = await asyncio.to_thread(
                 self.project_david_client.actions.create_action,
@@ -154,7 +122,7 @@ class CodeExecutionMixin:
 
         code: str = arguments_dict.get("code", "")
 
-        # ⚡ HOT CODE REPLAY (Visual Matrix Effect)
+        # ⚡ HOT CODE REPLAY
         if code:
             yield json.dumps(
                 {
@@ -162,7 +130,6 @@ class CodeExecutionMixin:
                     "chunk": {"type": "hot_code", "content": "```python\n"},
                 }
             )
-
             for line in code.splitlines(keepends=True):
                 yield json.dumps(
                     {
@@ -185,11 +152,7 @@ class CodeExecutionMixin:
 
         # 3. Stream Execution Output
         try:
-            # --- [SECURE] Generate Auth Token ---
-            # We use the run_id as the identity for the sandbox logs
             auth_token = self._generate_sandbox_token(subject_id=f"run_{run_id}")
-
-            # Pass the token to the client method
             sync_iter = iter(
                 self.code_execution_client.stream_output(code, token=auth_token)
             )
@@ -233,8 +196,6 @@ class CodeExecutionMixin:
                         if content is not None:
                             clean_content = str(content).replace("\\n", "\n")
                             hot_code_buffer.append(clean_content)
-
-                            # [L2] Detection of failure within the stream
                             if (
                                 ctype == "stderr"
                                 or "Traceback" in clean_content
@@ -253,10 +214,23 @@ class CodeExecutionMixin:
                             )
 
                     elif ctype == "status":
-                        if content == "complete" and isinstance(
-                            payload.get("uploaded_files"), list
-                        ):
-                            uploaded_files.extend(payload["uploaded_files"])
+                        # --- [DEBUG] Log what the sandbox is actually sending us ---
+                        if content == "complete":
+                            raw_files = payload.get("uploaded_files")
+                            LOG.info(
+                                f"[FILE_DEBUG] Sandbox 'complete' status received. Raw Files Payload: {raw_files}"
+                            )
+
+                            if isinstance(raw_files, list) and len(raw_files) > 0:
+                                uploaded_files.extend(raw_files)
+                                LOG.info(
+                                    f"[FILE_DEBUG] Added {len(raw_files)} files to processing queue."
+                                )
+                            else:
+                                LOG.warning(
+                                    f"[FILE_DEBUG] No files found in sandbox completion payload."
+                                )
+
                         yield json.dumps(
                             {"stream_type": "code_execution", "chunk": payload}
                         )
@@ -282,44 +256,70 @@ class CodeExecutionMixin:
                 }
             )
 
-        # 4. Final Summary & Level 2 Correction Logic
+        # 4. Final Summary
         raw_output = "\n".join(hot_code_buffer).strip()
-
         if execution_had_error:
-            # [L2] Instead of raw failure, we provide a structured Hint
             final_content = self._format_level2_code_error(
                 raw_output or "Unknown execution failure."
             )
-            LOG.warning(f"CodeInterpreter ▸ Self-Correction Triggered for run {run_id}")
         else:
             final_content = raw_output or "[Code executed successfully.]"
 
-        # 5. Process Files (Plots/CSVs generated during execution)
+        # ------------------------------------------------------------------
+        # 5. Process Files (WITH DEBUG LOGGING)
+        # ------------------------------------------------------------------
+        LOG.info(
+            f"[FILE_DEBUG] Entering File Processing Loop. Total queue size: {len(uploaded_files)}"
+        )
+
         for file_meta in uploaded_files:
-            file_id, filename = file_meta.get("id"), file_meta.get("filename")
+            file_id = file_meta.get("id")
+            filename = file_meta.get("filename")
+
+            LOG.info(f"[FILE_DEBUG] Processing File: {filename} (ID: {file_id})")
+
             if not file_id or not filename:
+                LOG.warning(
+                    f"[FILE_DEBUG] Skipping file due to missing ID or Filename: {file_meta}"
+                )
                 continue
+
             mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
             try:
+                # Log before DB Call
+                LOG.info(
+                    f"[FILE_DEBUG] Fetching Base64 from DB for File ID: {file_id}..."
+                )
+
                 b64 = await asyncio.to_thread(
                     self.project_david_client.files.get_file_as_base64, file_id=file_id
                 )
-                yield json.dumps(
-                    {
+
+                # Log Result
+                data_len = len(b64) if b64 else 0
+                LOG.info(f"[FILE_DEBUG] DB Fetch Complete. Data Length: {data_len}")
+
+                if data_len > 0:
+                    payload = {
                         "stream_type": "code_execution",
                         "chunk": {
-                            "type": "code_interpreter_stream",
-                            "content": {
-                                "filename": filename,
-                                "file_id": file_id,
-                                "base64": b64,
-                                "mime_type": mime_type,
-                            },
+                            "type": "generated_file",  # Matches SDK expectation
+                            "filename": filename,
+                            "file_id": file_id,
+                            "base64_data": b64,  # Matches SDK Dataclass field
+                            "mime_type": mime_type,
                         },
                     }
-                )
+                    LOG.info(f"[FILE_DEBUG] Yielding 'generated_file' chunk to stream.")
+                    yield json.dumps(payload)
+                else:
+                    LOG.error(f"[FILE_DEBUG] Retrieved empty data for file {file_id}")
+
             except Exception as e:
-                LOG.error(f"CodeInterpreter ▸ File fetch error ({file_id}): {e}")
+                LOG.error(
+                    f"[FILE_DEBUG] Error fetching file ({file_id}): {e}", exc_info=True
+                )
 
         # 6. Close out current stream
         yield json.dumps(
@@ -335,8 +335,7 @@ class CodeExecutionMixin:
             }
         )
 
-        # 7. Submit Result (Awaiting async submit)
-        # On error, is_error=True signals the orchestrator that Turn 2 is required
+        # 7. Submit Result
         try:
             await self.submit_tool_output(
                 thread_id=thread_id,
@@ -357,9 +356,6 @@ class CodeExecutionMixin:
         redis_client: Any,
         stream_key: str,
     ) -> tuple[int, int, Optional[str]]:
-        """
-        Process raw JSON buffer for 'Matrix effect' rendering.
-        """
         if start_index == -1:
             match = re.search(r"[\"\']code[\"\']\s*:\s*[\"\']", buffer)
             if match:
@@ -387,7 +383,6 @@ class CodeExecutionMixin:
             if len(clean_segment) == 1 and clean_segment in ('"', "}"):
                 return start_index, cursor, None
             payload_dict = {"type": "hot_code", "content": clean_segment}
-            # Optional: self._shunt_to_redis_stream(redis_client, stream_key, payload_dict)
             return start_index, cursor, json.dumps(payload_dict)
 
         return start_index, cursor, None

@@ -16,16 +16,13 @@ from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
 from entities_api.utils.assistant_manager import AssistantManager
 from entities_api.utils.delegation_model_map import get_delegated_model
-
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
 from src.api.entities_api.orchestration.engine.orchestrator_core import (
-    OrchestratorCore,
-    StreamState,
-)
-
+    OrchestratorCore, StreamState)
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
+from src.api.entities_api.orchestration.mixins.provider_mixins import \
+    _ProviderMixins
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -70,7 +67,9 @@ class LlamaBaseWorker(
         # 3. Setup the Cache Service
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
+        elif "assistant_cache" in extra and isinstance(
+            extra["assistant_cache"], AssistantCache
+        ):
             self._assistant_cache = extra["assistant_cache"]
 
         # 4. Setup Config
@@ -149,7 +148,9 @@ class LlamaBaseWorker(
 
         pre_mapped_model = model
         try:
-            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
+            if hasattr(self, "_get_model_map") and (
+                mapped := self._get_model_map(model)
+            ):
                 model = mapped
 
             self.assistant_id = assistant_id
@@ -157,33 +158,11 @@ class LlamaBaseWorker(
 
             # --- [NEW] DEEP RESEARCH / SUPERVISOR LOGIC ---
             self.is_deep_research = self.assistant_config.get("deep_research", False)
-            if self.is_deep_research:
-                LOG.critical(
-                    "██████ [DEEP_RESEARCH_MODE]=%s (Llama) ██████",
-                    self.is_deep_research,
-                )
-                # Create supervisor assistant
-                assistant_manager = AssistantManager()
-                ephemeral_supervisor = await assistant_manager.create_ephemeral_supervisor()
-
-                # ------------------------------------------
-                # Swap Identity
-                # If deep research is true, swap the identity
-                # of the current assistant with the ephemeral
-                # research supervisor
-                # -------------------------------------------
-                self.assistant_id = ephemeral_supervisor.id
-                self.ephemeral_supervisor_id = ephemeral_supervisor.id
-                # -----------------------------------------------------------
-                # 🔥 CRITICAL FIX: FLUSH AND RELOAD CONFIGURATION 🔥
-                # We must clear the old config and fetch the Supervisor's
-                # config (which contains the correct instructions & metadata)
-                # -------------------------------------------------------------
-                self.assistant_config = {}
-                await self._ensure_config_loaded()
-
-                # set the delegated inference model for deep search
-                self._delegation_model = get_delegated_model(requested_model=pre_mapped_model)
+            # C. Execute Identity Swap (Refactored)
+            # This handles the supervisor creation, ID swapping, and config reloading
+            await self._handle_deep_research_identity_swap(
+                requested_model=pre_mapped_model
+            )
 
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", True)
@@ -192,8 +171,12 @@ class LlamaBaseWorker(
             # The research worker is issued with its own instructions and tool set.
             # We must set the flag.
             # _______________________________________________________________________
-            research_worker_setting = self.assistant_config.get("is_research_worker", False)
-            LOG.critical("██████ [RESEARCH_WORKER_SETTING]=%s ██████", research_worker_setting)
+            research_worker_setting = self.assistant_config.get(
+                "is_research_worker", False
+            )
+            LOG.critical(
+                "██████ [RESEARCH_WORKER_SETTING]=%s ██████", research_worker_setting
+            )
 
             # Context Setup
             ctx = await self._set_up_context_window(
@@ -217,7 +200,9 @@ class LlamaBaseWorker(
             client = self._get_client_instance(api_key=api_key)
 
             # --- [DEBUG] RAW CONTEXT DUMP ---
-            LOG.info(f"\nRAW_CTX_DUMP:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}")
+            LOG.info(
+                f"\nRAW_CTX_DUMP:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}"
+            )
 
             raw_stream = client.stream_chat_completion(
                 messages=ctx,
@@ -293,7 +278,9 @@ class LlamaBaseWorker(
             LOG.info(f"🚀 [L3 NATIVE MODE] Turn 1 Batch size: {len(tool_calls_batch)}")
 
         if message_to_save:
-            await self.finalize_conversation(message_to_save, thread_id, self.assistant_id, run_id)
+            await self.finalize_conversation(
+                message_to_save, thread_id, self.assistant_id, run_id
+            )
 
         if self.project_david_client:
             await asyncio.to_thread(

@@ -4,12 +4,11 @@ from logging.config import fileConfig
 from typing import Any, Literal, Union
 
 from alembic import context
+from alembic.autogenerate import renderers
 from alembic.autogenerate.api import AutogenContext
-from sqlalchemy import engine_from_config, pool
-
 # --- NEW IMPORTS FOR CUSTOM RENDERING ---
 from alembic.operations import ops
-from alembic.autogenerate import renderers
+from sqlalchemy import engine_from_config, pool
 
 # --- PATH FIX (Keep this) ---
 project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
