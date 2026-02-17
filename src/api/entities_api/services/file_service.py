@@ -216,8 +216,12 @@ class FileService:
             "expires": expiration_timestamp,
             "signature": signature,
         }
-        base_url = os.getenv("BASE_URL", "http://localhost:9000")
-        signed_url = f"{base_url}/v1/files/download?{urlencode(query_params)}"
+
+        base_url = os.getenv(
+            "DOWNLOAD_BASE_URL", "http://localhost:9000/v1/files/download"
+        )
+        signed_url = f"{base_url}?{urlencode(query_params)}"
+
         if label:
             return f"[{label}](<{signed_url}>)"
         else:

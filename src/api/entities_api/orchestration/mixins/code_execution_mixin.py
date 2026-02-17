@@ -70,7 +70,6 @@ class CodeExecutionMixin:
         validation_error = validator.validate_args("code_interpreter", arguments_dict)
 
         if validation_error:
-            # ... (Validation error handling unchanged) ...
             LOG.warning(f"CodeInterpreter ▸ Validation Failed: {validation_error}")
             try:
                 action = await asyncio.to_thread(
@@ -266,7 +265,7 @@ class CodeExecutionMixin:
             final_content = raw_output or "[Code executed successfully.]"
 
         # ------------------------------------------------------------------
-        # 5. Process Files (WITH DEBUG LOGGING)
+        # 5. Process Files (UPDATED: Use Signed URLs instead of Base64)
         # ------------------------------------------------------------------
         LOG.info(
             f"[FILE_DEBUG] Entering File Processing Loop. Total queue size: {len(uploaded_files)}"
@@ -287,54 +286,47 @@ class CodeExecutionMixin:
             mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
             try:
-                # Log before DB Call
+                # [CHANGE] Get Signed URL instead of Base64
                 LOG.info(
-                    f"[FILE_DEBUG] Fetching Base64 from DB for File ID: {file_id}..."
+                    f"[FILE_DEBUG] Generating Signed URL for File ID: {file_id}..."
                 )
 
-                b64 = await asyncio.to_thread(
-                    self.project_david_client.files.get_file_as_base64, file_id=file_id
-                )
+                # Check if the sandbox already provided a URL we can use
+                file_url = file_meta.get("url")
 
-                # Log Result
-                data_len = len(b64) if b64 else 0
-                LOG.info(f"[FILE_DEBUG] DB Fetch Complete. Data Length: {data_len}")
+                if not file_url:
+                    # Fallback: Generate signed URL using the API client
+                    # We typically want a decent expiration time (e.g., 1 hour)
+                    file_url = await asyncio.to_thread(
+                        self.project_david_client.files.get_signed_url,
+                        file_id=file_id,
+                        use_real_filename=True,
+                    )
 
-                if data_len > 0:
-                    payload = {
-                        "stream_type": "code_execution",
-                        "chunk": {
-                            "type": "generated_file",  # Matches SDK expectation
-                            "filename": filename,
-                            "file_id": file_id,
-                            "base64_data": b64,  # Matches SDK Dataclass field
-                            "mime_type": mime_type,
-                        },
-                    }
-                    LOG.info(f"[FILE_DEBUG] Yielding 'generated_file' chunk to stream.")
-                    yield json.dumps(payload)
-                else:
-                    LOG.error(f"[FILE_DEBUG] Retrieved empty data for file {file_id}")
+                LOG.info(f"[FILE_DEBUG] URL Generated: {file_url}")
 
-                    # ---------------------------------------------------------
-                    # ✅ NEW: AUTO-CLEANUP
-                    # ---------------------------------------------------------
-                    try:
-                        LOG.info(
-                            f"[CLEANUP] Deleting ephemeral file {file_id} from storage..."
-                        )
+                payload = {
+                    "stream_type": "code_execution",
+                    "chunk": {
+                        "type": "code_interpreter_file",  # Match frontend expectation
+                        "filename": filename,
+                        "file_id": file_id,
+                        "url": file_url,  # Sending URL
+                        "mime_type": mime_type,
+                        "base64": None,  # No longer sending base64
+                    },
+                }
+                LOG.info(f"[FILE_DEBUG] Yielding 'code_interpreter_file' URL chunk.")
+                yield json.dumps(payload)
 
-                        await asyncio.to_thread(
-                            self.project_david_client.files.delete_file, file_id=file_id
-                        )
-                        LOG.info(f"[CLEANUP] File {file_id} successfully purged.")
-                    except Exception as e:
-                        # Don't crash the stream if cleanup fails, just log it
-                        LOG.error(f"[CLEANUP] Failed to delete file {file_id}: {e}")
+                # [NOTE] We do NOT delete the file here anymore.
+                # If we delete it, the URL becomes invalid immediately.
+                # Cleanup should be handled by a background process or TTL on the bucket/storage.
 
             except Exception as e:
                 LOG.error(
-                    f"[FILE_DEBUG] Error fetching file ({file_id}): {e}", exc_info=True
+                    f"[FILE_DEBUG] Error generating URL for file ({file_id}): {e}",
+                    exc_info=True,
                 )
 
         # 6. Close out current stream
