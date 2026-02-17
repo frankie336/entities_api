@@ -22,6 +22,49 @@ router = APIRouter()
 logging_utility = LoggingUtility()
 
 
+@router.get(
+    "/files/download",
+    include_in_schema=False,
+    response_class=StreamingResponse,
+    summary="Download file via signed URL (no API key required)",
+)
+def download_file(
+    file_id: str = Query(...),
+    expires: int = Query(...),
+    signature: str = Query(...),
+    use_real_filename: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    log_msg = f"!!!!!! Entered /files/download route for file_id: {file_id} !!!!!!"
+    print(log_msg, flush=True)
+    logging_utility.error(log_msg)
+
+    if datetime.utcnow().timestamp() > expires:
+        logging_utility.warning(f"Download URL expired for file_id: {file_id}")
+
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Signed URL expired")
+    if not _verify_sig(file_id, expires, signature, use_real_filename):
+        logging_utility.warning(f"Invalid signature for file_id: {file_id}")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Invalid signature")
+    logging_utility.info(f"Signature OK, proceeding to stream file_id: {file_id}")
+    stream, orig_name, mime = FileService(db).get_file_with_metadata(file_id)
+
+    fname = orig_name if use_real_filename else file_id
+    disp = (
+        "inline"
+        if mime and mime.startswith(("image/", "text/", "application/pdf"))
+        else "attachment"
+    )
+    return StreamingResponse(
+        stream,
+        media_type=mime or "application/octet-stream",
+        headers={
+            "Content-Disposition": f'{disp}; filename="{fname}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @router.post(
     "/uploads",
     response_model=FileResponse,
@@ -85,50 +128,9 @@ def _verify_sig(file_id: str, exp: int, sig: str, real_name: bool) -> bool:
 
 
 @router.get(
-    "/files/download",
-    include_in_schema=False,
-    response_class=StreamingResponse,
-    summary="Download file via signed URL (no API key required)",
-)
-def download_file(
-    file_id: str = Query(...),
-    expires: int = Query(...),
-    signature: str = Query(...),
-    use_real_filename: bool = Query(False),
-    db: Session = Depends(get_db),
-):
-    log_msg = f"!!!!!! Entered /files/download route for file_id: {file_id} !!!!!!"
-    print(log_msg, flush=True)
-    logging_utility.error(log_msg)
-    if datetime.utcnow().timestamp() > expires:
-        logging_utility.warning(f"Download URL expired for file_id: {file_id}")
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Signed URL expired")
-    if not _verify_sig(file_id, expires, signature, use_real_filename):
-        logging_utility.warning(f"Invalid signature for file_id: {file_id}")
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Invalid signature")
-    logging_utility.info(f"Signature OK, proceeding to stream file_id: {file_id}")
-    stream, orig_name, mime = FileService(db).get_file_with_metadata(file_id)
-    fname = orig_name if use_real_filename else file_id
-    disp = (
-        "inline"
-        if mime and mime.startswith(("image/", "text/", "application/pdf"))
-        else "attachment"
-    )
-    return StreamingResponse(
-        stream,
-        media_type=mime or "application/octet-stream",
-        headers={
-            "Content-Disposition": f'{disp}; filename="{fname}"',
-            "X-Content-Type-Options": "nosniff",
-        },
-    )
-
-
-@router.get(
     "/files/{file_id}/signed-url",
     response_model=dict,
     summary="Generate a temporary signed URL (no API key required)",
-    description="Returns {'signed_url': ...}",
 )
 def generate_signed_url(
     file_id: str,
@@ -136,18 +138,26 @@ def generate_signed_url(
     use_real_filename: bool = Query(False),
     db: Session = Depends(get_db),
 ):
+    # 1. Validate File Exists
     if not db.query(FileModel).filter(FileModel.id == file_id).first():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
+
+    # 2. Get Config
     secret = os.getenv("SIGNED_URL_SECRET", "")
     base_url = os.getenv("DOWNLOAD_BASE_URL", "").rstrip("/")
+
     if not secret or not base_url:
         raise HTTPException(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
             "SIGNED_URL_SECRET or DOWNLOAD_BASE_URL not configured",
         )
+
+    # 3. Calculate Signature
     exp = int(datetime.utcnow().timestamp() + expires_in)
     payload = f"{file_id}:{exp}:{str(use_real_filename).lower()}"
     sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+
+    # 4. Construct Query Params
     query = urlencode(
         {
             "file_id": file_id,
@@ -156,7 +166,18 @@ def generate_signed_url(
             "use_real_filename": use_real_filename,
         }
     )
-    url = f"{base_url}/v1/files/download?{query}"
+
+    # 5. 🛑 FIX: Prevent Double Path 🛑
+    # We define the path we WANT to hit.
+    # If your router uses /sdk/download, change this string to "/v1/files/sdk/download"
+    target_path = "/v1/files/download"
+
+    # If the .env var ALREADY ends with the path, we do not add it again.
+    if base_url.endswith(target_path):
+        url = f"{base_url}?{query}"
+    else:
+        url = f"{base_url}{target_path}?{query}"
+
     logging_utility.info("Generated signed URL for %s", file_id)
     return {"signed_url": url}
 
