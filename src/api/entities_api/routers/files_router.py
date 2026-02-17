@@ -5,8 +5,7 @@ from datetime import datetime
 from urllib.parse import urlencode
 
 from dotenv import load_dotenv
-from fastapi import (APIRouter, Depends, File, Form, HTTPException, Query,
-                     UploadFile, status)
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import FileDeleteResponse, FileResponse
@@ -22,6 +21,12 @@ router = APIRouter()
 logging_utility = LoggingUtility()
 
 
+# ======================================
+# Needs to remain at the top to prevent
+# /files/{file_id} from overriding.
+#
+# Used to download files with a signed url
+# =========================================
 @router.get(
     "/files/download",
     include_in_schema=False,
@@ -86,9 +91,7 @@ def upload_file_endpoint(
     return FileResponse.model_validate(created)
 
 
-@router.get(
-    "/files/{file_id}", response_model=FileResponse, summary="Retrieve file metadata"
-)
+@router.get("/files/{file_id}", response_model=FileResponse, summary="Retrieve file metadata")
 def retrieve_file_metadata(
     file_id: str,
     db: Session = Depends(get_db),
@@ -102,9 +105,7 @@ def retrieve_file_metadata(
     return FileResponse.model_validate(data)
 
 
-@router.delete(
-    "/files/{file_id}", response_model=FileDeleteResponse, summary="Delete a file"
-)
+@router.delete("/files/{file_id}", response_model=FileDeleteResponse, summary="Delete a file")
 def delete_file_endpoint(
     file_id: str,
     db: Session = Depends(get_db),
@@ -167,9 +168,6 @@ def generate_signed_url(
         }
     )
 
-    # 5. 🛑 FIX: Prevent Double Path 🛑
-    # We define the path we WANT to hit.
-    # If your router uses /sdk/download, change this string to "/v1/files/sdk/download"
     target_path = "/v1/files/download"
 
     # If the .env var ALREADY ends with the path, we do not add it again.
@@ -182,9 +180,7 @@ def generate_signed_url(
     return {"signed_url": url}
 
 
-@router.get(
-    "/files/{file_id}/base64", response_model=dict, summary="Get file as Base64"
-)
+@router.get("/files/{file_id}/base64", response_model=dict, summary="Get file as Base64")
 def get_file_as_base64(
     file_id: str,
     db: Session = Depends(get_db),
