@@ -1,11 +1,11 @@
-from entities_api.orchestration.instructions.definitions import \
-    LEVEL_3_WEB_USE_INSTRUCTIONS
+from entities_api.orchestration.instructions.definitions import LEVEL_3_WEB_USE_INSTRUCTIONS
 
 L2_INSTRUCTIONS = [
     "TOOL_USAGE_PROTOCOL",
     "FUNCTION_CALL_FORMATTING",
     "FUNCTION_CALL_WRAPPING",
     "CODE_INTERPRETER",  # code interpreter
+    "CODE_FILE_HANDLING",
 ]
 
 L3_INSTRUCTIONS = [
@@ -14,6 +14,7 @@ L3_INSTRUCTIONS = [
     "TOOL_DECISION_PROTOCOL",
     "L3_PARALLEL_EXECUTION",
     "CODE_INTERPRETER"  # code interprete
+    "CODE_FILE_HANDLING",  # code interpreter
     "CITATION_PROTOCOL",
     "TOOL_USAGE_PROTOCOL",
     "FUNCTION_CALL_FORMATTING",

@@ -408,6 +408,14 @@ GENERAL_INSTRUCTIONS = {
         "4. **FILE FACTORY:** You have NATIVE capabilities to generate downloadable files. "
         "If a user wants a report, summary, or data, you MUST write code to create a .docx, .csv, or .xlsx file."
     ),
+    "CODE_FILE_HANDLING": (
+        "\n🔹 [STICKY SYSTEMS INSTRUCTION — PERMANENT]\n"
+        "All Python code execution contexts must inject the following line at the top of every script "
+        "that generates files using libraries that rely on tempfile "
+        "(e.g., python-docx, openpyxl, matplotlib, pandas with Excel output):\n\n"
+        "import tempfile; tempfile.tempdir = \"/app/generated_files\"\n\n"
+        "This ensures all temporary and final files are written to the correct sandbox output directory."
+    ),
     "ADVANCED_ANALYSIS": (
         "\n1. Always save generated files locally during code execution.\n"
         "2. Do not display, preview, or open files in memory.\n"
