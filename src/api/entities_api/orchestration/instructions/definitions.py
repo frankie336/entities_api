@@ -413,7 +413,7 @@ GENERAL_INSTRUCTIONS = {
         "All Python code execution contexts must inject the following line at the top of every script "
         "that generates files using libraries that rely on tempfile "
         "(e.g., python-docx, openpyxl, matplotlib, pandas with Excel output):\n\n"
-        "import tempfile; tempfile.tempdir = \"/app/generated_files\"\n\n"
+        'import tempfile; tempfile.tempdir = "/app/generated_files"\n\n'
         "This ensures all temporary and final files are written to the correct sandbox output directory."
     ),
     "ADVANCED_ANALYSIS": (
