@@ -1,0 +1,53 @@
+sequenceDiagram
+    autonumber
+    participant User
+    participant Manager as ≡ƒºá Supervisor (Clean)
+    participant Scratchpad as ≡ƒô¥ Scratchpad
+    participant Orchestrator as ≡ƒÜá Platform/Context
+    participant Delegate as ≡ƒæÀ Worker (Ephemeral)
+    participant Web as ≡ƒîÉ Live Tools
+
+    Note over Manager, Orchestrator: Phase 1: Clean Initialization (The Fix)
+
+    User->>Manager: "Research the current topic..."
+
+    activate Manager
+    Manager->>Orchestrator: Request Context
+
+    Note right of Orchestrator: ROOT CAUSE FIX APPLIED:<br/>1. Check DeepResearch=True<br/>2. Force raw_tools_list = []<br/>3. Inject ONLY Delegation/Scratchpad
+
+    Orchestrator-->>Manager: Returns Clean Prompt (No Web Tools)
+
+    Note right of Manager: Manager sees it has NO search tools.<br/>It realizes it MUST delegate.
+
+    Manager->>Scratchpad: update_scratchpad(Plan: 1. Search X, 2. Compare Y)
+    Manager->>Delegate: delegate_research_task(instructions="Find Q1 guidance...")
+    deactivate Manager
+
+    Note over Delegate, Web: Phase 2: The Worker Execution (Dirty Context)
+
+    activate Delegate
+    Delegate->>Orchestrator: Request Context
+
+    Note right of Orchestrator: Worker Logic:<br/>1. Check DeepResearch=False<br/>2. Load cfg.get("tools")<br/>3. Inject Web Search & APIs
+
+    Orchestrator-->>Delegate: Returns "Dirty" Prompt (Full Tool Access)
+
+    Delegate->>Web: web_search(query="Q1 2026 Guidance")
+    Web-->>Delegate: Returns Valid JSON Results
+
+    Delegate->>Web: read_web_page(url="...")
+    Web-->>Delegate: Returns Page Content
+
+    Delegate-->>Manager: ≡£à Task Completed: "Found $44.1B Revenue..."
+    deactivate Delegate
+
+    Note over Manager, Scratchpad: Phase 3: Synthesis
+
+    activate Manager
+    Manager->>Scratchpad: append_scratchpad(Fact: Revenue confirmed at $44.1B)
+
+    Note right of Manager: No schema errors.<br/>No hallucinations.<br/>Pure coordination.
+
+    Manager->>User: "Based on the research, the revenue is..."
+    deactivate Manager

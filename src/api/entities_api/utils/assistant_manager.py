@@ -66,11 +66,18 @@ class AssistantManager:
         Crucially, we inject 'research_worker_calling': True into meta_data.
         This allows QwenBaseWorker to identify its role upon loading.
         """
+
+        # ======================================================================================
+        # Instead of relying on the web services {"type": "computer"}
+        # platform tools placeholder , the workers tools are
+        # injected directly with WORKER_TOOLS to allow for granular control over its tools
+        # =======================================================================================
         ephemeral_worker = await asyncio.to_thread(
             self.client.assistants.create_assistant,
             name=f"worker_{uuid.uuid4().hex[:8]}",
             description="Temp assistant for deep research",
             tools=WORKER_TOOLS,
+            web_access=True,
             deep_research=False,
             # ✅ FIX: Pass state here so the worker knows what it is immediately
             meta_data={"research_worker_calling": True},

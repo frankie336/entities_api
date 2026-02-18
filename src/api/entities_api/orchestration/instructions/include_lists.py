@@ -5,6 +5,8 @@ L2_INSTRUCTIONS = [
     "TOOL_USAGE_PROTOCOL",
     "FUNCTION_CALL_FORMATTING",
     "FUNCTION_CALL_WRAPPING",
+    "CODE_INTERPRETER"  # code interpreter
+    "FILE_GENERATION_PROTOCOL",  # code interpreter
 ]
 
 L3_INSTRUCTIONS = [
@@ -12,6 +14,8 @@ L3_INSTRUCTIONS = [
     "L3_PLANNING_PROTOCOL",
     "TOOL_DECISION_PROTOCOL",
     "L3_PARALLEL_EXECUTION",
+    "CODE_INTERPRETER"  # code interpreter
+    "FILE_GENERATION_PROTOCOL",  # code interpreter
     "CITATION_PROTOCOL",
     "TOOL_USAGE_PROTOCOL",
     "FUNCTION_CALL_FORMATTING",
@@ -21,39 +25,35 @@ L3_INSTRUCTIONS = [
 
 
 LEVEL_4_SUPERVISOR_INSTRUCTIONS = [
-    "L4_SUPERVISOR_IDENTITY",  # 1. WHO you are (first)
-    "L4_TRIAGE_PROTOCOL",  # 2. FIRST STEP: Classify query (decision gate)
-    "L4_SUPERVISOR_CONSTRAINTS",  # 3. WHAT you cannot do (boundaries)
-    "L4_EXECUTION_PROTOCOL",  # 4. HOW you must act (the Double-Tap)
-    "CITATION_PROTOCOL",
-    "TOOL_USAGE_PROTOCOL",  # 5. Syntax rules (before using tools)
-    "FUNCTION_CALL_FORMATTING",  # 6. Formatting specifics
-    "FUNCTION_CALL_WRAPPING",  # 7. Wrapping specifics
-    "L4_OUTPUT_FORMAT",  # 8. Final output expectations
+    "L4_SUPERVISOR_IDENTITY",  # 1. WHO you are (Identity)
+    "L4_TRIAGE_PROTOCOL",  # 2. DECISION: Classify the user query
+    "L4_URL_PROTOCOL",  # 3. SAFETY: New Anti-Hallucination & Zero-Trust URL rules
+    "L4_SUPERVISOR_CONSTRAINTS",  # 4. BOUNDARIES: Anti-stall & "No Single Calls"
+    "L4_EXECUTION_PROTOCOL",  # 5. ACTION: The "Double-Tap" logic
+    "TOOL_USAGE_PROTOCOL",  # 6. SYSTEM: Syntax rules
+    "FUNCTION_CALL_FORMATTING",  # 7. SYSTEM: No markdown backticks
+    "FUNCTION_CALL_WRAPPING",  # 8. SYSTEM: <fc> tags
+    "L4_OUTPUT_FORMAT",  # 9. RESULT: Synthesis requirements
 ]
 
 
 L4_RESEARCH_INSTRUCTIONS = [
+    # --- 1. System Syntax (Prioritized to prevent schema errors) ---
     "TOOL_USAGE_PROTOCOL",
     "FUNCTION_CALL_FORMATTING",
     "FUNCTION_CALL_WRAPPING",
-    "L4_WORKER_IDENTITY",  # 1. WHO you are
-    "L4_STOPPING_CRITERIA",  # 2. WHEN to stop (critical early!)
-    "L4_TOOL_CHEATSHEET",  # 3. WHAT tools exist (reference)
-    "TOOL_STRATEGY",  # 4. HOW to choose tools
-    "L4_EXECUTION_ALGORITHM",  # 5. The basic research workflow
-    "CITATION_PROTOCOL",
-    "L4_DEPTH_PROTOCOL",  # 6. Enhanced workflow for complex queries
-    "BATCH_OPERATIONS",  # 7. Parallelization rules
-    "L3_PARALLEL_EXECUTION",  # 8. Advanced batching
-    "ERROR_HANDLING",  # 9. Error recovery
-    "RESEARCH_PROGRESS_TRACKING",  # 10. Quality checkpoints
-    "STOP_RULE",  # 11. Reinforcement of stopping logic
-    "POST_EXECUTION_PROTOCOL",  # 12. Synthesis requirements
-    # "TOOL_USAGE_PROTOCOL",  # 13. Syntax rules
-    # "FUNCTION_CALL_FORMATTING",  # 14. Format specifics
-    # "FUNCTION_CALL_WRAPPING",  # 15. Wrapper specifics
-    "L4_OUTPUT_FORMAT",  # 16. Final output
+    # --- 2. Identity & Boundaries ---
+    "L4_WORKER_IDENTITY",  # Transient Worker Identity
+    "L4_STOPPING_CRITERIA",  # Specific L4 stop rules (prevent loops)
+    # --- 3. Operational Logic ---
+    "L4_TOOL_CHEATSHEET",  # Strict tool syntax (defines 'query' requirement)
+    "L4_EXECUTION_ALGORITHM",  # The Discovery -> Recon -> Snipe loop
+    "L4_DEPTH_PROTOCOL",  # Rules for comparative/deep queries
+    # --- 4. Advanced Handling ---
+    "BATCH_OPERATIONS",  # Parallelization rules (Standard Web L3 is fine here)
+    "ERROR_HANDLING",  # Recovery from 403s/Empty results
+    # --- 5. Reporting ---
+    "L4_OUTPUT_FORMAT",  # Contains the new "REPORTING STANDARDS" (No Chat, just facts)
 ]
 
 

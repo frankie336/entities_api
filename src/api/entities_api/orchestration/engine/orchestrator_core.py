@@ -401,7 +401,6 @@ class OrchestratorCore(
     # --------------------------------------------------------------------------
     # CORE ORCHESTRATION LOOP (Recursive Level 3)
     # --------------------------------------------------------------------------
-
     async def process_conversation(
         self,
         thread_id: str,

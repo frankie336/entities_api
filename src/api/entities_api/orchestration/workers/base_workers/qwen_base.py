@@ -123,6 +123,10 @@ class QwenBaseWorker(
         Level 4 Deep Research Stream.
         Utilizes DeltaNormalizer for Qwen/Kimi tag handling and helper method for state management.
         """
+
+        self.assistant_config = {}
+        await self._ensure_config_loaded()
+
         # -----------------------------------
         # Ephemeral supervisor
         # -----------------------------------
@@ -165,7 +169,7 @@ class QwenBaseWorker(
 
             # --- [CRITICAL FIX START] ---
             # 1. Default to user preference (usually True for standard agents)
-            web_access_setting = self.assistant_config.get("web_access", True)
+            web_access_setting = self.assistant_config.get("web_access", False)
 
             # 2. Check if this is a research worker
             research_worker_setting = self.assistant_config.get(

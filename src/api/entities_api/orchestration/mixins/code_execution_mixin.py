@@ -23,11 +23,14 @@ class CodeExecutionMixin:
 
     @staticmethod
     def _format_level2_code_error(error_content: str) -> str:
+        # IMPROVEMENT: More directive error message to trigger self-correction
         return (
-            f"Code Execution Failed: {error_content}\n\n"
-            "Instructions: Please analyze the traceback above. If this is a syntax error, "
-            "logical bug, or missing import, correct your code and retry execution. "
-            "If a data file was missing, ensure you used the correct file path from the context."
+            f"❌ CODE EXECUTION FAILED:\n{error_content}\n\n"
+            "## IMMEDIATE RECOVERY INSTRUCTIONS:\n"
+            "1. Analyze the Traceback above.\n"
+            "2. If 'ModuleNotFoundError': Use standard libraries (e.g., 'python-docx' not 'docx').\n"
+            "3. If 'FileNotFound': Check your paths. Did you generate the data first?\n"
+            "4. **DO NOT APOLOGIZE.** Immediately generate a new tool call with the corrected code."
         )
 
     def _generate_sandbox_token(self, subject_id: str) -> str:
@@ -252,6 +255,48 @@ class CodeExecutionMixin:
                 {
                     "type": "error",
                     "chunk": {"type": "error", "content": str(stream_err)},
+                }
+            )
+
+        # ------------------------------------------------------------------
+        # NEW: PHANTOM FILE DETECTION (Self-Healing Logic)
+        # ------------------------------------------------------------------
+        # Heuristic: If code looks like it saves a file, but no file came back.
+        code_intent_save = any(
+            k in code for k in [".save(", ".to_csv(", ".to_excel(", "open(", ".write("]
+        )
+
+        # Whitelist 'print' debugging or simple math that might use open() for reading
+        is_reading_only = "r'" in code or 'r"' in code or "read_csv" in code
+
+        if (
+            code_intent_save
+            and not is_reading_only
+            and not uploaded_files
+            and not execution_had_error
+        ):
+            LOG.warning(
+                f"CodeInterpreter ▸ Phantom File Detected. Code implies save, but sandbox returned nothing."
+            )
+
+            error_msg = (
+                "SYSTEM ERROR: Your code appears to save a file (detected '.save' or '.write'), "
+                "but the sandbox execution completed without returning any generated files.\n\n"
+                "Possible Fixes:\n"
+                "1. Did you save to the current directory? (Use `doc.save('filename.docx')`, NOT `/tmp/...`)\n"
+                "2. Did the script crash silently? Add `print('Finished saving')` to debug.\n"
+                "3. Retry execution ensuring the file is saved to the root path."
+            )
+
+            # Force error state so the Orchestrator recurses
+            execution_had_error = True
+            hot_code_buffer.append(error_msg)
+
+            # Stream the error to the frontend so the user knows why we are retrying
+            yield json.dumps(
+                {
+                    "stream_type": "code_execution",
+                    "chunk": {"type": "error", "content": error_msg},
                 }
             )
 
