@@ -216,7 +216,6 @@ class CodeExecutionMixin:
                             )
 
                     elif ctype == "status":
-                        # --- [DEBUG] Log what the sandbox is actually sending us ---
                         if content == "complete":
                             raw_files = payload.get("uploaded_files")
                             LOG.info(
@@ -225,9 +224,6 @@ class CodeExecutionMixin:
 
                             if isinstance(raw_files, list) and len(raw_files) > 0:
                                 uploaded_files.extend(raw_files)
-                                LOG.info(
-                                    f"[FILE_DEBUG] Added {len(raw_files)} files to processing queue."
-                                )
                             else:
                                 LOG.warning(
                                     f"[FILE_DEBUG] No files found in sandbox completion payload."
@@ -259,14 +255,11 @@ class CodeExecutionMixin:
             )
 
         # ------------------------------------------------------------------
-        # NEW: PHANTOM FILE DETECTION (Self-Healing Logic)
+        # PHANTOM FILE DETECTION (Self-Healing Logic)
         # ------------------------------------------------------------------
-        # Heuristic: If code looks like it saves a file, but no file came back.
         code_intent_save = any(
             k in code for k in [".save(", ".to_csv(", ".to_excel(", "open(", ".write("]
         )
-
-        # Whitelist 'print' debugging or simple math that might use open() for reading
         is_reading_only = "r'" in code or 'r"' in code or "read_csv" in code
 
         if (
@@ -292,26 +285,36 @@ class CodeExecutionMixin:
             execution_had_error = True
             hot_code_buffer.append(error_msg)
 
-            # Stream the error to the frontend so the user knows why we are retrying
+            # FIX: DO NOT yield this specific prompt message to the user frontend.
+            # We only want the LLM to see the instructions.
+            # If we want the user to know something failed, we yield a generic error.
             yield json.dumps(
                 {
                     "stream_type": "code_execution",
-                    "chunk": {"type": "error", "content": error_msg},
+                    "chunk": {
+                        "type": "error",
+                        "content": "Execution completed but no file was generated (check internal logs).",
+                    },
                 }
             )
 
-        # 4. Final Summary
+        # 4. Final Summary Calculation
         raw_output = "\n".join(hot_code_buffer).strip()
+
+        # --- FIX STARTS HERE: Separate content for LLM vs User ---
         if execution_had_error:
-            final_content = self._format_level2_code_error(
+            # For the LLM: Include the aggressive system prompts to force self-correction
+            llm_content = self._format_level2_code_error(
                 raw_output or "Unknown execution failure."
             )
+            # For the User: Show only the clean traceback/error output
+            user_content = raw_output or "❌ Code execution failed."
         else:
-            final_content = raw_output or "[Code executed successfully.]"
+            llm_content = raw_output or "[Code executed successfully.]"
+            user_content = llm_content
+        # ---------------------------------------------------------
 
-        # ------------------------------------------------------------------
-        # 5. Process Files (UPDATED: Use Signed URLs instead of Base64)
-        # ------------------------------------------------------------------
+        # 5. Process Files
         LOG.info(
             f"[FILE_DEBUG] Entering File Processing Loop. Total queue size: {len(uploaded_files)}"
         )
@@ -320,39 +323,22 @@ class CodeExecutionMixin:
             file_id = file_meta.get("id")
             filename = file_meta.get("filename")
 
-            LOG.info(f"[FILE_DEBUG] Processing File: {filename} (ID: {file_id})")
-
             if not file_id or not filename:
-                LOG.warning(
-                    f"[FILE_DEBUG] Skipping file due to missing ID or Filename: {file_meta}"
-                )
                 continue
 
             mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
             try:
-                # [CHANGE] Get Signed URL instead of Base64
-                LOG.info(
-                    f"[FILE_DEBUG] Generating Signed URL for File ID: {file_id}..."
-                )
-
-                # Check if the sandbox already provided a URL we can use
                 file_url = file_meta.get("url")
-
                 if not file_url:
-                    # Fallback: Generate signed URL using the API client
-                    # We typically want a decent expiration time (e.g., 1 hour)
                     file_url = await asyncio.to_thread(
                         self.project_david_client.files.get_signed_url,
                         file_id=file_id,
                         use_real_filename=True,
                     )
 
-                LOG.info(f"[FILE_DEBUG] URL Generated: {file_url}")
-
                 payload = {
                     "stream_type": "code_execution",
-                    # ✅ FIX: Add run_id to the payload wrapper so the SDK can extract it
                     "run_id": run_id,
                     "chunk": {
                         "type": "code_interpreter_file",
@@ -363,24 +349,17 @@ class CodeExecutionMixin:
                         "base64": None,
                     },
                 }
-                LOG.info(f"[FILE_DEBUG] Yielding 'code_interpreter_file' URL chunk.")
                 yield json.dumps(payload)
 
-                # [NOTE] We do NOT delete the file here anymore.
-                # If we delete it, the URL becomes invalid immediately.
-                # Cleanup should be handled by a background process or TTL on the bucket/storage.
-
             except Exception as e:
-                LOG.error(
-                    f"[FILE_DEBUG] Error generating URL for file ({file_id}): {e}",
-                    exc_info=True,
-                )
+                LOG.error(f"[FILE_DEBUG] Error generating URL: {e}", exc_info=True)
 
         # 6. Close out current stream
+        # FIX: Send `user_content` to the frontend, NOT `llm_content`
         yield json.dumps(
             {
                 "stream_type": "code_execution",
-                "chunk": {"type": "content", "content": final_content},
+                "chunk": {"type": "content", "content": user_content},
             }
         )
         yield json.dumps(
@@ -391,12 +370,13 @@ class CodeExecutionMixin:
         )
 
         # 7. Submit Result
+        # FIX: Send `llm_content` (with instructions) to the Assistant
         try:
             await self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
-                content=final_content,
+                content=llm_content,
                 action=action,
                 is_error=execution_had_error,
             )

@@ -408,23 +408,6 @@ GENERAL_INSTRUCTIONS = {
         "4. **FILE FACTORY:** You have NATIVE capabilities to generate downloadable files. "
         "If a user wants a report, summary, or data, you MUST write code to create a .docx, .csv, or .xlsx file."
     ),
-    "FILE_GENERATION_PROTOCOL": (
-        "\n🔹 **FILE GENERATION PROTOCOL (STRICT)**\n"
-        "**TRIGGER:** If the user asks for a 'report', 'summary', 'spreadsheet', 'download', or 'table', "
-        "you MUST immediately generate a physical file using Code Interpreter.\n\n"
-        "**EXECUTION STEPS:**\n"
-        "1. **Library Selection:** Use `python-docx` for Word documents. Use `pandas` for Excel/CSV.\n"
-        "2. **Pathing:** ALWAYS save files to the current working directory (e.g., `doc.save('report.docx')`).\n"
-        "   ❌ NEVER save to `/tmp/`, `/mnt/`, or absolute paths.\n"
-        "3. **Verification:** Your script MUST verify the file exists before finishing:\n"
-        "   ```python\n"
-        "   if os.path.exists('report.docx'):\n"
-        "       print('SYSTEM_CHECK: File created successfully.')\n"
-        "   else:\n"
-        "       raise FileNotFoundError('File failed to save.')\n"
-        "   ```\n"
-        "4. **Persistence:** The system will automatically detect the file and generate a download link.\n"
-    ),
     "ADVANCED_ANALYSIS": (
         "\n1. Always save generated files locally during code execution.\n"
         "2. Do not display, preview, or open files in memory.\n"
