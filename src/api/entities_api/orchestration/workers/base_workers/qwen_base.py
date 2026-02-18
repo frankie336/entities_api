@@ -124,9 +124,6 @@ class QwenBaseWorker(
         Utilizes DeltaNormalizer for Qwen/Kimi tag handling and helper method for state management.
         """
 
-        self.assistant_config = {}
-        await self._ensure_config_loaded()
-
         # -----------------------------------
         # Ephemeral supervisor
         # -----------------------------------
@@ -272,6 +269,9 @@ class QwenBaseWorker(
             stop_event.set()
             # 2. Ephemeral Assistant Cleanup
             if self.ephemeral_supervisor_id:
+
+                self.assistant_config = {}
+                await self._ensure_config_loaded()
 
                 # We use the helper method we wrote earlier, ensuring 'await' is used
                 await self._ephemeral_clean_up(

@@ -23,7 +23,6 @@ class CodeExecutionMixin:
 
     @staticmethod
     def _format_level2_code_error(error_content: str) -> str:
-        # IMPROVEMENT: More directive error message to trigger self-correction
         return (
             f"❌ CODE EXECUTION FAILED:\n{error_content}\n\n"
             "## IMMEDIATE RECOVERY INSTRUCTIONS:\n"
@@ -49,6 +48,18 @@ class CodeExecutionMixin:
         }
         return jwt.encode(payload, secret, algorithm="HS256")
 
+    def _activity(self, activity: str, state: str, run_id: str) -> str:
+        """Builds a status/activity message in the shared envelope format."""
+        return json.dumps(
+            {
+                "type": "activity",
+                "activity": activity,
+                "state": state,
+                "tool": "code_interpreter",
+                "run_id": run_id,
+            }
+        )
+
     async def handle_code_interpreter_action(
         self,
         thread_id: str,
@@ -60,12 +71,7 @@ class CodeExecutionMixin:
     ) -> AsyncGenerator[str, None]:
 
         # 1. Notify start
-        yield json.dumps(
-            {
-                "stream_type": "code_execution",
-                "chunk": {"type": "status", "status": "started", "run_id": run_id},
-            }
-        )
+        yield self._activity("Preparing code interpreter...", "in_progress", run_id)
 
         # --- VALIDATION ---
         validator = ToolValidator()
@@ -74,6 +80,7 @@ class CodeExecutionMixin:
 
         if validation_error:
             LOG.warning(f"CodeInterpreter ▸ Validation Failed: {validation_error}")
+            action = None
             try:
                 action = await asyncio.to_thread(
                     self.project_david_client.actions.create_action,
@@ -86,23 +93,23 @@ class CodeExecutionMixin:
             except Exception:
                 pass
 
-            yield json.dumps(
-                {
-                    "stream_type": "code_execution",
-                    "chunk": {"type": "error", "content": validation_error},
-                }
+            # Surface as a recoverable status message — not a raw error chunk
+            yield self._activity(
+                f"Validation failed: {validation_error}", "error", run_id
             )
+
             await self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
                 content=f"{validation_error}\nPlease correct arguments.",
-                action=action if "action" in locals() else None,
+                action=action,
                 is_error=True,
             )
             return
 
         # 2. Create Action
+        action = None
         try:
             action = await asyncio.to_thread(
                 self.project_david_client.actions.create_action,
@@ -114,17 +121,12 @@ class CodeExecutionMixin:
             )
         except Exception as e:
             LOG.error(f"CodeInterpreter ▸ Action creation failed: {e}")
-            yield json.dumps(
-                {
-                    "type": "error",
-                    "chunk": {"type": "error", "content": f"Creation failed: {e}"},
-                }
-            )
+            yield self._activity(f"Failed to register action: {e}", "error", run_id)
             return
 
         code: str = arguments_dict.get("code", "")
 
-        # ⚡ HOT CODE REPLAY
+        # ⚡ HOT CODE REPLAY — streams the code itself, not errors
         if code:
             yield json.dumps(
                 {
@@ -153,6 +155,8 @@ class CodeExecutionMixin:
         execution_had_error = False
 
         # 3. Stream Execution Output
+        yield self._activity("Executing code in sandbox...", "in_progress", run_id)
+
         try:
             auth_token = self._generate_sandbox_token(subject_id=f"run_{run_id}")
             sync_iter = iter(
@@ -198,22 +202,30 @@ class CodeExecutionMixin:
                         if content is not None:
                             clean_content = str(content).replace("\\n", "\n")
                             hot_code_buffer.append(clean_content)
-                            if (
+
+                            is_error_line = (
                                 ctype == "stderr"
                                 or "Traceback" in clean_content
                                 or "Error:" in clean_content
-                            ):
-                                execution_had_error = True
-
-                            yield json.dumps(
-                                {
-                                    "stream_type": "code_execution",
-                                    "chunk": {
-                                        "type": "hot_code_output",
-                                        "content": clean_content,
-                                    },
-                                }
                             )
+
+                            if is_error_line:
+                                execution_had_error = True
+                                # Log internally; do NOT forward raw error to consumer
+                                LOG.warning(
+                                    f"CodeInterpreter ▸ Sandbox stderr: {clean_content[:200]}"
+                                )
+                            else:
+                                # Only forward clean stdout/output to consumer
+                                yield json.dumps(
+                                    {
+                                        "stream_type": "code_execution",
+                                        "chunk": {
+                                            "type": "hot_code_output",
+                                            "content": clean_content,
+                                        },
+                                    }
+                                )
 
                     elif ctype == "status":
                         if content == "complete":
@@ -221,37 +233,37 @@ class CodeExecutionMixin:
                             LOG.info(
                                 f"[FILE_DEBUG] Sandbox 'complete' status received. Raw Files Payload: {raw_files}"
                             )
-
                             if isinstance(raw_files, list) and len(raw_files) > 0:
                                 uploaded_files.extend(raw_files)
                             else:
                                 LOG.warning(
-                                    f"[FILE_DEBUG] No files found in sandbox completion payload."
+                                    "[FILE_DEBUG] No files found in sandbox completion payload."
                                 )
 
-                        yield json.dumps(
-                            {"stream_type": "code_execution", "chunk": payload}
+                        # Forward sandbox status events as activity messages
+                        status_val = payload.get("status", content or "unknown")
+                        yield self._activity(
+                            f"Sandbox status: {status_val}", "in_progress", run_id
                         )
 
                     elif ctype == "error":
+                        # Recoverable sandbox error — capture for LLM, surface as activity
                         execution_had_error = True
-                        LOG.error(f"CodeInterpreter ▸ Error: {content}")
+                        LOG.error(f"CodeInterpreter ▸ Sandbox error chunk: {content}")
                         hot_code_buffer.append(f"[Code Exec Error] {content}")
-                        yield json.dumps(
-                            {
-                                "stream_type": "code_execution",
-                                "chunk": {"type": "error", "content": content},
-                            }
+                        yield self._activity(
+                            "Code execution encountered an error — attempting recovery...",
+                            "error",
+                            run_id,
                         )
 
         except Exception as stream_err:
             execution_had_error = True
             LOG.error(f"CodeInterpreter ▸ Stream error: {stream_err}")
-            yield json.dumps(
-                {
-                    "type": "error",
-                    "chunk": {"type": "error", "content": str(stream_err)},
-                }
+            yield self._activity(
+                "Sandbox stream interrupted — attempting recovery...",
+                "error",
+                run_id,
             )
 
         # ------------------------------------------------------------------
@@ -269,9 +281,8 @@ class CodeExecutionMixin:
             and not execution_had_error
         ):
             LOG.warning(
-                f"CodeInterpreter ▸ Phantom File Detected. Code implies save, but sandbox returned nothing."
+                "CodeInterpreter ▸ Phantom File Detected. Code implies save, but sandbox returned nothing."
             )
-
             error_msg = (
                 "SYSTEM ERROR: Your code appears to save a file (detected '.save' or '.write'), "
                 "but the sandbox execution completed without returning any generated files.\n\n"
@@ -280,39 +291,27 @@ class CodeExecutionMixin:
                 "2. Did the script crash silently? Add `print('Finished saving')` to debug.\n"
                 "3. Retry execution ensuring the file is saved to the root path."
             )
-
-            # Force error state so the Orchestrator recurses
             execution_had_error = True
             hot_code_buffer.append(error_msg)
 
-            # FIX: DO NOT yield this specific prompt message to the user frontend.
-            # We only want the LLM to see the instructions.
-            # If we want the user to know something failed, we yield a generic error.
-            yield json.dumps(
-                {
-                    "stream_type": "code_execution",
-                    "chunk": {
-                        "type": "error",
-                        "content": "Execution completed but no file was generated (check internal logs).",
-                    },
-                }
+            # Surface as a recoverable activity — not a raw error chunk
+            yield self._activity(
+                "File generation expected but not returned — requesting retry...",
+                "error",
+                run_id,
             )
 
         # 4. Final Summary Calculation
         raw_output = "\n".join(hot_code_buffer).strip()
 
-        # --- FIX STARTS HERE: Separate content for LLM vs User ---
         if execution_had_error:
-            # For the LLM: Include the aggressive system prompts to force self-correction
             llm_content = self._format_level2_code_error(
                 raw_output or "Unknown execution failure."
             )
-            # For the User: Show only the clean traceback/error output
             user_content = raw_output or "❌ Code execution failed."
         else:
             llm_content = raw_output or "[Code executed successfully.]"
             user_content = llm_content
-        # ---------------------------------------------------------
 
         # 5. Process Files
         LOG.info(
@@ -337,40 +336,49 @@ class CodeExecutionMixin:
                         use_real_filename=True,
                     )
 
-                payload = {
-                    "stream_type": "code_execution",
-                    "run_id": run_id,
-                    "chunk": {
-                        "type": "code_interpreter_file",
-                        "filename": filename,
-                        "file_id": file_id,
-                        "url": file_url,
-                        "mime_type": mime_type,
-                        "base64": None,
-                    },
-                }
-                yield json.dumps(payload)
+                yield json.dumps(
+                    {
+                        "stream_type": "code_execution",
+                        "run_id": run_id,
+                        "chunk": {
+                            "type": "code_interpreter_file",
+                            "filename": filename,
+                            "file_id": file_id,
+                            "url": file_url,
+                            "mime_type": mime_type,
+                            "base64": None,
+                        },
+                    }
+                )
 
             except Exception as e:
                 LOG.error(f"[FILE_DEBUG] Error generating URL: {e}", exc_info=True)
+                yield self._activity(
+                    f"Could not generate download URL for {filename}",
+                    "error",
+                    run_id,
+                )
 
-        # 6. Close out current stream
-        # FIX: Send `user_content` to the frontend, NOT `llm_content`
+        # 6. Close out current stream — send clean user_content, never raw llm_content
         yield json.dumps(
             {
                 "stream_type": "code_execution",
                 "chunk": {"type": "content", "content": user_content},
             }
         )
-        yield json.dumps(
-            {
-                "stream_type": "code_execution",
-                "chunk": {"type": "status", "status": "complete", "run_id": run_id},
-            }
+
+        final_state = "completed" if not execution_had_error else "error"
+        yield self._activity(
+            (
+                "Code execution complete."
+                if not execution_had_error
+                else "Code execution finished with errors."
+            ),
+            final_state,
+            run_id,
         )
 
-        # 7. Submit Result
-        # FIX: Send `llm_content` (with instructions) to the Assistant
+        # 7. Submit Result — LLM receives llm_content (with recovery instructions)
         try:
             await self.submit_tool_output(
                 thread_id=thread_id,
@@ -382,6 +390,7 @@ class CodeExecutionMixin:
             )
         except Exception as e:
             LOG.error(f"CodeInterpreter ▸ Submission failure: {e}")
+            yield self._activity(f"Tool output submission failed: {e}", "error", run_id)
 
     def process_hot_code_buffer(
         self,
