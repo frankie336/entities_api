@@ -5,19 +5,16 @@ import asyncio
 import json
 import os
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
 from dotenv import load_dotenv
 from projectdavid import StreamEvent
-from projectdavid_common.constants import PLATFORM_TOOLS
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
 # --- [FIX 1] ADDED MISSING IMPORT ---
-from entities_api.utils.delegation_model_map import get_delegated_model
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
 from src.api.entities_api.orchestration.engine.orchestrator_core import (
@@ -25,7 +22,6 @@ from src.api.entities_api.orchestration.engine.orchestrator_core import (
 # --- MIXINS ---
 from src.api.entities_api.orchestration.mixins.provider_mixins import \
     _ProviderMixins
-from src.api.entities_api.utils.assistant_manager import AssistantManager
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -171,12 +167,28 @@ class DeepSeekBaseWorker(
 
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", False)
+
+            # --- [CRITICAL FIX START] ---
+            # 1. Default to user preference (usually True for standard agents)
             web_access_setting = self.assistant_config.get("web_access", False)
 
-            # ✅ Retrieve research worker flag (guaranteed boolean by AssistantCache)
+            # 2. Check if this is a research worker
             research_worker_setting = self.assistant_config.get(
                 "is_research_worker", False
             )
+
+            # 3. CONFLICT RESOLUTION:
+            # If Deep Research (Supervisor) is active, it MUST override Worker settings.
+            # A Supervisor cannot be a Worker.
+            if self.is_deep_research:
+                web_access_setting = False  # Supervisor creates plans, does not browse
+                research_worker_setting = (
+                    False  # Supervisor is NOT a worker (Fixes Prompt Issue)
+                )
+
+            # 4. WORKER LOGIC (Only if NOT a Supervisor):
+            elif research_worker_setting:
+                web_access_setting = True
 
             # Updated to use self.assistant_id (handles identity swap) and pass deep_research flag
             ctx = await self._set_up_context_window(
@@ -245,6 +257,9 @@ class DeepSeekBaseWorker(
             stop_event.set()
             # 2. Ephemeral Assistant Cleanup
             if self.ephemeral_supervisor_id:
+
+                self.assistant_config = {}
+                await self._ensure_config_loaded()
 
                 # We use the helper method we wrote earlier, ensuring 'await' is used
                 await self._ephemeral_clean_up(

@@ -177,6 +177,25 @@ class HermesDefaultBaseWorker(
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", False)
             web_access_setting = self.assistant_config.get("decision_telemetry", False)
+
+            # 2. Check if this is a research worker
+            research_worker_setting = self.assistant_config.get(
+                "is_research_worker", False
+            )
+
+            # 3. CONFLICT RESOLUTION:
+            # If Deep Research (Supervisor) is active, it MUST override Worker settings.
+            # A Supervisor cannot be a Worker.
+            if self.is_deep_research:
+                web_access_setting = False  # Supervisor creates plans, does not browse
+                research_worker_setting = (
+                    False  # Supervisor is NOT a worker (Fixes Prompt Issue)
+                )
+
+            # 4. WORKER LOGIC (Only if NOT a Supervisor):
+            elif research_worker_setting:
+                web_access_setting = True
+
             # ----------------------------------------------------------------------
             # The research worker is issued with its own instructions and tool set.
             # We must set the flag.
@@ -252,6 +271,9 @@ class HermesDefaultBaseWorker(
             stop_event.set()
             # 2. Ephemeral Assistant Cleanup
             if self.ephemeral_supervisor_id:
+
+                self.assistant_config = {}
+                await self._ensure_config_loaded()
 
                 # We use the helper method we wrote earlier, ensuring 'await' is used
                 await self._ephemeral_clean_up(
