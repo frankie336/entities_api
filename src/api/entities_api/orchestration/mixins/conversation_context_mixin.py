@@ -1,7 +1,7 @@
 import asyncio
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from projectdavid import Entity
@@ -154,29 +154,21 @@ class ConversationContextMixin:
     ) -> Dict:
         cache = self.get_assistant_cache()
         cfg = await cache.retrieve(assistant_id)
-        today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-        # ===============================================================
-        # **Important**
-        # If web access is False, an assistant will not have
-        # The instructions necessary to use the web access tools
-        # Passing in {web_access} as a platform tool definition
-        # gives the assistant the tools, without the instructions on use
-        # =================================================================
-
-        instruction_keys = list(L3_INSTRUCTIONS if agent_mode else L2_INSTRUCTIONS)
-
-        if decision_telemetry and "TOOL_DECISION_PROTOCOL" not in instruction_keys:
-            instruction_keys.insert(0, "TOOL_DECISION_PROTOCOL")
-
-        # Inject Web Search Instructions to the main list
-        if web_access:
-            instruction_keys.extend(L3_WEB_USE_INSTRUCTIONS)
+        instruction_keys = list(
+            dict.fromkeys(
+                [
+                    *(["TOOL_DECISION_PROTOCOL"] if decision_telemetry else []),
+                    *(L3_INSTRUCTIONS if agent_mode else L2_INSTRUCTIONS),
+                    *(L3_WEB_USE_INSTRUCTIONS if web_access else []),
+                ]
+            )
+        )
 
         platform_instructions = assemble_instructions(include_keys=instruction_keys)
 
-        # Ensure tools list exists
-        raw_tools_list = cfg.get("tools") or []
+        raw_tools_list = list(cfg.get("tools") or [])
 
         if web_access:
             has_web_tool = any(
@@ -184,7 +176,6 @@ class ConversationContextMixin:
                 for t in raw_tools_list
             )
             if not has_web_tool:
-                raw_tools_list = list(raw_tools_list)
                 raw_tools_list.append({"type": "web_search"})
 
         final_tools = self._resolve_and_prioritize_platform_tools(
@@ -217,21 +208,21 @@ class ConversationContextMixin:
     ) -> Dict:
         cache = self.get_assistant_cache()
         cfg = await cache.retrieve(assistant_id)
-        today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-        instruction_keys = LEVEL_4_SUPERVISOR_INSTRUCTIONS
-
-        if decision_telemetry and "TOOL_DECISION_PROTOCOL" not in instruction_keys:
-            instruction_keys.insert(0, "TOOL_DECISION_PROTOCOL")
-
-        # Inject Web Search Instructions to the main list
-        if web_access:
-            instruction_keys.extend(L3_WEB_USE_INSTRUCTIONS)
+        instruction_keys = list(
+            dict.fromkeys(
+                [
+                    *(["TOOL_DECISION_PROTOCOL"] if decision_telemetry else []),
+                    *LEVEL_4_SUPERVISOR_INSTRUCTIONS,
+                    *(L3_WEB_USE_INSTRUCTIONS if web_access else []),
+                ]
+            )
+        )
 
         platform_instructions = assemble_instructions(include_keys=instruction_keys)
 
-        # Ensure tools list exists
-        raw_tools_list = cfg.get("tools") or []
+        raw_tools_list = list(cfg.get("tools") or [])
 
         if web_access:
             has_web_tool = any(
@@ -239,7 +230,6 @@ class ConversationContextMixin:
                 for t in raw_tools_list
             )
             if not has_web_tool:
-                raw_tools_list = list(raw_tools_list)
                 raw_tools_list.append({"type": "web_search"})
 
         final_tools = self._resolve_and_prioritize_platform_tools(
@@ -272,21 +262,21 @@ class ConversationContextMixin:
     ) -> Dict:
         cache = self.get_assistant_cache()
         cfg = await cache.retrieve(assistant_id)
-        today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-        instruction_keys = L4_RESEARCH_INSTRUCTIONS
-
-        if decision_telemetry and "TOOL_DECISION_PROTOCOL" not in instruction_keys:
-            instruction_keys.insert(0, "TOOL_DECISION_PROTOCOL")
-
-        # Inject Web Search Instructions to the main list
-        if web_access:
-            instruction_keys.extend(L3_WEB_USE_INSTRUCTIONS)
+        instruction_keys = list(
+            dict.fromkeys(
+                [
+                    *(["TOOL_DECISION_PROTOCOL"] if decision_telemetry else []),
+                    *L4_RESEARCH_INSTRUCTIONS,
+                    *(L3_WEB_USE_INSTRUCTIONS if web_access else []),
+                ]
+            )
+        )
 
         platform_instructions = assemble_instructions(include_keys=instruction_keys)
 
-        # Ensure tools list exists
-        raw_tools_list = cfg.get("tools") or []
+        raw_tools_list = list(cfg.get("tools") or [])
 
         if web_access:
             has_web_tool = any(
@@ -294,7 +284,6 @@ class ConversationContextMixin:
                 for t in raw_tools_list
             )
             if not has_web_tool:
-                raw_tools_list = list(raw_tools_list)
                 raw_tools_list.append({"type": "web_search"})
 
         final_tools = self._resolve_and_prioritize_platform_tools(
@@ -315,21 +304,6 @@ class ConversationContextMixin:
         return {
             "role": "system",
             "content": "\n\n".join(block for block in content_blocks if block),
-        }
-
-    async def _build_amended_system_message(self, assistant_id: str) -> Dict:
-        cache = self.get_assistant_cache()
-        cfg = await cache.retrieve(assistant_id)
-
-        today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        excluded_instructions = assemble_instructions(
-            exclude_keys=["TOOL_USAGE_PROTOCOL"]
-        )
-
-        return {
-            "role": "system",
-            "content": f"tools:\n{json.dumps(cfg['tools'])}\n{excluded_instructions}\nToday's date and time: {today}",
         }
 
     async def _build_native_function_calls_system_message(
@@ -341,21 +315,21 @@ class ConversationContextMixin:
     ) -> Dict:
         cache = self.get_assistant_cache()
         cfg = await cache.retrieve(assistant_id)
-        today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-        instruction_keys = list(L3_INSTRUCTIONS if agent_mode else NO_CORE_INSTRUCTIONS)
-
-        if decision_telemetry and "TOOL_DECISION_PROTOCOL" not in instruction_keys:
-            instruction_keys.insert(0, "TOOL_DECISION_PROTOCOL")
-
-        # Inject Web Search Instructions to the main list
-        if web_access:
-            instruction_keys.extend(L3_WEB_USE_INSTRUCTIONS)
+        instruction_keys = list(
+            dict.fromkeys(
+                [
+                    *(["TOOL_DECISION_PROTOCOL"] if decision_telemetry else []),
+                    *(L3_INSTRUCTIONS if agent_mode else NO_CORE_INSTRUCTIONS),
+                    *(L3_WEB_USE_INSTRUCTIONS if web_access else []),
+                ]
+            )
+        )
 
         platform_instructions = assemble_instructions(include_keys=instruction_keys)
 
-        # Ensure tools list exists
-        raw_tools_list = cfg.get("tools") or []
+        raw_tools_list = list(cfg.get("tools") or [])
 
         if web_access:
             has_web_tool = any(
@@ -363,7 +337,6 @@ class ConversationContextMixin:
                 for t in raw_tools_list
             )
             if not has_web_tool:
-                raw_tools_list = list(raw_tools_list)
                 raw_tools_list.append({"type": "web_search"})
 
         final_tools = self._resolve_and_prioritize_platform_tools(
@@ -384,9 +357,8 @@ class ConversationContextMixin:
         return {
             "role": "system",
             "content": "\n\n".join(block for block in content_blocks if block),
-        }
+        }  # -----------------------------------------------------
 
-    # -----------------------------------------------------
     # ASYNC CONTEXT WINDOW (FIXED)
     # -----------------------------------------------------
     async def _set_up_context_window(
