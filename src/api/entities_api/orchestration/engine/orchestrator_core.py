@@ -197,6 +197,8 @@ class OrchestratorCore(
 
         LOG.critical("██████ [DEEP_RESEARCH_MODE]=%s ██████", self.is_deep_research)
 
+        self.assistant_config.get("web_access", False)
+
         # 1. Acquire Supervisor (Ideally, this is where you'd implement pooling later)
         assistant_manager = AssistantManager()
         ephemeral_supervisor = await assistant_manager.create_ephemeral_supervisor()

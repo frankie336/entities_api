@@ -15,13 +15,13 @@ from projectdavid_common.validation import StatusEnum
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
-
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis_sync
-from src.api.entities_api.orchestration.engine.orchestrator_core import OrchestratorCore
-
+from src.api.entities_api.orchestration.engine.orchestrator_core import \
+    OrchestratorCore
 # --- MIXINS ---
-from src.api.entities_api.orchestration.mixins.provider_mixins import _ProviderMixins
+from src.api.entities_api.orchestration.mixins.provider_mixins import \
+    _ProviderMixins
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -66,7 +66,9 @@ class QwenBaseWorker(
         # 2. Cache Service Setup
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
+        elif "assistant_cache" in extra and isinstance(
+            extra["assistant_cache"], AssistantCache
+        ):
             self._assistant_cache = extra["assistant_cache"]
 
         # 3. Config Legacy Support
@@ -144,7 +146,9 @@ class QwenBaseWorker(
         pre_mapped_model = model
         try:
             # --- 2. Model & Identity Setup ---
-            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
+            if hasattr(self, "_get_model_map") and (
+                mapped := self._get_model_map(model)
+            ):
                 model = mapped
 
             self.assistant_id = assistant_id
@@ -155,17 +159,45 @@ class QwenBaseWorker(
             # Check for Deep Research / Supervisor Mode on the ORIGINAL assistant
             self.is_deep_research = self.assistant_config.get("deep_research", False)
 
-            # C. Execute Identity Swap (Refactored)
-            # This handles the supervisor creation, ID swapping, and config reloading
-            await self._handle_deep_research_identity_swap(requested_model=pre_mapped_model)
-
             # Retrieve settings from the normalized cache
-            # (Now guarantees we are reading from the SUPERVISOR if deep_research is active)
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", False)
-            web_access_setting = self.assistant_config.get("web_access", False)
-            research_worker_setting = self.assistant_config.get("is_research_worker", False)
-            LOG.critical("██████ [RESEARCH_WORKER_SETTING]=%s ██████", research_worker_setting)
+
+            # --- [CRITICAL FIX START] ---
+            # 1. Default to user preference (usually True for standard agents)
+            web_access_setting = self.assistant_config.get("web_access", True)
+
+            # 2. Check if this is a research worker
+            research_worker_setting = self.assistant_config.get(
+                "is_research_worker", False
+            )
+
+            # 3. CONFLICT RESOLUTION:
+            # If Deep Research (Supervisor) is active, it MUST override Worker settings.
+            # A Supervisor cannot be a Worker.
+            if self.is_deep_research:
+                web_access_setting = False  # Supervisor creates plans, does not browse
+                research_worker_setting = (
+                    False  # Supervisor is NOT a worker (Fixes Prompt Issue)
+                )
+
+            # 4. WORKER LOGIC (Only if NOT a Supervisor):
+            elif research_worker_setting:
+                web_access_setting = True
+
+            LOG.critical(
+                "██████ [ROLE CONFIG] DeepResearch (Supervisor)=%s | Worker=%s | WebAccess=%s ██████",
+                self.is_deep_research,
+                research_worker_setting,
+                web_access_setting,
+            )
+            # --- [CRITICAL FIX END] ---
+
+            # C. Execute Identity Swap (Refactored)
+            # This handles the supervisor creation, ID swapping, and config reloading
+            await self._handle_deep_research_identity_swap(
+                requested_model=pre_mapped_model
+            )
 
             # --- 3. Context & Client ---
             ctx = await self._set_up_context_window(
@@ -175,9 +207,9 @@ class QwenBaseWorker(
                 force_refresh=force_refresh,
                 agent_mode=agent_mode_setting,
                 decision_telemetry=decision_telemetry,
-                web_access=web_access_setting,
+                web_access=web_access_setting,  # Passes the corrected flag
                 deep_research=self.is_deep_research,
-                research_worker=research_worker_setting,
+                research_worker=research_worker_setting,  # Passes the corrected flag
             )
 
             if not api_key:
@@ -189,7 +221,9 @@ class QwenBaseWorker(
             client = self._get_client_instance(api_key=api_key)
 
             # --- [DEBUG] RAW CONTEXT DUMP ---
-            LOG.info(f"\nRAW_CTX_DUMP_QUEN:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}")
+            LOG.info(
+                f"\nRAW_CTX_DUMP_QUEN:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}"
+            )
 
             # --- 4. The Stream Loop ---
             raw_stream = client.stream_chat_completion(
@@ -249,11 +283,15 @@ class QwenBaseWorker(
             try:
                 self._decision_payload = json.loads(decision_buffer.strip())
             except Exception:
-                LOG.warning(f"Failed to parse decision buffer: {decision_buffer[:50]}...")
+                LOG.warning(
+                    f"Failed to parse decision buffer: {decision_buffer[:50]}..."
+                )
 
         # 5b. Extract Tool Calls (DeltaNormalizer has already normalized them to 'call_arguments')
         # This parses the 'accumulated' XML/string into a list of dictionaries
-        tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
+        tool_calls_batch = self.parse_and_set_function_calls(
+            accumulated, assistant_reply
+        )
 
         message_to_save = assistant_reply
         final_status = StatusEnum.completed.value
@@ -280,11 +318,15 @@ class QwenBaseWorker(
 
             # Save the STRUCTURAL representation, not the raw text
             message_to_save = json.dumps(tool_calls_structure)
-            yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
+            yield json.dumps(
+                {"type": "status", "status": "processing", "run_id": run_id}
+            )
 
         # --- 7. Finalize & Persist ---
         if message_to_save:
-            await self.finalize_conversation(message_to_save, thread_id, self.assistant_id, run_id)
+            await self.finalize_conversation(
+                message_to_save, thread_id, self.assistant_id, run_id
+            )
 
         # Update Run status in DB
         if self.project_david_client:

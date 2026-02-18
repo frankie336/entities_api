@@ -33,7 +33,9 @@ class CodeExecutionMixin:
     def _generate_sandbox_token(self, subject_id: str) -> str:
         secret = os.getenv("SANDBOX_AUTH_SECRET")
         if not secret:
-            LOG.error("CRITICAL: SANDBOX_AUTH_SECRET is missing in environment variables.")
+            LOG.error(
+                "CRITICAL: SANDBOX_AUTH_SECRET is missing in environment variables."
+            )
             raise ValueError("Server configuration error: Sandbox secret missing.")
 
         payload = {
@@ -150,7 +152,9 @@ class CodeExecutionMixin:
         # 3. Stream Execution Output
         try:
             auth_token = self._generate_sandbox_token(subject_id=f"run_{run_id}")
-            sync_iter = iter(self.code_execution_client.stream_output(code, token=auth_token))
+            sync_iter = iter(
+                self.code_execution_client.stream_output(code, token=auth_token)
+            )
 
             def safe_next(it):
                 try:
@@ -226,7 +230,9 @@ class CodeExecutionMixin:
                                     f"[FILE_DEBUG] No files found in sandbox completion payload."
                                 )
 
-                        yield json.dumps({"stream_type": "code_execution", "chunk": payload})
+                        yield json.dumps(
+                            {"stream_type": "code_execution", "chunk": payload}
+                        )
 
                     elif ctype == "error":
                         execution_had_error = True
@@ -281,7 +287,9 @@ class CodeExecutionMixin:
 
             try:
                 # [CHANGE] Get Signed URL instead of Base64
-                LOG.info(f"[FILE_DEBUG] Generating Signed URL for File ID: {file_id}...")
+                LOG.info(
+                    f"[FILE_DEBUG] Generating Signed URL for File ID: {file_id}..."
+                )
 
                 # Check if the sandbox already provided a URL we can use
                 file_url = file_meta.get("url")
@@ -378,7 +386,9 @@ class CodeExecutionMixin:
         if (has_newline or is_long_enough or is_closed) and safe_cut:
             cursor += len(unsent_buffer)
             clean_segment = (
-                unsent_buffer.replace("\\n", "\n").replace('\\"', '"').replace("\\'", "'")
+                unsent_buffer.replace("\\n", "\n")
+                .replace('\\"', '"')
+                .replace("\\'", "'")
             )
             if len(clean_segment) == 1 and clean_segment in ('"', "}"):
                 return start_index, cursor, None

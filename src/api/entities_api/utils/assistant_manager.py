@@ -37,7 +37,7 @@ class AssistantManager:
         """
 
         return self.client.assistants.create_assistant(
-            name=name, model=model, tools=SUPERVISOR_TOOLS, web_access=False
+            name=name, model=model, tools=SUPERVISOR_TOOLS, web_access=True
         )
 
     def create_thread(self, name: str = "Test Assistant", model: str = "gpt-oss-120b"):
@@ -56,7 +56,7 @@ class AssistantManager:
             name=f"worker_{uuid.uuid4().hex[:8]}",
             description="Temp research supervisor",
             tools=SUPERVISOR_TOOLS,
-            deep_research=False,
+            deep_research=True,
         )
         return ephemeral_worker
 

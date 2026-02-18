@@ -150,11 +150,19 @@ class ConversationContextMixin:
         assistant_id: str,
         decision_telemetry: bool = False,
         agent_mode: bool = False,
-        web_access: bool = True,
+        web_access: bool = False,
     ) -> Dict:
         cache = self.get_assistant_cache()
         cfg = await cache.retrieve(assistant_id)
         today = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # ===============================================================
+        # **Important**
+        # If web access is False, an assistant will not have
+        # The instructions necessary to use the web access tools
+        # Passing in {web_access} as a platform tool definition
+        # gives the assistant the tools, without the instructions on use
+        # =================================================================
 
         instruction_keys = list(L3_INSTRUCTIONS if agent_mode else L2_INSTRUCTIONS)
 
@@ -390,7 +398,7 @@ class ConversationContextMixin:
         force_refresh: Optional[bool] = False,
         decision_telemetry: bool = False,
         agent_mode: bool = False,
-        web_access: bool = True,
+        web_access: bool = False,
         deep_research: bool = False,
         research_worker: bool = False,  # Added flag
     ) -> List[Dict]:
@@ -403,7 +411,7 @@ class ConversationContextMixin:
                 decision_telemetry=decision_telemetry,
                 agent_mode=agent_mode,
                 web_access=web_access,
-                deep_research=True,
+                deep_research=False,
             )
         elif deep_research:
             system_msg = await self._build_research_supervisor_message(

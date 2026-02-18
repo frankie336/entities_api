@@ -28,7 +28,6 @@ assistant = client.assistants.create_assistant(
     tools=[
         {"type": "code_interpreter"},
         {"type": "computer"},
-        {"type": "file_search"},
         {
             "type": "function",
             "function": {

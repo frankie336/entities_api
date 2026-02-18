@@ -8,6 +8,7 @@ from entities_api.platform_tools.definitions.update_scratchpad import \
     update_scratchpad
 
 SUPERVISOR_TOOLS = [
+    # {"type": "web_search"},
     read_scratchpad,
     update_scratchpad,
     append_scratchpad,
