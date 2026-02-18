@@ -1,53 +1,64 @@
 sequenceDiagram
     autonumber
     participant User
-    participant Manager as ≡ƒºá Supervisor (Clean)
-    participant Scratchpad as ≡ƒô¥ Scratchpad
-    participant Orchestrator as ≡ƒÜá Platform/Context
-    participant Delegate as ≡ƒæÀ Worker (Ephemeral)
+    participant Supervisor as ≡ƒºá Supervisor (Orchestrator)
+    participant ToolRouter as ≡ƒô¥ Tool Router
+    participant Mixin as ≡ƒöä Delegation Mixin
+    participant WorkerAPI as ≡ƒÆ╗ ProjectDavid API
+    participant Worker as ≡ƒæÀ Research Worker (Ephemeral)
     participant Web as ≡ƒîÉ Live Tools
 
-    Note over Manager, Orchestrator: Phase 1: Clean Initialization (The Fix)
+    Note over Supervisor, ToolRouter: PHASE 1: Supervisor Planning (DeepResearch=True)
 
-    User->>Manager: "Research the current topic..."
+    User->>Supervisor: "Research [Topic]"
+    activate Supervisor
+    Note right of Supervisor: Logic: web_access=False<br/>Injects: Supervisor SysPrompt
+    Supervisor->>Supervisor: Generates Plan
+    Supervisor->>ToolRouter: Emits <fc>delegate_research_task</fc>
+    deactivate Supervisor
 
-    activate Manager
-    Manager->>Orchestrator: Request Context
+    activate ToolRouter
+    ToolRouter->>Mixin: handle_delegate_research_task(task, requirements)
+    deactivate ToolRouter
 
-    Note right of Orchestrator: ROOT CAUSE FIX APPLIED:<br/>1. Check DeepResearch=True<br/>2. Force raw_tools_list = []<br/>3. Inject ONLY Delegation/Scratchpad
+    Note over Mixin, Worker: PHASE 2: The Handoff (The "Clean" Break)
 
-    Orchestrator-->>Manager: Returns Clean Prompt (No Web Tools)
+    activate Mixin
+    Mixin->>WorkerAPI: create_ephemeral_worker_assistant()
+    WorkerAPI-->>Mixin: Returns Worker ID
+    Mixin->>WorkerAPI: create_thread() & create_message(TASK)
 
-    Note right of Manager: Manager sees it has NO search tools.<br/>It realizes it MUST delegate.
+    Mixin->>WorkerAPI: synchronous_inference_stream(Start Run)
+    activate WorkerAPI
 
-    Manager->>Scratchpad: update_scratchpad(Plan: 1. Search X, 2. Compare Y)
-    Manager->>Delegate: delegate_research_task(instructions="Find Q1 guidance...")
-    deactivate Manager
+    Note right of WorkerAPI: Spawns new QwenBaseWorker<br/>Config: Worker=True, WebAccess=True
 
-    Note over Delegate, Web: Phase 2: The Worker Execution (Dirty Context)
+    WorkerAPI->>Worker: Initialize Stream
+    activate Worker
 
-    activate Delegate
-    Delegate->>Orchestrator: Request Context
+    Note over Worker, Web: PHASE 3: Worker Execution (The Logged Event)
 
-    Note right of Orchestrator: Worker Logic:<br/>1. Check DeepResearch=False<br/>2. Load cfg.get("tools")<br/>3. Inject Web Search & APIs
+    Worker->>Worker: Check Tools (Web Search Enabled)
+    Worker->>Web: perform_web_search(query)
+    Web-->>Worker: JSON Results
+    Worker->>Web: read_web_page(url)
+    Web-->>Worker: Page Content
 
-    Orchestrator-->>Delegate: Returns "Dirty" Prompt (Full Tool Access)
+    Worker->>Worker: Synthesize Answer
+    Worker-->>WorkerAPI: Final Text Response
+    deactivate Worker
 
-    Delegate->>Web: web_search(query="Q1 2026 Guidance")
-    Web-->>Delegate: Returns Valid JSON Results
+    WorkerAPI-->>Mixin: Stream Complete (Events Yielded)
+    deactivate WorkerAPI
 
-    Delegate->>Web: read_web_page(url="...")
-    Web-->>Delegate: Returns Page Content
+    Mixin->>WorkerAPI: fetch_worker_final_report()
+    WorkerAPI-->>Mixin: "Found data: X, Y, Z..."
 
-    Delegate-->>Manager: ≡£à Task Completed: "Found $44.1B Revenue..."
-    deactivate Delegate
+    Mixin->>Supervisor: submit_tool_output(tool_call_id, content)
+    deactivate Mixin
 
-    Note over Manager, Scratchpad: Phase 3: Synthesis
+    Note over Supervisor, ToolRouter: PHASE 4: Synthesis
 
-    activate Manager
-    Manager->>Scratchpad: append_scratchpad(Fact: Revenue confirmed at $44.1B)
-
-    Note right of Manager: No schema errors.<br/>No hallucinations.<br/>Pure coordination.
-
-    Manager->>User: "Based on the research, the revenue is..."
-    deactivate Manager
+    activate Supervisor
+    Supervisor->>User: "Based on the research report..."
+    deactivate Supervisor
