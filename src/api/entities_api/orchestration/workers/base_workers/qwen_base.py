@@ -353,6 +353,3 @@ class QwenBaseWorker(
 
             # --- [FIX] Nullify ephemeral ID ---
             self.ephemeral_supervisor_id = None
-
-            # --- [FIX] Clear config LAST ---
-            # self.assistant_config = {}

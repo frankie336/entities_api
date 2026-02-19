@@ -44,20 +44,20 @@ LEVEL_4_SUPERVISOR_INSTRUCTIONS = [
 
 L4_RESEARCH_INSTRUCTIONS = [
     "L4_WORKER_IDENTITY",  # 1. You are a Transient Worker + scratchpad access overview
-    "L4_WORKER_SCRATCHPAD_PROTOCOL",  # 2. Read-first orientation, dedup, gap ID, tombstone awareness [NEW]
+    "L4_WORKER_SCRATCHPAD_PROTOCOL",  # 2. Read-first orientation, dedup, gap ID, tombstone awareness
     "TOOL_USAGE_PROTOCOL",  # 3. Syntax (Strict)
     "FUNCTION_CALL_FORMATTING",  # 4. JSON formatting rules
     "FUNCTION_CALL_WRAPPING",  # 5. XML wrapping rules
     "TOOL_STRATEGY",  # 6. Very important for web search
-    # "L4_TOOL_CHEATSHEET",            # (covered by TOOL_USAGE_PROTOCOL + TOOL_STRATEGY)
-    # "L4_PARALLEL_EXECUTION",         # (redundant)
-    "BATCH_OPERATIONS",  # 7. Parallel batching rules
-    "L4_EXECUTION_ALGORITHM",  # 8. Discovery -> Recon -> Snipe, scratchpad read as Step 0
-    "L4_DEPTH_PROTOCOL",  # 9. Comparative rigor, scratchpad-aware source counting
-    "RICH_MEDIA_HANDLING",  # 10. Keep images/video links (borrowed from L3)
-    "L4_STOPPING_CRITERIA",  # 11. When to quit, incl. "already in scratchpad" condition
-    "L4_WORKER_REPORTING_FORMAT",  # 12. Structured report for direct scratchpad appending
+    "DIRECT_URL_EXCEPTION",  # 7. Skip SERP when URL is already known/provided ← NEW
+    "BATCH_OPERATIONS",  # 8. Parallel batching rules
+    "L4_EXECUTION_ALGORITHM",  # 9. Discovery -> Recon -> Snipe, scratchpad read as Step 0
+    "L4_DEPTH_PROTOCOL",  # 10. Comparative rigor, scratchpad-aware source counting
+    "RICH_MEDIA_HANDLING",  # 11. Keep images/video links (borrowed from L3)
+    "L4_STOPPING_CRITERIA",  # 12. When to quit, incl. "already in scratchpad" condition
+    "L4_WORKER_REPORTING_FORMAT",  # 13. Structured report for direct scratchpad appending
 ]
+
 L3_WEB_USE_INSTRUCTIONS = [
     "WEB_CORE_IDENTITY",
     "STOP_RULE",
