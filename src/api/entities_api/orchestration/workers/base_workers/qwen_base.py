@@ -128,6 +128,7 @@ class QwenBaseWorker(
         # Ephemeral supervisor
         # -----------------------------------
         self.ephemeral_supervisor_id = None
+        self._scratch_pad_thread = None
         self._delegation_api_key = api_key
         redis = self.redis
         stream_key = f"stream:{run_id}"
@@ -200,6 +201,8 @@ class QwenBaseWorker(
             await self._handle_deep_research_identity_swap(
                 requested_model=pre_mapped_model
             )
+
+            self._scratch_pad_thread = thread_id
 
             # --- 3. Context & Client ---
             ctx = await self._set_up_context_window(

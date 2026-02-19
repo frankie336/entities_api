@@ -269,8 +269,8 @@ class ConversationContextMixin:
             dict.fromkeys(
                 [
                     *(["TOOL_DECISION_PROTOCOL"] if decision_telemetry else []),
-                    *(L3_INSTRUCTIONS if agent_mode else L2_INSTRUCTIONS),
-                    *(L3_WEB_USE_INSTRUCTIONS if web_access else []),
+                    *L4_RESEARCH_INSTRUCTIONS,
+                    # *(L3_WEB_USE_INSTRUCTIONS if web_access else []),
                 ]
             )
         )

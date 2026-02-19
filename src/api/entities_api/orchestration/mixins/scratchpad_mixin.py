@@ -11,8 +11,12 @@ from projectdavid_common.validation import StatusEnum
 LOG = LoggingUtility()
 
 
-# src/api/entities_api/orchestration/mixins/scratchpad_mixin.py
 class ScratchpadMixin:
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._scratch_pad_thread = None
+
     async def _execute_scratchpad_logic(
         self,
         tool_name,
@@ -25,21 +29,38 @@ class ScratchpadMixin:
         decision,
     ) -> AsyncGenerator[Dict, None]:
 
+        thread_id = self._scratch_pad_thread
+
+        # --- Status messages keyed by operation type ---
+        _OP_LABELS = {
+            "read": ("📖 Reading scratchpad...", "📖 Scratchpad read."),
+            "update": ("✏️ Updating scratchpad...", "✏️ Scratchpad updated."),
+            "append": ("📝 Appending to scratchpad...", "📝 Scratchpad entry written."),
+        }
+        label_start, label_done = _OP_LABELS.get(
+            operation_type, ("Accessing memory...", "Memory synchronized.")
+        )
+
         yield {
-            "type": "status",
-            "status": f"Accessing memory ({operation_type})...",
+            "type": "scratchpad",
+            "operation": operation_type,
+            "activity": label_start,
             "state": "in_progress",
             "run_id": run_id,
         }
 
         if operation_type != "read":
-            from projectdavid_common import ToolValidator
-
             required = ["content"] if operation_type == "update" else ["note"]
             validator = ToolValidator()
             validator.schema_registry = {tool_name: required}
             if err := validator.validate_args(tool_name, arguments_dict):
-
+                yield {
+                    "type": "scratchpad",
+                    "operation": operation_type,
+                    "activity": f"Validation error: {err}",
+                    "state": "error",
+                    "run_id": run_id,
+                }
                 await self.submit_tool_output(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
@@ -48,6 +69,7 @@ class ScratchpadMixin:
                     action=None,
                     is_error=True,
                 )
+                return
 
         action = await asyncio.to_thread(
             self.project_david_client.actions.create_action,
@@ -61,7 +83,8 @@ class ScratchpadMixin:
         try:
             if operation_type == "read":
                 res = await asyncio.to_thread(
-                    self.project_david_client.tools.scratchpad_read, thread_id=thread_id
+                    self.project_david_client.tools.scratchpad_read,
+                    thread_id=thread_id,
                 )
             elif operation_type == "update":
                 res = await asyncio.to_thread(
@@ -76,12 +99,24 @@ class ScratchpadMixin:
                     note=arguments_dict["note"],
                 )
 
-            yield {
-                "type": "status",
-                "status": "Memory synchronized.",
+            # --- Emit a rich completion event ---
+            # For append/update we also surface the content so the
+            # frontend can parse and render the scratchpad state live.
+            payload = {
+                "type": "scratchpad",
+                "operation": operation_type,
+                "activity": label_done,
                 "state": "success",
                 "run_id": run_id,
             }
+            if operation_type == "append":
+                payload["entry"] = arguments_dict.get("note", "")
+            elif operation_type == "update":
+                payload["content"] = arguments_dict.get("content", "")
+            elif operation_type == "read":
+                payload["content"] = res  # Full scratchpad snapshot
+
+            yield payload
 
             await asyncio.to_thread(
                 self.project_david_client.actions.update_action,
@@ -95,10 +130,12 @@ class ScratchpadMixin:
                 content=res,
                 action=action,
             )
+
         except Exception as e:
             yield {
-                "type": "status",
-                "status": "Memory error.",
+                "type": "scratchpad",
+                "operation": operation_type,
+                "activity": f"Scratchpad error: {str(e)}",
                 "state": "error",
                 "run_id": run_id,
             }

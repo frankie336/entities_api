@@ -7,6 +7,8 @@ from entities_api.platform_tools.definitions.search_web_page import \
     search_web_page
 from src.api.entities_api.platform_tools.definitions.append_scratchpad import \
     append_scratchpad
+from src.api.entities_api.platform_tools.definitions.read_scratchpad import \
+    read_scratchpad
 
 WORKER_TOOLS = [
     read_web_page,
@@ -14,4 +16,5 @@ WORKER_TOOLS = [
     perform_web_search,
     search_web_page,
     append_scratchpad,
+    read_scratchpad,
 ]

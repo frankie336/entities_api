@@ -47,6 +47,7 @@ class DelegationMixin:
         self._delete_ephemeral_thread = False
         self._delegation_model = None
         self._research_worker_thread = None
+        self._scratch_pad_thread = None
 
     # --- HELPER: Bridges blocking generators to async loop (Fixes uvloop error) ---
     async def _stream_sync_generator(
