@@ -72,7 +72,7 @@ LEVEL_4_SUPERVISOR_INSTRUCTIONS = {
         "- If incomplete → append_scratchpad('Incomplete data') + delegate again with more specific requirements\n"
     ),
     # 5. FINAL OUTPUT
-    "L4_OUTPUT_FORMAT": (
+    "L4_SUPERVISOR_OUTPUT_FORMAT": (
         "### 📝 FINAL REPORT\n"
         "Your final response to the user must be a dense synthesis of the Scratchpad findings with URL citations. "
         "If you haven't delegated at least once, your answer is likely incomplete."
@@ -167,7 +167,7 @@ LEVEL_4_DEEP_RESEARCH_INSTRUCTIONS = {
         "  - STOP and report 'Information not found.'"
     ),
     # 5. OUTPUT FORMATTING (Merged Reporting Standards)
-    "L4_OUTPUT_FORMAT": (
+    "L4_WORKER_REPORTING_FORMAT": (
         "### 📝 FINAL OUTPUT FORMAT\n"
         "When you have the answer, output text directly (no tool calls).\n"
         "1. **Direct Answer:** The specific fact requested.\n"

@@ -1,3 +1,4 @@
+# src/api/entities_api/orchestration/mixins/conversation_context_mixin.py
 import asyncio
 import json
 import os
@@ -215,7 +216,7 @@ class ConversationContextMixin:
                 [
                     *(["TOOL_DECISION_PROTOCOL"] if decision_telemetry else []),
                     *LEVEL_4_SUPERVISOR_INSTRUCTIONS,
-                    *(L3_WEB_USE_INSTRUCTIONS if web_access else []),
+                    # *(L3_WEB_USE_INSTRUCTIONS if web_access else []),
                 ]
             )
         )
@@ -269,7 +270,7 @@ class ConversationContextMixin:
                 [
                     *(["TOOL_DECISION_PROTOCOL"] if decision_telemetry else []),
                     *L4_RESEARCH_INSTRUCTIONS,
-                    *(L3_WEB_USE_INSTRUCTIONS if web_access else []),
+                    # *(L3_WEB_USE_INSTRUCTIONS if web_access else []),
                 ]
             )
         )

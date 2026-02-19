@@ -25,37 +25,35 @@ L3_INSTRUCTIONS = [
 
 
 LEVEL_4_SUPERVISOR_INSTRUCTIONS = [
-    "L4_SUPERVISOR_IDENTITY",  # 1. WHO you are (Identity)
-    "L4_TRIAGE_PROTOCOL",  # 2. DECISION: Classify the user query
-    "L4_URL_PROTOCOL",  # 3. SAFETY: New Anti-Hallucination & Zero-Trust URL rules
-    "L4_SUPERVISOR_CONSTRAINTS",  # 4. BOUNDARIES: Anti-stall & "No Single Calls"
-    "L4_EXECUTION_PROTOCOL",  # 5. ACTION: The "Double-Tap" logic
-    "TOOL_USAGE_PROTOCOL",  # 6. SYSTEM: Syntax rules
-    "FUNCTION_CALL_FORMATTING",  # 7. SYSTEM: No markdown backticks
-    "FUNCTION_CALL_WRAPPING",  # 8. SYSTEM: <fc> tags
-    "L4_OUTPUT_FORMAT",  # 9. RESULT: Synthesis requirements
-]
-
-
-L4_RESEARCH_INSTRUCTIONS = [
-    # --- 1. System Syntax (Prioritized to prevent schema errors) ---
-    "TOOL_USAGE_PROTOCOL",
+    "L4_SUPERVISOR_IDENTITY",  # 1. You are the Commander
+    "L4_SUPERVISOR_CONSTRAINTS",  # 2. Anti-stall / No single calls
+    "L4_TRIAGE_PROTOCOL",  # 3. Decision Logic
+    "L4_EXECUTION_PROTOCOL",  # 4. The "Double-Tap" (Plan + Delegate)
+    "L4_URL_PROTOCOL",  # 5. Anti-Hallucination
+    "TOOL_USAGE_PROTOCOL",  # 6. Syntax
     "FUNCTION_CALL_FORMATTING",
     "FUNCTION_CALL_WRAPPING",
-    # --- 2. Identity & Boundaries ---
-    "L4_WORKER_IDENTITY",  # Transient Worker Identity
-    "L4_STOPPING_CRITERIA",  # Specific L4 stop rules (prevent loops)
-    # --- 3. Operational Logic ---
-    "L4_TOOL_CHEATSHEET",  # Strict tool syntax (defines 'query' requirement)
-    "L4_EXECUTION_ALGORITHM",  # The Discovery -> Recon -> Snipe loop
-    "L4_DEPTH_PROTOCOL",  # Rules for comparative/deep queries
-    # --- 4. Advanced Handling ---
-    "BATCH_OPERATIONS",  # Parallelization rules (Standard Web L3 is fine here)
-    "ERROR_HANDLING",  # Recovery from 403s/Empty results
-    # --- 5. Reporting ---
-    "L4_OUTPUT_FORMAT",  # Contains the new "REPORTING STANDARDS" (No Chat, just facts)
+    "CITATION_PROTOCOL",  # 7. How to format links in the Final Report
+    "L4_SUPERVISOR_OUTPUT_FORMAT",  # 8. "Dense synthesis" (Renamed Key)
 ]
 
+
+# --- WORKER: The Transient Soldier ---
+# REMOVED: BATCH_OPERATIONS (L4 Execution Algo covers this)
+# REMOVED: ERROR_HANDLING (L4 Stopping Criteria covers this)
+# ADDED: RICH_MEDIA_HANDLING (Worker needs to know how to handle images found on web)
+L4_RESEARCH_INSTRUCTIONS = [
+    "L4_WORKER_IDENTITY",  # 1. You are a Transient Worker
+    "TOOL_USAGE_PROTOCOL",  # 2. Syntax (Strict)
+    "FUNCTION_CALL_FORMATTING",
+    "FUNCTION_CALL_WRAPPING",
+    "L4_TOOL_CHEATSHEET",  # 3. Specific Tool rules (Query requirements)
+    "L4_EXECUTION_ALGORITHM",  # 4. Discovery -> Recon -> Snipe
+    "L4_DEPTH_PROTOCOL",  # 5. Comparative rigor
+    "RICH_MEDIA_HANDLING",  # 6. Keep images/video links (borrowed from L3)
+    "L4_STOPPING_CRITERIA",  # 7. When to quit
+    "L4_WORKER_REPORTING_FORMAT",  # 8. "Direct Answer + Evidence" (Renamed Key)
+]
 
 L3_WEB_USE_INSTRUCTIONS = [
     "WEB_CORE_IDENTITY",

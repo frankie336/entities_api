@@ -16,9 +16,6 @@ client = Entity(
 
 update_assistant = client.assistants.update_assistant(
     assistant_id=config.get("assistant_id"),
-    meta_data={
-        "research_worker_calling": True,  # This matches the check in QwenWorker
-        "created_by": "DelegationMixin",  # Optional: Helps with debugging
-    },
+    meta_data={},
 )
 print(update_assistant.meta_data)

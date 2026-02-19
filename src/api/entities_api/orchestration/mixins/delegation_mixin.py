@@ -131,24 +131,40 @@ class DelegationMixin:
         )
 
     async def _fetch_worker_final_report(self, thread_id: str) -> str | None:
-        # ... [Keep your existing implementation here] ...
         try:
-
             messages = await asyncio.to_thread(
                 self.project_david_client.messages.get_formatted_messages,
                 thread_id=thread_id,
             )
 
-            # LOG.critical("██████ [MESSAGES_ON_THE_WORKERS_TREAD]=%s ██████", messages)
+            LOG.critical(
+                "██████ [MESSAGES_ON_THE_WORKERS_THREAD] count=%s messages=%s ██████",
+                len(messages) if messages else 0,
+                messages,
+            )
 
             if not messages:
                 return None
+
             for msg in reversed(messages):
-                if isinstance(msg.get("content"), str):
-                    return msg["content"]
-                # ... (rest of your logic) ...
+                content = msg.get("content")
+                if isinstance(content, str):
+                    LOG.critical(
+                        "██████ [WORKER_FINAL_REPORT_SELECTED] role=%s content=%s ██████",
+                        msg.get("role"),
+                        content[:500],
+                    )  # cap at 500 chars to avoid log flood
+                    return content
+
+            LOG.critical(
+                "██████ [WORKER_FINAL_REPORT] No string content found in any message ██████"
+            )
             return None
-        except Exception:
+
+        except Exception as e:
+            LOG.critical(
+                "██████ [WORKER_FINAL_REPORT_ERROR] %s ██████", e, exc_info=True
+            )
             return None
 
     # --- CLEANED MAIN HANDLER ---

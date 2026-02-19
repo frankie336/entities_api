@@ -195,7 +195,8 @@ class UniversalWebReader:
                 )
 
                 # 2. Transform YouTube Iframes into Markdown-friendly Link-Images
-                # html2text usually strips iframes. We swap them for a div containing the thumbnail.
+                # html2text converts <a href="..."><img src="..." /></a> into [![Alt](img)](link)
+                # This format allows the Frontend to detect the 'video' context and apply the 'rich-media-card' style.
                 await page.evaluate(
                     """() => {
                     const iframes = document.querySelectorAll('iframe');
@@ -206,15 +207,17 @@ class UniversalWebReader:
                             const parts = src.split('/');
                             const vidId = parts[parts.length - 1].split('?')[0];
 
-                            // Create a replacement link with thumbnail
-                            const replacement = document.createElement('div');
-                            replacement.innerHTML = `
-                                <br/>
-                                <strong>🎥 EMBEDDED VIDEO:</strong><br/>
-                                <a href="https://www.youtube.com/watch?v=${vidId}">
-                                    <img src="https://img.youtube.com/vi/${vidId}/0.jpg" alt="Click to Watch Video" />
-                                </a><br/>
-                            `;
+                            // Create a standard HTML structure that html2text turns into a Markdown Link-Image
+                            const replacement = document.createElement('p');
+
+                            // High-res thumbnail
+                            const thumb = `https://img.youtube.com/vi/${vidId}/maxresdefault.jpg`;
+                            const link = `https://www.youtube.com/watch?v=${vidId}`;
+
+                            // Structure: Anchor wrapping an Image.
+                            // html2text Output: [![Watch Video: Title](thumb_url)](video_url)
+                            replacement.innerHTML = `<a href="${link}"><img src="${thumb}" alt="Watch Video: ${document.title}" /></a>`;
+
                             iframe.replaceWith(replacement);
                         }
                     });

@@ -123,28 +123,28 @@ class QwenBaseWorker(
         Level 4 Deep Research Stream.
         Utilizes DeltaNormalizer for Qwen/Kimi tag handling and helper method for state management.
         """
-
         # -----------------------------------
         # Ephemeral supervisor
         # -----------------------------------
         self.ephemeral_supervisor_id = None
         self._delegation_api_key = api_key
-
         redis = self.redis
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
+
+        # --- [FIX] Capture original assistant_id BEFORE any identity swap ---
+        _original_assistant_id = assistant_id
 
         # --- 1. State Initialization ---
         self._current_tool_call_id = None
         self._decision_payload = None
         self._tool_queue = []
-
         accumulated: str = ""
         assistant_reply: str = ""
         decision_buffer: str = ""
         current_block: str | None = None
-
         pre_mapped_model = model
+
         try:
             # --- 2. Model & Identity Setup ---
             if hasattr(self, "_get_model_map") and (
@@ -174,8 +174,8 @@ class QwenBaseWorker(
             )
 
             # 3. CONFLICT RESOLUTION:
-            # If Deep Research (Supervisor) is active, it MUST override Worker settings.
-            # A Supervisor cannot be a Worker.
+            #    If Deep Research (Supervisor) is active, it MUST override Worker settings.
+            #    A Supervisor cannot be a Worker.
             if self.is_deep_research:
                 web_access_setting = False  # Supervisor creates plans, does not browse
                 research_worker_setting = (
@@ -195,7 +195,7 @@ class QwenBaseWorker(
             # --- [CRITICAL FIX END] ---
 
             # C. Execute Identity Swap (Refactored)
-            # This handles the supervisor creation, ID swapping, and config reloading
+            #    This handles the supervisor creation, ID swapping, and config reloading
             await self._handle_deep_research_identity_swap(
                 requested_model=pre_mapped_model
             )
@@ -247,7 +247,11 @@ class QwenBaseWorker(
                     decision_buffer,
                     should_skip,
                 ) = self._handle_chunk_accumulation(
-                    chunk, current_block, accumulated, assistant_reply, decision_buffer
+                    chunk,
+                    current_block,
+                    accumulated,
+                    assistant_reply,
+                    decision_buffer,
                 )
 
                 if should_skip:
@@ -263,25 +267,34 @@ class QwenBaseWorker(
         except Exception as exc:
             LOG.error(f"Stream Exception: {exc}")
             yield json.dumps({"type": "error", "content": str(exc), "run_id": run_id})
+
         finally:
-
-            # 1. Ensure cancellation monitor is stopped
+            # 1. Stop the cancellation monitor
             stop_event.set()
-            # 2. Ephemeral Assistant Cleanup
+
+            # --- [FIX] Ephemeral cleanup runs FIRST, WITHOUT calling _ensure_config_loaded() ---
+            # Passing the ephemeral_supervisor_id directly prevents the need to
+            # reload any config, which was the source of state contamination.
             if self.ephemeral_supervisor_id:
-
-                self.assistant_config = {}
-                await self._ensure_config_loaded()
-
-                # We use the helper method we wrote earlier, ensuring 'await' is used
                 await self._ephemeral_clean_up(
                     assistant_id=self.ephemeral_supervisor_id,
                     thread_id=thread_id,
                     delete_thread=False,
                 )
 
-        # --- 5. Post-Stream: Parse Decision & Tools ---
+            # --- [FIX] Restore original assistant identity AFTER cleanup ---
+            # Ensures the next request starts from a clean, correct baseline.
+            self.assistant_id = _original_assistant_id
 
+            # --- [FIX] Nullify ephemeral ID to prevent any accidental double-cleanup ---
+            self.ephemeral_supervisor_id = None
+
+            # --- [FIX] Clear config LAST — after all cleanup that may read state is done ---
+            # This guarantees _ensure_config_loaded() on the NEXT request performs
+            # a real fetch, rather than finding stale ephemeral supervisor config.
+            self.assistant_config = {}
+
+        # --- 5. Post-Stream: Parse Decision & Tools ---
         # 5a. Extract Decision Payload (if available)
         if decision_buffer:
             try:
@@ -292,7 +305,7 @@ class QwenBaseWorker(
                 )
 
         # 5b. Extract Tool Calls (DeltaNormalizer has already normalized them to 'call_arguments')
-        # This parses the 'accumulated' XML/string into a list of dictionaries
+        #     This parses the 'accumulated' XML/string into a list of dictionaries
         tool_calls_batch = self.parse_and_set_function_calls(
             accumulated, assistant_reply
         )
@@ -322,9 +335,8 @@ class QwenBaseWorker(
 
             # Save the STRUCTURAL representation, not the raw text
             message_to_save = json.dumps(tool_calls_structure)
-            yield json.dumps(
-                {"type": "status", "status": "processing", "run_id": run_id}
-            )
+
+        yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
         # --- 7. Finalize & Persist ---
         if message_to_save:
@@ -335,7 +347,9 @@ class QwenBaseWorker(
         # Update Run status in DB
         if self.project_david_client:
             await asyncio.to_thread(
-                self.project_david_client.runs.update_run_status, run_id, final_status
+                self.project_david_client.runs.update_run_status,
+                run_id,
+                final_status,
             )
 
         if not tool_calls_batch:
