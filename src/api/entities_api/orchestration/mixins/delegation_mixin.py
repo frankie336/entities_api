@@ -318,7 +318,6 @@ class DelegationMixin:
 
         ephemeral_worker = None
         execution_had_error = False
-        captured_stream_content = ""
         ephemeral_run = None
 
         try:

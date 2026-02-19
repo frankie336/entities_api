@@ -176,13 +176,9 @@ class QwenBaseWorker(
             )
 
             # 3. CONFLICT RESOLUTION:
-            #    If Deep Research (Supervisor) is active, it MUST override Worker settings.
-            #    A Supervisor cannot be a Worker.
             if self.is_deep_research:
                 web_access_setting = False  # Supervisor creates plans, does not browse
-                research_worker_setting = (
-                    False  # Supervisor is NOT a worker (Fixes Prompt Issue)
-                )
+                research_worker_setting = False  # Supervisor is NOT a worker
 
             # 4. WORKER LOGIC (Only if NOT a Supervisor):
             elif research_worker_setting:
@@ -197,7 +193,6 @@ class QwenBaseWorker(
             # --- [CRITICAL FIX END] ---
 
             # C. Execute Identity Swap (Refactored)
-            #    This handles the supervisor creation, ID swapping, and config reloading
             await self._handle_deep_research_identity_swap(
                 requested_model=pre_mapped_model
             )
@@ -212,9 +207,9 @@ class QwenBaseWorker(
                 force_refresh=force_refresh,
                 agent_mode=agent_mode_setting,
                 decision_telemetry=decision_telemetry,
-                web_access=web_access_setting,  # Passes the corrected flag
+                web_access=web_access_setting,
                 deep_research=self.is_deep_research,
-                research_worker=research_worker_setting,  # Passes the corrected flag
+                research_worker=research_worker_setting,
             )
 
             if not api_key:
@@ -225,7 +220,6 @@ class QwenBaseWorker(
 
             client = self._get_client_instance(api_key=api_key)
 
-            # --- [DEBUG] RAW CONTEXT DUMP ---
             LOG.info(
                 f"\nRAW_CTX_DUMP_QUEN:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}"
             )
@@ -243,7 +237,6 @@ class QwenBaseWorker(
                 if stop_event.is_set():
                     break
 
-                # Delegate state management to helper
                 (
                     current_block,
                     accumulated,
@@ -268,6 +261,77 @@ class QwenBaseWorker(
             if current_block:
                 accumulated += f"</{current_block}>"
 
+            # =========================================================================
+            # [FIXED] POST-STREAM PROCESSING MOVED INSIDE TRY BLOCK
+            # This ensures we finalize/persist using the SUPERVISOR ID
+            # before the 'finally' block restores the Original ID.
+            # =========================================================================
+
+            # --- 5. Post-Stream: Parse Decision & Tools ---
+            # 5a. Extract Decision Payload
+            if decision_buffer:
+                try:
+                    self._decision_payload = json.loads(decision_buffer.strip())
+                except Exception:
+                    LOG.warning(
+                        f"Failed to parse decision buffer: {decision_buffer[:50]}..."
+                    )
+
+            # 5b. Extract Tool Calls
+            tool_calls_batch = self.parse_and_set_function_calls(
+                accumulated, assistant_reply
+            )
+
+            message_to_save = assistant_reply
+            final_status = StatusEnum.completed.value
+
+            # --- 6. Tool Handling & Envelope Creation ---
+            if tool_calls_batch:
+                self._tool_queue = tool_calls_batch
+                final_status = StatusEnum.pending_action.value
+
+                # Build Standardized Tool Envelope
+                tool_calls_structure = []
+                for tool in tool_calls_batch:
+                    t_id = tool.get("id") or f"call_{uuid.uuid4().hex[:8]}"
+                    tool_calls_structure.append(
+                        {
+                            "id": t_id,
+                            "type": "function",
+                            "function": {
+                                "name": tool.get("name"),
+                                "arguments": json.dumps(tool.get("arguments", {})),
+                            },
+                        }
+                    )
+
+                # Save the STRUCTURAL representation
+                message_to_save = json.dumps(tool_calls_structure)
+
+            yield json.dumps(
+                {"type": "status", "status": "processing", "run_id": run_id}
+            )
+
+            # --- 7. Finalize & Persist ---
+            if message_to_save:
+                # self.assistant_id is currently the Supervisor/Delegated ID (Correct)
+                await self.finalize_conversation(
+                    message_to_save, thread_id, self.assistant_id, run_id
+                )
+
+            # Update Run status in DB
+            if self.project_david_client:
+                await asyncio.to_thread(
+                    self.project_david_client.runs.update_run_status,
+                    run_id,
+                    final_status,
+                )
+
+            if not tool_calls_batch:
+                yield json.dumps(
+                    {"type": "status", "status": "complete", "run_id": run_id}
+                )
+
         except Exception as exc:
             LOG.error(f"Stream Exception: {exc}")
             yield json.dumps({"type": "error", "content": str(exc), "run_id": run_id})
@@ -276,9 +340,7 @@ class QwenBaseWorker(
             # 1. Stop the cancellation monitor
             stop_event.set()
 
-            # --- [FIX] Ephemeral cleanup runs FIRST, WITHOUT calling _ensure_config_loaded() ---
-            # Passing the ephemeral_supervisor_id directly prevents the need to
-            # reload any config, which was the source of state contamination.
+            # --- [FIX] Ephemeral cleanup runs FIRST ---
             if self.ephemeral_supervisor_id:
                 await self._ephemeral_clean_up(
                     assistant_id=self.ephemeral_supervisor_id,
@@ -286,75 +348,11 @@ class QwenBaseWorker(
                     delete_thread=False,
                 )
 
-            # --- [FIX] Restore original assistant identity AFTER cleanup ---
-            # Ensures the next request starts from a clean, correct baseline.
+            # --- [FIX] Restore original assistant identity AFTER cleanup & persistence ---
             self.assistant_id = _original_assistant_id
 
-            # --- [FIX] Nullify ephemeral ID to prevent any accidental double-cleanup ---
+            # --- [FIX] Nullify ephemeral ID ---
             self.ephemeral_supervisor_id = None
 
-            # --- [FIX] Clear config LAST — after all cleanup that may read state is done ---
-            # This guarantees _ensure_config_loaded() on the NEXT request performs
-            # a real fetch, rather than finding stale ephemeral supervisor config.
-            self.assistant_config = {}
-
-        # --- 5. Post-Stream: Parse Decision & Tools ---
-        # 5a. Extract Decision Payload (if available)
-        if decision_buffer:
-            try:
-                self._decision_payload = json.loads(decision_buffer.strip())
-            except Exception:
-                LOG.warning(
-                    f"Failed to parse decision buffer: {decision_buffer[:50]}..."
-                )
-
-        # 5b. Extract Tool Calls (DeltaNormalizer has already normalized them to 'call_arguments')
-        #     This parses the 'accumulated' XML/string into a list of dictionaries
-        tool_calls_batch = self.parse_and_set_function_calls(
-            accumulated, assistant_reply
-        )
-
-        message_to_save = assistant_reply
-        final_status = StatusEnum.completed.value
-
-        # --- 6. Tool Handling & Envelope Creation ---
-        if tool_calls_batch:
-            self._tool_queue = tool_calls_batch
-            final_status = StatusEnum.pending_action.value
-
-            # Build Standardized Tool Envelope (ID Parity for Turn 2)
-            tool_calls_structure = []
-            for tool in tool_calls_batch:
-                t_id = tool.get("id") or f"call_{uuid.uuid4().hex[:8]}"
-                tool_calls_structure.append(
-                    {
-                        "id": t_id,
-                        "type": "function",
-                        "function": {
-                            "name": tool.get("name"),
-                            "arguments": json.dumps(tool.get("arguments", {})),
-                        },
-                    }
-                )
-
-            # Save the STRUCTURAL representation, not the raw text
-            message_to_save = json.dumps(tool_calls_structure)
-
-        yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
-
-        # --- 7. Finalize & Persist ---
-        if message_to_save:
-            await self.finalize_conversation(
-                message_to_save, thread_id, self.assistant_id, run_id
-            )
-
-        # Update Run status in DB
-        if self.project_david_client:
-            await asyncio.to_thread(
-                self.project_david_client.runs.update_run_status,
-                run_id,
-                final_status,
-            )
-
-        if not tool_calls_batch:
-            yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
+            # --- [FIX] Clear config LAST ---
+            # self.assistant_config = {}

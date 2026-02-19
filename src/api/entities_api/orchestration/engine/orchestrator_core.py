@@ -361,9 +361,6 @@ class OrchestratorCore(
             state.current_block = "decision"
 
     async def _ensure_config_loaded(self):
-        """
-        Forces a cache refresh from Redis.
-        """
         if not self.assistant_id:
             LOG.warning("⚠️ Cannot load config: No assistant_id provided.")
             return
@@ -377,7 +374,22 @@ class OrchestratorCore(
                     f"AgentMode: {self.assistant_config.get('agent_mode')}"
                 )
             else:
-                LOG.warning(f"⚠️ Cache Miss for {self.assistant_id}")
+                LOG.warning(
+                    f"⚠️ Cache Miss for {self.assistant_id} — fetching from source"
+                )
+                # Fallback: fetch from DB and re-populate cache
+                fresh_config = await self._fetch_assistant_config_from_db(
+                    self.assistant_id
+                )
+                if fresh_config:
+                    self.assistant_config = fresh_config
+                    await self.assistant_cache.store(self.assistant_id, fresh_config)
+                    LOG.info(f"✅ Config rehydrated from DB for {self.assistant_id}")
+                else:
+                    LOG.error(
+                        f"❌ FATAL: No config found anywhere for {self.assistant_id}"
+                    )
+
         except Exception as e:
             LOG.error(f"❌ Error loading assistant config: {e}")
 
