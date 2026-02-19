@@ -25,18 +25,19 @@ L3_INSTRUCTIONS = [
 
 
 LEVEL_4_SUPERVISOR_INSTRUCTIONS = [
-    "L4_SUPERVISOR_IDENTITY",  # 1. You are the Commander
-    "L4_SUPERVISOR_CONSTRAINTS",  # 2. Anti-stall / No single calls
-    "L4_TRIAGE_PROTOCOL",  # 3. Decision Logic
-    "L4_EXECUTION_PROTOCOL",  # 4. The "Double-Tap" (Plan + Delegate)
-    "L4_URL_PROTOCOL",  # 5. Anti-Hallucination
-    "TOOL_USAGE_PROTOCOL",  # 6. Syntax
-    "FUNCTION_CALL_FORMATTING",
-    "FUNCTION_CALL_WRAPPING",
-    "CITATION_PROTOCOL",  # 7. How to format links in the Final Report
-    "L4_SUPERVISOR_OUTPUT_FORMAT",  # 8. "Dense synthesis" (Renamed Key)
+    "L4_SUPERVISOR_IDENTITY",  # 1. Identity: The Search Architect & Editor-in-Chief
+    "L4_TRIAGE_PROTOCOL",  # 2. Decision Logic: Is this Research (Tier 1-3) or Chat (Tier 0)?
+    "L4_PLANNING_PROTOCOL",  # 3. The Brain: Mental Models (Lookup vs Discovery vs Comparative) [NEW]
+    "L4_DELEGATION_PROTOCOL",  # 4. The Instruction: Prescriptive Prompting for Workers [NEW]
+    "L4_EXECUTION_LOOP",  # 5. The Pulse: Initialize -> Delegate -> Evaluate [NEW]
+    "L4_ANTI_STALL",  # 6. The Guardrails: No guessing, one step at a time [NEW]
+    "L4_URL_PROTOCOL",  # 7. Safety: Zero-tolerance URL hallucination check
+    "L4_FINAL_SYNTHESIS_PROTOCOL",  # 8. The Output: Supervisor owns the final summary (Editor role) [NEW]
+    "TOOL_USAGE_PROTOCOL",  # 9. Base Tool Syntax
+    "FUNCTION_CALL_FORMATTING",  # 10. JSON formatting rules
+    "FUNCTION_CALL_WRAPPING",  # 11. XML wrapping rules
+    "CITATION_PROTOCOL",  # 12. Link formatting rules
 ]
-
 
 # --- WORKER: The Transient Soldier ---
 # REMOVED: BATCH_OPERATIONS (L4 Execution Algo covers this)
@@ -47,8 +48,11 @@ L4_RESEARCH_INSTRUCTIONS = [
     "TOOL_USAGE_PROTOCOL",  # 2. Syntax (Strict)
     "FUNCTION_CALL_FORMATTING",
     "FUNCTION_CALL_WRAPPING",
-    "L4_TOOL_CHEATSHEET",  # 3. Specific Tool rules (Query requirements)
-    "L4_EXECUTION_ALGORITHM",  # 4. Discovery -> Recon -> Snipe
+    "TOOL_STRATEGY",  # -< --- Very important for web search
+    # "L4_TOOL_CHEATSHEET",  # 3. Specific Tool rules (Query requirements)
+    # "L4_PARALLEL_EXECUTION", <-- redundant
+    "BATCH_OPERATIONS",
+    "L4_EXECUTION_ALGORITHM",  # 4. Discovery -> Recon -> Snipe <- breaking logic
     "L4_DEPTH_PROTOCOL",  # 5. Comparative rigor
     "RICH_MEDIA_HANDLING",  # 6. Keep images/video links (borrowed from L3)
     "L4_STOPPING_CRITERIA",  # 7. When to quit

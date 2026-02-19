@@ -60,6 +60,7 @@ class QwenBaseWorker(
         )
         self.ephemeral_supervisor_id = None
         self._delegation_api_key = self.api_key
+        self._research_worker_thread = None
 
         self.redis = redis or get_redis_sync()
 

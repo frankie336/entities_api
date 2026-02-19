@@ -202,6 +202,10 @@ class OrchestratorCore(
         # 1. Acquire Supervisor (Ideally, this is where you'd implement pooling later)
         assistant_manager = AssistantManager()
         ephemeral_supervisor = await assistant_manager.create_ephemeral_supervisor()
+        # =============================================
+        # Create research workers persistent thread
+        # =============================================
+        self._research_worker_thread = await assistant_manager.create_ephemeral_thread()
 
         # 2. Swap Identity
         # The worker now 'becomes' the Supervisor for the duration of this run

@@ -13,6 +13,27 @@ from src.api.entities_api.utils.assistant_manager import AssistantManager
 
 LOG = LoggingUtility()
 
+# Terminal run states aligned with RunStatus enum VALUES (not names).
+#
+# RunStatus reference (from SDK):
+#   queued          → not terminal
+#   in_progress     → not terminal
+#   pending         → not terminal
+#   processing      → not terminal
+#   retrying        → not terminal
+#   action_required → not terminal (worker's own tool loop handles this)
+#   completed       → TERMINAL ✓
+#   failed          → TERMINAL ✓
+#   cancelled       → TERMINAL ✓
+#   expired         → TERMINAL ✓
+_TERMINAL_RUN_STATES = {"completed", "failed", "cancelled", "expired"}
+
+# How long to wait for the worker run to complete before giving up (seconds)
+_WORKER_RUN_TIMEOUT = 1200
+
+# How often to poll the run status (seconds)
+_WORKER_POLL_INTERVAL = 2.0
+
 
 class DelegationMixin:
     """
@@ -25,6 +46,7 @@ class DelegationMixin:
         self._delegation_api_key = None
         self._delete_ephemeral_thread = False
         self._delegation_model = None
+        self._research_worker_thread = None
 
     # --- HELPER: Bridges blocking generators to async loop (Fixes uvloop error) ---
     async def _stream_sync_generator(
@@ -32,14 +54,12 @@ class DelegationMixin:
     ) -> AsyncGenerator[Any, None]:
         """
         Runs a synchronous generator in a background thread and yields items asynchronously.
-        This removes the need for bulky 'background_stream_worker' logic in the main handler.
         """
         queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
 
         def producer():
             try:
-                # Run the blocking stream here
                 for item in generator_func(*args, **kwargs):
                     loop.call_soon_threadsafe(queue.put_nowait, item)
                 loop.call_soon_threadsafe(queue.put_nowait, None)  # Sentinel
@@ -47,10 +67,8 @@ class DelegationMixin:
                 LOG.error(f"🧵 [THREAD-ERR] {e}")
                 loop.call_soon_threadsafe(queue.put_nowait, e)
 
-        # Start thread
         threading.Thread(target=producer, daemon=True).start()
 
-        # Consume queue
         while True:
             item = await queue.get()
             if item is None:
@@ -59,7 +77,81 @@ class DelegationMixin:
                 raise item
             yield item
 
-    # ... [Keep existing helpers: _ephemeral_clean_up, _capture_tool_outputs, etc.] ...
+    # --- HELPER: Poll run status until terminal state or timeout ---
+    async def _wait_for_run_completion(
+        self,
+        run_id: str,
+        thread_id: str,
+        timeout: float = _WORKER_RUN_TIMEOUT,
+        poll_interval: float = _WORKER_POLL_INTERVAL,
+    ) -> str:
+        """
+        Polls the worker's run status until it reaches a terminal state.
+
+        RunStatus enum values (from SDK):
+            Active (keep polling):
+                queued, in_progress, pending, processing, retrying, action_required
+
+            Terminal (stop polling):
+                completed, failed, cancelled, expired
+
+        Returns the final status string value.
+        Raises asyncio.TimeoutError if timeout is exceeded.
+        """
+        LOG.info(
+            "⏳ [DELEGATE] Waiting for worker run %s to complete (timeout=%ss)...",
+            run_id,
+            timeout,
+        )
+
+        elapsed = 0.0
+        while elapsed < timeout:
+            try:
+                run = await asyncio.to_thread(
+                    self.project_david_client.runs.retrieve_run,
+                    run_id=run_id,
+                )
+
+                # run.status is a RunStatus str-enum — .value gives the raw string
+                status_value = (
+                    run.status.value
+                    if hasattr(run.status, "value")
+                    else str(run.status)
+                )
+
+                LOG.critical(
+                    "██████ [DELEGATE_POLL] run_id=%s status=%s elapsed=%.1fs ██████",
+                    run_id,
+                    status_value,
+                    elapsed,
+                )
+
+                if status_value in _TERMINAL_RUN_STATES:
+                    LOG.critical(
+                        "██████ [DELEGATE_POLL] run_id=%s reached terminal state=%s ██████",
+                        run_id,
+                        status_value,
+                    )
+                    return status_value
+
+            except Exception as e:
+                LOG.warning(
+                    "⚠️ [DELEGATE_POLL] Error polling run %s: %s",
+                    run_id,
+                    e,
+                )
+
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+        LOG.error(
+            "❌ [DELEGATE_POLL] run_id=%s timed out after %ss.",
+            run_id,
+            timeout,
+        )
+        raise asyncio.TimeoutError(
+            f"Worker run {run_id} did not complete within {timeout}s"
+        )
 
     async def _ephemeral_clean_up(
         self, assistant_id: str, thread_id: str, delete_thread: bool = False
@@ -112,9 +204,6 @@ class DelegationMixin:
         manager = AssistantManager()
         return await manager.create_ephemeral_worker_assistant()
 
-    async def create_ephemeral_thread(self):
-        return await asyncio.to_thread(self.project_david_client.threads.create_thread)
-
     async def create_ephemeral_message(self, thread_id, content, assistant_id):
         return await asyncio.to_thread(
             self.project_david_client.messages.create_message,
@@ -131,43 +220,61 @@ class DelegationMixin:
         )
 
     async def _fetch_worker_final_report(self, thread_id: str) -> str | None:
+        """
+        Retrieves the most recent text response from the assistant.
+        Ignores tool calls, tool outputs, and empty messages.
+        """
         try:
+            # 1. Fetch the raw list of dictionaries
             messages = await asyncio.to_thread(
                 self.project_david_client.messages.get_formatted_messages,
                 thread_id=thread_id,
             )
 
-            LOG.critical(
-                "██████ [MESSAGES_ON_THE_WORKERS_THREAD] count=%s messages=%s ██████",
-                len(messages) if messages else 0,
-                messages,
-            )
-
             if not messages:
+                LOG.warning(f"[{thread_id}] No messages found in thread.")
                 return None
 
+            # 2. Iterate backwards to find the newest valid text response
             for msg in reversed(messages):
+                role = msg.get("role")
                 content = msg.get("content")
-                if isinstance(content, str):
-                    LOG.critical(
-                        "██████ [WORKER_FINAL_REPORT_SELECTED] role=%s content=%s ██████",
-                        msg.get("role"),
-                        content[:500],
-                    )  # cap at 500 chars to avoid log flood
-                    return content
+                tool_calls = msg.get("tool_calls")
 
-            LOG.critical(
-                "██████ [WORKER_FINAL_REPORT] No string content found in any message ██████"
-            )
+                # Criterion 1: Must be from the assistant
+                if role != "assistant":
+                    continue
+
+                # Criterion 2: Must NOT be a tool call (dispatching a search)
+                # In your log, the assistant message has 'tool_calls' populated. We skip that.
+                if tool_calls:
+                    continue
+
+                # Criterion 3: Must contain actual text string
+                if not isinstance(content, str) or not content.strip():
+                    continue
+
+                # Criterion 4: Success - Found the latest text report
+                final_text = content.strip()
+
+                LOG.info(
+                    "✅ [WORKER_FINAL_REPORT] Found report (length=%d): %s...",
+                    len(final_text),
+                    final_text[:100],
+                )
+                return final_text
+
+            # 3. No valid text report found (Worker might still be searching)
+            LOG.info("ℹ️ [WORKER_FINAL_REPORT] No final text report found yet.")
             return None
 
         except Exception as e:
-            LOG.critical(
-                "██████ [WORKER_FINAL_REPORT_ERROR] %s ██████", e, exc_info=True
+            LOG.exception(
+                "❌ [WORKER_FINAL_REPORT_ERROR] Failed to fetch report: %s", e
             )
             return None
 
-    # --- CLEANED MAIN HANDLER ---
+    # --- MAIN HANDLER ---
     async def handle_delegate_research_task(
         self, thread_id, run_id, assistant_id, arguments_dict, tool_call_id, decision
     ) -> AsyncGenerator[str, None]:
@@ -178,7 +285,7 @@ class DelegationMixin:
         if isinstance(arguments_dict, str):
             try:
                 args = json.loads(arguments_dict)
-            except:
+            except Exception:
                 args = {"task": arguments_dict}
         else:
             args = arguments_dict
@@ -210,19 +317,14 @@ class DelegationMixin:
 
         ephemeral_worker = None
         execution_had_error = False
-        captured_stream_content = ""  # <--- NEW: Buffer to prevent empty reports
+        captured_stream_content = ""
+        ephemeral_run = None
 
         try:
             # 4. Setup Ephemeral Assistant & Thread
             ephemeral_worker = await self.create_ephemeral_worker_assistant()
-            ephemeral_thread = await self.create_ephemeral_thread()
+            ephemeral_thread = self._research_worker_thread
 
-            # ---------------------------------
-            # The task sent in by the supervisor
-            # is set up as a user prompt here
-            # The worker is not aware that it is coming
-            # from another AI
-            # ----------------------------------
             prompt = f"TASK: {args.get('task')}\nREQ: {args.get('requirements')}"
 
             msg = await self.create_ephemeral_message(
@@ -242,11 +344,12 @@ class DelegationMixin:
                 }
             )
 
-            # -------------------------------------------
-            # Set up an interleaving session through the
-            # project david sdk.
+            supervisors_thread = thread_id
+            workers_thread = self._research_worker_thread
+            LOG.info(f"🔄 [SUPERVISORS_THREAD_ID]: {supervisors_thread}")
+            LOG.info(f"🔄 [WORKERS_THREAD_ID]: {workers_thread}")
+
             # 5. Configure Stream
-            # --------------------------------------------
             sync_stream = self.project_david_client.synchronous_inference_stream
             sync_stream.setup(
                 thread_id=ephemeral_thread.id,
@@ -256,72 +359,136 @@ class DelegationMixin:
                 api_key=self._delegation_api_key,
             )
 
-            # 6. Stream Execution (Using helper to keep handler clean)
-            #    We use the helper to avoid the 'background_stream_worker' def block
+            # 6. Stream Execution — covers first inference pass only.
+            #    Subsequent tool-call passes run inside the SDK's own run loop.
             LOG.critical(
                 "🎬 WORKER STREAM STARTING - If you see this but no content chunks, check process_tool_calls wiring"
             )
+
+            captured_stream_content = ""
 
             async for event in self._stream_sync_generator(
                 sync_stream.stream_events,
                 provider="together-ai",
                 model=self._delegation_model,
             ):
-                payload = None
-                if hasattr(event, "content") and event.content:
-                    payload = event.content
-                elif hasattr(event, "reasoning") and event.reasoning:
-                    payload = event.reasoning
-                elif hasattr(event, "text") and event.text:
-                    payload = event.text
+                # 🛑 GUARD 1: Exclude Status/System Events
+                # If the event comes from a tool execution or has a status flag, SKIP IT.
+                # This ensures "Scanning web..." doesn't end up in your final answer buffer.
+                if (
+                    hasattr(event, "tool")
+                    or hasattr(event, "status")
+                    or getattr(event, "type", "") == "status"
+                ):
+                    continue
 
-                if payload:
-                    captured_stream_content += payload
+                # 🛑 GUARD 2: Exclude Tool Call Arguments
+                # If the LLM is generating JSON arguments for a function, we don't want that in the text buffer.
+                if getattr(event, "tool_calls", None) or getattr(
+                    event, "function_call", None
+                ):
+                    continue
+
+                # --- Extract Payload ---
+                chunk_content = getattr(event, "content", None) or getattr(
+                    event, "text", None
+                )
+                chunk_reasoning = getattr(event, "reasoning", None)
+
+                # --- A. Handle Reasoning (Stream ONLY) ---
+                if chunk_reasoning:
                     yield json.dumps(
                         {
-                            "stream_type": "delegation",  # ← Helps frontend route correctly
+                            "stream_type": "delegation",
                             "chunk": {
-                                "type": "content",  # ← Type of chunk
-                                "content": payload,  # ← Actual text
+                                "type": "reasoning",
+                                "content": chunk_reasoning,
                                 "run_id": run_id,
                             },
                         }
                     )
 
-            # Try fetching from DB first
+                # --- B. Handle Content (Stream + Buffer) ---
+                # We strictly check if it is a string to avoid crashing on complex objects
+                if chunk_content and isinstance(chunk_content, str):
+
+                    # 1. Buffer (Pure text only)
+                    captured_stream_content += chunk_content
+
+                    # 2. Stream
+                    yield json.dumps(
+                        {
+                            "stream_type": "delegation",
+                            "chunk": {
+                                "type": "content",
+                                "content": chunk_content,
+                                "run_id": run_id,
+                            },
+                        }
+                    )
+            # --------------------------------------------------------------------
+            # 7. WAIT FOR RUN COMPLETION BEFORE FETCHING
+            #
+            #    The stream above only covers the first inference pass.
+            #    The worker needs multiple passes (search → read → synthesize).
+            #    Poll until the run reaches a terminal state so that all worker
+            #    turns are fully written to the DB before we attempt the fetch.
+            # --------------------------------------------------------------------
+            yield json.dumps(
+                {
+                    "type": "activity",
+                    "activity": "Worker processing. Waiting for completion...",
+                    "state": "in_progress",
+                    "tool": "delegate_research_task",
+                    "run_id": run_id,
+                }
+            )
+
+            try:
+                final_run_status = await self._wait_for_run_completion(
+                    run_id=ephemeral_run.id,
+                    thread_id=ephemeral_thread.id,
+                )
+                LOG.info(
+                    "✅ [DELEGATE] Worker run completed. Status=%s",
+                    final_run_status,
+                )
+
+            except asyncio.TimeoutError:
+                LOG.error(
+                    "⏳ [DELEGATE] Worker run timed out. Attempting fetch anyway."
+                )
+                execution_had_error = True
+                final_run_status = "timed_out"  # Prevent UnboundLocalError downstream
+
+            # 8. Fetch final report now that run is confirmed complete
             final_content = await self._fetch_worker_final_report(
                 thread_id=ephemeral_thread.id
             )
 
-            # LOG.critical(
-            #    "██████ [FINAL_THREAD_CONTENT_SUBMITTED_BY_RESEARCH_WORKER]=%s ██████",
-            #    final_content,
-            # )
+            LOG.critical(
+                "██████ [FINAL_THREAD_CONTENT_SUBMITTED_BY_RESEARCH_WORKER]=%s ██████",
+                final_content,
+            )
 
-            # FALLBACK: If DB fetch missed it, use our captured buffer
-            if not final_content and captured_stream_content:
-                LOG.info("⚠️ [DELEGATE] Using captured stream buffer as final report.")
-                final_content = captured_stream_content
+            # FALLBACK: If DB fetch missed it, use our captured stream buffer
 
             if not final_content:
+                LOG.critical(
+                    "██████ [DELEGATE_TOTAL_FAILURE] No content generated by the worker ██████"
+                )
                 final_content = "No report generated by worker."
                 execution_had_error = True
 
-            # ----------------------------
-            # We need to find out what is being submitted here.
-            # 8. Submit Output
+            # =======================================
             #
-            # -----------------------------
-
-            # LOG.critical(
-            #    "██████ [FINAL_CONTENT_SUBMITTED_BY_RESEARCH_WORKER]=%s ██████", final_content
-            # )
-
+            # Delegations happen in cycles
+            # =======================================
             await self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
-                content=final_content,
+                content=captured_stream_content,
                 action=action,
                 is_error=execution_had_error,
             )
@@ -353,7 +520,7 @@ class DelegationMixin:
             )
 
         finally:
-            # 9. Cleanup
+            # 10. Cleanup
             if ephemeral_worker:
                 await self._ephemeral_clean_up(
                     ephemeral_worker.id,

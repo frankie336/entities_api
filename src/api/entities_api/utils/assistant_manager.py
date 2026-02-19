@@ -76,7 +76,7 @@ class AssistantManager:
             self.client.assistants.create_assistant,
             name=f"worker_{uuid.uuid4().hex[:8]}",
             description="Temp assistant for deep research",
-            tools=WORKER_TOOLS,
+            tools=[{"type": "web_search"}],
             web_access=True,
             deep_research=False,
             # ✅ FIX: Pass state here so the worker knows what it is immediately
@@ -84,6 +84,9 @@ class AssistantManager:
         )
 
         return ephemeral_worker
+
+    async def create_ephemeral_thread(self):
+        return await asyncio.to_thread(self.client.threads.create_thread)
 
     async def delete_assistant(self, assistant_id: str, permanent: bool = False) -> Any:
         """
