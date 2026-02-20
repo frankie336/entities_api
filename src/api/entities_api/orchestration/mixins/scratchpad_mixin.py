@@ -15,52 +15,64 @@ class ScratchpadMixin:
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._scratch_pad_thread = None
+        self._scratch_pad_thread: Optional[str] = None
 
     async def _execute_scratchpad_logic(
         self,
-        tool_name,
-        operation_type,
-        thread_id,
-        run_id,
-        assistant_id,
-        arguments_dict,
-        tool_call_id,
-        decision,
-    ) -> AsyncGenerator[Dict, None]:
+        tool_name: str,
+        operation_type: str,
+        thread_id: Optional[str],
+        run_id: str,
+        assistant_id: str,
+        arguments_dict: Dict[str, Any],
+        tool_call_id: str,
+        decision: Any,
+    ) -> AsyncGenerator[str, None]:
 
-        thread_id = self._scratch_pad_thread
+        # Respect caller thread_id, fallback only if absent
+        thread_id = thread_id or self._scratch_pad_thread
 
-        # --- Status messages keyed by operation type ---
         _OP_LABELS = {
             "read": ("📖 Reading scratchpad...", "📖 Scratchpad read."),
             "update": ("✏️ Updating scratchpad...", "✏️ Scratchpad updated."),
             "append": ("📝 Appending to scratchpad...", "📝 Scratchpad entry written."),
         }
+
         label_start, label_done = _OP_LABELS.get(
             operation_type, ("Accessing memory...", "Memory synchronized.")
         )
 
-        yield {
-            "type": "scratchpad",
-            "operation": operation_type,
-            "activity": label_start,
-            "state": "in_progress",
-            "run_id": run_id,
-        }
+        # --- START ACTIVITY EVENT ---
+        yield json.dumps(
+            {
+                "type": "activity",
+                "tool": tool_name,
+                "activity": label_start,
+                "state": "in_progress",
+                "run_id": run_id,
+                "operation": operation_type,
+            }
+        )
 
+        # --- VALIDATION ---
         if operation_type != "read":
-            required = ["content"] if operation_type == "update" else ["note"]
+            required = {"content": str} if operation_type == "update" else {"note": str}
+
             validator = ToolValidator()
             validator.schema_registry = {tool_name: required}
+
             if err := validator.validate_args(tool_name, arguments_dict):
-                yield {
-                    "type": "scratchpad",
-                    "operation": operation_type,
-                    "activity": f"Validation error: {err}",
-                    "state": "error",
-                    "run_id": run_id,
-                }
+                yield json.dumps(
+                    {
+                        "type": "activity",
+                        "tool": tool_name,
+                        "activity": f"Validation error: {err}",
+                        "state": "error",
+                        "run_id": run_id,
+                        "operation": operation_type,
+                    }
+                )
+
                 await self.submit_tool_output(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
@@ -90,31 +102,33 @@ class ScratchpadMixin:
                 res = await asyncio.to_thread(
                     self.project_david_client.tools.scratchpad_update,
                     thread_id=thread_id,
-                    content=arguments_dict["content"],
+                    content=arguments_dict.get("content"),
                 )
             else:
                 res = await asyncio.to_thread(
                     self.project_david_client.tools.scratchpad_append,
                     thread_id=thread_id,
-                    note=arguments_dict["note"],
+                    note=arguments_dict.get("note"),
                 )
 
-            # --- Emit a rich completion event ---
-            # For append/update we also surface the content so the
-            # frontend can parse and render the scratchpad state live.
             payload = {
-                "type": "scratchpad",
-                "operation": operation_type,
+                "type": "activity",
+                "tool": tool_name,
                 "activity": label_done,
-                "state": "success",
+                "state": "completed",
                 "run_id": run_id,
+                "operation": operation_type,
+                "data": None,
             }
+
             if operation_type == "append":
-                payload["entry"] = arguments_dict.get("note", "")
+                payload["data"] = arguments_dict.get("note", "")
             elif operation_type == "update":
-                payload["content"] = arguments_dict.get("content", "")
+                payload["data"] = arguments_dict.get("content", "")
             elif operation_type == "read":
-                payload["content"] = res  # Full scratchpad snapshot
+                payload["data"] = res
+
+            yield json.dumps(payload)
 
             yield payload
 
@@ -123,6 +137,7 @@ class ScratchpadMixin:
                 action_id=action.id,
                 status=StatusEnum.completed.value,
             )
+
             await self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
@@ -132,18 +147,23 @@ class ScratchpadMixin:
             )
 
         except Exception as e:
-            yield {
-                "type": "scratchpad",
-                "operation": operation_type,
-                "activity": f"Scratchpad error: {str(e)}",
-                "state": "error",
-                "run_id": run_id,
-            }
+            yield json.dumps(
+                {
+                    "type": "activity",
+                    "tool": tool_name,
+                    "activity": f"Scratchpad error: {str(e)}",
+                    "state": "error",
+                    "run_id": run_id,
+                    "operation": operation_type,
+                }
+            )
+
             await asyncio.to_thread(
                 self.project_david_client.actions.update_action,
                 action_id=action.id,
                 status=StatusEnum.failed.value,
             )
+
             await self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
@@ -153,7 +173,6 @@ class ScratchpadMixin:
                 is_error=True,
             )
 
-    # Handlers simply yield from logic...
     async def handle_read_scratchpad(self, *args, **kwargs):
         async for s in self._execute_scratchpad_logic(
             "read_scratchpad", "read", *args, **kwargs
