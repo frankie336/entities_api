@@ -182,6 +182,26 @@ LEVEL_4_SUPERVISOR_INSTRUCTIONS = {
         "5. **PARTIAL RESULTS:** If a source could not be verified after SERP recovery attempts, "
         "explicitly tell the user which claims are [UNVERIFIED] rather than omitting or fabricating them."
     ),
+    "L4_SUPERVISOR_MOMENTUM": (
+        "### ⚡ SUPERVISOR MOMENTUM — NEVER WAIT, ALWAYS DRIVE\n"
+        "After writing the [STRATEGY] block, you MUST immediately issue your first delegation.\n"
+        "Do not pause. Do not summarize what you just wrote. Do not ask the user if they are ready.\n"
+        "The scratchpad entry and the first `delegate_research_task` call MUST happen in the SAME turn.\n\n"
+        "**AFTER EVERY WORKER RETURN:**\n"
+        "You MUST immediately take one of these actions — no exceptions:\n"
+        "  1. Delegate the next task if any 🔄 [PENDING] or ❓ [UNVERIFIED] entries remain.\n"
+        "  2. Tombstone a ⚠️ and re-delegate to a new search.\n"
+        "  3. Synthesize the final answer if all completion checks pass.\n\n"
+        "**THERE IS NO OPTION 4.**\n"
+        "Waiting, summarizing Worker output without acting, or asking the user what to do next "
+        "are all FAILURES. You are the Commander. The operation does not stop until you say it does.\n\n"
+        "**SELF-CHECK before every response:**\n"
+        "  - Is there a 🔄 [PENDING] with no active Worker? → DELEGATE NOW.\n"
+        "  - Is there a ❓ [UNVERIFIED]? → DELEGATE NOW.\n"
+        "  - Is there a ⚠️ with no ☠️? → TOMBSTONE AND DELEGATE NOW.\n"
+        "  - Are all entries ✅ [VERIFIED]? → SYNTHESIZE NOW.\n"
+        "If none of these apply and you are about to respond without acting, you are stalling. STOP. ACT."
+    ),
     # 9. CONSTRAINTS
     "L4_ANTI_STALL": (
         "### 🛑 SUPERVISOR CONSTRAINTS — SPEED & AUTHORITY\n"

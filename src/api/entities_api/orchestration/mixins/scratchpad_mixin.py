@@ -29,7 +29,6 @@ class ScratchpadMixin:
         decision: Any,
     ) -> AsyncGenerator[str, None]:
 
-        # Respect caller thread_id, fallback only if absent
         thread_id = thread_id or self._scratch_pad_thread
 
         _OP_LABELS = {
@@ -42,7 +41,6 @@ class ScratchpadMixin:
             operation_type, ("Accessing memory...", "Memory synchronized.")
         )
 
-        # --- START ACTIVITY EVENT ---
         yield json.dumps(
             {
                 "type": "activity",
@@ -54,7 +52,6 @@ class ScratchpadMixin:
             }
         )
 
-        # --- VALIDATION ---
         if operation_type != "read":
             required = {"content": str} if operation_type == "update" else {"note": str}
 
@@ -72,7 +69,6 @@ class ScratchpadMixin:
                         "operation": operation_type,
                     }
                 )
-
                 await self.submit_tool_output(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
@@ -111,24 +107,40 @@ class ScratchpadMixin:
                     note=arguments_dict.get("note"),
                 )
 
-            payload = {
-                "type": "activity",
-                "tool": tool_name,
-                "activity": label_done,
-                "state": "completed",
-                "run_id": run_id,
-                "operation": operation_type,
-                "data": None,
-            }
-
+            # Determine entry text for the frontend scratchpad component
             if operation_type == "append":
-                payload["data"] = arguments_dict.get("note", "")
+                entry_text = arguments_dict.get("note", "")
             elif operation_type == "update":
-                payload["data"] = arguments_dict.get("content", "")
+                entry_text = arguments_dict.get("content", "")
             elif operation_type == "read":
-                payload["data"] = res
+                entry_text = res if isinstance(res, str) else json.dumps(res)
+            else:
+                entry_text = ""
 
-            yield json.dumps(payload)
+            # Yield raw scratchpad content event — consumed directly by routes.py
+            # as a plain JSON string (same pipeline as delegation activity events).
+            if entry_text:
+                yield json.dumps(
+                    {
+                        "type": "scratchpad",
+                        "state": "success",
+                        "operation": operation_type,
+                        "entry": entry_text,
+                        "run_id": run_id,
+                    }
+                )
+
+            # Done-label activity event
+            yield json.dumps(
+                {
+                    "type": "activity",
+                    "tool": tool_name,
+                    "activity": label_done,
+                    "state": "completed",
+                    "run_id": run_id,
+                    "operation": operation_type,
+                }
+            )
 
             await asyncio.to_thread(
                 self.project_david_client.actions.update_action,

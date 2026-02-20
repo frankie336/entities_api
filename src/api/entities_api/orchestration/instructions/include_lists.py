@@ -34,13 +34,15 @@ LEVEL_4_SUPERVISOR_INSTRUCTIONS = [
     "L4_EXECUTION_LOOP",  # 7. The Pulse: Initialize -> Delegate -> Evaluate
     "L4_CITATION_INTEGRITY",  # 8. Zero-Tolerance: VERIFIED entry required per claim
     "L4_ANTI_STALL",  # 9. The Guardrails: No stale URLs, promote ⚠️ to ☠️
-    "L4_URL_PROTOCOL",  # 10. Safety: URL hallucination check
-    "L4_FINAL_SYNTHESIS_PROTOCOL",  # 11. The Output: Supervisor owns the final answer
-    "TOOL_USAGE_PROTOCOL",  # 12. Base Tool Syntax
-    "FUNCTION_CALL_FORMATTING",  # 13. JSON formatting rules
-    "FUNCTION_CALL_WRAPPING",  # 14. XML wrapping rules
-    "CITATION_PROTOCOL",  # 15. Link formatting rules
+    "L4_SUPERVISOR_MOMENTUM",  # 10. Never wait — always drive ← NEW
+    "L4_URL_PROTOCOL",  # 11. Safety: URL hallucination check
+    "L4_FINAL_SYNTHESIS_PROTOCOL",  # 12. The Output: Supervisor owns the final answer
+    "TOOL_USAGE_PROTOCOL",  # 13. Base Tool Syntax
+    "FUNCTION_CALL_FORMATTING",  # 14. JSON formatting rules
+    "FUNCTION_CALL_WRAPPING",  # 15. XML wrapping rules
+    "CITATION_PROTOCOL",  # 16. Link formatting rules
 ]
+
 
 L4_RESEARCH_INSTRUCTIONS = [
     "L4_WORKER_IDENTITY",  # 1. You are a Transient Worker + scratchpad access overview

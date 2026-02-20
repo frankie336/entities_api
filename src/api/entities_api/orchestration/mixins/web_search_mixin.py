@@ -2,18 +2,47 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from collections import defaultdict
 from typing import Any, AsyncGenerator, Dict, Optional
 
-from projectdavid.events import StatusEvent
 from projectdavid_common import ToolValidator
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
-from src.api.entities_api.utils.level3_utils import create_status_payload
-
 LOG = LoggingUtility()
+
+# Hard cap on scroll_web_page calls per URL per research session.
+# After this many scrolls on a single URL, the tool returns a blocking
+# instruction instead of executing, forcing the worker to pivot.
+SCROLL_LIMIT_PER_URL = 3
+
+
+def _status(run_id: str, tool: str, message: str, status: str = "running") -> str:
+    """
+    Emit a status event as raw JSON conforming to the stream EVENT_CONTRACT.
+
+    Shape:
+        {
+            "type":    "status",
+            "run_id":  "<uuid>",
+            "tool":    "<tool_name>",
+            "status":  "running" | "success" | "error" | "warning",
+            "message": "<human readable>"
+        }
+
+    The SDK deserializes and routes this — no StatusEvent dataclass needed here.
+    """
+    return json.dumps(
+        {
+            "type": "web",
+            "run_id": run_id,
+            "tool": tool,
+            "status": status,
+            "message": message,
+        }
+    )
 
 
 class WebSearchMixin:
@@ -25,6 +54,13 @@ class WebSearchMixin:
     - Query Tiering (adjusts research depth based on complexity).
     - Navigation Guidance (detects pagination).
     - SERP Quality Analysis.
+    - Scroll-limit enforcement (prevents doom-scrolling).
+    - Search-first gate (blocks scroll when search_web_page hasn't been run).
+
+    Emission style:
+    - All stream events are emitted as raw JSON strings conforming to the
+      EVENT_CONTRACT. The SDK deserializes and routes them — this mixin has
+      no dependency on StatusEvent dataclasses.
     """
 
     # ------------------------------------------------------------------
@@ -42,6 +78,12 @@ class WebSearchMixin:
                 lambda: {
                     "sources_read": 0,
                     "urls_visited": set(),
+                    # Tracks how many times scroll_web_page has been called
+                    # per URL so we can enforce SCROLL_LIMIT_PER_URL.
+                    "url_scroll_counts": defaultdict(int),
+                    # Tracks which URLs have had search_web_page run against
+                    # them, used by the search-first gate.
+                    "urls_searched": set(),
                     "query_tier": None,
                     "search_performed": False,
                     "initial_query": None,
@@ -64,7 +106,6 @@ class WebSearchMixin:
         """
         query_lower = query.lower()
 
-        # Tier 3 indicators: comparison, analysis, "why", "how do X differ"
         tier_3_keywords = [
             "compare",
             "difference",
@@ -80,7 +121,6 @@ class WebSearchMixin:
         if any(keyword in query_lower for keyword in tier_3_keywords):
             return 3
 
-        # Tier 2 indicators: multi-part questions, "what are", lists
         tier_2_keywords = [
             "what are",
             "list",
@@ -95,14 +135,12 @@ class WebSearchMixin:
         if any(keyword in query_lower for keyword in tier_2_keywords):
             return 2
 
-        # Tier 1: Simple factual queries
         return 1
 
     def _get_or_create_session(
         self, run_id: str, query: Optional[str] = None
     ) -> Dict[str, Any]:
         """Get or initialize research session for this run safely."""
-        # Access via the property to ensure it exists
         session = self._research_sessions[run_id]
 
         if query and session["query_tier"] is None:
@@ -124,7 +162,6 @@ class WebSearchMixin:
         Useful for internal checks even if not blocking the orchestrator.
         """
         if session is None:
-            # Use safe get logic
             if run_id not in self._research_sessions:
                 return True, "No active research session"
             session = self._research_sessions[run_id]
@@ -136,11 +173,9 @@ class WebSearchMixin:
         min_sources = {1: 2, 2: 3, 3: 5}
         required = min_sources.get(query_tier, 2)
 
-        # Check if search was even performed
         if not search_performed:
             return True, "No web search performed, skipping validation"
 
-        # Check source count
         if sources_read < required:
             shortage = required - sources_read
             return False, (
@@ -156,6 +191,52 @@ class WebSearchMixin:
         if run_id in self._research_sessions:
             del self._research_sessions[run_id]
 
+    # ------------------------------------------------------------------
+    # SCROLL GUARD
+    # ------------------------------------------------------------------
+    def _check_scroll_allowed(
+        self, run_id: str, target_url: str, page_num: int
+    ) -> Optional[str]:
+        """
+        Enforces two scroll safety rules. Returns a blocking error string
+        if the scroll should be intercepted, or None if it is permitted.
+
+        Rule 1 — Search-first gate:
+            scroll_web_page on page > 0 is blocked if search_web_page has
+            never been called on this URL. Page 0 is always allowed.
+
+        Rule 2 — Hard scroll limit:
+            Once SCROLL_LIMIT_PER_URL scrolls have been issued for a URL,
+            further calls are blocked and the worker is instructed to pivot.
+        """
+        session = self._get_or_create_session(run_id)
+
+        # Rule 1: search-first gate (only applies beyond page 0)
+        if page_num > 0 and target_url not in session["urls_searched"]:
+            return (
+                f"🛑 SCROLL BLOCKED — search_web_page not yet run on this URL.\n"
+                f"MANDATORY NEXT STEP: Call search_web_page('{target_url}', '<your query>') first.\n"
+                f"search_web_page scans ALL pages instantly and is always faster than scrolling.\n"
+                f"Only return to scroll_web_page if search confirms the relevant section "
+                f"and you need surrounding narrative context."
+            )
+
+        # Rule 2: hard scroll limit
+        current_count = session["url_scroll_counts"][target_url]
+        if current_count >= SCROLL_LIMIT_PER_URL:
+            return (
+                f"🛑 SCROLL LIMIT REACHED — scroll_web_page called {current_count} times "
+                f"on this URL (limit: {SCROLL_LIMIT_PER_URL}).\n"
+                f"MANDATORY ACTION: Stop scrolling '{target_url}'.\n"
+                f"You are doom-scrolling. This URL is exhausted. You MUST:\n"
+                f"  1. If search_web_page has not been run: call it now with your target query.\n"
+                f"  2. If search_web_page already returned nothing: append ⚠️ to the Scratchpad "
+                f"and call perform_web_search to find a different source.\n"
+                f"DO NOT call scroll_web_page on this URL again."
+            )
+
+        return None
+
     @staticmethod
     def _format_web_tool_error(tool_name: str, error_content: str, inputs: Dict) -> str:
         """Translates failures into actionable instructions."""
@@ -164,7 +245,6 @@ class WebSearchMixin:
 
         error_lower = error_content.lower()
 
-        # --- 1. SCHEMA/VALIDATION RECOVERY ---
         if "validation error" in error_lower or "missing arguments" in error_lower:
             return (
                 f"❌ SCHEMA ERROR: Invalid arguments for '{tool_name}'.\n"
@@ -172,7 +252,6 @@ class WebSearchMixin:
                 "SYSTEM INSTRUCTION: Check the tool definition and retry with valid arguments."
             )
 
-        # --- 2. ACCESS DENIED ---
         if "403" in error_content or "access denied" in error_lower:
             return (
                 f"❌ Web Tool '{tool_name}' Failed: Access Denied (Bot Protection).\n"
@@ -180,7 +259,6 @@ class WebSearchMixin:
                 "Pick a different URL from your search results."
             )
 
-        # --- 3. PAGINATION LIMITS ---
         if "out of bounds" in error_lower or "invalid page" in error_lower:
             return (
                 f"⚠️ Web Tool '{tool_name}' Note: End of Document Reached.\n"
@@ -197,7 +275,6 @@ class WebSearchMixin:
         if not content:
             return ""
 
-        # Regex to find "Page X of Y" or "Page X/Y"
         page_match = re.search(
             r"Page\s+(\d+)\s*(?:of|/)\s*(\d+)", content, re.IGNORECASE
         )
@@ -222,7 +299,6 @@ class WebSearchMixin:
         if not raw_markdown:
             return f"Error: No data for '{query}'."
 
-        # Update session
         session = self._get_or_create_session(run_id, query)
         session["search_performed"] = True
 
@@ -231,16 +307,14 @@ class WebSearchMixin:
         count = 0
 
         for line in lines:
-            if count >= 10:  # Limit results to keep context clean
+            if count >= 10:
                 break
-            # Parsing logic for markdown links [Title](URL)
             if "](" in line and "duckduckgo" not in line:
                 match = re.search(r"\((https?://[^)]+)\)", line)
                 if match:
                     title = line.split("](")[0].strip("[")
                     url = match.group(1)
 
-                    # Add source quality hints
                     quality_hint = ""
                     if any(domain in url for domain in [".gov", ".edu", ".org"]):
                         quality_hint = " [HIGH AUTHORITY]"
@@ -255,7 +329,6 @@ class WebSearchMixin:
         if not results:
             return "No results found."
 
-        # Determine required sources based on tier
         query_tier = session["query_tier"]
         min_sources = {1: 2, 2: 3, 3: 5}.get(query_tier, 3)
 
@@ -265,7 +338,6 @@ class WebSearchMixin:
             + "\n".join(results)
         )
 
-        # Add mandatory next-step instruction
         output += (
             f"\n\n⚠️ MANDATORY NEXT ACTION:\n"
             f"You MUST call read_web_page on at least {min_sources} results above.\n"
@@ -290,14 +362,17 @@ class WebSearchMixin:
         arguments_dict: Dict[str, Any],
         tool_call_id: Optional[str],
         decision: Optional[Dict],
-    ) -> AsyncGenerator[StatusEvent, None]:
+    ) -> AsyncGenerator[str, None]:
         """
         Shared core logic for Read, Scroll, Search, and SERP with progress tracking.
+
+        Yields raw JSON strings conforming to the stream EVENT_CONTRACT.
+        The SDK deserializes and routes — no StatusEvent dataclasses here.
         """
         ts_start = asyncio.get_event_loop().time()
 
         # --- [1] STATUS: VALIDATING ---
-        yield create_status_payload(run_id, tool_name, "Validating parameters...")
+        yield _status(run_id, tool_name, "Validating parameters...")
 
         # --- VALIDATION ---
         validator = ToolValidator()
@@ -306,15 +381,12 @@ class WebSearchMixin:
 
         if validation_error:
             LOG.warning(f"{tool_name} ▸ Validation Failed: {validation_error}")
-            yield create_status_payload(
-                run_id, tool_name, "Validation failed.", state="error"
-            )
+            yield _status(run_id, tool_name, "Validation failed.", status="error")
 
             error_feedback = self._format_web_tool_error(
                 tool_name, f"Validation Error: {validation_error}", arguments_dict
             )
 
-            # Submit error to DB and LLM
             try:
                 action = await asyncio.to_thread(
                     self.project_david_client.actions.create_action,
@@ -324,7 +396,6 @@ class WebSearchMixin:
                     function_args=arguments_dict,
                     decision=decision,
                 )
-
                 await self.submit_tool_output(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
@@ -333,7 +404,6 @@ class WebSearchMixin:
                     action=action,
                     is_error=True,
                 )
-
                 await asyncio.to_thread(
                     self.project_david_client.actions.update_action,
                     action_id=action.id,
@@ -344,8 +414,8 @@ class WebSearchMixin:
 
             return
 
-        # --- [2] STATUS: CREATING ACTION (Success Path) ---
-        yield create_status_payload(run_id, tool_name, "Initializing tool action...")
+        # --- [2] STATUS: CREATING ACTION ---
+        yield _status(run_id, tool_name, "Initializing tool action...")
 
         try:
             action = await asyncio.to_thread(
@@ -358,27 +428,21 @@ class WebSearchMixin:
             )
         except Exception as e:
             LOG.error(f"{tool_name} ▸ Action creation failed: {e}")
-            yield create_status_payload(
-                run_id, tool_name, "Internal system error.", state="error"
-            )
+            yield _status(run_id, tool_name, "Internal system error.", status="error")
             return
 
-        # --- [3] EXECUTION (Threaded I/O) ---
+        # --- [3] EXECUTION ---
         try:
             final_content = ""
 
             if tool_name == "read_web_page":
                 target_url = arguments_dict["url"]
-                yield create_status_payload(
-                    run_id, tool_name, f"Reading: {target_url}..."
-                )
+                yield _status(run_id, tool_name, f"Reading: {target_url}...")
 
-                # Track source reading
                 session = self._get_or_create_session(run_id)
                 if target_url not in session["urls_visited"]:
                     session["urls_visited"].add(target_url)
                     session["sources_read"] += 1
-
                     LOG.info(
                         f"[{run_id}] Progress: {session['sources_read']} sources read "
                         f"(Tier {session.get('query_tier', 'N/A')} query)"
@@ -390,12 +454,13 @@ class WebSearchMixin:
                     force_refresh=arguments_dict.get("force_refresh", False),
                 )
 
-                # Add progress indicator to content
                 tier = session.get("query_tier", 1)
                 min_sources = {1: 2, 2: 3, 3: 5}.get(tier, 2)
                 progress_note = (
                     f"\n\n📊 RESEARCH PROGRESS: {session['sources_read']}/{min_sources} sources read "
-                    f"(Tier {tier} query)"
+                    f"(Tier {tier} query)\n"
+                    f"⚡ NEXT STEP: Call search_web_page('{target_url}', '<your query>') "
+                    f"to extract facts. Do NOT scroll."
                 )
 
                 final_content = (
@@ -406,24 +471,87 @@ class WebSearchMixin:
             elif tool_name == "scroll_web_page":
                 target_url = arguments_dict["url"]
                 page_num = arguments_dict["page"]
-                yield create_status_payload(
-                    run_id, tool_name, f"Scrolling to page {page_num}..."
+
+                # --- SCROLL GUARD ---
+                scroll_block_msg = self._check_scroll_allowed(
+                    run_id, target_url, page_num
                 )
+                if scroll_block_msg:
+                    LOG.warning(
+                        f"[{run_id}] scroll_web_page INTERCEPTED for '{target_url}' "
+                        f"page={page_num}: scroll guard triggered."
+                    )
+                    yield _status(
+                        run_id,
+                        tool_name,
+                        f"Scroll blocked by guard (page {page_num}).",
+                        status="warning",
+                    )
+                    await self.submit_tool_output(
+                        thread_id=thread_id,
+                        assistant_id=assistant_id,
+                        tool_call_id=tool_call_id,
+                        content=scroll_block_msg,
+                        action=action,
+                        is_error=True,
+                    )
+                    await asyncio.to_thread(
+                        self.project_david_client.actions.update_action,
+                        action_id=action.id,
+                        status=StatusEnum.failed.value,
+                    )
+                    return
+
+                # Guard passed — increment counter and execute.
+                session = self._get_or_create_session(run_id)
+                session["url_scroll_counts"][target_url] += 1
+                scroll_count = session["url_scroll_counts"][target_url]
+
+                LOG.info(
+                    f"[{run_id}] scroll_web_page '{target_url}' page={page_num} "
+                    f"(scroll {scroll_count}/{SCROLL_LIMIT_PER_URL})"
+                )
+
+                yield _status(
+                    run_id,
+                    tool_name,
+                    f"Scrolling to page {page_num} "
+                    f"(scroll {scroll_count}/{SCROLL_LIMIT_PER_URL})...",
+                )
+
                 raw_content = await asyncio.to_thread(
                     self.project_david_client.tools.web_scroll,
                     url=target_url,
                     page=page_num,
                 )
-                final_content = self._inject_navigation_guidance(
-                    raw_content, target_url
+
+                remaining = SCROLL_LIMIT_PER_URL - scroll_count
+                scroll_budget_note = (
+                    f"\n\n📜 SCROLL BUDGET: {scroll_count}/{SCROLL_LIMIT_PER_URL} scrolls used "
+                    f"on this URL ({remaining} remaining).\n"
+                    + (
+                        f"⚠️ BUDGET EXHAUSTED after this scroll. "
+                        f"Run search_web_page or get a new URL."
+                        if remaining == 0
+                        else f"Prefer search_web_page over further scrolling unless reading a narrative."
+                    )
+                )
+
+                final_content = (
+                    self._inject_navigation_guidance(raw_content, target_url)
+                    + scroll_budget_note
                 )
 
             elif tool_name == "search_web_page":
                 target_url = arguments_dict["url"]
                 query_val = arguments_dict["query"]
-                yield create_status_payload(
-                    run_id, tool_name, f"Searching page for '{query_val}'..."
-                )
+
+                # Record that search_web_page has been run — unlocks scroll gate.
+                session = self._get_or_create_session(run_id)
+                session["urls_searched"].add(target_url)
+
+                yield _status(run_id, tool_name, f"Searching page for '{query_val}'...")
+
                 final_content = await asyncio.to_thread(
                     self.project_david_client.tools.web_search,
                     url=target_url,
@@ -432,18 +560,17 @@ class WebSearchMixin:
 
             elif tool_name == "perform_web_search":
                 query_val = arguments_dict["query"]
-                yield create_status_payload(
+                yield _status(
                     run_id, tool_name, f"Querying search engine: '{query_val}'..."
                 )
+
                 query_str = query_val.replace(" ", "+")
                 raw_serp = await asyncio.to_thread(
                     self.project_david_client.tools.web_read,
                     url=f"https://html.duckduckgo.com/html/?q={query_str}",
                     force_refresh=True,
                 )
-                yield create_status_payload(
-                    run_id, tool_name, "Parsing search results..."
-                )
+                yield _status(run_id, tool_name, "Parsing search results...")
                 final_content = self._parse_serp_results(raw_serp, query_val, run_id)
 
             else:
@@ -458,18 +585,18 @@ class WebSearchMixin:
             )
 
             if is_soft_failure:
-                yield create_status_payload(
-                    run_id, tool_name, "Encountered external error...", state="warning"
+                yield _status(
+                    run_id, tool_name, "Encountered external error...", status="warning"
                 )
                 final_content = self._format_web_tool_error(
                     tool_name, final_content, arguments_dict
                 )
             else:
-                yield create_status_payload(
+                yield _status(
                     run_id,
                     tool_name,
                     "Content retrieved successfully.",
-                    state="success",
+                    status="success",
                 )
 
             # --- [5] SUBMIT OUTPUT ---
@@ -482,7 +609,7 @@ class WebSearchMixin:
                 is_error=is_soft_failure,
             )
 
-            # --- [6] UPDATE STATUS ---
+            # --- [6] UPDATE ACTION ---
             await asyncio.to_thread(
                 self.project_david_client.actions.update_action,
                 action_id=action.id,
@@ -501,10 +628,10 @@ class WebSearchMixin:
             )
 
         except Exception as exc:
-            # --- [7] HARD FAILURE HANDLING ---
+            # --- [7] HARD FAILURE ---
             LOG.error(f"[{run_id}] {tool_name} HARD FAILURE: {exc}")
-            yield create_status_payload(
-                run_id, tool_name, f"Critical failure: {str(exc)}", state="error"
+            yield _status(
+                run_id, tool_name, f"Critical failure: {str(exc)}", status="error"
             )
 
             error_hint = self._format_web_tool_error(
@@ -539,9 +666,9 @@ class WebSearchMixin:
         arguments_dict: Dict[str, Any],
         tool_call_id: Optional[str] = None,
         decision: Optional[Dict] = None,
-    ) -> AsyncGenerator[StatusEvent, None]:
+    ) -> AsyncGenerator[str, None]:
         """Handler for 'perform_web_search' (Google/DDG Discovery)."""
-        async for status in self._execute_web_tool_logic(
+        async for event in self._execute_web_tool_logic(
             tool_name="perform_web_search",
             required_keys=["query"],
             thread_id=thread_id,
@@ -551,7 +678,7 @@ class WebSearchMixin:
             tool_call_id=tool_call_id,
             decision=decision,
         ):
-            yield status
+            yield event
 
     async def handle_read_web_page(
         self,
@@ -561,8 +688,8 @@ class WebSearchMixin:
         arguments_dict: Dict[str, Any],
         tool_call_id: Optional[str] = None,
         decision: Optional[Dict] = None,
-    ) -> AsyncGenerator[StatusEvent, None]:
-        async for status in self._execute_web_tool_logic(
+    ) -> AsyncGenerator[str, None]:
+        async for event in self._execute_web_tool_logic(
             tool_name="read_web_page",
             required_keys=["url"],
             thread_id=thread_id,
@@ -572,7 +699,7 @@ class WebSearchMixin:
             tool_call_id=tool_call_id,
             decision=decision,
         ):
-            yield status
+            yield event
 
     async def handle_scroll_web_page(
         self,
@@ -582,8 +709,8 @@ class WebSearchMixin:
         arguments_dict: Dict[str, Any],
         tool_call_id: Optional[str] = None,
         decision: Optional[Dict] = None,
-    ) -> AsyncGenerator[StatusEvent, None]:
-        async for status in self._execute_web_tool_logic(
+    ) -> AsyncGenerator[str, None]:
+        async for event in self._execute_web_tool_logic(
             tool_name="scroll_web_page",
             required_keys=["url", "page"],
             thread_id=thread_id,
@@ -593,7 +720,7 @@ class WebSearchMixin:
             tool_call_id=tool_call_id,
             decision=decision,
         ):
-            yield status
+            yield event
 
     async def handle_search_web_page(
         self,
@@ -603,8 +730,8 @@ class WebSearchMixin:
         arguments_dict: Dict[str, Any],
         tool_call_id: Optional[str] = None,
         decision: Optional[Dict] = None,
-    ) -> AsyncGenerator[StatusEvent, None]:
-        async for status in self._execute_web_tool_logic(
+    ) -> AsyncGenerator[str, None]:
+        async for event in self._execute_web_tool_logic(
             tool_name="search_web_page",
             required_keys=["url", "query"],
             thread_id=thread_id,
@@ -614,4 +741,4 @@ class WebSearchMixin:
             tool_call_id=tool_call_id,
             decision=decision,
         ):
-            yield status
+            yield event
