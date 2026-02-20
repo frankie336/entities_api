@@ -1,3 +1,4 @@
+# src/api/entities_api/platform_tools/definitions/read_web_page.py
 read_web_page = {
     "type": "function",
     "function": {

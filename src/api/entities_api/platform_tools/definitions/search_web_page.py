@@ -1,3 +1,4 @@
+# src/api/entities_api/platform_tools/definitions/search_web_page.py
 search_web_page = {
     "type": "function",
     "function": {
@@ -18,4 +19,4 @@ search_web_page = {
             "required": ["url", "query"],
         },
     },
-}  # No parentheses, no trailing comma here
+}

@@ -1,3 +1,4 @@
+# src/api/entities_api/platform_tools/definitions/record_tool_decision.py
 record_tool_decision = {
     "name": "record_tool_decision",
     "description": "Record the structured decision basis for selecting a tool before calling it.",
