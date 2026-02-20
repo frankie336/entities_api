@@ -51,6 +51,8 @@ from src.api.entities_api.orchestration.mixins.streaming_mixin import \
     StreamingMixin
 from src.api.entities_api.orchestration.mixins.tool_routing_mixin import \
     ToolRoutingMixin
+from src.api.entities_api.utils.ephemeral_thread_proxy import \
+    EphemeralThreadProxy
 
 LOG = LoggingUtility()
 
@@ -186,40 +188,108 @@ class OrchestratorCore(
 
     async def _handle_deep_research_identity_swap(self, requested_model: Any) -> None:
         """
-        If Deep Research is active, this method performs the 'Hot Swap':
-        1. Creates (or leases) a Supervisor Agent.
-        2. Swaps the current assistant_id to the Supervisor's ID.
-        3. Flushes and reloads the configuration to match the Supervisor.
-        4. Sets the inference model to the specific reasoning model required.
+        Performs the 'Hot Swap' and safely manages the persistent worker thread.
         """
+
+        # 1. Safely acquire thread_id to prevent "worker_thread:None" collisions
+        active_thread_id = getattr(self, "thread_id", None)
+        if not active_thread_id:
+            LOG.warning(
+                "⚠️ No thread_id found. Deep research caching isolated for this turn."
+            )
+            active_thread_id = "unknown_thread"
+
+        worker_thread_key = f"worker_thread:{active_thread_id}"
+
+        # --- Helper: Safely handle Sync OR Async Redis gracefully ---
+        async def _redis_get(key):
+            if not hasattr(self, "redis") or not self.redis:
+                return None
+            try:
+                val = self.redis.get(key)
+                if asyncio.iscoroutine(val):
+                    val = await val
+                if isinstance(val, bytes):
+                    val = val.decode("utf-8")
+                return val
+            except Exception as e:
+                LOG.error(f"Redis get failed: {e}")
+                return None
+
+        async def _redis_setex(key, time, val):
+            if not hasattr(self, "redis") or not self.redis:
+                return
+            try:
+                res = self.redis.setex(key, time, val)
+                if asyncio.iscoroutine(res):
+                    await res
+            except Exception as e:
+                LOG.error(f"Redis setex failed: {e}")
+
+        async def _redis_delete(key):
+            if not hasattr(self, "redis") or not self.redis:
+                return
+            try:
+                res = self.redis.delete(key)
+                if asyncio.iscoroutine(res):
+                    await res
+            except Exception as e:
+                LOG.error(f"Redis delete failed: {e}")
+
+        # -------------------------------------------------------------
+
         if not self.is_deep_research:
+            # Main assistant is active: Clean up lingering worker threads
+            old_thread_id = await _redis_get(worker_thread_key)
+            if old_thread_id:
+                try:
+                    LOG.info(
+                        f"🧹 Main assistant active. Deleting old worker thread: {old_thread_id}"
+                    )
+                    if hasattr(self, "project_david_client"):
+                        await asyncio.to_thread(
+                            self.project_david_client.threads.delete_thread,
+                            thread_id=old_thread_id,
+                        )
+                except Exception as e:
+                    LOG.warning(f"⚠️ Old worker thread delete failed: {e}")
+                finally:
+                    await _redis_delete(worker_thread_key)
             return
 
-        LOG.critical("██████ [DEEP_RESEARCH_MODE]=%s ██████", self.is_deep_research)
+        LOG.critical("██████=%s ██████", self.is_deep_research)
 
         self.assistant_config.get("web_access", False)
 
-        # 1. Acquire Supervisor (Ideally, this is where you'd implement pooling later)
+        # 2. Acquire Supervisor
         assistant_manager = AssistantManager()
         ephemeral_supervisor = await assistant_manager.create_ephemeral_supervisor()
-        # =============================================
-        # Create research workers persistent thread
-        # =============================================
-        self._research_worker_thread = await assistant_manager.create_ephemeral_thread()
 
-        # 2. Swap Identity
-        # The worker now 'becomes' the Supervisor for the duration of this run
+        # 3. Create or REUSE the research worker's persistent thread
+        existing_thread_id = await _redis_get(worker_thread_key)
+
+        # Ensure we only reuse if we have a valid, known thread_id
+        if existing_thread_id and active_thread_id != "unknown_thread":
+            self._research_worker_thread = EphemeralThreadProxy(id=existing_thread_id)
+            LOG.info(f"♻️ Reusing existing worker thread: {existing_thread_id}")
+        else:
+            self._research_worker_thread = (
+                await assistant_manager.create_ephemeral_thread()
+            )
+            if active_thread_id != "unknown_thread":
+                await _redis_setex(
+                    worker_thread_key, 86400, self._research_worker_thread.id
+                )
+            LOG.info(f"🆕 Created new worker thread: {self._research_worker_thread.id}")
+
+        # 4. Swap Identity & Config
         self.assistant_id = ephemeral_supervisor.id
         self.ephemeral_supervisor_id = ephemeral_supervisor.id
 
-        # 3. Flush and Reload Configuration
-        # We must clear the old config (user assistant) and fetch the Supervisor's
-        # config (which contains the system prompt for planning/delegation).
         self.assistant_config = {}
         await self._ensure_config_loaded()
 
-        # 4. Set Delegated Inference Model
-        # e.g., Swap from Qwen-7B-Chat to QwQ-32B for better reasoning
+        # 5. Set Delegated Inference Model
         self._delegation_model = get_delegated_model(requested_model=requested_model)
 
     def _handle_chunk_accumulation(

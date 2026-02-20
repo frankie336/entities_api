@@ -130,8 +130,6 @@ class ScratchpadMixin:
 
             yield json.dumps(payload)
 
-            yield payload
-
             await asyncio.to_thread(
                 self.project_david_client.actions.update_action,
                 action_id=action.id,
