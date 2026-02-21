@@ -36,7 +36,7 @@ def _status(run_id: str, tool: str, message: str, status: str = "running") -> st
     """
     return json.dumps(
         {
-            "type": "web",
+            "type": "web_status",
             "run_id": run_id,
             "tool": tool,
             "status": status,

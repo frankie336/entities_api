@@ -1,3 +1,4 @@
+# src/api/entities_api/orchestration/mixins/delegation_mixin.py
 from __future__ import annotations
 
 import asyncio
@@ -39,6 +40,13 @@ class DelegationMixin:
     """
     Spins up an ephemeral Worker Loop using the project_david_client strictly.
     Lifecycle matches the central Orchestrator stream logic.
+
+    Emission style:
+    - All stream events are emitted as raw JSON strings conforming to the
+      EVENT_CONTRACT via the _research_status() helper.
+    - type: 'research_status' is the discriminator for this mixin's events,
+      distinct from 'activity' (generic), 'code_status' (sandbox), and
+      'web' (web tool progress).
     """
 
     def __init__(self, *args, **kwargs):
@@ -49,7 +57,35 @@ class DelegationMixin:
         self._research_worker_thread = None
         self._scratch_pad_thread = None
 
-    # --- HELPER: Bridges blocking generators to async loop (Fixes uvloop error) ---
+    # ------------------------------------------------------------------
+    # EMISSION HELPER
+    # ------------------------------------------------------------------
+    def _research_status(self, activity: str, state: str, run_id: str) -> str:
+        """
+        Emits a research delegation status event conforming to the EVENT_CONTRACT.
+
+        Shape:
+            {
+                "type":     "research_status",
+                "activity": "<human readable>",
+                "state":    "in_progress" | "completed" | "error",
+                "tool":     "delegate_research_task",
+                "run_id":   "<uuid>"
+            }
+        """
+        return json.dumps(
+            {
+                "type": "research_status",
+                "activity": activity,
+                "state": state,
+                "tool": "delegate_research_task",
+                "run_id": run_id,
+            }
+        )
+
+    # ------------------------------------------------------------------
+    # HELPER: Bridges blocking generators to async loop (Fixes uvloop error)
+    # ------------------------------------------------------------------
     async def _stream_sync_generator(
         self, generator_func: Callable, *args, **kwargs
     ) -> AsyncGenerator[Any, None]:
@@ -78,7 +114,9 @@ class DelegationMixin:
                 raise item
             yield item
 
-    # --- HELPER: Poll run status until terminal state or timeout ---
+    # ------------------------------------------------------------------
+    # HELPER: Poll run status until terminal state or timeout
+    # ------------------------------------------------------------------
     async def _wait_for_run_completion(
         self,
         run_id: str,
@@ -136,20 +174,12 @@ class DelegationMixin:
                     return status_value
 
             except Exception as e:
-                LOG.warning(
-                    "⚠️ [DELEGATE_POLL] Error polling run %s: %s",
-                    run_id,
-                    e,
-                )
+                LOG.warning("⚠️ [DELEGATE_POLL] Error polling run %s: %s", run_id, e)
 
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
 
-        LOG.error(
-            "❌ [DELEGATE_POLL] run_id=%s timed out after %ss.",
-            run_id,
-            timeout,
-        )
+        LOG.error("❌ [DELEGATE_POLL] run_id=%s timed out after %ss.", run_id, timeout)
         raise asyncio.TimeoutError(
             f"Worker run {run_id} did not complete within {timeout}s"
         )
@@ -161,7 +191,8 @@ class DelegationMixin:
         if delete_thread:
             try:
                 await asyncio.to_thread(
-                    self.project_david_client.threads.delete_thread, thread_id=thread_id
+                    self.project_david_client.threads.delete_thread,
+                    thread_id=thread_id,
                 )
             except Exception as e:
                 LOG.warning(f"⚠️ [CLEANUP] Thread delete failed: {e}")
@@ -226,7 +257,6 @@ class DelegationMixin:
         Ignores tool calls, tool outputs, and empty messages.
         """
         try:
-            # 1. Fetch the raw list of dictionaries
             messages = await asyncio.to_thread(
                 self.project_david_client.messages.get_formatted_messages,
                 thread_id=thread_id,
@@ -236,28 +266,24 @@ class DelegationMixin:
                 LOG.warning(f"[{thread_id}] No messages found in thread.")
                 return None
 
-            # 2. Iterate backwards to find the newest valid text response
             for msg in reversed(messages):
                 role = msg.get("role")
                 content = msg.get("content")
                 tool_calls = msg.get("tool_calls")
 
-                # Criterion 1: Must be from the assistant
+                # Must be from the assistant
                 if role != "assistant":
                     continue
 
-                # Criterion 2: Must NOT be a tool call (dispatching a search)
-                # In your log, the assistant message has 'tool_calls' populated. We skip that.
+                # Must NOT be a tool call (dispatching a search)
                 if tool_calls:
                     continue
 
-                # Criterion 3: Must contain actual text string
+                # Must contain actual text
                 if not isinstance(content, str) or not content.strip():
                     continue
 
-                # Criterion 4: Success - Found the latest text report
                 final_text = content.strip()
-
                 LOG.info(
                     "✅ [WORKER_FINAL_REPORT] Found report (length=%d): %s...",
                     len(final_text),
@@ -265,7 +291,6 @@ class DelegationMixin:
                 )
                 return final_text
 
-            # 3. No valid text report found (Worker might still be searching)
             LOG.info("ℹ️ [WORKER_FINAL_REPORT] No final text report found yet.")
             return None
 
@@ -275,7 +300,9 @@ class DelegationMixin:
             )
             return None
 
-    # --- MAIN HANDLER ---
+    # ------------------------------------------------------------------
+    # MAIN HANDLER
+    # ------------------------------------------------------------------
     async def handle_delegate_research_task(
         self, thread_id, run_id, assistant_id, arguments_dict, tool_call_id, decision
     ) -> AsyncGenerator[str, None]:
@@ -292,14 +319,8 @@ class DelegationMixin:
             args = arguments_dict
 
         # 2. Yield Initial Status
-        yield json.dumps(
-            {
-                "type": "activity",
-                "activity": "Initializing delegation worker...",
-                "state": "in_progress",
-                "tool": "delegate_research_task",
-                "run_id": run_id,
-            }
+        yield self._research_status(
+            "Initializing delegation worker...", "in_progress", run_id
         )
 
         # 3. Create Action (DB)
@@ -334,20 +355,12 @@ class DelegationMixin:
                 ephemeral_worker.id, ephemeral_thread.id
             )
 
-            yield json.dumps(
-                {
-                    "type": "activity",
-                    "activity": "Worker active. Streaming...",
-                    "state": "in_progress",
-                    "tool": "delegate_research_task",
-                    "run_id": run_id,
-                }
+            yield self._research_status(
+                "Worker active. Streaming...", "in_progress", run_id
             )
 
-            supervisors_thread = thread_id
-            workers_thread = self._research_worker_thread
-            LOG.info(f"🔄 [SUPERVISORS_THREAD_ID]: {supervisors_thread}")
-            LOG.info(f"🔄 [WORKERS_THREAD_ID]: {workers_thread}")
+            LOG.info(f"🔄 [SUPERVISORS_THREAD_ID]: {thread_id}")
+            LOG.info(f"🔄 [WORKERS_THREAD_ID]: {self._research_worker_thread}")
 
             # 5. Configure Stream
             sync_stream = self.project_david_client.synchronous_inference_stream
@@ -362,7 +375,8 @@ class DelegationMixin:
             # 6. Stream Execution — covers first inference pass only.
             #    Subsequent tool-call passes run inside the SDK's own run loop.
             LOG.critical(
-                "🎬 WORKER STREAM STARTING - If you see this but no content chunks, check process_tool_calls wiring"
+                "🎬 WORKER STREAM STARTING - If you see this but no content chunks, "
+                "check process_tool_calls wiring"
             )
 
             captured_stream_content = ""
@@ -373,8 +387,6 @@ class DelegationMixin:
                 model=self._delegation_model,
             ):
                 # 🛑 GUARD 1: Exclude Status/System Events
-                # If the event comes from a tool execution or has a status flag, SKIP IT.
-                # This ensures "Scanning web..." doesn't end up in your final answer buffer.
                 if (
                     hasattr(event, "tool")
                     or hasattr(event, "status")
@@ -383,19 +395,17 @@ class DelegationMixin:
                     continue
 
                 # 🛑 GUARD 2: Exclude Tool Call Arguments
-                # If the LLM is generating JSON arguments for a function, we don't want that in the text buffer.
                 if getattr(event, "tool_calls", None) or getattr(
                     event, "function_call", None
                 ):
                     continue
 
-                # --- Extract Payload ---
                 chunk_content = getattr(event, "content", None) or getattr(
                     event, "text", None
                 )
                 chunk_reasoning = getattr(event, "reasoning", None)
 
-                # --- A. Handle Reasoning (Stream ONLY) ---
+                # A. Reasoning (stream only)
                 if chunk_reasoning:
                     yield json.dumps(
                         {
@@ -408,14 +418,9 @@ class DelegationMixin:
                         }
                     )
 
-                # --- B. Handle Content (Stream + Buffer) ---
-                # We strictly check if it is a string to avoid crashing on complex objects
+                # B. Content (stream + buffer)
                 if chunk_content and isinstance(chunk_content, str):
-
-                    # 1. Buffer (Pure text only)
                     captured_stream_content += chunk_content
-
-                    # 2. Stream
                     yield json.dumps(
                         {
                             "stream_type": "delegation",
@@ -426,22 +431,10 @@ class DelegationMixin:
                             },
                         }
                     )
-            # --------------------------------------------------------------------
-            # 7. WAIT FOR RUN COMPLETION BEFORE FETCHING
-            #
-            #    The stream above only covers the first inference pass.
-            #    The worker needs multiple passes (search → read → synthesize).
-            #    Poll until the run reaches a terminal state so that all worker
-            #    turns are fully written to the DB before we attempt the fetch.
-            # --------------------------------------------------------------------
-            yield json.dumps(
-                {
-                    "type": "activity",
-                    "activity": "Worker processing. Waiting for completion...",
-                    "state": "in_progress",
-                    "tool": "delegate_research_task",
-                    "run_id": run_id,
-                }
+
+            # 7. Wait for run completion before fetching
+            yield self._research_status(
+                "Worker processing. Waiting for completion...", "in_progress", run_id
             )
 
             try:
@@ -450,8 +443,7 @@ class DelegationMixin:
                     thread_id=ephemeral_thread.id,
                 )
                 LOG.info(
-                    "✅ [DELEGATE] Worker run completed. Status=%s",
-                    final_run_status,
+                    "✅ [DELEGATE] Worker run completed. Status=%s", final_run_status
                 )
 
             except asyncio.TimeoutError:
@@ -459,9 +451,9 @@ class DelegationMixin:
                     "⏳ [DELEGATE] Worker run timed out. Attempting fetch anyway."
                 )
                 execution_had_error = True
-                final_run_status = "timed_out"  # Prevent UnboundLocalError downstream
+                final_run_status = "timed_out"
 
-            # 8. Fetch final report now that run is confirmed complete
+            # 8. Fetch final report
             final_content = await self._fetch_worker_final_report(
                 thread_id=ephemeral_thread.id
             )
@@ -471,8 +463,6 @@ class DelegationMixin:
                 final_content,
             )
 
-            # FALLBACK: If DB fetch missed it, use our captured stream buffer
-
             if not final_content:
                 LOG.critical(
                     "██████ [DELEGATE_TOTAL_FAILURE] No content generated by the worker ██████"
@@ -480,10 +470,7 @@ class DelegationMixin:
                 final_content = "No report generated by worker."
                 execution_had_error = True
 
-            # =======================================
-            #
-            # Delegations happen in cycles
-            # =======================================
+            # 9. Submit tool output back to supervisor
             await self.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
@@ -493,34 +480,24 @@ class DelegationMixin:
                 is_error=execution_had_error,
             )
 
-            # Update Action Status
+            # 10. Update action status
             if action:
-                status = (
-                    StatusEnum.completed.value
-                    if not execution_had_error
-                    else StatusEnum.failed.value
-                )
                 await asyncio.to_thread(
                     self.project_david_client.actions.update_action,
                     action_id=action.id,
-                    status=status,
+                    status=(
+                        StatusEnum.completed.value
+                        if not execution_had_error
+                        else StatusEnum.failed.value
+                    ),
                 )
 
         except Exception as e:
             execution_had_error = True
             LOG.error(f"❌ [DELEGATE] Error: {e}", exc_info=True)
-            yield json.dumps(
-                {
-                    "type": "activity",
-                    "activity": f"Error: {str(e)}",
-                    "state": "error",
-                    "tool": "delegate_research_task",
-                    "run_id": run_id,
-                }
-            )
+            yield self._research_status(f"Error: {str(e)}", "error", run_id)
 
         finally:
-            # 10. Cleanup
             if ephemeral_worker:
                 await self._ephemeral_clean_up(
                     ephemeral_worker.id,
@@ -528,12 +505,8 @@ class DelegationMixin:
                     self._delete_ephemeral_thread,
                 )
 
-            yield json.dumps(
-                {
-                    "type": "activity",
-                    "activity": "Delegation complete.",
-                    "state": "completed" if not execution_had_error else "error",
-                    "tool": "delegate_research_task",
-                    "run_id": run_id,
-                }
+            yield self._research_status(
+                "Delegation complete.",
+                "completed" if not execution_had_error else "error",
+                run_id,
             )

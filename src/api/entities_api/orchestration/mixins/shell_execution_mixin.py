@@ -4,10 +4,9 @@ import asyncio
 import json
 import os
 import time
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import jwt
-from projectdavid import StatusEvent
 from projectdavid_common.utilities.tool_validator import ToolValidator
 from projectdavid_common.validation import StatusEnum
 
@@ -15,7 +14,6 @@ from projectdavid_common.validation import StatusEnum
 from entities_api.platform_tools.handlers.computer.shell_command_interface import \
     run_shell_commands_async
 from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.utils.level3_utils import create_status_payload
 
 LOG = LoggingUtility()
 
@@ -69,18 +67,16 @@ class ShellExecutionMixin:
         arguments_dict: Dict[str, Any],
         tool_call_id: Optional[str] = None,
         decision: Optional[Dict] = None,
-    ) -> AsyncGenerator[StatusEvent, None]:
+    ) -> None:
         """
         Asynchronous handler for shell commands.
-        Signals the internal orchestrator loop for Turn 2 if execution fails.
+        Executes commands, performs validation, and submits output.
         """
+
         tool_name = "computer"
         LOG.info("ShellExecutionMixin: started for run_id=%s", run_id)
 
-        # --- [1] STATUS: VALIDATING ---
-        yield create_status_payload(run_id, tool_name, "Validating shell parameters...")
-
-        # --- [L2] SHARED INPUT VALIDATION ---
+        # --- SHARED INPUT VALIDATION ---
         validator = ToolValidator()
         validator.schema_registry = {tool_name: ["commands"]}
 
@@ -101,12 +97,7 @@ class ShellExecutionMixin:
                     decision=decision,
                 )
             except Exception:
-                pass
-
-            # Yield Error Status
-            yield create_status_payload(
-                run_id, tool_name, "Validation failed.", state="error"
-            )
+                action = None
 
             error_msg = (
                 f"{validation_error}\n"
@@ -118,14 +109,12 @@ class ShellExecutionMixin:
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
                 content=error_msg,
-                action=action if "action" in locals() else None,
+                action=action,
                 is_error=True,
             )
             return
 
-        # --- [2] STATUS: CREATING ACTION ---
-        yield create_status_payload(run_id, tool_name, "Initializing shell session...")
-
+        # --- CREATE ACTION ---
         try:
             action = await asyncio.to_thread(
                 self.project_david_client.actions.create_action,
@@ -137,9 +126,6 @@ class ShellExecutionMixin:
             )
         except Exception as e:
             LOG.error(f"ShellExecution ▸ Action creation failed: {e}")
-            yield create_status_payload(
-                run_id, tool_name, "Internal system error.", state="error"
-            )
             return
 
         commands: List[str] = arguments_dict.get("commands", [])
@@ -151,18 +137,12 @@ class ShellExecutionMixin:
                 content="No commands provided.",
                 action=action,
             )
-            yield create_status_payload(
-                run_id, tool_name, "No commands to execute.", state="success"
-            )
             return
 
         accumulated_content = ""
         execution_had_error = False
 
-        # --- [3] STATUS: EXECUTING ---
-        yield create_status_payload(run_id, tool_name, "Executing shell commands...")
-
-        # 2. Native Async Streaming
+        # --- EXECUTE SHELL COMMANDS ---
         try:
             auth_token = self._generate_shell_auth_token(
                 subject_id=f"run_{run_id}",
@@ -174,7 +154,7 @@ class ShellExecutionMixin:
             ):
                 accumulated_content += chunk
 
-                # Check for basic shell error signatures in the stream
+                # Detect shell errors
                 if any(
                     err_marker in chunk.lower()
                     for err_marker in [
@@ -186,49 +166,30 @@ class ShellExecutionMixin:
                 ):
                     execution_had_error = True
 
-                # NOTE: We keep the specific 'computer_execution' stream type here
-                # because the frontend likely renders this differently (e.g., in a terminal window)
-                # than standard status toasts.
-                yield json.dumps(
-                    {
-                        "stream_type": "computer_execution",
-                        "chunk": {"type": "computer_output", "content": chunk},
-                    }
-                )
-
         except Exception as e:
             execution_had_error = True
-            err_msg = f"Exception during shell execution: {e}"
-            LOG.error(f"ShellExecution ▸ {err_msg}")
+            LOG.error(f"ShellExecution ▸ Exception during shell execution: {e}")
 
-            yield create_status_payload(
-                run_id, tool_name, "Shell execution crashed.", state="error"
-            )
-
-        # 3. Final Summary & Level 2 Correction Logic
+        # --- FINALIZE OUTPUT ---
         if execution_had_error:
             final_content = self._format_level2_shell_error(
                 accumulated_content or "Unknown shell failure."
             )
-            LOG.warning(f"ShellExecution ▸ Self-Correction Triggered for run {run_id}")
-            status_msg = "Execution finished with errors."
-            final_state = "warning"
+            final_state = True  # indicates error
         else:
             final_content = (
                 accumulated_content.strip()
                 or "Command executed successfully with no output."
             )
-            status_msg = "Execution completed successfully."
-            final_state = "success"
+            final_state = False
 
-        # 4. Submit Result
         await self.submit_tool_output(
             thread_id=thread_id,
             assistant_id=assistant_id,
             tool_call_id=tool_call_id,
             content=final_content,
             action=action,
-            is_error=execution_had_error,
+            is_error=final_state,
         )
 
         # Update DB Action Status
@@ -241,6 +202,3 @@ class ShellExecutionMixin:
                 else StatusEnum.failed.value
             ),
         )
-
-        # --- [4] STATUS: COMPLETE ---
-        yield create_status_payload(run_id, tool_name, status_msg, state=final_state)

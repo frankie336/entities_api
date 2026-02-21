@@ -48,11 +48,11 @@ class CodeExecutionMixin:
         }
         return jwt.encode(payload, secret, algorithm="HS256")
 
-    def _activity(self, activity: str, state: str, run_id: str) -> str:
-        """Builds a status/activity message in the shared envelope format."""
+    def _code_status(self, activity: str, state: str, run_id: str) -> str:
+        """Emits a code interpreter status event conforming to the EVENT_CONTRACT."""
         return json.dumps(
             {
-                "type": "activity",
+                "type": "code_status",
                 "activity": activity,
                 "state": state,
                 "tool": "code_interpreter",
@@ -71,7 +71,7 @@ class CodeExecutionMixin:
     ) -> AsyncGenerator[str, None]:
 
         # 1. Notify start
-        yield self._activity("Preparing code interpreter...", "in_progress", run_id)
+        yield self._code_status("Preparing code interpreter...", "in_progress", run_id)
 
         # --- VALIDATION ---
         validator = ToolValidator()
@@ -94,7 +94,7 @@ class CodeExecutionMixin:
                 pass
 
             # Surface as a recoverable status message — not a raw error chunk
-            yield self._activity(
+            yield self._code_status(
                 f"Validation failed: {validation_error}", "error", run_id
             )
 
@@ -121,7 +121,7 @@ class CodeExecutionMixin:
             )
         except Exception as e:
             LOG.error(f"CodeInterpreter ▸ Action creation failed: {e}")
-            yield self._activity(f"Failed to register action: {e}", "error", run_id)
+            yield self._code_status(f"Failed to register action: {e}", "error", run_id)
             return
 
         code: str = arguments_dict.get("code", "")
@@ -155,7 +155,7 @@ class CodeExecutionMixin:
         execution_had_error = False
 
         # 3. Stream Execution Output
-        yield self._activity("Executing code in sandbox...", "in_progress", run_id)
+        yield self._code_status("Executing code in sandbox...", "in_progress", run_id)
 
         try:
             auth_token = self._generate_sandbox_token(subject_id=f"run_{run_id}")
@@ -242,7 +242,7 @@ class CodeExecutionMixin:
 
                         # Forward sandbox status events as activity messages
                         status_val = payload.get("status", content or "unknown")
-                        yield self._activity(
+                        yield self._code_status(
                             f"Sandbox status: {status_val}", "in_progress", run_id
                         )
 
@@ -251,7 +251,7 @@ class CodeExecutionMixin:
                         execution_had_error = True
                         LOG.error(f"CodeInterpreter ▸ Sandbox error chunk: {content}")
                         hot_code_buffer.append(f"[Code Exec Error] {content}")
-                        yield self._activity(
+                        yield self._code_status(
                             "Code execution encountered an error — attempting recovery...",
                             "error",
                             run_id,
@@ -260,7 +260,7 @@ class CodeExecutionMixin:
         except Exception as stream_err:
             execution_had_error = True
             LOG.error(f"CodeInterpreter ▸ Stream error: {stream_err}")
-            yield self._activity(
+            yield self._code_status(
                 "Sandbox stream interrupted — attempting recovery...",
                 "error",
                 run_id,
@@ -295,7 +295,7 @@ class CodeExecutionMixin:
             hot_code_buffer.append(error_msg)
 
             # Surface as a recoverable activity — not a raw error chunk
-            yield self._activity(
+            yield self._code_status(
                 "File generation expected but not returned — requesting retry...",
                 "error",
                 run_id,
@@ -353,7 +353,7 @@ class CodeExecutionMixin:
 
             except Exception as e:
                 LOG.error(f"[FILE_DEBUG] Error generating URL: {e}", exc_info=True)
-                yield self._activity(
+                yield self._code_status(
                     f"Could not generate download URL for {filename}",
                     "error",
                     run_id,
@@ -368,7 +368,7 @@ class CodeExecutionMixin:
         )
 
         final_state = "completed" if not execution_had_error else "error"
-        yield self._activity(
+        yield self._code_status(
             (
                 "Code execution complete."
                 if not execution_had_error
@@ -390,7 +390,9 @@ class CodeExecutionMixin:
             )
         except Exception as e:
             LOG.error(f"CodeInterpreter ▸ Submission failure: {e}")
-            yield self._activity(f"Tool output submission failed: {e}", "error", run_id)
+            yield self._code_status(
+                f"Tool output submission failed: {e}", "error", run_id
+            )
 
     def process_hot_code_buffer(
         self,
