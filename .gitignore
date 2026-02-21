@@ -72,8 +72,8 @@ instance/
 # Scrapy stuff:
 .scrapy
 
-# Sphinx docs
-docs/_build/
+# Sphinx deprecated_docs
+deprecated_docs/_build/
 
 # PyBuilder
 .pybuilder/
@@ -141,7 +141,7 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
-# mkdocs docs
+# mkdocs deprecated_docs
 /site
 
 # mypy

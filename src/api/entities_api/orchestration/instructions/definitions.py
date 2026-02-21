@@ -340,7 +340,7 @@ LEVEL_4_DEEP_RESEARCH_INSTRUCTIONS = {
         "  - Provided verbatim by the user in their original request\n\n"
         "DOMAINS WHERE THIS IS ESPECIALLY CRITICAL (bot-sensitive, cache-prone):\n"
         "  github.com, gitlab.com, bitbucket.org, raw.githubusercontent.com,\n"
-        "  docs.* subdomains, internal wikis, and any URL containing a direct\n"
+        "  deprecated_docs.* subdomains, internal wikis, and any URL containing a direct\n"
         "  file path (e.g., /blob/, /raw/, /releases/)\n\n"
         "FORBIDDEN PATTERN:\n"
         "  ❌ Running perform_web_search to 'verify' a URL the Supervisor already provided.\n"

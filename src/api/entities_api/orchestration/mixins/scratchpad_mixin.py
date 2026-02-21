@@ -11,6 +11,45 @@ from projectdavid_common.validation import StatusEnum
 LOG = LoggingUtility()
 
 
+def _scratchpad_status(
+    run_id: str,
+    operation: str,
+    state: str,
+    tool: Optional[str] = None,
+    activity: Optional[str] = None,
+    entry: Optional[str] = None,
+) -> str:
+    """
+    Emit a status event as raw JSON conforming to the stream EVENT_CONTRACT.
+
+    Shape:
+        {
+            "type":      "scratchpad_status",
+            "run_id":    "<uuid>",
+            "operation": "read" | "update" | "append",
+            "state":     "in_progress" | "success" | "completed" | "error",
+            "tool":      "<tool_name>",     (optional)
+            "activity":  "<human readable>",(optional)
+            "entry":     "<entry text>"     (optional)
+        }
+    """
+    payload = {
+        "type": "scratchpad_status",
+        "run_id": run_id,
+        "operation": operation,
+        "state": state,
+    }
+
+    if tool is not None:
+        payload["tool"] = tool
+    if activity is not None:
+        payload["activity"] = activity
+    if entry is not None:
+        payload["entry"] = entry
+
+    return json.dumps(payload)
+
+
 class ScratchpadMixin:
 
     def __init__(self, *args, **kwargs):
@@ -41,15 +80,12 @@ class ScratchpadMixin:
             operation_type, ("Accessing memory...", "Memory synchronized.")
         )
 
-        yield json.dumps(
-            {
-                "type": "activity",
-                "tool": tool_name,
-                "activity": label_start,
-                "state": "in_progress",
-                "run_id": run_id,
-                "operation": operation_type,
-            }
+        yield _scratchpad_status(
+            run_id=run_id,
+            operation=operation_type,
+            state="in_progress",
+            tool=tool_name,
+            activity=label_start,
         )
 
         if operation_type != "read":
@@ -59,16 +95,14 @@ class ScratchpadMixin:
             validator.schema_registry = {tool_name: required}
 
             if err := validator.validate_args(tool_name, arguments_dict):
-                yield json.dumps(
-                    {
-                        "type": "activity",
-                        "tool": tool_name,
-                        "activity": f"Validation error: {err}",
-                        "state": "error",
-                        "run_id": run_id,
-                        "operation": operation_type,
-                    }
+                yield _scratchpad_status(
+                    run_id=run_id,
+                    operation=operation_type,
+                    state="error",
+                    tool=tool_name,
+                    activity=f"Validation error: {err}",
                 )
+
                 await self.submit_tool_output(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
@@ -120,26 +154,20 @@ class ScratchpadMixin:
             # Yield raw scratchpad content event — consumed directly by routes.py
             # as a plain JSON string (same pipeline as delegation activity events).
             if entry_text:
-                yield json.dumps(
-                    {
-                        "type": "scratchpad",
-                        "state": "success",
-                        "operation": operation_type,
-                        "entry": entry_text,
-                        "run_id": run_id,
-                    }
+                yield _scratchpad_status(
+                    run_id=run_id,
+                    operation=operation_type,
+                    state="success",
+                    entry=entry_text,
                 )
 
             # Done-label activity event
-            yield json.dumps(
-                {
-                    "type": "activity",
-                    "tool": tool_name,
-                    "activity": label_done,
-                    "state": "completed",
-                    "run_id": run_id,
-                    "operation": operation_type,
-                }
+            yield _scratchpad_status(
+                run_id=run_id,
+                operation=operation_type,
+                state="completed",
+                tool=tool_name,
+                activity=label_done,
             )
 
             await asyncio.to_thread(
@@ -157,15 +185,12 @@ class ScratchpadMixin:
             )
 
         except Exception as e:
-            yield json.dumps(
-                {
-                    "type": "activity",
-                    "tool": tool_name,
-                    "activity": f"Scratchpad error: {str(e)}",
-                    "state": "error",
-                    "run_id": run_id,
-                    "operation": operation_type,
-                }
+            yield _scratchpad_status(
+                run_id=run_id,
+                operation=operation_type,
+                state="error",
+                tool=tool_name,
+                activity=f"Scratchpad error: {str(e)}",
             )
 
             await asyncio.to_thread(
