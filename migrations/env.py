@@ -8,6 +8,7 @@ from alembic.autogenerate import renderers
 from alembic.autogenerate.api import AutogenContext
 # --- NEW IMPORTS FOR CUSTOM RENDERING ---
 from alembic.operations import ops
+from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 
 # --- PATH FIX (Keep this) ---
@@ -15,12 +16,16 @@ project_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if project_dir not in sys.path:
     sys.path.insert(0, project_dir)
 
+
 # --- MODELS IMPORT (Keep this) ---
 from src.api.entities_api.models.models import Base
+
+load_dotenv()
 
 # This is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+
 
 # Interpret the config file for Python logging.
 if config.config_file_name is not None:
@@ -29,13 +34,13 @@ if config.config_file_name is not None:
 # Set the target metadata for 'autogenerate' support
 target_metadata = Base.metadata
 
-# ------------------------------------------------------------------------------------
-# Uncomment DB_URL="mysql+pymysql... and comment DB_URL = os.getenv("DATABASE_URL")
-# when deploying model upgrades
-# ------------------------------------------------------------------------------------
+# Fetch the URL securely from the environment or .env file
 DB_URL = os.getenv("DATABASE_URL")
-# DB_URL = "mysql+pymysql://api_user:ee7d06c5bb265caed9b9d942d210d84d91be511138e498b5682e3a1f463c5539@localhost:3307/entities_db"
 
+if not DB_URL:
+    raise ValueError(
+        "FATAL: DATABASE_URL environment variable is not set or empty. Please check your .env file."
+    )
 if not DB_URL:
     raise ValueError("FATAL: DATABASE_URL environment variable is not set or empty.")
 
