@@ -61,6 +61,9 @@ class HermesDefaultBaseWorker(
         self.ephemeral_supervisor_id = None
         self._delegation_api_key = self.api_key
 
+        # --- [FIX 3] Missing Init Property ---
+        self._research_worker_thread = None
+
         # 1. Capture the 'assistant_cache' argument manually
         arg_assistant_cache_dict = extra.get("assistant_cache")
 
@@ -139,6 +142,9 @@ class HermesDefaultBaseWorker(
         self.ephemeral_supervisor_id = None
         self._delegation_api_key = api_key
 
+        # --- [FIX 1] Scratchpad Variable Initialization ---
+        self._scratch_pad_thread = None
+
         redis = self.redis
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
@@ -168,16 +174,21 @@ class HermesDefaultBaseWorker(
             await self._ensure_config_loaded()
 
             # --- [NEW] DEEP RESEARCH / SUPERVISOR LOGIC ---
-            is_deep_research = self.assistant_config.get("deep_research", False)
+            self.is_deep_research = self.assistant_config.get("deep_research", False)
+
             # C. Execute Identity Swap (Refactored)
             # This handles the supervisor creation, ID swapping, and config reloading
             await self._handle_deep_research_identity_swap(
                 requested_model=pre_mapped_model
             )
 
+            # --- [FIX 1] Scratchpad Thread Binding ---
+            self._scratch_pad_thread = thread_id
+
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", False)
-            web_access_setting = self.assistant_config.get("decision_telemetry", False)
+            # Fixed incorrect cache key reference (decision_telemetry -> web_access)
+            web_access_setting = self.assistant_config.get("web_access", False)
 
             # 2. Check if this is a research worker
             research_worker_setting = self.assistant_config.get(
@@ -197,15 +208,13 @@ class HermesDefaultBaseWorker(
             elif research_worker_setting:
                 web_access_setting = True
 
-            # ----------------------------------------------------------------------
-            # The research worker is issued with its own instructions and tool set.
-            # We must set the flag.
-            # _______________________________________________________________________
-            research_worker_setting = self.assistant_config.get(
-                "is_research_worker", False
-            )
+            # --- [FIX 2] Research Worker Conflict Resolution (Removed redundant re-fetch
+            # and added proper consolidated logging) ---
             LOG.critical(
-                "██████ [RESEARCH_WORKER_SETTING]=%s ██████", research_worker_setting
+                "██████ [ROLE CONFIG] DeepResearch (Supervisor)=%s | Worker=%s | WebAccess=%s ██████",
+                self.is_deep_research,
+                research_worker_setting,
+                web_access_setting,
             )
 
             # 3. Context Setup
@@ -217,7 +226,7 @@ class HermesDefaultBaseWorker(
                 agent_mode=agent_mode_setting,
                 decision_telemetry=decision_telemetry,
                 web_access=web_access_setting,
-                deep_research=is_deep_research,
+                deep_research=self.is_deep_research,
                 research_worker=research_worker_setting,
             )
 

@@ -58,6 +58,9 @@ class DeepSeekBaseWorker(
         self.ephemeral_supervisor_id = None
         self._delegation_api_key = self.api_key
 
+        # --- [FIX 3] Missing Init Property ---
+        self._research_worker_thread = None
+
         self.redis = redis or get_redis_sync()
 
         # 3. Setup the Cache Service (The "New Way")
@@ -127,6 +130,9 @@ class DeepSeekBaseWorker(
         self._delegation_api_key = api_key
         self.ephemeral_supervisor_id = None
 
+        # --- [FIX 1] Scratchpad Variable Initialization ---
+        self._scratch_pad_thread = None
+
         redis = self.redis
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
@@ -163,6 +169,9 @@ class DeepSeekBaseWorker(
                 requested_model=pre_mapped_model
             )
 
+            # --- [FIX 1] Scratchpad Thread Binding ---
+            self._scratch_pad_thread = thread_id
+
             # ---------------------------------
 
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
@@ -185,6 +194,15 @@ class DeepSeekBaseWorker(
             # 4. WORKER LOGIC (Only if NOT a Supervisor):
             elif research_worker_setting:
                 web_access_setting = True
+
+            # --- [FIX 2] Research Worker Conflict Resolution (Added missing consolidated log,
+            # ensuring NO redundant fetches override the conflict resolution block above!) ---
+            LOG.critical(
+                "██████ [ROLE CONFIG] DeepResearch (Supervisor)=%s | Worker=%s | WebAccess=%s ██████",
+                self.is_deep_research,
+                research_worker_setting,
+                web_access_setting,
+            )
 
             # Updated to use self.assistant_id (handles identity swap) and pass deep_research flag
             ctx = await self._set_up_context_window(

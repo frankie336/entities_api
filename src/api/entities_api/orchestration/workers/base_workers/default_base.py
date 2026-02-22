@@ -59,6 +59,9 @@ class DefaultBaseWorker(
         self.ephemeral_supervisor_id = None
         self._delegation_api_key = self.api_key
 
+        # --- [FIX 3] Missing Init Property ---
+        self._research_worker_thread = None
+
         self.redis = redis or get_redis_sync()
 
         # 3. Setup the Cache Service
@@ -129,6 +132,9 @@ class DefaultBaseWorker(
         self.ephemeral_supervisor_id = None
         self._delegation_api_key = api_key
 
+        # --- [FIX 1] Scratchpad Variable Initialization ---
+        self._scratch_pad_thread = None
+
         redis = self.redis
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
@@ -163,6 +169,9 @@ class DefaultBaseWorker(
                 requested_model=pre_mapped_model
             )
 
+            # --- [FIX 1] Scratchpad Thread Binding ---
+            self._scratch_pad_thread = thread_id
+
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", True)
 
@@ -186,13 +195,13 @@ class DefaultBaseWorker(
             elif research_worker_setting:
                 web_access_setting = True
 
-            # ✅ Retrieve research worker flag (guaranteed boolean by AssistantCache)
-            research_worker_setting = self.assistant_config.get(
-                "is_research_worker", False
-            )
-
+            # --- [FIX 2] Research Worker Conflict Resolution (Removed redundant re-fetch
+            # and added proper consolidated logging) ---
             LOG.critical(
-                "██████ [RESEARCH_WORKER_SETTING]=%s ██████", research_worker_setting
+                "██████ [ROLE CONFIG] DeepResearch (Supervisor)=%s | Worker=%s | WebAccess=%s ██████",
+                self.is_deep_research,
+                research_worker_setting,
+                web_access_setting,
             )
 
             # Context Setup
