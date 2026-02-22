@@ -143,6 +143,9 @@ class HermesDefaultBaseWorker(
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
+        # --- [FIX] Capture original assistant_id BEFORE any identity swap ---
+        _original_assistant_id = assistant_id
+
         # 1. State Initialization
         self._current_tool_call_id = None
         self._decision_payload = None
@@ -259,90 +262,107 @@ class HermesDefaultBaseWorker(
             if current_block:
                 accumulated += f"</{current_block}>"
 
+            # =========================================================================
+            # [FIXED] POST-STREAM PROCESSING MOVED INSIDE TRY BLOCK
+            # This ensures we finalize/persist using the SUPERVISOR ID
+            # before the 'finally' block restores the Original ID.
+            # =========================================================================
+
+            # 5. Post-Processing (Decision Parsing)
+            if decision_buffer:
+                try:
+                    self._decision_payload = json.loads(decision_buffer.strip())
+                except Exception:
+                    LOG.warning(
+                        f"Failed to parse decision buffer: {decision_buffer[:50]}..."
+                    )
+
+            yield json.dumps(
+                {"type": "status", "status": "processing", "run_id": run_id}
+            )
+
+            # 6. Parse Tools & Sync IDs
+            # The parser ensures every tool in the list has a 'id' key.
+            tool_calls_batch = self.parse_and_set_function_calls(
+                accumulated, assistant_reply
+            )
+
+            message_to_save = assistant_reply
+            final_status = StatusEnum.completed.value
+
+            if tool_calls_batch:
+                # Update the internal queue for the dispatcher
+                self._tool_queue = tool_calls_batch
+                final_status = StatusEnum.pending_action.value
+
+                # Build the Hermes/OpenAI Structured Envelope for the Dialogue
+                tool_calls_structure = []
+                for tool in tool_calls_batch:
+                    tool_id = tool.get("id") or f"call_{uuid.uuid4().hex[:8]}"
+
+                    tool_calls_structure.append(
+                        {
+                            "id": tool_id,
+                            "type": "function",
+                            "function": {
+                                "name": tool.get("name"),
+                                "arguments": (
+                                    json.dumps(tool.get("arguments", {}))
+                                    if isinstance(tool.get("arguments"), dict)
+                                    else tool.get("arguments")
+                                ),
+                            },
+                        }
+                    )
+
+                # CRITICAL: We overwrite message_to_save with the standard tool structure
+                message_to_save = json.dumps(tool_calls_structure)
+
+                LOG.info(
+                    f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}"
+                )
+
+            # Persistence: Assistant Plan/Actions saved to Thread
+            if message_to_save:
+                await self.finalize_conversation(
+                    message_to_save, thread_id, self.assistant_id, run_id
+                )
+
+            # Update Run status to trigger Dispatch Turn
+            if self.project_david_client:
+                await asyncio.to_thread(
+                    self.project_david_client.runs.update_run_status,
+                    run_id,
+                    final_status,
+                )
+
+            if not tool_calls_batch:
+                yield json.dumps(
+                    {"type": "status", "status": "complete", "run_id": run_id}
+                )
+
         except Exception as exc:
             LOG.error(f"DEBUG: Stream Exception: {exc}")
             err = {"type": "error", "content": f"Stream error: {exc}", "run_id": run_id}
             yield json.dumps(err)
             await self._shunt_to_redis_stream(redis, stream_key, err)
+
         finally:
             # 1. Ensure cancellation monitor is stopped
             stop_event.set()
+
             # 2. Ephemeral Assistant Cleanup
             if self.ephemeral_supervisor_id:
-
                 self.assistant_config = {}
                 await self._ensure_config_loaded()
-
-                # We use the helper method we wrote earlier, ensuring 'await' is used
                 await self._ephemeral_clean_up(
                     assistant_id=self.ephemeral_supervisor_id,
                     thread_id=thread_id,
                     delete_thread=False,
                 )
 
-        # 5. Post-Processing (Decision Parsing)
-        if decision_buffer:
-            try:
-                self._decision_payload = json.loads(decision_buffer.strip())
-            except Exception:
-                LOG.warning(
-                    f"Failed to parse decision buffer: {decision_buffer[:50]}..."
-                )
+            # --- [FIX] Restore original assistant identity AFTER cleanup & persistence ---
+            self.assistant_id = _original_assistant_id
 
-        yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
-
-        # 6. Parse Tools & Sync IDs
-        # The parser ensures every tool in the list has a 'id' key.
-        tool_calls_batch = self.parse_and_set_function_calls(
-            accumulated, assistant_reply
-        )
-
-        message_to_save = assistant_reply
-        final_status = StatusEnum.completed.value
-
-        if tool_calls_batch:
-            # Update the internal queue for the dispatcher
-            self._tool_queue = tool_calls_batch
-            final_status = StatusEnum.pending_action.value
-
-            # Build the Hermes/OpenAI Structured Envelope for the Dialogue
-            tool_calls_structure = []
-            for tool in tool_calls_batch:
-                tool_id = tool.get("id") or f"call_{uuid.uuid4().hex[:8]}"
-
-                tool_calls_structure.append(
-                    {
-                        "id": tool_id,
-                        "type": "function",
-                        "function": {
-                            "name": tool.get("name"),
-                            "arguments": (
-                                json.dumps(tool.get("arguments", {}))
-                                if isinstance(tool.get("arguments"), dict)
-                                else tool.get("arguments")
-                            ),
-                        },
-                    }
-                )
-
-            # CRITICAL: We overwrite message_to_save with the standard tool structure
-            message_to_save = json.dumps(tool_calls_structure)
-
-            LOG.info(
-                f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}"
-            )
-
-        # Persistence: Assistant Plan/Actions saved to Thread
-        if message_to_save:
-            await self.finalize_conversation(
-                message_to_save, thread_id, self.assistant_id, run_id
-            )
-
-        # Update Run status to trigger Dispatch Turn
-        if self.project_david_client:
-            await asyncio.to_thread(
-                self.project_david_client.runs.update_run_status, run_id, final_status
-            )
-
-        if not tool_calls_batch:
-            yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
+            # --- [FIX] Nullify ephemeral ID ---
+            self.ephemeral_supervisor_id = None
