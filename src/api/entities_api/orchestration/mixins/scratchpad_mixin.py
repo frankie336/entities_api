@@ -72,7 +72,7 @@ class ScratchpadMixin:
         decision: Any,
     ) -> AsyncGenerator[str, None]:
 
-        thread_id = thread_id or self._scratch_pad_thread
+        thread_id = self._scratch_pad_thread
 
         # Injecting assistant_id into the human-readable logs
         # so you can easily track Worker vs Supervisor activity

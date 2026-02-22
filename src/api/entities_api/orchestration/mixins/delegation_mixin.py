@@ -55,6 +55,7 @@ class DelegationMixin:
         self._delete_ephemeral_thread = False
         self._delegation_model = None
         self._research_worker_thread = None
+
         self._scratch_pad_thread = None
 
     # ------------------------------------------------------------------
@@ -306,6 +307,8 @@ class DelegationMixin:
     async def handle_delegate_research_task(
         self, thread_id, run_id, assistant_id, arguments_dict, tool_call_id, decision
     ) -> AsyncGenerator[str, None]:
+
+        self._scratch_pad_thread = thread_id
 
         LOG.info(f"🔄 [DELEGATE] STARTING. Run: {run_id}")
 

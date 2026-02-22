@@ -54,7 +54,7 @@ L4_RESEARCH_INSTRUCTIONS = [
     "DIRECT_URL_EXCEPTION",  # 7. Skip SERP when URL is already known/provided
     "L4_PARALLEL_EXECUTION",  # 8. Parallel First Strike rules ← UPDATED KEY
     "L4_EXECUTION_ALGORITHM",  # 9. Discovery -> Recon -> Snipe, scratchpad read as Step 0
-    "L4_DEPTH_PROTOCOL",  # 10. Comparative rigor, scratchpad-aware source counting
+    # "L4_DEPTH_PROTOCOL",  # 10. Comparative rigor, scratchpad-aware source counting
     "RICH_MEDIA_HANDLING",  # 11. Keep images/video links (borrowed from L3)
     "L4_STOPPING_CRITERIA",  # 12. When to quit, incl. "already in scratchpad" condition
     "L4_WORKER_REPORTING_FORMAT",  # 13. Structured report for direct scratchpad appending
