@@ -34,7 +34,7 @@ LEVEL_4_SUPERVISOR_INSTRUCTIONS = [
     "L4_EXECUTION_LOOP",  # 7. The Pulse: Initialize -> Delegate -> Evaluate
     "L4_CITATION_INTEGRITY",  # 8. Zero-Tolerance: VERIFIED entry required per claim
     "L4_ANTI_STALL",  # 9. The Guardrails: No stale URLs, promote ⚠️ to ☠️
-    "L4_SUPERVISOR_MOMENTUM",  # 10. Never wait — always drive ← NEW
+    "L4_SUPERVISOR_MOMENTUM",  # 10. Never wait — always drive
     "L4_URL_PROTOCOL",  # 11. Safety: URL hallucination check
     "L4_FINAL_SYNTHESIS_PROTOCOL",  # 12. The Output: Supervisor owns the final answer
     "TOOL_USAGE_PROTOCOL",  # 13. Base Tool Syntax
@@ -47,18 +47,19 @@ LEVEL_4_SUPERVISOR_INSTRUCTIONS = [
 L4_RESEARCH_INSTRUCTIONS = [
     "L4_WORKER_IDENTITY",  # 1. You are a Transient Worker + scratchpad access overview
     "L4_WORKER_SCRATCHPAD_PROTOCOL",  # 2. Read-first orientation, dedup, gap ID, tombstone awareness
-    "TOOL_USAGE_PROTOCOL",  # 3. Syntax (Strict)
+    "L4_TOOL_CHEATSHEET",  # 3. Syntax (Strict L4 Scratchpad Tools) ← UPDATED KEY
     "FUNCTION_CALL_FORMATTING",  # 4. JSON formatting rules
     "FUNCTION_CALL_WRAPPING",  # 5. XML wrapping rules
     "TOOL_STRATEGY",  # 6. Very important for web search
-    "DIRECT_URL_EXCEPTION",  # 7. Skip SERP when URL is already known/provided ← NEW
-    "BATCH_OPERATIONS",  # 8. Parallel batching rules
+    "DIRECT_URL_EXCEPTION",  # 7. Skip SERP when URL is already known/provided
+    "L4_PARALLEL_EXECUTION",  # 8. Parallel First Strike rules ← UPDATED KEY
     "L4_EXECUTION_ALGORITHM",  # 9. Discovery -> Recon -> Snipe, scratchpad read as Step 0
     "L4_DEPTH_PROTOCOL",  # 10. Comparative rigor, scratchpad-aware source counting
     "RICH_MEDIA_HANDLING",  # 11. Keep images/video links (borrowed from L3)
     "L4_STOPPING_CRITERIA",  # 12. When to quit, incl. "already in scratchpad" condition
     "L4_WORKER_REPORTING_FORMAT",  # 13. Structured report for direct scratchpad appending
 ]
+
 
 L3_WEB_USE_INSTRUCTIONS = [
     "WEB_CORE_IDENTITY",

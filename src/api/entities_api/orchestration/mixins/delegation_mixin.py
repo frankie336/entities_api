@@ -475,7 +475,7 @@ class DelegationMixin:
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
-                content=captured_stream_content,
+                content=final_content,
                 action=action,
                 is_error=execution_had_error,
             )
