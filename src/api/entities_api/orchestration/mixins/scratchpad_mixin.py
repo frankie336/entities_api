@@ -18,19 +18,21 @@ def _scratchpad_status(
     tool: Optional[str] = None,
     activity: Optional[str] = None,
     entry: Optional[str] = None,
+    assistant_id: Optional[str] = None,
 ) -> str:
     """
     Emit a status event as raw JSON conforming to the stream EVENT_CONTRACT.
 
     Shape:
         {
-            "type":      "scratchpad_status",
-            "run_id":    "<uuid>",
-            "operation": "read" | "update" | "append",
-            "state":     "in_progress" | "success" | "completed" | "error",
-            "tool":      "<tool_name>",     (optional)
-            "activity":  "<human readable>",(optional)
-            "entry":     "<entry text>"     (optional)
+            "type":         "scratchpad_status",
+            "run_id":       "<uuid>",
+            "operation":    "read" | "update" | "append",
+            "state":        "in_progress" | "success" | "completed" | "error",
+            "tool":         "<tool_name>",     (optional)
+            "activity":     "<human readable>",(optional)
+            "entry":        "<entry text>",    (optional)
+            "assistant_id": "<asst_id>"        (optional)
         }
     """
     payload = {
@@ -46,6 +48,8 @@ def _scratchpad_status(
         payload["activity"] = activity
     if entry is not None:
         payload["entry"] = entry
+    if assistant_id is not None:
+        payload["assistant_id"] = assistant_id
 
     return json.dumps(payload)
 
@@ -70,14 +74,29 @@ class ScratchpadMixin:
 
         thread_id = thread_id or self._scratch_pad_thread
 
+        # Injecting assistant_id into the human-readable logs
+        # so you can easily track Worker vs Supervisor activity
         _OP_LABELS = {
-            "read": ("📖 Reading scratchpad...", "📖 Scratchpad read."),
-            "update": ("✏️ Updating scratchpad...", "✏️ Scratchpad updated."),
-            "append": ("📝 Appending to scratchpad...", "📝 Scratchpad entry written."),
+            "read": (
+                f"📖 Reading scratchpad ({assistant_id})...",
+                f"📖 Scratchpad read by {assistant_id}.",
+            ),
+            "update": (
+                f"✏️ Updating scratchpad ({assistant_id})...",
+                f"✏️ Scratchpad updated by {assistant_id}.",
+            ),
+            "append": (
+                f"📝 Appending to scratchpad ({assistant_id})...",
+                f"📝 Scratchpad entry written by {assistant_id}.",
+            ),
         }
 
         label_start, label_done = _OP_LABELS.get(
-            operation_type, ("Accessing memory...", "Memory synchronized.")
+            operation_type,
+            (
+                f"Accessing memory ({assistant_id})...",
+                f"Memory synchronized by {assistant_id}.",
+            ),
         )
 
         yield _scratchpad_status(
@@ -86,6 +105,7 @@ class ScratchpadMixin:
             state="in_progress",
             tool=tool_name,
             activity=label_start,
+            assistant_id=assistant_id,
         )
 
         if operation_type != "read":
@@ -101,6 +121,7 @@ class ScratchpadMixin:
                     state="error",
                     tool=tool_name,
                     activity=f"Validation error: {err}",
+                    assistant_id=assistant_id,
                 )
 
                 await self.submit_tool_output(
@@ -152,13 +173,13 @@ class ScratchpadMixin:
                 entry_text = ""
 
             # Yield raw scratchpad content event — consumed directly by routes.py
-            # as a plain JSON string (same pipeline as delegation activity events).
             if entry_text:
                 yield _scratchpad_status(
                     run_id=run_id,
                     operation=operation_type,
                     state="success",
                     entry=entry_text,
+                    assistant_id=assistant_id,
                 )
 
             # Done-label activity event
@@ -168,6 +189,7 @@ class ScratchpadMixin:
                 state="completed",
                 tool=tool_name,
                 activity=label_done,
+                assistant_id=assistant_id,
             )
 
             await asyncio.to_thread(
@@ -191,6 +213,7 @@ class ScratchpadMixin:
                 state="error",
                 tool=tool_name,
                 activity=f"Scratchpad error: {str(e)}",
+                assistant_id=assistant_id,
             )
 
             await asyncio.to_thread(

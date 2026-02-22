@@ -133,6 +133,9 @@ class DefaultBaseWorker(
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
+        # --- [FIX] Capture original assistant_id BEFORE any identity swap ---
+        _original_assistant_id = assistant_id
+
         # Early Variable Initialization
         self._current_tool_call_id = None
         self._decision_payload = None
@@ -250,21 +253,72 @@ class DefaultBaseWorker(
             elif state.current_block == "plan":
                 state.accumulated += "</plan>"
 
+            # =========================================================================
+            # [FIXED] POST-STREAM PROCESSING MOVED INSIDE TRY BLOCK
+            # This ensures we finalize/persist using the SUPERVISOR ID
+            # before the 'finally' block restores the Original ID.
+            # =========================================================================
+
+            # --- POST-STREAM: BATCH VALIDATION ---
+            if state.decision_buffer:
+                try:
+                    self._decision_payload = json.loads(state.decision_buffer.strip())
+                except Exception:
+                    pass
+
+            yield json.dumps(
+                {"type": "status", "status": "processing", "run_id": run_id}
+            )
+
+            # --- [LEVEL 3] NATIVE PERSISTENCE ---
+            # The parser finds the tools to drive the backend (Action records).
+            tool_calls_batch = self.parse_and_set_function_calls(
+                state.accumulated, state.assistant_reply
+            )
+
+            # [NATIVE MODE]: Save RAW text (tags) not structured JSON.
+            message_to_save = state.accumulated
+            final_status = StatusEnum.completed.value
+
+            if tool_calls_batch:
+                self._tool_queue = tool_calls_batch
+                final_status = StatusEnum.pending_action.value
+                LOG.info(
+                    f"🚀 [L3 NATIVE MODE] Turn 1 Batch size: {len(tool_calls_batch)}"
+                )
+
+            if message_to_save:
+                # [FIX]: Use self.assistant_id to save under the supervisor's ID (if applicable)
+                await self.finalize_conversation(
+                    message_to_save, thread_id, self.assistant_id, run_id
+                )
+
+            if self.project_david_client:
+                await asyncio.to_thread(
+                    self.project_david_client.runs.update_run_status,
+                    run_id,
+                    final_status,
+                )
+
+            if not tool_calls_batch:
+                yield json.dumps(
+                    {"type": "status", "status": "complete", "run_id": run_id}
+                )
+
         except Exception as exc:
             LOG.error(f"DEBUG: Stream Exception: {exc}")
             err = {"type": "error", "content": f"Stream error: {exc}", "run_id": run_id}
             yield json.dumps(err)
             await self._shunt_to_redis_stream(redis, stream_key, err)
-        finally:
 
+        finally:
             # 1. Ensure cancellation monitor is stopped
             stop_event.set()
-            # 2. Ephemeral Assistant Cleanup
-            if self.ephemeral_supervisor_id:
 
+            # --- [FIX] Ephemeral cleanup runs FIRST ---
+            if self.ephemeral_supervisor_id:
                 self.assistant_config = {}
                 await self._ensure_config_loaded()
-
                 # We use the helper method we wrote earlier, ensuring 'await' is used
                 await self._ephemeral_clean_up(
                     assistant_id=self.ephemeral_supervisor_id,
@@ -272,39 +326,8 @@ class DefaultBaseWorker(
                     delete_thread=False,
                 )
 
-        # --- POST-STREAM: BATCH VALIDATION ---
-        if state.decision_buffer:
-            try:
-                self._decision_payload = json.loads(state.decision_buffer.strip())
-            except Exception:
-                pass
+            # --- [FIX] Restore original assistant identity AFTER cleanup & persistence ---
+            self.assistant_id = _original_assistant_id
 
-        yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
-
-        # --- [LEVEL 3] NATIVE PERSISTENCE ---
-        # The parser finds the tools to drive the backend (Action records).
-        tool_calls_batch = self.parse_and_set_function_calls(
-            state.accumulated, state.assistant_reply
-        )
-
-        # [NATIVE MODE]: Save RAW text (tags) not structured JSON.
-        message_to_save = state.accumulated
-        final_status = StatusEnum.completed.value
-
-        if tool_calls_batch:
-            self._tool_queue = tool_calls_batch
-            final_status = StatusEnum.pending_action.value
-            LOG.info(f"🚀 [L3 NATIVE MODE] Turn 1 Batch size: {len(tool_calls_batch)}")
-
-        if message_to_save:
-            await self.finalize_conversation(
-                message_to_save, thread_id, self.assistant_id, run_id
-            )
-
-        if self.project_david_client:
-            await asyncio.to_thread(
-                self.project_david_client.runs.update_run_status, run_id, final_status
-            )
-
-        if not tool_calls_batch:
-            yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
+            # --- [FIX] Nullify ephemeral ID ---
+            self.ephemeral_supervisor_id = None
