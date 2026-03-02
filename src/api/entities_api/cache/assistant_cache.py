@@ -19,9 +19,7 @@ REDIS_ASSISTANT_TTL = int(os.getenv("REDIS_ASSISTANT_TTL_SECONDS", "300"))
 
 class AssistantCache:
 
-    def __init__(
-        self, redis: Union[SyncRedis, "AsyncRedis"], pd_base_url: str, pd_api_key: str
-    ):
+    def __init__(self, redis: Union[SyncRedis, "AsyncRedis"], pd_base_url: str, pd_api_key: str):
         self.redis = redis
         self.pd_base_url = pd_base_url
         self.pd_api_key = pd_api_key
@@ -87,7 +85,6 @@ class AssistantCache:
                 clean_tools.append(dict(t))
 
         # 4. Safely Extract Metadata
-        # We need the full dict so the worker can do: config.get("meta_data").get("key")
         raw_meta = getattr(assistant, "meta_data", {}) or {}
 
         # Safe extraction of the ephemeral worker flags (handling strings vs bools)
@@ -97,17 +94,20 @@ class AssistantCache:
         junior_engineer_val = raw_meta.get("junior_engineer_calling", False)
         is_junior_engineer = self._normalize_bool(junior_engineer_val)
 
-        # 5. Construct Payload
+        # 5. Safely Extract Tool Resources
+        # e.g. {"file_search": {"vector_store_ids": ["vs_123", "vs_456"]}}
+        raw_tool_resources = getattr(assistant, "tool_resources", {}) or {}
+
+        # 6. Construct Payload
         payload = {
             "instructions": assistant.instructions,
             "tools": clean_tools,
+            "tool_resources": raw_tool_resources,  # ✅ NEW: tool-bound resource map
             "agent_mode": getattr(assistant, "agent_mode", False),
             "decision_telemetry": getattr(assistant, "decision_telemetry", False),
             "web_access": getattr(assistant, "web_access", False),
             "deep_research": getattr(assistant, "deep_research", False),
-            "is_engineer": getattr(
-                assistant, "engineer", False
-            ),  # Ensure it doesn't crash if SDK isn't updated
+            "is_engineer": getattr(assistant, "engineer", False),
             # ✅ STORE FULL METADATA
             "meta_data": raw_meta,
             # ✅ Flattened, type-safe flags for the worker
@@ -115,7 +115,7 @@ class AssistantCache:
             "junior_engineer": is_junior_engineer,
         }
 
-        # 6. Save to Redis
+        # 7. Save to Redis
         await self.set(assistant_id, payload)
         return payload
 
@@ -128,9 +128,7 @@ class AssistantCache:
 
     def invalidate_sync(self, assistant_id: str):
         key = self._cache_key(assistant_id)
-        if hasattr(self.redis, "delete") and not asyncio.iscoroutinefunction(
-            self.redis.delete
-        ):
+        if hasattr(self.redis, "delete") and not asyncio.iscoroutinefunction(self.redis.delete):
             self.redis.delete(key)
         else:
             try:

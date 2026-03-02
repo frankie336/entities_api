@@ -8,7 +8,6 @@ from entities_api.platform_tools.definitions.scratch_pad.update_scratchpad impor
     update_scratchpad
 
 SUPERVISOR_TOOLS = [
-    # {"type": "web_search"},
     read_scratchpad,
     update_scratchpad,
     append_scratchpad,

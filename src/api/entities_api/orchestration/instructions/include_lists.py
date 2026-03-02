@@ -48,8 +48,6 @@ L4_RESEARCH_INSTRUCTIONS = [
     "L4_WORKER_IDENTITY",  # 1. You are a Transient Worker + scratchpad access overview
     "L4_WORKER_SCRATCHPAD_PROTOCOL",  # 2. Read-first orientation, dedup, gap ID, tombstone awareness
     "L4_TOOL_CHEATSHEET",  # 3. Syntax (Strict L4 Scratchpad Tools) ← UPDATED KEY
-    "FUNCTION_CALL_FORMATTING",  # 4. JSON formatting rules
-    "FUNCTION_CALL_WRAPPING",  # 5. XML wrapping rules
     "TOOL_STRATEGY",  # 6. Very important for web search
     "DIRECT_URL_EXCEPTION",  # 7. Skip SERP when URL is already known/provided
     "L4_PARALLEL_EXECUTION",  # 8. Parallel First Strike rules ← UPDATED KEY
@@ -57,6 +55,8 @@ L4_RESEARCH_INSTRUCTIONS = [
     # "L4_DEPTH_PROTOCOL",  # 10. Comparative rigor, scratchpad-aware source counting
     "RICH_MEDIA_HANDLING",  # 11. Keep images/video links (borrowed from L3)
     "L4_STOPPING_CRITERIA",  # 12. When to quit, incl. "already in scratchpad" condition
+    "FUNCTION_CALL_FORMATTING",  # 4. JSON formatting rules
+    "FUNCTION_CALL_WRAPPING",  # 5. XML wrapping rules
     "L4_WORKER_REPORTING_FORMAT",  # 13. Structured report for direct scratchpad appending
 ]
 
