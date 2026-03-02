@@ -207,10 +207,14 @@ class FileSearchMixin:
             ) -> tuple[str, list | None, Exception | None]:
                 """Search a single store. Returns (vid, results, error)."""
                 try:
-                    results = await asyncio.to_thread(
-                        self.project_david_client.vectors.unattended_file_search,
+                    # Direct async call — avoids asyncio.run() collision inside
+                    # an already-running event loop. top_k and filters are
+                    # forwarded from the original tool arguments.
+                    results = await self.project_david_client.vectors._search_vs_async(
                         vector_store_id=vid,
                         query_text=query_text,
+                        top_k=arguments_dict.get("top_k", 5),
+                        filters=arguments_dict.get("filters"),
                         vector_store_host="qdrant",
                     )
                     return vid, results, None
