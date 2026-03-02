@@ -12,7 +12,6 @@ client = Entity(
     api_key=os.getenv("ENTITIES_API_KEY"),  # This is the entities user API Key
 )
 
-
 # --------------------------
 # create a vector store
 # ---------------------------
@@ -42,5 +41,5 @@ update_assistant = client.assistants.update_assistant(
 )
 
 print(update_assistant.tool_resources)
-
+print(update_assistant.tools)
 # {'file_search': {'vector_store_ids': ['vect_WgPq4s8ioqHHPxwOgDIRys']}}

@@ -19,6 +19,7 @@ update_assistant = client.assistants.update_assistant(
     tools=[
         {"type": "code_interpreter"},
         {"type": "computer"},
+        {"type": "file_search"},
         {"type": "web_search"},
         {
             "type": "function",

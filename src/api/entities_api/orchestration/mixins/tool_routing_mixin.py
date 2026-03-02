@@ -211,16 +211,15 @@ class ToolRoutingMixin:
                     yield chunk
 
             elif name == "file_search":
-                async for chunk in self.handle_file_search(
+
+                await self.handle_file_search(
                     thread_id=thread_id,
                     run_id=run_id,
                     assistant_id=assistant_id,
                     arguments_dict=args,
                     tool_call_id=current_call_id,
                     decision=decision,
-                ):
-                    yield chunk
-
+                )
             elif name == "read_web_page":
                 async for chunk in self.handle_read_web_page(
                     thread_id=thread_id,
