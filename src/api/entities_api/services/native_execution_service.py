@@ -6,6 +6,8 @@ from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.cache.scratchpad_cache import ScratchpadCache
 from src.api.entities_api.db.database import SessionLocal
+# Import your synchronous Redis factory from the dependencies file you provided
+from src.api.entities_api.dependencies import get_redis_sync
 from src.api.entities_api.services.actions_service import ActionService
 from src.api.entities_api.services.logging_service import LoggingUtility
 from src.api.entities_api.services.message_service import MessageService
@@ -26,12 +28,12 @@ class NativeExecutionService:
         self.message_svc = MessageService()
         self.val_interface = ValidationInterface()
 
-        # Initialize native Scratchpad data-plane service
-        self.scratchpad_svc = ScratchpadService(cache=ScratchpadCache())
+        # FIX: Call your sync factory to safely get the Redis client inside __init__
+        self.scratchpad_svc = ScratchpadService(
+            cache=ScratchpadCache(redis=get_redis_sync())
+        )
 
     async def get_vector_store(self, vector_store_id: str) -> Any:
-        """Fetches vector store metadata directly from the native DB."""
-
         def _fetch():
             with SessionLocal() as db:
                 svc = VectorStoreDBService(db)

@@ -1,3 +1,4 @@
+# src/api/entities_api/services/web_reader.py
 import logging
 import os
 import re

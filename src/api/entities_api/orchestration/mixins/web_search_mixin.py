@@ -13,6 +13,9 @@ from projectdavid_common import ToolValidator
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
+from src.api.entities_api.services.native_execution_service import \
+    NativeExecutionService
+
 LOG = LoggingUtility()
 
 # Hard cap on scroll_web_page calls per URL per research session.
@@ -490,6 +493,7 @@ class WebSearchMixin:
         Yields raw JSON strings conforming to the stream EVENT_CONTRACT.
         """
         ts_start = asyncio.get_event_loop().time()
+        native_svc = NativeExecutionService()
 
         # --- [1] STATUS: VALIDATING ---
         yield _status(run_id, tool_name, "Validating parameters...")
@@ -508,26 +512,15 @@ class WebSearchMixin:
             )
 
             try:
-                action = await asyncio.to_thread(
-                    self.project_david_client.actions.create_action,
+                await native_svc.submit_failed_tool_execution(
                     tool_name=tool_name,
                     run_id=run_id,
-                    tool_call_id=tool_call_id,
-                    function_args=arguments_dict,
-                    decision=decision,
-                )
-                await self.submit_tool_output(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
                     tool_call_id=tool_call_id,
-                    content=error_feedback,
-                    action=action,
-                    is_error=True,
-                )
-                await asyncio.to_thread(
-                    self.project_david_client.actions.update_action,
-                    action_id=action.id,
-                    status=StatusEnum.failed.value,
+                    error_message=error_feedback,
+                    function_args=arguments_dict,
+                    decision=decision,
                 )
             except Exception as exc:
                 LOG.error(f"Failed to submit validation error: {exc}")
@@ -537,9 +530,9 @@ class WebSearchMixin:
         # --- [2] STATUS: CREATING ACTION ---
         yield _status(run_id, tool_name, "Initializing tool action...")
 
+        action = None
         try:
-            action = await asyncio.to_thread(
-                self.project_david_client.actions.create_action,
+            action = await native_svc.create_action(
                 tool_name=tool_name,
                 run_id=run_id,
                 tool_call_id=tool_call_id,
@@ -613,16 +606,15 @@ class WebSearchMixin:
                         f"Scroll blocked by guard (page {page_num}).",
                         status="warning",
                     )
-                    await self.submit_tool_output(
+                    await native_svc.submit_tool_output(
                         thread_id=thread_id,
                         assistant_id=assistant_id,
                         tool_call_id=tool_call_id,
                         content=scroll_block_msg,
-                        action=action,
+                        action_id=action.id,
                         is_error=True,
                     )
-                    await asyncio.to_thread(
-                        self.project_david_client.actions.update_action,
+                    await native_svc.update_action_status(
                         action_id=action.id,
                         status=StatusEnum.failed.value,
                     )
@@ -736,25 +728,25 @@ class WebSearchMixin:
                 )
 
             # --- [5] SUBMIT OUTPUT ---
-            await self.submit_tool_output(
+            await native_svc.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
                 content=final_content,
-                action=action,
+                action_id=action.id if action else None,
                 is_error=is_soft_failure,
             )
 
             # --- [6] UPDATE ACTION ---
-            await asyncio.to_thread(
-                self.project_david_client.actions.update_action,
-                action_id=action.id,
-                status=(
-                    StatusEnum.completed.value
-                    if not is_soft_failure
-                    else StatusEnum.failed.value
-                ),
-            )
+            if action:
+                await native_svc.update_action_status(
+                    action_id=action.id,
+                    status=(
+                        StatusEnum.completed.value
+                        if not is_soft_failure
+                        else StatusEnum.failed.value
+                    ),
+                )
 
             LOG.info(
                 "[%s] %s completed in %.2fs",
@@ -775,17 +767,17 @@ class WebSearchMixin:
             )
 
             try:
-                await asyncio.to_thread(
-                    self.project_david_client.actions.update_action,
-                    action_id=action.id,
-                    status=StatusEnum.failed.value,
-                )
-                await self.submit_tool_output(
+                if action:
+                    await native_svc.update_action_status(
+                        action_id=action.id,
+                        status=StatusEnum.failed.value,
+                    )
+                await native_svc.submit_tool_output(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
                     tool_call_id=tool_call_id,
                     content=error_hint,
-                    action=action,
+                    action_id=action.id if action else None,
                     is_error=True,
                 )
             except Exception:

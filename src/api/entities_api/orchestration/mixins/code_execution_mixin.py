@@ -14,9 +14,8 @@ from projectdavid_common import ToolValidator
 from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.services.native_execution_service import (
-    NativeExecutionService,
-)
+from src.api.entities_api.services.native_execution_service import \
+    NativeExecutionService
 
 LOG = LoggingUtility()
 
