@@ -214,10 +214,10 @@ class WebSearchMixin:
     Drive the **Level 3 Agentic Web Tools** (read, scroll, search, discovery).
 
     Tool routing:
-      - perform_web_search  → SearxNG (direct HTTP, internal container)
-      - read_web_page       → SDK → FastAPI → browserless (unchanged)
-      - scroll_web_page     → SDK → FastAPI → browserless (unchanged)
-      - search_web_page     → SDK → FastAPI → Redis cache  (unchanged)
+      - perform_web_search  → SearxNG          (direct internal HTTP)
+      - read_web_page       → NativeExecutionService → browserless
+      - scroll_web_page     → NativeExecutionService → browserless / Redis
+      - search_web_page     → NativeExecutionService → Redis cache
 
     Features:
     - Lazy-loaded session state (crash-proof).
@@ -467,10 +467,7 @@ class WebSearchMixin:
         )
 
     # ------------------------------------------------------------------
-    # 3. CORE EXECUTION LOGIC (The Engine)
-    # TODO: Migrate all methods  that call on SDK: self.project_david_client
-    # to NativeExecutionService, which eliminates needless http roundtrip
-    # through the public SDK
+    # 3. CORE EXECUTION LOGIC
     # ------------------------------------------------------------------
 
     async def _execute_web_tool_logic(
@@ -487,11 +484,11 @@ class WebSearchMixin:
         """
         Shared core logic for Read, Scroll, Search, and SERP with progress tracking.
 
-        Routing:
-          perform_web_search  → SearxNGClient  (direct internal HTTP)
-          read_web_page       → SDK client     (FastAPI → browserless)
-          scroll_web_page     → SDK client     (FastAPI → browserless)
-          search_web_page     → SDK client     (FastAPI → Redis cache)
+        Routing (all paths are now SDK-free):
+          perform_web_search  → SearxNGClient              (direct internal HTTP)
+          read_web_page       → NativeExecutionService.read_url
+          scroll_web_page     → NativeExecutionService.scroll_url
+          search_web_page     → NativeExecutionService.search_url
 
         Yields raw JSON strings conforming to the stream EVENT_CONTRACT.
         """
@@ -552,7 +549,7 @@ class WebSearchMixin:
             final_content = ""
 
             # ----------------------------------------------------------------
-            # read_web_page — SDK → FastAPI → browserless
+            # read_web_page — NativeExecutionService → browserless
             # ----------------------------------------------------------------
             if tool_name == "read_web_page":
                 target_url = arguments_dict["url"]
@@ -567,8 +564,7 @@ class WebSearchMixin:
                         f"(Tier {session.get('query_tier', 'N/A')} query)"
                     )
 
-                raw_content = await asyncio.to_thread(
-                    self.project_david_client.tools.web_read,
+                raw_content = await native_svc.read_url(
                     url=target_url,
                     force_refresh=arguments_dict.get("force_refresh", False),
                 )
@@ -588,7 +584,7 @@ class WebSearchMixin:
                 )
 
             # ----------------------------------------------------------------
-            # scroll_web_page — SDK → FastAPI → browserless / Redis
+            # scroll_web_page — NativeExecutionService → browserless / Redis
             # ----------------------------------------------------------------
             elif tool_name == "scroll_web_page":
                 target_url = arguments_dict["url"]
@@ -640,8 +636,7 @@ class WebSearchMixin:
                     f"(scroll {scroll_count}/{SCROLL_LIMIT_PER_URL})...",
                 )
 
-                raw_content = await asyncio.to_thread(
-                    self.project_david_client.tools.web_scroll,
+                raw_content = await native_svc.scroll_url(
                     url=target_url,
                     page=page_num,
                 )
@@ -664,7 +659,7 @@ class WebSearchMixin:
                 )
 
             # ----------------------------------------------------------------
-            # search_web_page — SDK → FastAPI → Redis cache
+            # search_web_page — NativeExecutionService → Redis cache
             # ----------------------------------------------------------------
             elif tool_name == "search_web_page":
                 target_url = arguments_dict["url"]
@@ -676,8 +671,7 @@ class WebSearchMixin:
 
                 yield _status(run_id, tool_name, f"Searching page for '{query_val}'...")
 
-                final_content = await asyncio.to_thread(
-                    self.project_david_client.tools.web_search,
+                final_content = await native_svc.search_url(
                     url=target_url,
                     query=query_val,
                 )
@@ -689,8 +683,6 @@ class WebSearchMixin:
                 query_val = arguments_dict["query"]
                 yield _status(run_id, tool_name, f"Querying SearxNG: '{query_val}'...")
 
-                # Classify tier first so format_for_agent can embed the right
-                # mandatory source count in the agent instructions.
                 session = self._get_or_create_session(run_id, query_val)
                 session["search_performed"] = True
                 query_tier = session.get("query_tier", 1)
@@ -821,7 +813,7 @@ class WebSearchMixin:
         tool_call_id: Optional[str] = None,
         decision: Optional[Dict] = None,
     ) -> AsyncGenerator[str, None]:
-        """Handler for 'read_web_page' — routes via SDK → browserless."""
+        """Handler for 'read_web_page' — routes via NativeExecutionService → browserless."""
         async for event in self._execute_web_tool_logic(
             tool_name="read_web_page",
             required_keys=["url"],
@@ -843,7 +835,7 @@ class WebSearchMixin:
         tool_call_id: Optional[str] = None,
         decision: Optional[Dict] = None,
     ) -> AsyncGenerator[str, None]:
-        """Handler for 'scroll_web_page' — routes via SDK → browserless."""
+        """Handler for 'scroll_web_page' — routes via NativeExecutionService → browserless / Redis."""
         async for event in self._execute_web_tool_logic(
             tool_name="scroll_web_page",
             required_keys=["url", "page"],
@@ -865,7 +857,7 @@ class WebSearchMixin:
         tool_call_id: Optional[str] = None,
         decision: Optional[Dict] = None,
     ) -> AsyncGenerator[str, None]:
-        """Handler for 'search_web_page' — routes via SDK → Redis cache."""
+        """Handler for 'search_web_page' — routes via NativeExecutionService → Redis cache."""
         async for event in self._execute_web_tool_logic(
             tool_name="search_web_page",
             required_keys=["url", "query"],
