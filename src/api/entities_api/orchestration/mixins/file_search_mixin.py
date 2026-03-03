@@ -151,7 +151,6 @@ class FileSearchMixin:
                 "FileSearch ▸ No vector_store_ids found in tool_resources for assistant %s.",
                 assistant_id,
             )
-            # Create + immediately fail the action so history is consistent
             try:
                 action = await asyncio.to_thread(
                     self.project_david_client.actions.create_action,
@@ -175,11 +174,11 @@ class FileSearchMixin:
                 tool_call_id=tool_call_id,
                 content=self._format_tool_resources_error(query_text),
                 action=action,
-                is_error=True,  # Forces LLM correction turn
+                is_error=True,
             )
             return
 
-        # 1. Create Action Record (Success Path)
+        # 1. Create Action Record
         try:
             action = await asyncio.to_thread(
                 self.project_david_client.actions.create_action,
@@ -205,17 +204,21 @@ class FileSearchMixin:
             async def _search_one(
                 vid: str,
             ) -> tuple[str, list | None, Exception | None]:
-                """Search a single store. Returns (vid, results, error)."""
                 try:
-                    # Direct async call — avoids asyncio.run() collision inside
-                    # an already-running event loop. top_k and filters are
-                    # forwarded from the original tool arguments.
-                    results = await self.project_david_client.vectors._search_vs_async(
+                    # Robust type casting to prevent downstream schema errors
+                    try:
+                        top_k_val = int(arguments_dict.get("top_k", 5))
+                    except (ValueError, TypeError):
+                        top_k_val = 5
+
+                    results = await asyncio.to_thread(
+                        self.project_david_client.vectors.vector_file_search_raw,
                         vector_store_id=vid,
                         query_text=query_text,
-                        top_k=arguments_dict.get("top_k", 5),
+                        top_k=top_k_val,
                         filters=arguments_dict.get("filters"),
-                        vector_store_host="qdrant",
+                        # DO NOT hardcode vector_store_host here.
+                        # It will seamlessly reuse the properly initialized client logic.
                     )
                     return vid, results, None
                 except Exception as exc:
@@ -241,7 +244,6 @@ class FileSearchMixin:
             is_soft_failure = False
 
             if not has_results and not store_errors:
-                # All stores returned cleanly but found nothing
                 is_soft_failure = True
                 final_content = self._format_level2_search_error(
                     "No relevant document snippets found across all attached vector stores.",
@@ -255,9 +257,8 @@ class FileSearchMixin:
                 )
 
             elif not has_results and store_errors:
-                # Every store threw an exception — hard failure
                 error_summary = "\n".join(store_errors)
-                is_soft_failure = True  # Still surfaces as a correction turn
+                is_soft_failure = True
                 final_content = self._format_level2_search_error(
                     f"All vector store searches failed:\n{error_summary}",
                     query_text,
@@ -269,7 +270,6 @@ class FileSearchMixin:
                 )
 
             else:
-                # At least some results — surface them, log any partial failures
                 if store_errors:
                     LOG.warning(
                         "FileSearch ▸ Partial failure: %d store(s) errored, "
@@ -311,7 +311,6 @@ class FileSearchMixin:
             )
 
         except Exception as exc:
-            # --- LEVEL 2: HANDLE UNEXPECTED HARD FAILURES ---
             LOG.error(
                 "[%s] file_search HARD FAILURE action=%s exc=%s",
                 run_id,

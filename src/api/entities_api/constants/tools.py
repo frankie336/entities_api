@@ -7,7 +7,7 @@ from entities_api.platform_tools.definitions.web_search.search_web_page import \
 from src.api.entities_api.platform_tools.definitions.code_interpreter import \
     code_interpreter
 from src.api.entities_api.platform_tools.definitions.computer import computer
-from src.api.entities_api.platform_tools.definitions.file_search import \
+from src.api.entities_api.platform_tools.definitions.file_search.file_search import \
     file_search
 # --- Web Tools Imports ---
 from src.api.entities_api.platform_tools.definitions.read_web_page import \
