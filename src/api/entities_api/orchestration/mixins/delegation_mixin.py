@@ -1,4 +1,3 @@
-# src/api/entities_api/orchestration/mixins/delegation_mixin.py
 from __future__ import annotations
 
 import asyncio
@@ -12,6 +11,8 @@ from projectdavid.events import ScratchpadEvent
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
+from src.api.entities_api.services.native_execution_service import \
+    NativeExecutionService
 from src.api.entities_api.utils.assistant_manager import AssistantManager
 
 LOG = LoggingUtility()
@@ -32,6 +33,33 @@ class DelegationMixin:
         self._scratch_pad_thread = None
         self._run_user_id = None
         self._batfish_owner_user_id = None
+        self._native_exec_svc: Optional[NativeExecutionService] = None
+
+    # ------------------------------------------------------------------
+    # NATIVE EXECUTION SERVICE — lazy singleton per mixin instance
+    # Instantiated on first access; never re-created.  Avoids adding
+    # NativeExecutionService to the MRO while still reusing the same
+    # Redis / DB connections across calls within a single request.
+    #
+    # Uses a single leading underscore (not double) to avoid Python's
+    # name-mangling, which would make the attribute invisible to
+    # subclasses and break the lazy-init guard.
+    # ------------------------------------------------------------------
+
+    @property
+    def _native_exec(self) -> NativeExecutionService:
+        # Use getattr so this works even when DelegationMixin.__init__ was
+        # never called (e.g. TogetherQwenWorker and other concrete subclasses
+        # that do not call super().__init__() through the full MRO).
+        if getattr(self, "_native_exec_svc", None) is None:
+            self._native_exec_svc = NativeExecutionService()
+        return self._native_exec_svc
+
+    @property
+    def _assistant_manager(self) -> AssistantManager:
+        if getattr(self, "_assistant_manager_svc", None) is None:
+            self._assistant_manager_svc = AssistantManager()
+        return self._assistant_manager_svc
 
     # ------------------------------------------------------------------
     # EMISSION HELPER
@@ -96,9 +124,8 @@ class DelegationMixin:
         elapsed = 0.0
         while elapsed < timeout:
             try:
-                run = await asyncio.to_thread(
-                    self.project_david_client.runs.retrieve_run, run_id=run_id
-                )
+                # ── REPLACED: was self.project_david_client.runs.retrieve_run(...)
+                run = await self._native_exec.retrieve_run(run_id)
                 status_value = (
                     run.status.value
                     if hasattr(run.status, "value")
@@ -135,17 +162,12 @@ class DelegationMixin:
         LOG.info(f"🧹 [CLEANUP] Assistant: {assistant_id} | Thread: {thread_id}")
         if delete_thread and thread_id:
             try:
-                await asyncio.to_thread(
-                    self.project_david_client.threads.delete_thread,
-                    thread_id=thread_id,
-                )
+                # ── REPLACED: was self.project_david_client.threads.delete_thread(...)
+                await self._native_exec.delete_thread(thread_id)
             except Exception as e:
                 LOG.warning(f"⚠️ [CLEANUP] Thread delete failed: {e}")
-        try:
-            manager = AssistantManager()
-            pass
-        except Exception as e:
-            LOG.error(f"❌ [CLEANUP] Assistant delete failed: {e}")
+        # TODO: assistant deletion logic goes here when AssistantManager
+        # exposes a delete method — scaffold retained as a reminder.
 
     @asynccontextmanager
     async def _capture_tool_outputs(self, capture_dict: Dict[str, str]):
@@ -181,19 +203,26 @@ class DelegationMixin:
     # EPHEMERAL FACTORIES
     # ------------------------------------------------------------------
     async def create_ephemeral_worker_assistant(self):
-        manager = AssistantManager()
-        return await manager.create_ephemeral_worker_assistant()
+        return await self._assistant_manager.create_ephemeral_worker_assistant()
 
     async def create_ephemeral_junior_engineer(self):
-        manager = AssistantManager()
-        return await manager.create_ephemeral_junior_engineer()
+        return await self._assistant_manager.create_ephemeral_junior_engineer()
 
     async def create_ephemeral_thread(self):
-        return await asyncio.to_thread(self.project_david_client.threads.create_thread)
+        # ── REPLACED: was self.project_david_client.threads.create_thread()
+        # Also fixes incorrect participant: SDK passed admin user; we now pass
+        # the resolved owner so the ephemeral thread is correctly associated.
+        user_id = getattr(self, "_batfish_owner_user_id", None)
+        if not user_id:
+            raise RuntimeError(
+                "create_ephemeral_thread: _batfish_owner_user_id has not been "
+                "resolved yet — ensure it is set before calling this method."
+            )
+        return await self._native_exec.create_thread(user_id=user_id)
 
     async def create_ephemeral_message(self, thread_id, content, assistant_id):
-        return await asyncio.to_thread(
-            self.project_david_client.messages.create_message,
+        # ── REPLACED: was self.project_david_client.messages.create_message(...)
+        return await self._native_exec.create_message(
             thread_id=thread_id,
             assistant_id=assistant_id,
             content=content,
@@ -202,11 +231,20 @@ class DelegationMixin:
     async def create_ephemeral_run(
         self, assistant_id, thread_id, meta_data: Dict | None = None
     ):
-        return await asyncio.to_thread(
-            self.project_david_client.runs.create_run,
+        # ── REPLACED: was self.project_david_client.runs.create_run(...)
+        # user_id is required by RunService.create_run; use the owner resolved
+        # earlier in handle_delegate_research_task and cached on self.
+        user_id = getattr(self, "_batfish_owner_user_id", None)
+        if not user_id:
+            raise RuntimeError(
+                "create_ephemeral_run: _batfish_owner_user_id has not been "
+                "resolved yet — ensure it is set before calling this method."
+            )
+        return await self._native_exec.create_run(
             assistant_id=assistant_id,
             thread_id=thread_id,
-            **({"meta_data": meta_data} if meta_data else {}),
+            user_id=user_id,
+            meta_data=meta_data,
         )
 
     async def _fetch_worker_final_report(
@@ -232,13 +270,8 @@ class DelegationMixin:
         """
         for attempt in range(1, max_attempts + 1):
             try:
-                messages = await asyncio.to_thread(
-                    self.project_david_client.messages.get_formatted_messages,
-                    thread_id=thread_id,
-                )
+                messages = await self._native_exec.get_formatted_messages(thread_id)
 
-                # Diagnostic dump — logs every message so we can see exactly
-                # what the thread contains when the fetch fires.
                 LOG.critical(
                     "██████ [WORKER_FETCH] attempt=%d thread=%s total_messages=%d ██████",
                     attempt,
@@ -269,17 +302,12 @@ class DelegationMixin:
                         if role != "assistant":
                             continue
 
-                        # Skip structural tool-call envelopes saved by
-                        # finalize_conversation when last turn was a tool call.
-                        # These are JSON arrays, not human-readable reports.
                         if tool_calls:
                             continue
 
                         if not isinstance(content, str) or not content.strip():
                             continue
 
-                        # Guard against finalize_conversation saving the
-                        # tool_calls_structure JSON string as content.
                         stripped = content.strip()
                         if stripped.startswith("[") and stripped.endswith("]"):
                             try:
@@ -294,7 +322,7 @@ class DelegationMixin:
                                     )
                                     continue
                             except (json.JSONDecodeError, ValueError):
-                                pass  # Not JSON — treat as real content
+                                pass
 
                         LOG.info(
                             "✅ [WORKER_FETCH] attempt=%d found report (length=%d): %s...",
@@ -361,7 +389,6 @@ class DelegationMixin:
           confirmation with no verified data and no scratchpad entry.
         """
 
-        # Capture Senior's thread_id before anything mutates state
         self._scratch_pad_thread = thread_id
         LOG.info(f"🔄 [DELEGATE] STARTING. Run: {run_id}")
 
@@ -379,8 +406,8 @@ class DelegationMixin:
 
         action = None
         try:
-            action = await asyncio.to_thread(
-                self.project_david_client.actions.create_action,
+            # ── REPLACED: was self.project_david_client.actions.create_action(...)
+            action = await self._native_exec.create_action(
                 tool_name="delegate_research_task",
                 run_id=run_id,
                 tool_call_id=tool_call_id,
@@ -396,16 +423,11 @@ class DelegationMixin:
         ephemeral_run = None
 
         try:
-            # ------------------------------------------------------------------
-            # RESOLVE SENIOR's user_id — run_id here is the SENIOR's run.
-            # Cached on self so subsequent tool calls skip the DB hit.
-            # ------------------------------------------------------------------
             origin_user_id = getattr(self, "_batfish_owner_user_id", None)
 
             if not origin_user_id:
-                run_obj = await asyncio.to_thread(
-                    self.project_david_client.runs.retrieve_run, run_id=run_id
-                )
+                # ── REPLACED: was self.project_david_client.runs.retrieve_run(...)
+                run_obj = await self._native_exec.retrieve_run(run_id)
                 origin_user_id = run_obj.user_id
                 self._batfish_owner_user_id = origin_user_id
 
@@ -416,28 +438,9 @@ class DelegationMixin:
             )
 
             ephemeral_worker = await self.create_ephemeral_worker_assistant()
-
-            # Create a localized ephemeral thread before pushing the message
             ephemeral_thread = await self.create_ephemeral_thread()
             self._research_worker_thread = ephemeral_thread
 
-            # ------------------------------------------------------------------
-            # DELEGATION PROMPT
-            #
-            # The explicit tool-firing mandate is required for Qwen3-class
-            # reasoning models. Without it, the model reasons through the task
-            # internally during its thinking phase, concludes it already knows
-            # the answer from training weights, and skips directly to the Step 5
-            # confirmation — producing no tool calls, no scratchpad entry, and
-            # no verified data. The supervisor then receives an empty report and
-            # re-delegates indefinitely.
-            #
-            # Key constraints enforced here:
-            #   1. Training knowledge is explicitly forbidden as a source.
-            #   2. First action MUST be tool calls — reasoning alone is failure.
-            #   3. append_scratchpad MUST be called before any text reply.
-            #   4. A live URL is required for any ✅ [VERIFIED] entry.
-            # ------------------------------------------------------------------
             prompt = (
                 f"TASK: {args.get('task')}\n"
                 f"REQ: {args.get('requirements')}\n\n"
@@ -459,11 +462,6 @@ class DelegationMixin:
                 ephemeral_thread.id, prompt, ephemeral_worker.id
             )
 
-            # ------------------------------------------------------------------
-            # STAMP both the Senior's user_id AND thread_id into the ephemeral
-            # run's meta_data. The fresh server-side worker reads both back on
-            # stream boot — the DB record is the only shared state between them.
-            # ------------------------------------------------------------------
             ephemeral_run = await self.create_ephemeral_run(
                 ephemeral_worker.id,
                 ephemeral_thread.id,
@@ -486,7 +484,6 @@ class DelegationMixin:
             LOG.info(f"🔄 [SUPERVISORS_THREAD_ID]: {thread_id}")
             LOG.info(f"🔄 [WORKERS_THREAD_ID]: {ephemeral_thread.id}")
 
-            # Configure stream — original working pattern, untouched
             sync_stream = self.project_david_client.synchronous_inference_stream
             sync_stream.setup(
                 thread_id=ephemeral_thread.id,
@@ -509,20 +506,8 @@ class DelegationMixin:
             ):
                 # ----------------------------------------------------------------
                 # ✅ INTERCEPT: ScratchpadEvent
-                #
                 # MUST come before GUARD 1 — ScratchpadEvent carries a 'tool'
                 # attribute which causes the guard to swallow it silently.
-                #
-                # Payload mirrors _scratchpad_status() exactly:
-                #   - Only non-None fields are included
-                #   - entry is only set when there is actual content
-                #   - Shape is byte-for-byte identical to native supervisor
-                #     scratchpad events so the backend consumer (section G2)
-                #     and frontend handle both sources identically
-                #
-                # The only addition over a native event is 'origin' which
-                # lets the frontend distinguish worker vs supervisor source
-                # if it ever needs to render them differently.
                 # ----------------------------------------------------------------
                 if isinstance(event, ScratchpadEvent):
                     LOG.info(
@@ -535,13 +520,12 @@ class DelegationMixin:
 
                     payload = {
                         "type": "scratchpad_status",
-                        "run_id": run_id,  # ← senior's run_id
+                        "run_id": run_id,
                         "operation": event.operation,
                         "state": event.state,
-                        "origin": "research_worker",  # ← only field native events lack
+                        "origin": "research_worker",
                     }
 
-                    # Mirror _scratchpad_status() — only include non-None fields
                     if event.tool is not None:
                         payload["tool"] = event.tool
                     if event.activity is not None:
@@ -549,7 +533,6 @@ class DelegationMixin:
                     if event.assistant_id is not None:
                         payload["assistant_id"] = event.assistant_id
 
-                    # Only include entry when there is actual content
                     entry_val = event.entry or event.content or ""
                     if entry_val:
                         payload["entry"] = entry_val
@@ -559,7 +542,6 @@ class DelegationMixin:
 
                 # ----------------------------------------------------------------
                 # 🛑 GUARD 1: Exclude Status / System Events
-                # Comes AFTER ScratchpadEvent check — order is critical.
                 # ----------------------------------------------------------------
                 if (
                     hasattr(event, "tool")
@@ -649,10 +631,10 @@ class DelegationMixin:
             )
 
             if action:
-                await asyncio.to_thread(
-                    self.project_david_client.actions.update_action,
-                    action_id=action.id,
-                    status=(
+                # ── REPLACED: was self.project_david_client.actions.update_action(...)
+                await self._native_exec.update_action_status(
+                    action.id,
+                    (
                         StatusEnum.completed.value
                         if not execution_had_error
                         else StatusEnum.failed.value

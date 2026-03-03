@@ -38,12 +38,19 @@ class ConsumerToolHandlersMixin:
         Push tool output to thread and update Action status (Async).
         Level 2: Agnostic to content; assumes the SDK provides either success JSON
         or a formatted 'Level 2' error instruction for the LLM.
+
+        action may be None when the upstream create_action call failed (e.g.
+        during delegation). In that case we still persist the tool output to
+        the thread so the LLM can continue, but we skip the action status
+        update rather than crashing with 'NoneType has no attribute id'.
         """
         if not content:
             content = ERROR_NO_CONTENT
 
         # Action status reflects this specific turn, not necessarily the whole Run.
         final_status = StatusEnum.failed if is_error else StatusEnum.completed
+
+        action_id = getattr(action, "id", None)
 
         try:
             # 1. Save the tool result to the message thread (role='tool')
@@ -54,15 +61,23 @@ class ConsumerToolHandlersMixin:
                 role="tool",
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
-                tool_id=getattr(action, "id", "dummy"),
+                tool_id=action_id or "dummy",
             )
 
-            # 2. Mark the specific Action as finished
-            await asyncio.to_thread(
-                self.project_david_client.actions.update_action,
-                action_id=action.id,
-                status=final_status.value,
-            )
+            # 2. Mark the specific Action as finished — only if we have one.
+            if action_id:
+                await asyncio.to_thread(
+                    self.project_david_client.actions.update_action,
+                    action_id=action_id,
+                    status=final_status.value,
+                )
+            else:
+                LOG.warning(
+                    "submit_tool_output ▸ action is None for tool_call_id=%s — "
+                    "tool output saved but action status NOT updated.",
+                    tool_call_id,
+                )
+
         except Exception as exc:
             LOG.error("submit_tool_output failed: %s", exc, exc_info=True)
             await self._submit_fallback_error(
@@ -82,6 +97,8 @@ class ConsumerToolHandlersMixin:
         action: Any,
     ) -> None:
         """Fallback for critical database or infrastructure failures."""
+        action_id = getattr(action, "id", None)
+
         try:
             await asyncio.to_thread(
                 self.project_david_client.messages.submit_tool_output,
@@ -90,14 +107,22 @@ class ConsumerToolHandlersMixin:
                 role="tool",
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
-                tool_id=getattr(action, "id", "dummy"),
+                tool_id=action_id or "dummy",
             )
         finally:
-            await asyncio.to_thread(
-                self.project_david_client.actions.update_action,
-                action_id=action.id,
-                status=StatusEnum.failed.value,
-            )
+            # Only attempt action update when we actually have an action record.
+            if action_id:
+                await asyncio.to_thread(
+                    self.project_david_client.actions.update_action,
+                    action_id=action_id,
+                    status=StatusEnum.failed.value,
+                )
+            else:
+                LOG.warning(
+                    "_submit_fallback_error ▸ action is None for tool_call_id=%s — "
+                    "fallback message saved but action status NOT updated.",
+                    tool_call_id,
+                )
 
     # ------------------------------------------------------------------
     # ASYNC TOOL CALL PROCESSOR (Reactive Mode)
@@ -137,7 +162,7 @@ class ConsumerToolHandlersMixin:
                     "type": "tool_call_manifest",
                     "run_id": run_id,
                     "action_id": action.id,
-                    "tool_call_id": tool_call_id,  # [L3] ENSURE THIS IS SENT
+                    "tool_call_id": tool_call_id,
                     "tool": tool_name,
                     "args": tool_args,
                 }
