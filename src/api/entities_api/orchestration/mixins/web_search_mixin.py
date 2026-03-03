@@ -468,6 +468,9 @@ class WebSearchMixin:
 
     # ------------------------------------------------------------------
     # 3. CORE EXECUTION LOGIC (The Engine)
+    # TODO: Migrate all methods  that call on SDK: self.project_david_client
+    # to NativeExecutionService, which eliminates needless http roundtrip
+    # through the public SDK
     # ------------------------------------------------------------------
 
     async def _execute_web_tool_logic(

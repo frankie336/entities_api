@@ -102,7 +102,7 @@ class ConsumerToolHandlersMixin:
     # ------------------------------------------------------------------
     # ASYNC TOOL CALL PROCESSOR (Reactive Mode)
     # ------------------------------------------------------------------
-    async def _handover_tool_handling(
+    async def _handover_to_consumer(
         self,
         thread_id: str,
         assistant_id: str,

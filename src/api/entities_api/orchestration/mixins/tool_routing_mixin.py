@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 import uuid
 from typing import AsyncGenerator, Dict, List, Optional, Union
 
-from src.api.entities_api.constants.assistant import PLATFORM_TOOLS
-from src.api.entities_api.constants.platform import SPECIAL_CASE_TOOL_HANDLING
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 LOG = LoggingUtility()
@@ -328,7 +325,7 @@ class ToolRoutingMixin:
             # 3. CONSUMER TOOLS (Handover to SDK)
             # ---------------------------------------------------------
             else:
-                async for chunk in self._handover_tool_handling(
+                async for chunk in self._handover_to_consumer(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
                     content=fc,
