@@ -12,6 +12,8 @@ from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.constants.platform import ERROR_NO_CONTENT
 from src.api.entities_api.services.logging_service import LoggingUtility
+from src.api.entities_api.services.native_execution_service import \
+    NativeExecutionService
 
 load_dotenv()
 LOG = LoggingUtility()
@@ -23,6 +25,20 @@ class ConsumerToolHandlersMixin:
     Level 2 Refactored Mixin: Server-side Tool Logic.
     Shifted error orchestration logic to the SDK to support agentic self-correction.
     """
+
+    # ------------------------------------------------------------------
+    # NATIVE EXECUTION SERVICE — lazy singleton, own instance per mixin.
+    # Not shared with DelegationMixin to avoid MRO conflicts; each mixin
+    # owns its instance, both share the same underlying service singletons
+    # (ActionService, RunService, etc.) via NativeExecutionService.__init__.
+    # getattr-safe for subclasses that skip super().__init__().
+    # ------------------------------------------------------------------
+
+    @property
+    def _native_exec(self) -> NativeExecutionService:
+        if getattr(self, "_consumer_native_exec_svc", None) is None:
+            self._consumer_native_exec_svc = NativeExecutionService()
+        return self._consumer_native_exec_svc
 
     async def submit_tool_output(
         self,
@@ -47,29 +63,26 @@ class ConsumerToolHandlersMixin:
         if not content:
             content = ERROR_NO_CONTENT
 
-        # Action status reflects this specific turn, not necessarily the whole Run.
         final_status = StatusEnum.failed if is_error else StatusEnum.completed
-
         action_id = getattr(action, "id", None)
 
         try:
             # 1. Save the tool result to the message thread (role='tool')
-            await asyncio.to_thread(
-                self.project_david_client.messages.submit_tool_output,
+            # ── REPLACED: was self.project_david_client.messages.submit_tool_output(...)
+            await self._native_exec.submit_tool_output(
                 thread_id=thread_id,
-                content=content,
-                role="tool",
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
-                tool_id=action_id or "dummy",
+                content=content,
+                action_id=action_id,
+                is_error=is_error,
             )
 
             # 2. Mark the specific Action as finished — only if we have one.
             if action_id:
-                await asyncio.to_thread(
-                    self.project_david_client.actions.update_action,
-                    action_id=action_id,
-                    status=final_status.value,
+                # ── REPLACED: was self.project_david_client.actions.update_action(...)
+                await self._native_exec.update_action_status(
+                    action_id, final_status.value
                 )
             else:
                 LOG.warning(
@@ -100,22 +113,20 @@ class ConsumerToolHandlersMixin:
         action_id = getattr(action, "id", None)
 
         try:
-            await asyncio.to_thread(
-                self.project_david_client.messages.submit_tool_output,
+            # ── REPLACED: was self.project_david_client.messages.submit_tool_output(...)
+            await self._native_exec.submit_tool_output(
                 thread_id=thread_id,
-                content=error_msg,
-                role="tool",
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
-                tool_id=action_id or "dummy",
+                content=error_msg,
+                action_id=action_id,
+                is_error=True,
             )
         finally:
-            # Only attempt action update when we actually have an action record.
             if action_id:
-                await asyncio.to_thread(
-                    self.project_david_client.actions.update_action,
-                    action_id=action_id,
-                    status=StatusEnum.failed.value,
+                # ── REPLACED: was self.project_david_client.actions.update_action(...)
+                await self._native_exec.update_action_status(
+                    action_id, StatusEnum.failed.value
                 )
             else:
                 LOG.warning(
@@ -146,8 +157,8 @@ class ConsumerToolHandlersMixin:
         tool_args = content.get("arguments") or content.get("args") or {}
 
         # 1. Record the intent to call a tool in the DB
-        action = await asyncio.to_thread(
-            self.project_david_client.actions.create_action,
+        # ── REPLACED: was self.project_david_client.actions.create_action(...)
+        action = await self._native_exec.create_action(
             tool_name=tool_name,
             run_id=run_id,
             tool_call_id=tool_call_id,
@@ -169,10 +180,9 @@ class ConsumerToolHandlersMixin:
             )
 
         # 3. Pause the run state. SDK loop will resume by initiating a new turn.
-        await asyncio.to_thread(
-            self.project_david_client.runs.update_run_status,
-            run_id,
-            StatusEnum.pending_action.value,
+        # ── REPLACED: was self.project_david_client.runs.update_run_status(...)
+        await self._native_exec.update_run_status(
+            run_id, StatusEnum.pending_action.value
         )
         return
 
@@ -222,8 +232,15 @@ class ConsumerToolHandlersMixin:
         is_error: bool,
         forced_status: Optional[str] = None,
     ) -> None:
-        """Internal helper to persist assistant text and update run status."""
-        self.project_david_client.messages.save_assistant_message_chunk(
+        """
+        Internal sync helper to persist assistant text and update run status.
+
+        Called via asyncio.to_thread so cannot await.  Accesses MessageService
+        and RunService through _native_exec's already-instantiated singletons
+        to avoid creating fresh service instances on every call.
+        """
+        # ── REPLACED: was self.project_david_client.messages.save_assistant_message_chunk(...)
+        self._native_exec.message_svc.save_assistant_message_chunk(
             thread_id=thread_id,
             content=content,
             role="assistant",
@@ -232,10 +249,8 @@ class ConsumerToolHandlersMixin:
             is_last_chunk=True,
         )
 
-        # Level 2: Only update run to terminal status if not mid-correction-loop
+        # ── REPLACED: was self.project_david_client.runs.update_run_status(...)
         status = forced_status or (
             StatusEnum.failed.value if is_error else StatusEnum.completed.value
         )
-        self.project_david_client.runs.update_run_status(
-            run_id=run_id, new_status=status
-        )
+        self._native_exec.run_svc.update_run_status(run_id, status)

@@ -329,6 +329,40 @@ class NativeExecutionService:
             is_error=True,
         )
 
+    async def update_run_status(self, run_id: str, new_status: str) -> Any:
+        """
+        Update a run's status via the local RunService, bypassing the HTTP SDK.
+        """
+        return await asyncio.to_thread(
+            self.run_svc.update_run_status, run_id, new_status
+        )
+
+    async def save_assistant_message_chunk(
+        self,
+        thread_id: str,
+        content: str,
+        role: str,
+        assistant_id: str,
+        sender_id: str,
+        is_last_chunk: bool = True,
+    ) -> Any:
+        """
+        Persist an assistant message chunk via the local MessageService,
+        bypassing the HTTP SDK.
+
+        is_last_chunk defaults to True — callers in the orchestration layer
+        always flush the complete assembled reply in a single call.
+        """
+        return await asyncio.to_thread(
+            self.message_svc.save_assistant_message_chunk,
+            thread_id,
+            content,
+            role,
+            assistant_id,
+            sender_id,
+            is_last_chunk,
+        )
+
     # ------------------------------------------------------------------
     # Web Reader — native wrappers (no SDK, no HTTP round-trip)
     # ------------------------------------------------------------------
