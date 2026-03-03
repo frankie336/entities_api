@@ -5,7 +5,7 @@
 [![Docker Image Version](https://img.shields.io/docker/v/thanosprime/entities-api-api?sort=semver&label=API%20Version&style=flat-square)](https://hub.docker.com/r/thanosprime/entities-api-api/tags)
 [![CI](https://github.com/frankie336/entities_api/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/frankie336/entities_api/actions/workflows/ci.yml)
 
-![Entities Emblem](https://raw.githubusercontent.com/frankie336/entities_api/master/assets/entities_emblem_green.png)
+![Entities Emblem](https://raw.githubusercontent.com/frankie336/entities_api/master/assets/logo.png)
 ---
 
 
