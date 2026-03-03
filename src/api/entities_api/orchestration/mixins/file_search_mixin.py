@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from typing import Any, Dict, Optional
 
+# Server-side native DB manager
+from projectdavid.clients.vector_store_manager import VectorStoreManager
 from projectdavid_common import ToolValidator
 from projectdavid_common.validation import StatusEnum
 
@@ -58,9 +61,6 @@ class FileSearchMixin:
         """
         Resolves the list of vector store IDs from the assistant cache's
         tool_resources field.
-
-        Returns an empty list if nothing is configured — callers are responsible
-        for treating that as a hard failure.
         """
         try:
             config = await self.assistant_cache.retrieve(assistant_id)
@@ -89,13 +89,8 @@ class FileSearchMixin:
         """
         Asynchronous handler for file_search.
 
-        Fans out across every vector store declared in
-        assistant.tool_resources["file_search"]["vector_store_ids"].
-        Results are concatenated into a single flat list for the LLM.
-
-        Hard-fails with an LLM-surfaced configuration hint if:
-          - tool_resources is absent or malformed
-          - vector_store_ids is missing or empty
+        Bypasses the HTTP SDK for the search plane and queries the Qdrant DB directly
+        using a server-side instance of VectorStoreManager.
         """
         ts_start = asyncio.get_event_loop().time()
 
@@ -108,7 +103,6 @@ class FileSearchMixin:
 
         if not is_valid:
             LOG.warning(f"FileSearch ▸ Validation Failed: {validation_error}")
-
             try:
                 action = await asyncio.to_thread(
                     self.project_david_client.actions.create_action,
@@ -193,34 +187,65 @@ class FileSearchMixin:
             return
 
         try:
-            # 2. Fan out — search every vector store concurrently
+            # 2. Fan out — search every vector store concurrently (DIRECT DB CONNECTION)
             LOG.info(
-                "FileSearch ▸ Searching %d vector store(s) for run %s: %s",
+                "FileSearch ▸ Searching %d vector store(s) natively for run %s: %s",
                 len(vector_store_ids),
                 run_id,
                 vector_store_ids,
             )
 
+            # Native database manager instance connecting straight to the internal container
+            qdrant_host = os.getenv("VECTOR_STORE_HOST", "qdrant")
+            vector_manager = VectorStoreManager(vector_store_host=qdrant_host)
+
             async def _search_one(
                 vid: str,
             ) -> tuple[str, list | None, Exception | None]:
                 try:
-                    # Robust type casting to prevent downstream schema errors
+                    # Robust type casting
                     try:
                         top_k_val = int(arguments_dict.get("top_k", 5))
                     except (ValueError, TypeError):
                         top_k_val = 5
 
-                    results = await asyncio.to_thread(
-                        self.project_david_client.vectors.vector_file_search_raw,
-                        vector_store_id=vid,
-                        query_text=query_text,
+                    # A: Fetch metadata via SDK (We still need the collection name)
+                    store_info = await asyncio.to_thread(
+                        self.project_david_client.vectors.retrieve_vector_store_sync,
+                        vid,
+                    )
+
+                    # B: Local Embedding (Reusing SDK's loaded model to save RAM)
+                    file_processor = self.project_david_client.vectors.file_processor
+
+                    if store_info.vector_size == 1024:
+                        vec_array = await asyncio.to_thread(
+                            file_processor.encode_clip_text, query_text
+                        )
+                        vector_field = "caption_vector"
+                    else:
+                        vec_array = await asyncio.to_thread(
+                            file_processor.encode_text, query_text
+                        )
+                        vector_field = None
+
+                    query_vector = vec_array.tolist()
+
+                    # C: Native Database Query! (Bypasses local HTTP APIs entirely)
+                    raw_hits = await asyncio.to_thread(
+                        vector_manager.query_store,
+                        store_name=store_info.collection_name,
+                        query_vector=query_vector,
                         top_k=top_k_val,
                         filters=arguments_dict.get("filters"),
-                        # DO NOT hardcode vector_store_host here.
-                        # It will seamlessly reuse the properly initialized client logic.
+                        vector_field=vector_field,
                     )
-                    return vid, results, None
+
+                    # D: Preserve the exact "natural envelope" but tag the source DB
+                    for h in raw_hits:
+                        h["store_id"] = vid
+
+                    return vid, raw_hits, None
                 except Exception as exc:
                     return vid, None, exc
 
@@ -278,6 +303,10 @@ class FileSearchMixin:
                         len(aggregated),
                         store_errors,
                     )
+                # Sort the aggregated results across all stores by score (highest to lowest)
+                aggregated.sort(key=lambda x: x.get("score", 0), reverse=True)
+
+                # Dump the exact structure the user expects to a string for the LLM
                 final_content = json.dumps(aggregated, indent=2)
 
             # 5. Submit Tool Output

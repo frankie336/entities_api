@@ -52,6 +52,7 @@ update_assistant = client.assistants.update_assistant(
 print(f"Assistant Tools: {update_assistant.tools}")
 print(f"Assistant Resources: {update_assistant.tool_resources}\n")
 
+
 # --------------------------------------
 # 5. Direct Test Query (The Beautiful Envelope)
 # --------------------------------------
@@ -62,7 +63,7 @@ try:
     print(f"Executing simple envelope search for: '{query}'...\n")
 
     # Grab the envelope via SDK
-    envelope_results = client.vectors.simple_vector_file_search(
+    envelope_results = client.vectors.vector_file_search_raw(
         vector_store_id=vector_store.id, query_text=query, top_k=3
     )
 
