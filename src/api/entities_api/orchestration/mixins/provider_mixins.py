@@ -1,25 +1,26 @@
 from src.api.entities_api.orchestration.mixins import (
-    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
-    ContextMixin, DelegationMixin, FileSearchMixin, JsonUtilsMixin,
-    NetworkInventoryMixin, PlatformToolHandlersMixin, ScratchpadMixin,
-    ServiceRegistryMixin, ShellExecutionMixin, ToolRoutingMixin,
-    WebSearchMixin)
+    AssistantCacheMixin, ClientFactoryMixin, CodeExecutionMixin,
+    ConsumerToolHandlersMixin, ContextMixin, DelegationMixin, FileSearchMixin,
+    JsonUtilsMixin, NetworkInventoryMixin, PlatformToolHandlersMixin,
+    ScratchpadMixin, ServiceRegistryMixin, ShellExecutionMixin,
+    ToolRoutingMixin, WebSearchMixin)
 
 
 class _ProviderMixins(
+    ServiceRegistryMixin,
+    ClientFactoryMixin,
     AssistantCacheMixin,
-    CodeExecutionMixin,
-    ConsumerToolHandlersMixin,
+    JsonUtilsMixin,
     ContextMixin,
     DelegationMixin,
-    FileSearchMixin,
-    JsonUtilsMixin,
-    NetworkInventoryMixin,
-    PlatformToolHandlersMixin,
-    ScratchpadMixin,
-    ServiceRegistryMixin,
-    ShellExecutionMixin,
     ToolRoutingMixin,
+    PlatformToolHandlersMixin,
+    ConsumerToolHandlersMixin,
+    CodeExecutionMixin,
+    ShellExecutionMixin,
+    FileSearchMixin,
     WebSearchMixin,
+    ScratchpadMixin,
+    NetworkInventoryMixin,
 ):
     """Flat bundle for Provider Mixins."""

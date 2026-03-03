@@ -1,6 +1,8 @@
 # src/api/entities_api/orchestration/mixins/__init__.py
+
 from src.api.entities_api.orchestration.mixins.assistant_cache_mixin import \
     AssistantCacheMixin
+# Non-MRO mixins (kept, but placed after ordered stack)
 from src.api.entities_api.orchestration.mixins.client_factory_mixin import \
     ClientFactoryMixin
 from src.api.entities_api.orchestration.mixins.code_execution_mixin import \
@@ -33,20 +35,22 @@ from src.api.entities_api.orchestration.mixins.web_search_mixin import \
     WebSearchMixin
 
 __all__ = [
+    # Ordered to match _ProviderMixins MRO
+    "ServiceRegistryMixin",
     "AssistantCacheMixin",
-    "ClientFactoryMixin",
-    "CodeExecutionMixin",
-    "ConsumerToolHandlersMixin",
+    "JsonUtilsMixin",
     "ContextMixin",
     "DelegationMixin",
-    "FileSearchMixin",
-    "JsonUtilsMixin",
-    "NetworkInventoryMixin",
-    "PlatformToolHandlersMixin",
-    "ScratchpadMixin",
-    "ServiceRegistryMixin",
-    "ShellExecutionMixin",
-    "StreamingMixin",
     "ToolRoutingMixin",
+    "PlatformToolHandlersMixin",
+    "ConsumerToolHandlersMixin",
+    "CodeExecutionMixin",
+    "ShellExecutionMixin",
+    "FileSearchMixin",
     "WebSearchMixin",
+    "ScratchpadMixin",
+    "NetworkInventoryMixin",
+    # Additional exports
+    "ClientFactoryMixin",
+    "StreamingMixin",
 ]
