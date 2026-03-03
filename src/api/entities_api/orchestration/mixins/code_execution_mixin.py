@@ -1,3 +1,4 @@
+# src/api/entities_api/orchestration/mixins/code_execution_mixin.py
 from __future__ import annotations
 
 import asyncio
@@ -10,8 +11,12 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 
 import jwt
 from projectdavid_common import ToolValidator
+from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.services.logging_service import LoggingUtility
+from src.api.entities_api.services.native_execution_service import (
+    NativeExecutionService,
+)
 
 LOG = LoggingUtility()
 
@@ -73,6 +78,8 @@ class CodeExecutionMixin:
         # 1. Notify start
         yield self._code_status("Preparing code interpreter...", "in_progress", run_id)
 
+        native_svc = NativeExecutionService()
+
         # --- VALIDATION ---
         validator = ToolValidator()
         validator.schema_registry = {"code_interpreter": ["code"]}
@@ -80,39 +87,29 @@ class CodeExecutionMixin:
 
         if validation_error:
             LOG.warning(f"CodeInterpreter ▸ Validation Failed: {validation_error}")
-            action = None
-            try:
-                action = await asyncio.to_thread(
-                    self.project_david_client.actions.create_action,
-                    tool_name="code_interpreter",
-                    run_id=run_id,
-                    tool_call_id=tool_call_id,
-                    function_args=arguments_dict,
-                    decision=decision,
-                )
-            except Exception:
-                pass
 
             # Surface as a recoverable status message — not a raw error chunk
             yield self._code_status(
                 f"Validation failed: {validation_error}", "error", run_id
             )
 
-            await self.submit_tool_output(
+            # Native execution for failed validation (creates action, marks failed, submits output)
+            await native_svc.submit_failed_tool_execution(
+                tool_name="code_interpreter",
+                run_id=run_id,
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
-                content=f"{validation_error}\nPlease correct arguments.",
-                action=action,
-                is_error=True,
+                error_message=f"{validation_error}\nPlease correct arguments.",
+                function_args=arguments_dict,
+                decision=decision,
             )
             return
 
-        # 2. Create Action
+        # 2. Create Action Natively
         action = None
         try:
-            action = await asyncio.to_thread(
-                self.project_david_client.actions.create_action,
+            action = await native_svc.create_action(
                 tool_name="code_interpreter",
                 run_id=run_id,
                 tool_call_id=tool_call_id,
@@ -328,6 +325,7 @@ class CodeExecutionMixin:
             mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
             try:
+                # Still utilizing the SDK for file storage/signed URLs
                 file_url = file_meta.get("url")
                 if not file_url:
                     file_url = await asyncio.to_thread(
@@ -378,16 +376,25 @@ class CodeExecutionMixin:
             run_id,
         )
 
-        # 7. Submit Result — LLM receives llm_content (with recovery instructions)
+        # 7. Submit Result Natively (LLM receives llm_content with recovery instructions)
         try:
-            await self.submit_tool_output(
+            await native_svc.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
                 content=llm_content,
-                action=action,
+                action_id=action.id if action else None,
                 is_error=execution_had_error,
             )
+            # Update Action State locally
+            if action:
+                status_val = (
+                    StatusEnum.failed.value
+                    if execution_had_error
+                    else StatusEnum.completed.value
+                )
+                await native_svc.update_action_status(action.id, status_val)
+
         except Exception as e:
             LOG.error(f"CodeInterpreter ▸ Submission failure: {e}")
             yield self._code_status(

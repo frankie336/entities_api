@@ -8,6 +8,10 @@ from projectdavid_common import ToolValidator
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
+from src.api.entities_api.services.native_execution_service import (
+    NativeExecutionService,
+)
+
 LOG = LoggingUtility()
 
 
@@ -22,18 +26,6 @@ def _scratchpad_status(
 ) -> str:
     """
     Emit a status event as raw JSON conforming to the stream EVENT_CONTRACT.
-
-    Shape:
-        {
-            "type":         "scratchpad_status",
-            "run_id":       "<uuid>",
-            "operation":    "read" | "update" | "append",
-            "state":        "in_progress" | "success" | "completed" | "error",
-            "tool":         "<tool_name>",     (optional)
-            "activity":     "<human readable>",(optional)
-            "entry":        "<entry text>",    (optional)
-            "assistant_id": "<asst_id>"        (optional)
-        }
     """
     payload = {
         "type": "scratchpad_status",
@@ -78,6 +70,8 @@ class ScratchpadMixin:
 
         LOG.info(f"SCRATCHPAD ▸ scratchpad thread id: {scratch_pad_thread}")
 
+        native_svc = NativeExecutionService()
+
         # Injecting assistant_id into the human-readable logs
         # so you can easily track Worker vs Supervisor activity
         _OP_LABELS = {
@@ -112,6 +106,7 @@ class ScratchpadMixin:
             assistant_id=assistant_id,
         )
 
+        # --- VALIDATION ---
         if operation_type != "read":
             required = {"content": str} if operation_type == "update" else {"note": str}
 
@@ -128,18 +123,20 @@ class ScratchpadMixin:
                     assistant_id=assistant_id,
                 )
 
-                await self.submit_tool_output(
+                await native_svc.submit_failed_tool_execution(
+                    tool_name=tool_name,
+                    run_id=run_id,
                     thread_id=thread_id,
                     assistant_id=assistant_id,
                     tool_call_id=tool_call_id,
-                    content=f"Error: {err}",
-                    action=None,
-                    is_error=True,
+                    error_message=f"Error: {err}",
+                    function_args=arguments_dict,
+                    decision=decision,
                 )
                 return
 
-        action = await asyncio.to_thread(
-            self.project_david_client.actions.create_action,
+        # 1. Create Action Natively
+        action = await native_svc.create_action(
             tool_name=tool_name,
             run_id=run_id,
             tool_call_id=tool_call_id,
@@ -148,22 +145,16 @@ class ScratchpadMixin:
         )
 
         try:
+            # 2. Native Data-Plane Operation (Direct to Cache without HTTP overhead)
             if operation_type == "read":
-                res = await asyncio.to_thread(
-                    self.project_david_client.tools.scratchpad_read,
-                    thread_id=thread_id,
-                )
+                res = await native_svc.scratchpad_svc.get_formatted_view(thread_id)
             elif operation_type == "update":
-                res = await asyncio.to_thread(
-                    self.project_david_client.tools.scratchpad_update,
-                    thread_id=thread_id,
-                    content=arguments_dict.get("content"),
+                res = await native_svc.scratchpad_svc.update_content(
+                    thread_id=thread_id, content=arguments_dict.get("content")
                 )
             else:
-                res = await asyncio.to_thread(
-                    self.project_david_client.tools.scratchpad_append,
-                    thread_id=thread_id,
-                    note=arguments_dict.get("note"),
+                res = await native_svc.scratchpad_svc.append_note(
+                    thread_id=thread_id, note=arguments_dict.get("note")
                 )
 
             # Determine entry text for the frontend scratchpad component
@@ -196,18 +187,21 @@ class ScratchpadMixin:
                 assistant_id=assistant_id,
             )
 
-            await asyncio.to_thread(
-                self.project_david_client.actions.update_action,
-                action_id=action.id,
-                status=StatusEnum.completed.value,
-            )
+            # 3. Update status and submit output Natively
+            res_content = res if isinstance(res, str) else json.dumps(res)
 
-            await self.submit_tool_output(
+            await native_svc.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
-                content=res,
-                action=action,
+                content=res_content,
+                action_id=action.id,
+                is_error=False,
+            )
+
+            await native_svc.update_action_status(
+                action_id=action.id,
+                status=StatusEnum.completed.value,
             )
 
         except Exception as e:
@@ -220,19 +214,19 @@ class ScratchpadMixin:
                 assistant_id=assistant_id,
             )
 
-            await asyncio.to_thread(
-                self.project_david_client.actions.update_action,
-                action_id=action.id,
-                status=StatusEnum.failed.value,
-            )
-
-            await self.submit_tool_output(
+            # Mark Failure Natively
+            await native_svc.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
                 content=f"Error: {e}",
-                action=action,
+                action_id=action.id,
                 is_error=True,
+            )
+
+            await native_svc.update_action_status(
+                action_id=action.id,
+                status=StatusEnum.failed.value,
             )
 
     async def handle_read_scratchpad(self, *args, **kwargs):

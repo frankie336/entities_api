@@ -1,4 +1,3 @@
-# src/api/entities_api/orchestration/mixins/file_search_mixin.py
 from __future__ import annotations
 
 import asyncio
@@ -12,6 +11,9 @@ from projectdavid_common import ToolValidator
 from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.services.logging_service import LoggingUtility
+from src.api.entities_api.services.native_execution_service import (
+    NativeExecutionService,
+)
 
 LOG = LoggingUtility()
 
@@ -19,21 +21,10 @@ LOG = LoggingUtility()
 class FileSearchMixin:
     """
     Drive the **file_search** tool-call asynchronously.
-
-    Level 2 Enhancement: Implementation of automated self-correction for
-    retrieval failures, empty search results, and schema validation.
-
-    Level 3 Enhancement: Fans out across all vector_store_ids declared in
-    assistant.tool_resources["file_search"], aggregating results into a
-    single ranked list. Hard-fails (with LLM-surfaced hint) if no stores
-    are configured.
     """
 
     @staticmethod
     def _format_level2_search_error(error_content: str, query: str) -> str:
-        """
-        Translates retrieval crashes or empty sets into actionable hints for the LLM.
-        """
         return (
             f"File Search Result for '{query}': {error_content}\n\n"
             "Instructions: If no results were found, please try again with broader keywords, "
@@ -43,10 +34,6 @@ class FileSearchMixin:
 
     @staticmethod
     def _format_tool_resources_error(query: str) -> str:
-        """
-        Returns a clear, actionable hard-failure hint for the LLM when no
-        vector stores are resolvable from assistant.tool_resources.
-        """
         return (
             f"File Search Result for '{query}': Configuration Error — "
             "No vector stores are associated with this assistant.\n\n"
@@ -58,17 +45,13 @@ class FileSearchMixin:
         )
 
     async def _resolve_vector_store_ids(self, assistant_id: str) -> list[str]:
-        """
-        Resolves the list of vector store IDs from the assistant cache's
-        tool_resources field.
-        """
         try:
             config = await self.assistant_cache.retrieve(assistant_id)
             tool_resources: dict = config.get("tool_resources") or {}
             ids: list = tool_resources.get("file_search", {}).get(
                 "vector_store_ids", []
             )
-            return [vid for vid in ids if vid]  # strip any None/empty strings
+            return [vid for vid in ids if vid]
         except Exception as exc:
             LOG.error(
                 "FileSearch ▸ Failed to resolve tool_resources for assistant %s: %s",
@@ -86,58 +69,36 @@ class FileSearchMixin:
         tool_call_id: Optional[str] = None,
         decision: Optional[Dict] = None,
     ) -> None:
-        """
-        Asynchronous handler for file_search.
-
-        Bypasses the HTTP SDK for the search plane and queries the Qdrant DB directly
-        using a server-side instance of VectorStoreManager.
-        """
         ts_start = asyncio.get_event_loop().time()
 
-        # --- [L2] SHARED INPUT VALIDATION ---
+        # Instantiate the new helper wrapper
+        native_svc = NativeExecutionService()
+
+        # ---[L2] SHARED INPUT VALIDATION ---
         validator = ToolValidator()
         validator.schema_registry = {"file_search": ["query_text"]}
 
         validation_error = validator.validate_args("file_search", arguments_dict)
-        is_valid = validation_error is None
 
-        if not is_valid:
+        if validation_error:
             LOG.warning(f"FileSearch ▸ Validation Failed: {validation_error}")
-            try:
-                action = await asyncio.to_thread(
-                    self.project_david_client.actions.create_action,
-                    tool_name="file_search",
-                    run_id=run_id,
-                    tool_call_id=tool_call_id,
-                    function_args=arguments_dict,
-                    decision=decision,
-                )
-                await asyncio.to_thread(
-                    self.project_david_client.actions.update_action,
-                    action_id=action.id,
-                    status=StatusEnum.failed.value,
-                )
-            except Exception:
-                pass
+            error_msg = f"{validation_error}\nPlease provide a valid 'query_text' string for the search."
 
-            error_msg = (
-                f"{validation_error}\n"
-                "Please provide a valid 'query_text' string for the search."
-            )
-
-            await self.submit_tool_output(
+            await native_svc.submit_failed_tool_execution(
+                tool_name="file_search",
+                run_id=run_id,
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
-                content=error_msg,
-                action=action if "action" in locals() else None,
-                is_error=True,
+                error_message=error_msg,
+                function_args=arguments_dict,
+                decision=decision,
             )
             return
 
         query_text: str = arguments_dict.get("query_text", "")
 
-        # --- [L3] RESOLVE VECTOR STORES FROM tool_resources ---
+        # ---[L3] RESOLVE VECTOR STORES FROM tool_resources ---
         vector_store_ids = await self._resolve_vector_store_ids(assistant_id)
 
         if not vector_store_ids:
@@ -145,37 +106,21 @@ class FileSearchMixin:
                 "FileSearch ▸ No vector_store_ids found in tool_resources for assistant %s.",
                 assistant_id,
             )
-            try:
-                action = await asyncio.to_thread(
-                    self.project_david_client.actions.create_action,
-                    tool_name="file_search",
-                    run_id=run_id,
-                    tool_call_id=tool_call_id,
-                    function_args=arguments_dict,
-                    decision=decision,
-                )
-                await asyncio.to_thread(
-                    self.project_david_client.actions.update_action,
-                    action_id=action.id,
-                    status=StatusEnum.failed.value,
-                )
-            except Exception:
-                action = None
-
-            await self.submit_tool_output(
+            await native_svc.submit_failed_tool_execution(
+                tool_name="file_search",
+                run_id=run_id,
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
-                content=self._format_tool_resources_error(query_text),
-                action=action,
-                is_error=True,
+                error_message=self._format_tool_resources_error(query_text),
+                function_args=arguments_dict,
+                decision=decision,
             )
             return
 
-        # 1. Create Action Record
+        # 1. Create Action Record Natively
         try:
-            action = await asyncio.to_thread(
-                self.project_david_client.actions.create_action,
+            action = await native_svc.create_action(
                 tool_name="file_search",
                 run_id=run_id,
                 tool_call_id=tool_call_id,
@@ -187,7 +132,7 @@ class FileSearchMixin:
             return
 
         try:
-            # 2. Fan out — search every vector store concurrently (DIRECT DB CONNECTION)
+            # 2. Fan out — search every vector store concurrently
             LOG.info(
                 "FileSearch ▸ Searching %d vector store(s) natively for run %s: %s",
                 len(vector_store_ids),
@@ -195,7 +140,6 @@ class FileSearchMixin:
                 vector_store_ids,
             )
 
-            # Native database manager instance connecting straight to the internal container
             qdrant_host = os.getenv("VECTOR_STORE_HOST", "qdrant")
             vector_manager = VectorStoreManager(vector_store_host=qdrant_host)
 
@@ -203,21 +147,21 @@ class FileSearchMixin:
                 vid: str,
             ) -> tuple[str, list | None, Exception | None]:
                 try:
-                    # Robust type casting
                     try:
                         top_k_val = int(arguments_dict.get("top_k", 5))
                     except (ValueError, TypeError):
                         top_k_val = 5
 
-                    # A: Fetch metadata via SDK (We still need the collection name)
-                    store_info = await asyncio.to_thread(
-                        self.project_david_client.vectors.retrieve_vector_store_sync,
-                        vid,
-                    )
+                    # A: Fetch metadata natively directly from the database!
+                    store_info = await native_svc.get_vector_store(vid)
+
+                    if not store_info:
+                        raise Exception(
+                            f"Vector store '{vid}' not found in the database."
+                        )
 
                     # B: Local Embedding (Reusing SDK's loaded model to save RAM)
                     file_processor = self.project_david_client.vectors.file_processor
-
                     if store_info.vector_size == 1024:
                         vec_array = await asyncio.to_thread(
                             file_processor.encode_clip_text, query_text
@@ -231,7 +175,7 @@ class FileSearchMixin:
 
                     query_vector = vec_array.tolist()
 
-                    # C: Native Database Query! (Bypasses local HTTP APIs entirely)
+                    # C: Direct Qdrant query
                     raw_hits = await asyncio.to_thread(
                         vector_manager.query_store,
                         store_name=store_info.collection_name,
@@ -241,7 +185,6 @@ class FileSearchMixin:
                         vector_field=vector_field,
                     )
 
-                    # D: Preserve the exact "natural envelope" but tag the source DB
                     for h in raw_hits:
                         h["store_id"] = vid
 
@@ -253,7 +196,7 @@ class FileSearchMixin:
                 *[_search_one(vid) for vid in vector_store_ids]
             )
 
-            # 3. Aggregate results — concatenate across all stores
+            # 3. Aggregate results
             aggregated: list = []
             store_errors: list[str] = []
 
@@ -275,60 +218,42 @@ class FileSearchMixin:
                     query_text,
                 )
                 LOG.warning(
-                    "FileSearch ▸ No results across %d store(s) for '%s'. "
-                    "Triggering self-correction turn.",
-                    len(vector_store_ids),
-                    query_text,
+                    "FileSearch ▸ No results... Triggering self-correction turn."
                 )
 
             elif not has_results and store_errors:
-                error_summary = "\n".join(store_errors)
                 is_soft_failure = True
                 final_content = self._format_level2_search_error(
-                    f"All vector store searches failed:\n{error_summary}",
+                    f"All vector store searches failed:\n{chr(10).join(store_errors)}",
                     query_text,
                 )
-                LOG.error(
-                    "FileSearch ▸ All %d store(s) failed for run %s.",
-                    len(vector_store_ids),
-                    run_id,
-                )
+                LOG.error("FileSearch ▸ All %d store(s) failed.", len(vector_store_ids))
 
             else:
                 if store_errors:
                     LOG.warning(
-                        "FileSearch ▸ Partial failure: %d store(s) errored, "
-                        "%d result(s) returned. Errors: %s",
-                        len(store_errors),
-                        len(aggregated),
-                        store_errors,
+                        "FileSearch ▸ Partial failure. Errors: %s", store_errors
                     )
-                # Sort the aggregated results across all stores by score (highest to lowest)
                 aggregated.sort(key=lambda x: x.get("score", 0), reverse=True)
-
-                # Dump the exact structure the user expects to a string for the LLM
                 final_content = json.dumps(aggregated, indent=2)
 
-            # 5. Submit Tool Output
-            await self.submit_tool_output(
+            # 5. Native submit tool output
+            await native_svc.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
                 content=final_content,
-                action=action,
+                action_id=action.id,
                 is_error=is_soft_failure,
             )
 
-            # 6. Mark Action Status
-            await asyncio.to_thread(
-                self.project_david_client.actions.update_action,
-                action_id=action.id,
-                status=(
-                    StatusEnum.completed.value
-                    if not is_soft_failure
-                    else StatusEnum.failed.value
-                ),
+            # 6. Mark Native Action Status
+            status_val = (
+                StatusEnum.failed.value
+                if is_soft_failure
+                else StatusEnum.completed.value
             )
+            await native_svc.update_action_status(action.id, status_val)
 
             LOG.info(
                 "[%s] file_search completed in %.2fs (action=%s, stores=%d, results=%d)",
@@ -341,27 +266,20 @@ class FileSearchMixin:
 
         except Exception as exc:
             LOG.error(
-                "[%s] file_search HARD FAILURE action=%s exc=%s",
-                run_id,
-                action.id,
-                exc,
+                "[%s] file_search HARD FAILURE action=%s exc=%s", run_id, action.id, exc
             )
-
             error_hint = self._format_level2_search_error(str(exc), query_text)
 
             try:
-                await asyncio.to_thread(
-                    self.project_david_client.actions.update_action,
-                    action_id=action.id,
-                    status=StatusEnum.failed.value,
+                await native_svc.update_action_status(
+                    action.id, StatusEnum.failed.value
                 )
-
-                await self.submit_tool_output(
+                await native_svc.submit_tool_output(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
                     tool_call_id=tool_call_id,
                     content=error_hint,
-                    action=action,
+                    action_id=action.id,
                     is_error=True,
                 )
             except Exception as inner:
