@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from typing import Any, AsyncGenerator
 
@@ -85,50 +86,85 @@ class DeltaNormalizer:
         )
 
         async for token in raw_stream:
-            choices = []
             is_dict = isinstance(token, dict)
+            delta = {}
+            finish_reason = None
 
             if is_dict:
-                choices = token.get("choices", [])
-                if not choices or not isinstance(choices, list):
-                    continue
-                delta = choices[0].get("delta", {})
-                finish_reason = choices[0].get("finish_reason")
-            elif hasattr(token, "choices") and token.choices:
-                choices = token.choices
-                delta = choices[0].delta
-                finish_reason = getattr(choices[0], "finish_reason", None)
+                # [Ollama Integration] Check for Ollama stream format (Chat or Generate)
+                if "done" in token or "message" in token or "response" in token:
+                    if "message" in token:
+                        delta = token.get("message", {})
+                    else:
+                        delta = {"content": token.get("response", "")}
+
+                    if token.get("done"):
+                        finish_reason = token.get("done_reason") or "stop"
+                else:
+                    # [Standard OpenAI Integration]
+                    choices = token.get("choices", [])
+                    if not choices or not isinstance(choices, list):
+                        continue
+                    delta = choices[0].get("delta", {})
+                    finish_reason = choices[0].get("finish_reason")
             else:
-                continue
+                # Handle Client Object representations
+                if (
+                    hasattr(token, "done")
+                    or hasattr(token, "message")
+                    or hasattr(token, "response")
+                ):
+                    if hasattr(token, "message"):
+                        delta = getattr(token, "message", {})
+                    else:
+                        delta = {"content": getattr(token, "response", "")}
+
+                    if getattr(token, "done", False):
+                        finish_reason = getattr(token, "done_reason", "stop")
+                elif hasattr(token, "choices") and token.choices:
+                    choices = token.choices
+                    delta = choices[0].delta
+                    finish_reason = getattr(choices[0], "finish_reason", None)
+                else:
+                    continue
 
             # -----------------------------------------------------
             # 1. Handle Native API Fields (Reasoning & Tool Calls)
             # -----------------------------------------------------
-            r_content = (
-                delta.get("reasoning_content")
-                if is_dict
-                else getattr(delta, "reasoning_content", None)
-            )
+            if isinstance(delta, dict):
+                # [Ollama Integration] Extract 'thinking' key alongside 'reasoning_content'
+                r_content = delta.get("reasoning_content") or delta.get("thinking")
+                t_calls = delta.get("tool_calls")
+                seg = delta.get("content", "")
+            else:
+                r_content = getattr(delta, "reasoning_content", None) or getattr(
+                    delta, "thinking", None
+                )
+                t_calls = getattr(delta, "tool_calls", None)
+                seg = getattr(delta, "content", "")
+
             if r_content:
                 yield {"type": "reasoning", "content": r_content, "run_id": run_id}
 
-            t_calls = (
-                delta.get("tool_calls")
-                if is_dict
-                else getattr(delta, "tool_calls", None)
-            )
             if t_calls:
                 for tc in t_calls:
-                    if is_dict:
+                    if isinstance(tc, dict):
                         t_index = tc.get("index", 0)
                         fn = tc.get("function", {})
                         fn_name = fn.get("name")
                         fn_args = fn.get("arguments", "")
                     else:
-                        t_index = tc.index
-                        fn = tc.function
-                        fn_name = getattr(fn, "name", None)
-                        fn_args = getattr(fn, "arguments", "")
+                        t_index = getattr(tc, "index", 0)
+                        fn = getattr(tc, "function", None)
+                        fn_name = getattr(fn, "name", None) if fn else None
+                        fn_args = getattr(fn, "arguments", "") if fn else ""
+
+                    # [Ollama Integration] Resilient Tool Parsing
+                    # Ollama occasionally sends back a parsed python dict instead of a JSON chunk
+                    if isinstance(fn_args, dict):
+                        fn_args = json.dumps(fn_args)
+                    elif fn_args is None:
+                        fn_args = ""
 
                     tool_data = pending_tool_calls[t_index]
 
@@ -148,9 +184,7 @@ class DeltaNormalizer:
                             "run_id": run_id,
                         }
 
-            seg = (
-                (delta.get("content", "") if is_dict else getattr(delta, "content", ""))
-            ) or ""
+            seg = seg or ""
 
             if finish_reason == "tool_calls":
                 for idx, data in list(pending_tool_calls.items()):
