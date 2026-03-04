@@ -1,9 +1,20 @@
 from src.api.entities_api.orchestration.mixins import (
-    AssistantCacheMixin, ClientFactoryMixin, CodeExecutionMixin,
-    ConsumerToolHandlersMixin, ContextMixin, DelegationMixin, FileSearchMixin,
-    JsonUtilsMixin, NetworkInventoryMixin, PlatformToolHandlersMixin,
-    ScratchpadMixin, ServiceRegistryMixin, ShellExecutionMixin,
-    ToolRoutingMixin, WebSearchMixin)
+    AssistantCacheMixin,
+    ClientFactoryMixin,
+    CodeExecutionMixin,
+    ConsumerToolHandlersMixin,
+    ContextMixin,
+    DelegationMixin,
+    FileSearchMixin,
+    JsonUtilsMixin,
+    NetworkInventoryMixin,
+    PlatformToolHandlersMixin,
+    ScratchpadMixin,
+    ServiceRegistryMixin,
+    ShellExecutionMixin,
+    ToolRoutingMixin,
+    WebSearchMixin,
+)
 
 
 class _ProviderMixins(

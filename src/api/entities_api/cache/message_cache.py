@@ -12,13 +12,12 @@ from src.api.entities_api.services.logging_service import LoggingUtility
 try:
     from redis.asyncio import Redis as AsyncRedis
 except ImportError:
-    # Use a dummy class so isinstance() checks don't crash
+
     class AsyncRedis:
         pass
 
 
 LOG = LoggingUtility()
-# Conversations usually last longer than assistant configs; setting to 1 hour
 REDIS_HISTORY_TTL = int(os.getenv("REDIS_HISTORY_TTL_SECONDS", "3600"))
 
 
@@ -101,20 +100,48 @@ class MessageCache:
     # Synchronous Helpers (The Bridge)
     # ──────────────────────────────────────────────────────────
 
-    def delete_history_sync(self, thread_id: str):
-        key = self._cache_key(thread_id)
-        if isinstance(self.redis, SyncRedis):
-            self.redis.delete(key)
-        else:
-            asyncio.run(self.delete_history(thread_id))
-
     def get_history_sync(self, thread_id: str) -> List[Dict]:
+        """
+        Synchronous history retrieval with safe cache-miss handling.
+
+        Previously fell through to asyncio.run(self.get_history(...)) on a
+        cache miss, which crashes with "asyncio.run() cannot be called from a
+        running event loop" when invoked from within FastAPI's async context
+        (e.g. _set_up_context_window → get_history_sync on a brand-new
+        ephemeral thread that has never been cached).
+
+        Fix: on a cache miss with SyncRedis, call the SDK client synchronously
+        (it is a blocking call) and populate the cache via set_history_sync,
+        keeping everything in the sync domain with zero event-loop touching.
+
+        AsyncRedis path: callers in the async domain must use
+        await get_history() directly. This path returns [] as a safe
+        no-op fallback and logs a warning so the condition is visible.
+        """
+        key = self._cache_key(thread_id)
+
         if isinstance(self.redis, SyncRedis):
-            key = self._cache_key(thread_id)
             raw_list = self.redis.lrange(key, 0, -1)
             if raw_list:
                 return [json.loads(m) for m in raw_list]
-        return asyncio.run(self.get_history(thread_id))
+
+            # Cache miss — fetch synchronously, no asyncio.run()
+            LOG.debug(f"[CACHE-SYNC] Miss for thread {thread_id}. Cold load via SDK.")
+            full_hist = self.client.messages.get_formatted_messages(
+                thread_id, system_message=None
+            )
+            if full_hist:
+                self.set_history_sync(thread_id, full_hist)
+            return full_hist or []
+
+        # AsyncRedis path — asyncio.run() would crash here too.
+        # Callers in the async domain should await get_history() directly.
+        LOG.warning(
+            "[CACHE-SYNC] get_history_sync called with AsyncRedis — "
+            "this path should not be reached from async context. "
+            "Use await get_history() instead."
+        )
+        return []
 
     def set_history_sync(self, thread_id: str, messages: List[Dict]):
         """Synchronous wrapper to initialize the cache."""
@@ -127,6 +154,13 @@ class MessageCache:
             self.redis.expire(key, REDIS_HISTORY_TTL)
         else:
             asyncio.run(self.set_history(thread_id, messages))
+
+    def delete_history_sync(self, thread_id: str):
+        key = self._cache_key(thread_id)
+        if isinstance(self.redis, SyncRedis):
+            self.redis.delete(key)
+        else:
+            asyncio.run(self.delete_history(thread_id))
 
     def append_message_sync(self, thread_id: str, message: Dict):
         if isinstance(self.redis, SyncRedis):
