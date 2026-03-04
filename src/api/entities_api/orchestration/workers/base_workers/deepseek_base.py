@@ -4,8 +4,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import queue as _queue_mod
+import threading
+import time
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Dict, List, Optional, Union
+from typing import Any, AsyncGenerator, Dict, Generator, List, Optional, Union
 
 from dotenv import load_dotenv
 from projectdavid import StreamEvent
@@ -16,7 +19,7 @@ from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
 # ---[FIX 1] ADDED MISSING IMPORT ---
 # --- DEPENDENCIES ---
-from src.api.entities_api.dependencies import get_redis, get_redis_sync
+from src.api.entities_api.dependencies import get_redis_sync
 from src.api.entities_api.orchestration.engine.orchestrator_core import (
     OrchestratorCore, StreamState)
 # --- MIXINS ---
@@ -86,11 +89,9 @@ class DeepSeekBaseWorker(
         )
 
         self._david_client: Any = None
-        self.redis = redis or get_redis()
         self.assistant_id = assistant_id
         self.thread_id = thread_id
         self.base_url = base_url or os.getenv("BASE_URL")
-        self.api_key = api_key or extra.get("api_key")
 
         self.model_name = extra.get("model_name", "deepseek-ai/DeepSeek-V3")
         self.max_context_window = extra.get("max_context_window", 128000)
@@ -186,12 +187,8 @@ class DeepSeekBaseWorker(
             # by the supervisor at delegation time. We read it back here so the worker
             # reads from the supervisor's shared pad rather than its own ephemeral thread.
             # ------------------------------------------------------------------
-            from projectdavid import Entity
-
-            client = Entity(api_key=os.environ.get("ADMIN_API_KEY"))
-
             try:
-                run = await asyncio.to_thread(client.runs.retrieve_run, run_id=run_id)
+                run = await self._native_exec.retrieve_run(run_id)
                 self._run_user_id = run.user_id
 
                 meta = run.meta_data or {}
@@ -247,7 +244,7 @@ class DeepSeekBaseWorker(
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", False)
 
-            # --- [CRITICAL FIX START] ---
+            # ---[CRITICAL FIX START] ---
             # 1. Default to user preference (usually True for standard agents)
             web_access_setting = self.assistant_config.get("web_access", False)
 
@@ -424,3 +421,116 @@ class DeepSeekBaseWorker(
         finally:
             # 1. Ensure cancellation monitor is stopped
             stop_event.set()
+
+    def stream_sync(
+        self,
+        thread_id: str,
+        message_id: str | None,
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        *,
+        force_refresh: bool = False,
+        stream_reasoning: bool = True,
+        api_key: str | None = None,
+        **kwargs,
+    ) -> Generator[str, None, None]:
+        """
+        Synchronous wrapper around the async stream() method.
+
+        Supports two calling contexts:
+
+          A) No running event loop (standard sync caller, CLI, Celery worker, test):
+             Creates a dedicated event loop, drives the async generator to completion,
+             then tears it down cleanly. Zero thread overhead.
+
+          B) Running event loop already exists (sync function called from within a
+             thread that shares a loop with async code):
+             Spins up a fresh event loop in a background thread and uses a Queue to
+             ferry yielded values back to the calling thread, keeping the two loops
+             fully isolated.
+
+        Yields the same JSON-serialised strings as stream().
+        """
+        kwargs.update(
+            force_refresh=force_refresh,
+            stream_reasoning=stream_reasoning,
+            api_key=api_key,
+        )
+
+        # ------------------------------------------------------------------
+        # Path A — no running loop in this thread
+        # ------------------------------------------------------------------
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop is None:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                agen = self.stream(
+                    thread_id, message_id, run_id, assistant_id, model, **kwargs
+                )
+                while True:
+                    try:
+                        yield loop.run_until_complete(agen.__anext__())
+                    except StopAsyncIteration:
+                        break
+            finally:
+                try:
+                    loop.run_until_complete(loop.shutdown_asyncgens())
+                except Exception:
+                    pass
+                loop.close()
+                asyncio.set_event_loop(None)
+            return
+
+        # ------------------------------------------------------------------
+        # Path B — a loop is already running; isolate in a background thread
+        # ------------------------------------------------------------------
+        _SENTINEL = object()
+        queue_ref: list = []
+
+        def _run_in_thread() -> None:
+            """Owns its own loop; pushes items onto a thread-safe queue."""
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            q: _queue_mod.Queue = _queue_mod.Queue()
+            queue_ref.append(q)
+
+            async def _drain() -> None:
+                agen = self.stream(
+                    thread_id, message_id, run_id, assistant_id, model, **kwargs
+                )
+                try:
+                    async for item in agen:
+                        q.put(item)
+                finally:
+                    q.put(_SENTINEL)
+
+            try:
+                new_loop.run_until_complete(_drain())
+            finally:
+                try:
+                    new_loop.run_until_complete(new_loop.shutdown_asyncgens())
+                except Exception:
+                    pass
+                new_loop.close()
+
+        t = threading.Thread(target=_run_in_thread, daemon=True)
+        t.start()
+
+        # Spin until the background thread has created and registered the queue
+        while not queue_ref:
+            time.sleep(0.001)
+
+        q = queue_ref[0]
+        while True:
+            item = q.get()
+            if item is _SENTINEL:
+                break
+            yield item
+
+        t.join()
