@@ -12,9 +12,8 @@ from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.constants.platform import ERROR_NO_CONTENT
 from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.services.native_execution_service import (
-    NativeExecutionService,
-)
+from src.api.entities_api.services.native_execution_service import \
+    NativeExecutionService
 
 load_dotenv()
 LOG = LoggingUtility()

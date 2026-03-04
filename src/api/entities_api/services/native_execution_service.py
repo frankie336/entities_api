@@ -190,20 +190,7 @@ class NativeExecutionService:
 
         return await asyncio.to_thread(_create)
 
-    async def retrieve_run(self, run_id: str) -> Any:
-        """
-        Retrieve a full run record via the local RunService, bypassing the HTTP SDK.
-
-        Returns validator.RunReadDetailed which exposes:
-          - .user_id   — used by the delegation mixin to resolve the owner
-          - .status    — used by _wait_for_run_completion to poll for terminal state
-
-        This single method replaces two separate SDK calls:
-          1. self.project_david_client.runs.retrieve_run(run_id=run_id)
-             in origin_user_id resolution
-          2. self.project_david_client.runs.retrieve_run(run_id=run_id)
-             in the _wait_for_run_completion polling loop
-        """
+    async def retrieve_run(self, run_id: str):
         return await asyncio.to_thread(self.run_svc.retrieve_run, run_id)
 
     async def create_thread(self, user_id: str) -> Any:
