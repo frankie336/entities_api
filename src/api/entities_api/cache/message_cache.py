@@ -115,8 +115,7 @@ class MessageCache:
                 return full_hist or []
             except Exception as e:
                 LOG.warning(
-                    "[CACHE-SYNC] Cold load failed for thread %s (%s). "
-                    "Returning empty history.",
+                    "[CACHE-SYNC] Cold load failed for thread %s (%s). " "Returning empty history.",
                     thread_id,
                     e,
                 )
@@ -142,13 +141,13 @@ class MessageCache:
         else:
             asyncio.run(self.delete_history(thread_id))
 
-            def append_message_sync(self, thread_id: str, message: Dict):
-                if isinstance(self.redis, SyncRedis):
-                    key = self._cache_key(thread_id)
-                    data = json.dumps(message)
-                    self.redis.rpush(key, data)
-                    self.redis.ltrim(key, -200, -1)
-                    self.redis.expire(key, REDIS_HISTORY_TTL)
+    def append_message_sync(self, thread_id: str, message: Dict):
+        if isinstance(self.redis, SyncRedis):
+            key = self._cache_key(thread_id)
+            data = json.dumps(message)
+            self.redis.rpush(key, data)
+            self.redis.ltrim(key, -200, -1)
+            self.redis.expire(key, REDIS_HISTORY_TTL)
         else:
             asyncio.run(self.append_message(thread_id, message))
 
