@@ -10,6 +10,8 @@ from projectdavid import Entity
 from entities_api.constants.tools import PLATFORM_TOOL_MAP
 from entities_api.orchestration.instructions.assembler import \
     assemble_instructions
+from entities_api.services.native_execution_service import \
+    NativeExecutionService
 from src.api.entities_api.orchestration.instructions.include_lists import (
     L2_INSTRUCTIONS, L3_INSTRUCTIONS, L3_WEB_USE_INSTRUCTIONS,
     L4_JUNIOR_ENGINEER_INSTRUCTIONS, L4_RESEARCH_INSTRUCTIONS,
@@ -24,6 +26,12 @@ LOG = LoggingUtility()
 
 class ContextMixin:
     _message_cache = None
+
+    @property
+    def _native_exec(self) -> NativeExecutionService:
+        if getattr(self, "_native_exec_svc", None) is None:
+            self._native_exec_svc = NativeExecutionService()
+        return self._native_exec_svc
 
     @property
     def message_cache(self):
@@ -475,9 +483,9 @@ class ContextMixin:
         agent_mode: bool = False,
         web_access: bool = False,
         deep_research: bool = False,
-        engineer: bool = False,  # NEW
+        engineer: bool = False,
         research_worker: bool = False,
-        junior_engineer: bool = False,  # NEW
+        junior_engineer: bool = False,
     ) -> List[Dict]:
 
         # 1. Build the System Message
@@ -531,25 +539,16 @@ class ContextMixin:
         # 2. Retrieve Message History
         if force_refresh:
             LOG.debug(f"[CTX-REFRESH] 🔄 Force Refresh Active for {thread_id}")
-
             try:
-                full_hist = await asyncio.to_thread(
-                    self.message_service.get_formatted_messages,
-                    thread_id=thread_id,
-                    system_message=None,
-                )
-            except AttributeError:
+                full_hist = await self._native_exec.get_formatted_messages(thread_id)
+            except Exception as e:
                 LOG.warning(
-                    "[CTX-REFRESH] Service not found, falling back to internal API"
+                    "[CTX-REFRESH] get_formatted_messages failed for %s: %s. "
+                    "Returning empty history.",
+                    thread_id,
+                    e,
                 )
-                client = Entity(
-                    base_url="http://localhost:9000",
-                    api_key=os.getenv("ADMIN_API_KEY"),
-                )
-                full_hist = client.messages.get_formatted_messages(
-                    thread_id, system_message=None
-                )
-
+                full_hist = []
             self.message_cache.set_history_sync(thread_id, full_hist)
             msgs = full_hist
         else:

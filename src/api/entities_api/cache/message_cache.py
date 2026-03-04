@@ -115,7 +115,8 @@ class MessageCache:
                 return full_hist or []
             except Exception as e:
                 LOG.warning(
-                    "[CACHE-SYNC] Cold load failed for thread %s (%s). " "Returning empty history.",
+                    "[CACHE-SYNC] Cold load failed for thread %s (%s). "
+                    "Returning empty history.",
                     thread_id,
                     e,
                 )
