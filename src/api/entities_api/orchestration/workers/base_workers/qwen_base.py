@@ -280,12 +280,8 @@ class QwenBaseWorker(
             # by the supervisor at delegation time. We read it back here so the worker
             # reads from the supervisor's shared pad rather than its own ephemeral thread.
             # ------------------------------------------------------------------
-            from projectdavid import Entity
-
-            client = Entity(api_key=os.environ.get("ADMIN_API_KEY"))
-
             try:
-                run = await asyncio.to_thread(client.runs.retrieve_run, run_id=run_id)
+                run = await self._native_exec.retrieve_run(run_id)
                 self._run_user_id = run.user_id
 
                 meta = run.meta_data or {}
@@ -369,7 +365,6 @@ class QwenBaseWorker(
             LOG.info(
                 f"\nRAW_CTX_DUMP_QUEN:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}"
             )
-
             # ------------------------------------------------------------------
             # 7. THE STREAM LOOP
             # DeltaNormalizer handles Qwen/Kimi-specific tag parsing and yields
@@ -382,7 +377,6 @@ class QwenBaseWorker(
                 temperature=kwargs.get("temperature", 0.6),
                 stream=True,
             )
-
             async for chunk in DeltaNormalizer.async_iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
                     break
@@ -417,7 +411,6 @@ class QwenBaseWorker(
             # the correct (possibly swapped) assistant_id before the finally
             # block has any opportunity to restore state.
             # ------------------------------------------------------------------
-
             # 8a. Extract Decision Payload from buffered XML block (if any)
             if decision_buffer:
                 try:
