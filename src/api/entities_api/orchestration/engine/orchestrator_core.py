@@ -451,18 +451,19 @@ class OrchestratorCore(
         1. Stream LLM tokens.
         2. Check for tool calls.
         3. If NO tools -> Finish.
-        4. If tools -> Execute tools -> Loop back to Step 1 (Recursion).
+        4. If SDK tools -> Execute tool envelopes -> Return (SDK handles next turn).
+        5. If PLATFORM tools -> Execute tools -> Continue loop (Orchestrator handles next turn).
 
-        Run object lifecycle writes (items 1, 2, 3):
-        - started_at   : written on Turn 1 alongside current_turn=1
-        - current_turn : written on every turn
+        Run lifecycle guarantees:
+        - started_at   : written on Turn 1
+        - current_turn : written every turn
         - completed_at : written on clean text-only exit
-        - failed_at    : written on stream exception or max-turns failsafe
-        - last_error   : written on stream exception or outer exception
-        - incomplete_details : written on max-turns failsafe
+        - failed_at    : written on stream failure, max-turn failsafe, or outer exception
+        - last_error   : written on failure paths
+        - incomplete_details : written on max-turn failsafe
         """
-        self._scratch_pad_thread = None
 
+        self._scratch_pad_thread = None
         _original_assistant_id = assistant_id
 
         await self._ensure_config_loaded()
@@ -477,14 +478,13 @@ class OrchestratorCore(
                 LOG.info(f"ORCHESTRATOR ▸ Turn {turn_count} start [Run: {run_id}]")
 
                 # ------------------------------------------------------------------
-                # ITEM 1 & 3 — Stamp started_at on Turn 1; current_turn every turn.
-                # Both writes are batched into a single DB call on Turn 1 to avoid
-                # an extra round trip.
+                # LIFECYCLE STAMP — started_at (turn 1) + current_turn (every turn)
                 # ------------------------------------------------------------------
                 try:
                     fields = {"current_turn": turn_count}
                     if turn_count == 1:
                         fields["started_at"] = int(time.time())
+
                     await asyncio.to_thread(
                         self.project_david_client.runs.update_run_fields,
                         run_id,
@@ -496,14 +496,14 @@ class OrchestratorCore(
                     )
 
                 # ------------------------------------------------------------------
-                # 1. RESET INTERNAL TURN STATE
+                # RESET INTERNAL TURN STATE
                 # ------------------------------------------------------------------
                 self.set_tool_response_state(False)
                 self.set_function_call_state(None)
                 self._current_tool_call_id = None
 
                 # ------------------------------------------------------------------
-                # 2. INFERENCE TURN (STREAM MODEL OUTPUT)
+                # INFERENCE TURN
                 # ------------------------------------------------------------------
                 try:
                     async for chunk in self.stream(
@@ -523,7 +523,6 @@ class OrchestratorCore(
                         f"ORCHESTRATOR ▸ Turn {turn_count} stream failed: {stream_exc}"
                     )
 
-                    # ITEM 2 — persist stream failure before yielding error chunk
                     try:
                         await asyncio.to_thread(
                             self.project_david_client.runs.update_run_fields,
@@ -537,19 +536,22 @@ class OrchestratorCore(
                         )
 
                     yield json.dumps(
-                        {"type": "error", "content": f"Stream failure: {stream_exc}"}
+                        {
+                            "type": "error",
+                            "content": f"Stream failure: {stream_exc}",
+                            "run_id": run_id,
+                        }
                     )
                     break
 
                 # ------------------------------------------------------------------
-                # 3. CHECK FOR TOOLS
+                # CHECK FOR TOOL CALLS
                 # ------------------------------------------------------------------
                 batch: List[Dict] = self.get_function_call_state()
 
                 if not batch:
                     LOG.info(f"ORCHESTRATOR ▸ Turn {turn_count} completed with text.")
 
-                    # ITEM 1 — clean exit: stamp completed_at
                     try:
                         await asyncio.to_thread(
                             self.project_david_client.runs.update_run_fields,
@@ -560,14 +562,27 @@ class OrchestratorCore(
                         LOG.warning(
                             f"ORCHESTRATOR ▸ Failed to write completed_at (non-fatal): {lifecycle_exc}"
                         )
+
                     break
 
                 # ------------------------------------------------------------------
-                # 4. TOOL ARGUMENT VALIDATION GATE
+                # TOOL VALIDATION + SDK DETECTION
                 # ------------------------------------------------------------------
+                has_sdk_user_tool = False
+
                 for call in batch:
-                    tool_name = call.get("name")
-                    args = call.get("arguments", {})
+                    # Support both:
+                    # {"name": "...", "arguments": {...}}
+                    # {"function": {"name": "...", "arguments": {...}}}
+                    if "function" in call and isinstance(call["function"], dict):
+                        tool_name = call["function"].get("name")
+                        args = call["function"].get("arguments", {})
+                    else:
+                        tool_name = call.get("name")
+                        args = call.get("arguments", {})
+
+                    if tool_name not in PLATFORM_TOOLS:
+                        has_sdk_user_tool = True
 
                     validation_event = tool_validator.validate_args(
                         tool_name=tool_name,
@@ -577,12 +592,8 @@ class OrchestratorCore(
                     if validation_event:
                         yield validation_event
 
-                has_consumer_tool = any(
-                    call.get("name") not in PLATFORM_TOOLS for call in batch
-                )
-
                 # ------------------------------------------------------------------
-                # 5. TOOL EXECUTION TURN
+                # TOOL EXECUTION TURN
                 # ------------------------------------------------------------------
                 async for chunk in self.process_tool_calls(
                     thread_id=thread_id,
@@ -597,26 +608,29 @@ class OrchestratorCore(
                     yield chunk
 
                 # ------------------------------------------------------------------
-                # 6. RECURSION DECISION
+                # RECURSION DECISION
                 # ------------------------------------------------------------------
-                if not has_consumer_tool:
+                if has_sdk_user_tool:
                     LOG.info(
-                        f"ORCHESTRATOR ▸ Platform batch {turn_count} complete. Looping..."
+                        "ORCHESTRATOR ▸ SDK tool detected. Handing control to SDK."
                     )
-                    await asyncio.sleep(0.5)
-                    current_message_id = None
-                    continue
+                    return
 
-                LOG.info(f"ORCHESTRATOR ▸ Consumer tool detected. Handing over to SDK.")
-                return
+                LOG.info(
+                    f"ORCHESTRATOR ▸ Platform batch {turn_count} complete. Looping internally..."
+                )
+                await asyncio.sleep(0.5)
+
+                # Force context rebuild from injected tool results
+                current_message_id = None
+                continue
 
             # ----------------------------------------------------------------------
-            # FAILSAFE — max turns exceeded
+            # FAILSAFE — MAX TURNS
             # ----------------------------------------------------------------------
             if turn_count >= max_turns:
                 LOG.error("ORCHESTRATOR ▸ Max turns reached.")
 
-                # ITEMS 1 & 2 — stamp failed_at and incomplete_details
                 try:
                     await asyncio.to_thread(
                         self.project_david_client.runs.update_run_fields,
@@ -634,13 +648,19 @@ class OrchestratorCore(
                     )
 
                 yield json.dumps(
-                    {"type": "error", "content": "Maximum conversation turns exceeded"}
+                    {
+                        "type": "error",
+                        "content": "Maximum conversation turns exceeded",
+                        "run_id": run_id,
+                    }
                 )
 
+        # ----------------------------------------------------------------------
+        # OUTER EXCEPTION GUARD
+        # ----------------------------------------------------------------------
         except Exception as exc:
-            LOG.error(f"Stream Exception: {exc}")
+            LOG.error(f"ORCHESTRATOR ▸ Unhandled exception: {exc}")
 
-            # ITEM 2 — outer exception: persist last_error and failed_at
             try:
                 await asyncio.to_thread(
                     self.project_david_client.runs.update_run_fields,
@@ -650,23 +670,36 @@ class OrchestratorCore(
                 )
             except Exception as lifecycle_exc:
                 LOG.warning(
-                    f"ORCHESTRATOR ▸ Failed to write exception state (non-fatal): {lifecycle_exc}"
+                    f"ORCHESTRATOR ▸ Failed to persist outer exception (non-fatal): {lifecycle_exc}"
                 )
 
-            yield json.dumps({"type": "error", "content": str(exc), "run_id": run_id})
+            yield json.dumps(
+                {
+                    "type": "error",
+                    "content": str(exc),
+                    "run_id": run_id,
+                }
+            )
 
+        # ----------------------------------------------------------------------
+        # IDENTITY TEARDOWN — ALWAYS EXECUTES
+        # ----------------------------------------------------------------------
         finally:
-            # ------------------------------------------------------------------
-            # IDENTITY TEARDOWN — unchanged
-            # ------------------------------------------------------------------
             if self.ephemeral_supervisor_id:
-                await self._ephemeral_clean_up(
-                    assistant_id=self.ephemeral_supervisor_id,
-                    thread_id=thread_id,
-                    delete_thread=False,
-                )
+                try:
+                    await self._ephemeral_clean_up(
+                        assistant_id=self.ephemeral_supervisor_id,
+                        thread_id=thread_id,
+                        delete_thread=False,
+                    )
+                except Exception as cleanup_exc:
+                    LOG.warning(
+                        f"ORCHESTRATOR ▸ Ephemeral cleanup failed (non-fatal): {cleanup_exc}"
+                    )
+
             self.assistant_id = _original_assistant_id
             self.ephemeral_supervisor_id = None
+
             LOG.info(
                 f"ORCHESTRATOR ▸ Identity restored to {_original_assistant_id}. "
                 f"Ephemeral state cleared."
