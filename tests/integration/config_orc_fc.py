@@ -38,7 +38,7 @@ config = {
     "entities_user_id": "",
     "base_url": "http://localhost:9000",
     "url": "https://api.together.xyz/v1/chat/completions",
-    "model": "hyperbolic/Qwen/Qwen2.5-VL-7B-Instruct",
+    "model": "ollama/qwen3:4b",
     # "provider": "together",
     "provider": "hyperbolic",
     "assistant_id": "asst_13HyDgBnZxVwh5XexYu74F",

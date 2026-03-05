@@ -1,3 +1,4 @@
+# src/api/entities_api/clients/delta_normalizer.py
 from __future__ import annotations
 
 import json
@@ -12,75 +13,69 @@ LOG = LoggingUtility()
 
 
 class DeltaNormalizer:
-    # ---------------------------------------------------------
-    # [Model: Standard/Anthropic] Standard XML tags
-    # ---------------------------------------------------------
     FC_START, FC_END = "<fc>", "</fc>"
-
-    # ---------------------------------------------------------
-    # [Model: Qwen] Standard Tool Call Tags
-    # ---------------------------------------------------------
     TC_START, TC_END = "<tool_call>", "</tool_call>"
-
-    # ---------------------------------------------------------
-    # [Model: Qwen 2.5/Drift] "Lazy" Tool Tags
-    # ---------------------------------------------------------
     TCODE_START, TCODE_END = "<tool_code>", "</tool_code>"
     MD_JSON_START = "```json"
     MD_END = "```"
-
-    # ---------------------------------------------------------
-    # [Model: DeepSeek] Naked JSON Fix
-    # ---------------------------------------------------------
     NAKED_JSON_START = "{"
-
-    # ---------------------------------------------------------
-    # [Model: DeepSeek/Generic] Reasoning & Chain of Thought
-    # ---------------------------------------------------------
     TH_START, TH_END = "<think>", "</think>"
     DEC_START, DEC_END = "<decision>", "</decision>"
     PLAN_START, PLAN_END = "<plan>", "</plan>"
-
-    # ---------------------------------------------------------
-    # [Model: GPT-OSS / Hermes] Channel tags
-    # ---------------------------------------------------------
     CH_ANALYSIS = "<|channel|>analysis"
     CH_COMMENTARY = "<|channel|>commentary"
     CH_FINAL = "<|channel|>final"
     MSG_TAG = "<|message|>"
     CALL_TAG = "<|call|>"
-
-    # ---------------------------------------------------------
-    # [Model: Kimi K2.5] Moonshot/Kimi Tool Call Tags
-    # ---------------------------------------------------------
     KIMI_SEC_START = "<|tool_calls_section_begin|>"
     KIMI_SEC_END = "<|tool_calls_section_end|>"
     KIMI_TC_START = "<|tool_call_begin|>"
     KIMI_ARG_START = "<|tool_call_argument_begin|>"
     KIMI_TC_END = "<|tool_call_end|>"
-
-    # ---------------------------------------------------------
-    # [Model: Unicode Block Format] Special character tool tags
-    # ---------------------------------------------------------
     UNICODE_TC_BEGIN = "<｜tool▁calls▁begin｜>"
     UNICODE_TC_END = "<｜tool▁calls▁end｜>"
     UNICODE_CALL_BEGIN = "<｜tool▁call▁begin｜>"
     UNICODE_CALL_END = "<｜tool▁call▁end｜>"
     UNICODE_SEP = "<｜tool▁sep｜>"
 
+    @staticmethod
+    def _extract_json(text: str) -> dict | None:
+        """
+        Bulletproof JSON extractor.
+        Scans messy text (e.g. LLM rambling) to find and parse the first valid JSON object.
+        """
+        start = 0
+        while True:
+            start = text.find("{", start)
+            if start == -1:
+                break
+
+            depth = 0
+            for i in range(start, len(text)):
+                if text[i] == "{":
+                    depth += 1
+                elif text[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        candidate = text[start : i + 1]
+                        try:
+                            return json.loads(candidate)
+                        except json.JSONDecodeError:
+                            break  # Try the next '{' if this block was invalid
+            start += 1
+        return None
+
     @classmethod
     async def async_iter_deltas(
         cls, raw_stream: AsyncGenerator[Any, None], run_id: str
     ) -> AsyncGenerator[dict[str, Any], None]:
-        """
-        Async version of the Delta Normalizer.
-        Consumes an async generator (raw_stream) and yields normalized JSON strings.
-        """
         buffer = ""
         state = "content"
-        json_depth = 0  # [FIX] Track nested braces for naked JSON
+        json_depth = 0
+        has_emitted_text = False
 
-        # State for Native Tool Accumulation (OpenAI/Azure Style)
+        xml_tool_buffer = ""
+
         pending_tool_calls = defaultdict(
             lambda: {"index": 0, "function": {"name": "", "arguments": ""}}
         )
@@ -91,7 +86,6 @@ class DeltaNormalizer:
             finish_reason = None
 
             if is_dict:
-                # [Ollama Integration] Check for Ollama stream format (Chat or Generate)
                 if "done" in token or "message" in token or "response" in token:
                     if "message" in token:
                         delta = token.get("message", {})
@@ -101,38 +95,21 @@ class DeltaNormalizer:
                     if token.get("done"):
                         finish_reason = token.get("done_reason") or "stop"
                 else:
-                    # [Standard OpenAI Integration]
                     choices = token.get("choices", [])
                     if not choices or not isinstance(choices, list):
                         continue
                     delta = choices[0].get("delta", {})
                     finish_reason = choices[0].get("finish_reason")
             else:
-                # Handle Client Object representations
-                if (
-                    hasattr(token, "done")
-                    or hasattr(token, "message")
-                    or hasattr(token, "response")
-                ):
-                    if hasattr(token, "message"):
-                        delta = getattr(token, "message", {})
-                    else:
-                        delta = {"content": getattr(token, "response", "")}
+                if hasattr(token, "message"):
+                    delta = getattr(token, "message", {})
+                elif hasattr(token, "response"):
+                    delta = {"content": getattr(token, "response", "")}
+                if getattr(token, "done", False):
+                    finish_reason = getattr(token, "done_reason", "stop")
 
-                    if getattr(token, "done", False):
-                        finish_reason = getattr(token, "done_reason", "stop")
-                elif hasattr(token, "choices") and token.choices:
-                    choices = token.choices
-                    delta = choices[0].delta
-                    finish_reason = getattr(choices[0], "finish_reason", None)
-                else:
-                    continue
-
-            # -----------------------------------------------------
-            # 1. Handle Native API Fields (Reasoning & Tool Calls)
-            # -----------------------------------------------------
+            # 1. Native API Fields (Ollama/OpenAI)
             if isinstance(delta, dict):
-                # [Ollama Integration] Extract 'thinking' key alongside 'reasoning_content'
                 r_content = delta.get("reasoning_content") or delta.get("thinking")
                 t_calls = delta.get("tool_calls")
                 seg = delta.get("content", "")
@@ -159,8 +136,6 @@ class DeltaNormalizer:
                         fn_name = getattr(fn, "name", None) if fn else None
                         fn_args = getattr(fn, "arguments", "") if fn else ""
 
-                    # [Ollama Integration] Resilient Tool Parsing
-                    # Ollama occasionally sends back a parsed python dict instead of a JSON chunk
                     if isinstance(fn_args, dict):
                         fn_args = json.dumps(fn_args)
                     elif fn_args is None:
@@ -203,31 +178,30 @@ class DeltaNormalizer:
 
             buffer += seg
 
-            # -----------------------------------------------------
-            # 2. State Machine for Text-Based Tags
-            # -----------------------------------------------------
+            # 2. State Machine
             while buffer:
                 yielded_something = False
 
-                # --- STATE: CONTENT ---
                 if state == "content":
-                    # [FIX] Added "{" to lookahead optimization
                     if "<" not in buffer and "`" not in buffer and "{" not in buffer:
+                        if buffer.strip():
+                            has_emitted_text = True
                         yield {"type": "content", "content": buffer, "run_id": run_id}
                         buffer = ""
                         break
 
-                    # Find earliest marker
                     lt_idx = buffer.find("<")
                     bt_idx = buffer.find("`")
-                    # [FIX] Find start of naked JSON
                     cur_idx = buffer.find("{")
 
-                    # Filter out -1 to find strict positive minimum
+                    if has_emitted_text:
+                        cur_idx = -1
+
                     indices = [x for x in [lt_idx, bt_idx, cur_idx] if x != -1]
 
                     if not indices:
-                        # Should be covered by optimization check, but safety fallback
+                        if buffer.strip():
+                            has_emitted_text = True
                         yield {"type": "content", "content": buffer, "run_id": run_id}
                         buffer = ""
                         break
@@ -235,51 +209,51 @@ class DeltaNormalizer:
                     cutoff = min(indices)
 
                     if cutoff > 0:
+                        text_chunk = buffer[:cutoff]
+                        if text_chunk.strip():
+                            has_emitted_text = True
                         yield {
                             "type": "content",
-                            "content": buffer[:cutoff],
+                            "content": text_chunk,
                             "run_id": run_id,
                         }
                         buffer = buffer[cutoff:]
 
-                    # Registered Tag Transitions
                     all_tags = [
-                        # [GPT-OSS / Hermes]
                         (cls.CH_ANALYSIS, "channel_reasoning"),
                         (cls.CH_COMMENTARY, "channel_tool_meta"),
                         (cls.CH_FINAL, None),
                         (cls.MSG_TAG, None),
-                        # [Standard XML]
                         (cls.FC_START, "fc"),
-                        # [Qwen - Standard]
                         (cls.TC_START, "tool_call_xml"),
-                        # [Qwen - Drift Fixes]
                         (cls.TCODE_START, "tool_code_xml"),
                         (cls.MD_JSON_START, "md_json_block"),
-                        # [DeepSeek/Generic]
                         (cls.TH_START, "think"),
                         (cls.DEC_START, "decision"),
                         (cls.PLAN_START, "plan"),
-                        # [DeepSeek - Naked JSON Fix]
-                        (cls.NAKED_JSON_START, "naked_json"),
-                        # [Kimi K2.5]
                         (cls.KIMI_SEC_START, "kimi_router"),
-                        # [Unicode Block Format]
                         (cls.UNICODE_TC_BEGIN, "unicode_tool_router"),
                     ]
+
+                    if not has_emitted_text:
+                        all_tags.append((cls.NAKED_JSON_START, "naked_json"))
 
                     match_found = False
                     for tag, new_state in all_tags:
                         if buffer.startswith(tag):
                             if new_state:
                                 state = new_state
-                                # [FIX] Initialize depth for JSON
                                 if state == "naked_json":
                                     json_depth = 1
-                            buffer = buffer[len(tag) :]
+                                if state in [
+                                    "fc",
+                                    "tool_call_xml",
+                                    "tool_code_xml",
+                                    "md_json_block",
+                                ]:
+                                    xml_tool_buffer = ""
 
-                            # [FIX] If we found naked JSON start, that brace is actually content we want to keep
-                            # for the JSON parser, but for now we yield it as call_args to start the stream.
+                            buffer = buffer[len(tag) :]
                             if tag == cls.NAKED_JSON_START:
                                 yield {
                                     "type": "call_arguments",
@@ -290,28 +264,23 @@ class DeltaNormalizer:
                             yielded_something = True
                             match_found = True
                             break
+
                     if match_found:
                         continue
 
-                    # Check partials
                     is_partial = any(tag.startswith(buffer) for tag, _ in all_tags)
 
                     if is_partial:
-                        # Wait for more tokens
                         break
                     else:
-                        # False alarm (e.g. "x < y"), yield the char
-                        yield {
-                            "type": "content",
-                            "content": buffer[0],
-                            "run_id": run_id,
-                        }
+                        char = buffer[0]
+                        if char.strip():
+                            has_emitted_text = True
+                        yield {"type": "content", "content": char, "run_id": run_id}
                         buffer = buffer[1:]
                         yielded_something = True
 
-                # --- STATE: THINK / PLAN / DECISION (XML BLOCKS) ---
                 elif state in ["think", "plan", "decision"]:
-                    # Determine end tag and type
                     if state == "think":
                         end_tag, type_name = cls.TH_END, "reasoning"
                     elif state == "plan":
@@ -346,35 +315,52 @@ class DeltaNormalizer:
                     buffer = buffer[1:]
                     yielded_something = True
 
-                # --- STATE: TOOL BLOCKS (XML & MARKDOWN) ---
                 elif state in ["fc", "tool_call_xml", "tool_code_xml", "md_json_block"]:
-                    # Determine End Tag
                     if state == "fc":
                         end_tag = cls.FC_END
                     elif state == "tool_call_xml":
                         end_tag = cls.TC_END
                     elif state == "tool_code_xml":
                         end_tag = cls.TCODE_END
-                    else:  # md_json_block
+                    else:
                         end_tag = cls.MD_END
 
-                    # Check for full end tag
                     if buffer.startswith(end_tag):
                         buffer = buffer[len(end_tag) :]
                         state = "content"
                         yielded_something = True
+
+                        if xml_tool_buffer:
+                            parsed = cls._extract_json(xml_tool_buffer)
+
+                            if parsed:
+                                name = parsed.get("name", "unknown_tool")
+                                args = parsed.get("arguments", {})
+                                if isinstance(args, dict):
+                                    args = json.dumps(args)
+
+                                yield {
+                                    "type": "tool_call",
+                                    "content": {"name": name, "arguments": args},
+                                    "run_id": run_id,
+                                }
+                            else:
+                                LOG.warning(
+                                    f"Failed to extract valid JSON from XML buffer. Payload: {xml_tool_buffer}"
+                                )
+
+                            xml_tool_buffer = ""
+
                         continue
 
-                    # Check for partial end tag (wait)
                     if end_tag.startswith(buffer):
                         break
 
-                    # Optimization: Find first char of end_tag
                     first_char = end_tag[0]
                     idx = buffer.find(first_char)
 
                     if idx == -1:
-                        # Yield all
+                        xml_tool_buffer += buffer
                         yield {
                             "type": "call_arguments",
                             "content": buffer,
@@ -383,7 +369,7 @@ class DeltaNormalizer:
                         buffer = ""
                         break
                     elif idx > 0:
-                        # Yield up to start of potential tag
+                        xml_tool_buffer += buffer[:idx]
                         yield {
                             "type": "call_arguments",
                             "content": buffer[:idx],
@@ -391,8 +377,8 @@ class DeltaNormalizer:
                         }
                         buffer = buffer[idx:]
                         yielded_something = True
-                        # Loop continues to hit .startswith check
                     else:
+                        xml_tool_buffer += buffer[0]
                         yield {
                             "type": "call_arguments",
                             "content": buffer[0],
@@ -401,9 +387,7 @@ class DeltaNormalizer:
                         buffer = buffer[1:]
                         yielded_something = True
 
-                # --- [FIX] STATE: NAKED JSON ---
                 elif state == "naked_json":
-                    # Iterate explicitly to handle nested braces (e.g. arguments: { x: 1 })
                     if not buffer:
                         break
 
@@ -418,28 +402,20 @@ class DeltaNormalizer:
 
                         chars_processed += 1
 
-                        # If depth hits 0, the object is closed
                         if json_depth == 0:
                             complete_json = True
                             break
 
-                    # Yield the processed chunk
                     chunk = buffer[:chars_processed]
-                    yield {
-                        "type": "call_arguments",
-                        "content": chunk,
-                        "run_id": run_id,
-                    }
+                    yield {"type": "call_arguments", "content": chunk, "run_id": run_id}
                     buffer = buffer[chars_processed:]
 
                     if complete_json:
                         state = "content"
                         yielded_something = True
                     else:
-                        # Buffer exhausted but still in JSON, break to get more tokens
                         break
 
-                # --- STATE: KIMI / MOONSHOT ---
                 elif state == "kimi_router":
                     if buffer.startswith(cls.KIMI_SEC_END):
                         buffer = buffer[len(cls.KIMI_SEC_END) :]
@@ -469,7 +445,6 @@ class DeltaNormalizer:
                     if any(tag.startswith(buffer) for tag in router_tags):
                         break
 
-                    # Discard router noise
                     buffer = buffer[1:]
                     yielded_something = True
 
@@ -489,23 +464,19 @@ class DeltaNormalizer:
                     buffer = buffer[1:]
                     yielded_something = True
 
-                # --- STATE: UNICODE BLOCK FORMAT ---
                 elif state == "unicode_tool_router":
-                    # Check for end of entire tool calls section
                     if buffer.startswith(cls.UNICODE_TC_END):
                         buffer = buffer[len(cls.UNICODE_TC_END) :]
                         state = "content"
                         yielded_something = True
                         continue
 
-                    # Check for individual call begin
                     if buffer.startswith(cls.UNICODE_CALL_BEGIN):
                         buffer = buffer[len(cls.UNICODE_CALL_BEGIN) :]
                         state = "unicode_tool_parsing"
                         yielded_something = True
                         continue
 
-                    # Check for individual call end
                     if buffer.startswith(cls.UNICODE_CALL_END):
                         buffer = buffer[len(cls.UNICODE_CALL_END) :]
                         yielded_something = True
@@ -519,19 +490,16 @@ class DeltaNormalizer:
                     if any(tag.startswith(buffer) for tag in router_tags):
                         break
 
-                    # Discard router noise (whitespace, etc.)
                     buffer = buffer[1:]
                     yielded_something = True
 
                 elif state == "unicode_tool_parsing":
-                    # Look for separator between function name and arguments
                     if buffer.startswith(cls.UNICODE_SEP):
                         buffer = buffer[len(cls.UNICODE_SEP) :]
                         state = "unicode_tool_args"
                         yielded_something = True
                         continue
 
-                    # Check for call end without args (shouldn't happen but defensive)
                     if buffer.startswith(cls.UNICODE_CALL_END):
                         buffer = buffer[len(cls.UNICODE_CALL_END) :]
                         state = "unicode_tool_router"
@@ -542,7 +510,6 @@ class DeltaNormalizer:
                     if any(tag.startswith(buffer) for tag in check_tags):
                         break
 
-                    # Accumulate function name as call_arguments
                     yield {
                         "type": "call_arguments",
                         "content": buffer[0],
@@ -552,7 +519,6 @@ class DeltaNormalizer:
                     yielded_something = True
 
                 elif state == "unicode_tool_args":
-                    # Check for end of this tool call
                     if buffer.startswith(cls.UNICODE_CALL_END):
                         buffer = buffer[len(cls.UNICODE_CALL_END) :]
                         state = "unicode_tool_router"
@@ -562,7 +528,6 @@ class DeltaNormalizer:
                     if cls.UNICODE_CALL_END.startswith(buffer):
                         break
 
-                    # Accumulate arguments
                     yield {
                         "type": "call_arguments",
                         "content": buffer[0],
@@ -571,7 +536,6 @@ class DeltaNormalizer:
                     buffer = buffer[1:]
                     yielded_something = True
 
-                # --- STATE: HERMES CHANNELS ---
                 elif state == "channel_reasoning":
                     if buffer.startswith(cls.CH_FINAL):
                         buffer = buffer[len(cls.CH_FINAL) :]
@@ -630,7 +594,6 @@ class DeltaNormalizer:
                 if not yielded_something:
                     break
 
-        # Flush any remaining native tools
         if pending_tool_calls:
             for idx, data in list(pending_tool_calls.items()):
                 name = data["function"]["name"]
@@ -641,9 +604,7 @@ class DeltaNormalizer:
                         "content": {"name": name, "arguments": args},
                         "run_id": run_id,
                     }
-            pending_tool_calls.clear()
 
-        # Flush remaining buffer
         if buffer:
             if state in ["channel_reasoning", "think"]:
                 yield {"type": "reasoning", "content": buffer, "run_id": run_id}
@@ -653,9 +614,6 @@ class DeltaNormalizer:
                 "tool_call_xml",
                 "tool_code_xml",
                 "md_json_block",
-                "kimi_args",
-                "unicode_tool_parsing",
-                "unicode_tool_args",
                 "naked_json",
             ]:
                 yield {"type": "call_arguments", "content": buffer, "run_id": run_id}

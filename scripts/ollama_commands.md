@@ -27,4 +27,6 @@ curl http://localhost:11434/api/chat -d '{
   }],
   "stream": true
 }'
+
+
 ```

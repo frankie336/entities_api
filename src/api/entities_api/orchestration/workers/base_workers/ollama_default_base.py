@@ -1,0 +1,540 @@
+# src/api/entities_api/workers/default_worker.py
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import queue as _queue_mod
+import threading
+import time
+import uuid
+from abc import ABC
+from typing import Any, AsyncGenerator, Dict, Generator, List, Optional, Union
+
+from dotenv import load_dotenv
+from projectdavid import StreamEvent
+from projectdavid_common.utilities.logging_service import LoggingUtility
+from projectdavid_common.validation import StatusEnum
+
+from entities_api.cache.assistant_cache import AssistantCache
+from entities_api.clients.delta_normalizer import DeltaNormalizer
+from entities_api.clients.stream_ollama_native import OllamaNativeStreamMixin
+from src.api.entities_api.dependencies import get_redis, get_redis_sync
+from src.api.entities_api.orchestration.engine.orchestrator_core import \
+    OrchestratorCore
+from src.api.entities_api.orchestration.mixins.provider_mixins import \
+    _ProviderMixins
+
+load_dotenv()
+LOG = LoggingUtility()
+
+
+class OllamaDefaultBaseWorker(
+    OllamaNativeStreamMixin,
+    _ProviderMixins,
+    OrchestratorCore,
+    ABC,
+):
+    """
+    Async base worker for local Ollama models.
+
+    Stream pipeline:
+        Ollama /api/chat  →  _stream_ollama_raw()  →  DeltaNormalizer  →  StreamState
+    """
+
+    def __init__(
+        self,
+        *,
+        assistant_id: str | None = None,
+        thread_id: str | None = None,
+        redis=None,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        delete_ephemeral_thread: bool = False,
+        assistant_cache_service: Optional[AssistantCache] = None,
+        **extra,
+    ) -> None:
+
+        # ── Role / identity state ─────────────────────────────────────────
+        self.is_deep_research: Optional[bool] = None
+        self.is_engineer: Optional[bool] = None
+        self._scratch_pad_thread: Optional[str] = None
+        self._batfish_owner_user_id: Optional[str] = None
+        self._run_user_id: Optional[str] = None
+
+        # ── Delegation / ephemeral state ──────────────────────────────────
+        self._delete_ephemeral_thread = delete_ephemeral_thread or extra.get(
+            "delete_ephemeral_thread", False
+        )
+        self.ephemeral_supervisor_id: Optional[str] = None
+        self._delegation_api_key = api_key or extra.get("api_key")
+        self._research_worker_thread: Optional[str] = None
+        self._worker_thread: Optional[str] = None
+
+        # ── Tool / decision state ─────────────────────────────────────────
+        self._current_tool_call_id: Optional[str] = None
+        self._pending_tool_payload: Optional[Dict[str, Any]] = None
+        self._decision_payload: Optional[Dict[str, Any]] = None
+
+        # ── Infrastructure ────────────────────────────────────────────────
+        self.redis = redis or get_redis_sync()
+
+        if assistant_cache_service:
+            self._assistant_cache = assistant_cache_service
+        elif "assistant_cache" in extra and isinstance(
+            extra["assistant_cache"], AssistantCache
+        ):
+            self._assistant_cache = extra["assistant_cache"]
+
+        legacy_config = extra.get("assistant_config") or extra.get("assistant_cache")
+        self.assistant_config: Dict[str, Any] = (
+            legacy_config if isinstance(legacy_config, dict) else {}
+        )
+
+        self._david_client: Any = None
+        self.redis = redis or get_redis()
+        self.assistant_id = assistant_id
+        self.thread_id = thread_id
+        self.base_url = base_url or os.getenv("BASE_URL")
+        self.api_key = api_key or extra.get("api_key")
+
+        self.model_name = extra.get("model_name", "qwen3:4b")
+        self.max_context_window = extra.get("max_context_window", 128_000)
+        self.threshold_percentage = extra.get("threshold_percentage", 0.8)
+
+        self.setup_services()
+
+        if not hasattr(self, "get_function_call_state"):
+            LOG.error("CRITICAL: ToolRoutingMixin failed to load.")
+            self.get_function_call_state = lambda: None
+            self.set_function_call_state = lambda x: None
+            self.set_tool_response_state = lambda x: None
+
+        LOG.debug("DefaultBaseWorker ready (assistant=%s)", assistant_id)
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Primary async stream
+    # ─────────────────────────────────────────────────────────────────────
+
+    async def stream(
+        self,
+        thread_id: str,
+        message_id: str | None,
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        *,
+        force_refresh: bool = False,
+        stream_reasoning: bool = True,
+        api_key: str | None = None,
+        **kwargs,
+    ) -> AsyncGenerator[Union[str, StreamEvent], None]:
+        """
+        Agentic stream pipeline:
+
+          Ollama /api/chat
+              ↓  _stream_ollama_raw()      — raw Ollama dict chunks (no pre-processing)
+              ↓  DeltaNormalizer           — typed, normalized chunk dicts
+              ↓  _handle_chunk_accumulation()    — accumulates text, reasoning, tool calls
+              ↓  yield JSON strings        — to the SSE response
+        """
+
+        # ── Reset per-run mutable state ───────────────────────────────────
+        self._run_user_id = None
+        self.ephemeral_supervisor_id = None
+        self._delegation_api_key = api_key
+        self._scratch_pad_thread = None
+        self._current_tool_call_id = None
+        self._decision_payload = None
+        self._tool_queue: List[Dict] = []
+
+        _original_assistant_id = assistant_id
+
+        redis = self.redis
+        stream_key = f"stream:{run_id}"
+        stop_event = self.start_cancellation_monitor(run_id)
+
+        accumulated: str = ""
+        assistant_reply: str = ""
+        decision_buffer: str = ""
+        current_block: str | None = None
+        pre_mapped_model = model
+
+        try:
+            # ── Model alias resolution ────────────────────────────────────
+            if hasattr(self, "_get_model_map") and (
+                mapped := self._get_model_map(model)
+            ):
+                model = mapped
+
+            # ── Config ───────────────────────────────────────────────────
+            self.assistant_id = assistant_id
+            await self._ensure_config_loaded()
+
+            self.is_deep_research = self.assistant_config.get("deep_research", False)
+            self.is_engineer = self.assistant_config.get("is_engineer", False)
+            LOG.info(
+                "[DEEP_RESEARCH_MODE]=%s |[ENGINEER_MODE]=%s",
+                self.is_deep_research,
+                self.is_engineer,
+            )
+
+            # ── Resolve run ownership & scratchpad ────────────────────────
+            from projectdavid import Entity
+
+            admin_client = Entity(api_key=os.environ.get("ADMIN_API_KEY"))
+            try:
+                run = await asyncio.to_thread(
+                    admin_client.runs.retrieve_run, run_id=run_id
+                )
+                self._run_user_id = run.user_id
+                meta = run.meta_data or {}
+
+                if self._batfish_owner_user_id is None:
+                    self._batfish_owner_user_id = (
+                        meta.get("batfish_owner_user_id") or run.user_id
+                    )
+                if self._scratch_pad_thread is None and meta.get("scratch_pad_thread"):
+                    self._scratch_pad_thread = meta["scratch_pad_thread"]
+
+                LOG.info(
+                    "STREAM ▸ run_user_id=%s | batfish_owner=%s | scratch_pad_thread=%s",
+                    self._run_user_id,
+                    self._batfish_owner_user_id,
+                    self._scratch_pad_thread,
+                )
+            except Exception as exc:
+                self._run_user_id = None
+                LOG.warning("STREAM ▸ Could not resolve run_user_id: %s", exc)
+
+            # ── Identity swap (supervisor / role-based) ───────────────────
+            await self._handle_role_based_identity_swap(
+                requested_model=pre_mapped_model
+            )
+
+            # Scratchpad: prefer meta_data value; fall back to thread_id
+            if not self._scratch_pad_thread:
+                self._scratch_pad_thread = thread_id
+            LOG.info("STREAM ▸ Scratchpad pinned to: %s", self._scratch_pad_thread)
+
+            # ── Role config resolution ────────────────────────────────────
+            agent_mode_setting = self.assistant_config.get("agent_mode", False)
+            decision_telemetry = self.assistant_config.get("decision_telemetry", True)
+            web_access_setting = self.assistant_config.get("web_access", False)
+            research_worker_setting = self.assistant_config.get(
+                "is_research_worker", False
+            )
+
+            raw_meta = self.assistant_config.get("meta_data", {})
+            is_junior_val = raw_meta.get(
+                "junior_engineer", raw_meta.get("junior_engineer_calling", False)
+            )
+            junior_engineer_setting = str(is_junior_val).lower() == "true"
+
+            if self.is_engineer:
+                web_access_setting = False
+                research_worker_setting = False
+                junior_engineer_setting = False
+                self.is_deep_research = False
+            elif self.is_deep_research:
+                web_access_setting = False
+                research_worker_setting = False
+                junior_engineer_setting = False
+            elif research_worker_setting:
+                web_access_setting = True
+                junior_engineer_setting = False
+            elif junior_engineer_setting:
+                web_access_setting = False
+                research_worker_setting = False
+
+            LOG.critical(
+                "██████ [ROLE CONFIG] SeniorEngineer=%s | DeepResearch=%s | "
+                "ResearchWorker=%s | JuniorEngineer=%s | WebAccess=%s ██████",
+                self.is_engineer,
+                self.is_deep_research,
+                research_worker_setting,
+                junior_engineer_setting,
+                web_access_setting,
+            )
+
+            # ── Build context window ──────────────────────────────────────
+            ctx = await self._set_up_context_window(
+                assistant_id=self.assistant_id,
+                thread_id=thread_id,
+                trunk=True,
+                force_refresh=force_refresh,
+                agent_mode=agent_mode_setting,
+                decision_telemetry=decision_telemetry,
+                web_access=web_access_setting,
+                deep_research=self.is_deep_research,
+                engineer=self.is_engineer,
+                research_worker=research_worker_setting,
+                junior_engineer=junior_engineer_setting,
+            )
+            LOG.info(
+                "RAW_CTX_DUMP (%d messages):\n%s",
+                len(ctx),
+                json.dumps(ctx, indent=2, ensure_ascii=False),
+            )
+
+            yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
+
+            # ── Stream: Ollama → DeltaNormalizer → StreamState ────────────
+            async for chunk in DeltaNormalizer.async_iter_deltas(
+                self._stream_ollama_raw(
+                    messages=ctx,
+                    model=model,
+                    temperature=kwargs.get("temperature", 0.6),
+                    max_tokens=kwargs.get("max_tokens", 10_000),
+                    think=kwargs.get("think", False),
+                ),
+                run_id,
+            ):
+                if stop_event.is_set():
+                    break
+
+                (
+                    current_block,
+                    accumulated,
+                    assistant_reply,
+                    decision_buffer,
+                    should_skip,
+                ) = self._handle_chunk_accumulation(
+                    chunk,
+                    current_block,
+                    accumulated,
+                    assistant_reply,
+                    decision_buffer,
+                )
+
+                if should_skip:
+                    continue
+
+                yield json.dumps(chunk)
+                await self._shunt_to_redis_stream(redis, stream_key, chunk)
+
+            # Ensure any dangling XML tag is closed cleanly at end of stream
+            if current_block:
+                accumulated += f"</{current_block}>"
+
+            # 8a. Extract Decision Payload from buffered XML block (if any)
+            if decision_buffer:
+                try:
+                    self._decision_payload = json.loads(decision_buffer.strip())
+                except Exception:
+                    LOG.warning(
+                        f"Failed to parse decision buffer: {decision_buffer[:50]}..."
+                    )
+
+            # 8b. Extract Tool Calls from accumulated stream output
+            tool_calls_batch = self.parse_and_set_function_calls(
+                accumulated, assistant_reply
+            )
+
+            message_to_save = assistant_reply
+            final_status = StatusEnum.completed.value
+
+            # ------------------------------------------------------------------
+            # 9. TOOL CALL ENVELOPE CONSTRUCTION
+            # If the assistant emitted tool calls, build the standardised envelope
+            # and flag the run as pending_action so the orchestrator picks it up.
+            # ------------------------------------------------------------------
+            if tool_calls_batch:
+                self._tool_queue = tool_calls_batch
+                final_status = StatusEnum.pending_action.value
+
+                tool_calls_structure = []
+                for tool in tool_calls_batch:
+                    t_id = tool.get("id") or f"call_{uuid.uuid4().hex[:8]}"
+                    tool_calls_structure.append(
+                        {
+                            "id": t_id,
+                            "type": "function",
+                            "function": {
+                                "name": tool.get("name"),
+                                "arguments": json.dumps(tool.get("arguments", {})),
+                            },
+                        }
+                    )
+
+                # Persist the structural representation, not the raw text
+                message_to_save = json.dumps(tool_calls_structure)
+
+            yield json.dumps(
+                {"type": "status", "status": "processing", "run_id": run_id}
+            )
+
+            if message_to_save:
+                await self.finalize_conversation(
+                    message_to_save, thread_id, self.assistant_id, run_id
+                )
+
+            if self.project_david_client:
+                await asyncio.to_thread(
+                    self.project_david_client.runs.update_run_status,
+                    run_id,
+                    final_status,
+                )
+
+            if not tool_calls_batch:
+                yield json.dumps(
+                    {"type": "status", "status": "complete", "run_id": run_id}
+                )
+
+        except Exception as exc:
+            LOG.error("Stream exception: %s", exc, exc_info=True)
+            err = {
+                "type": "error",
+                "content": f"Stream error: {exc}",
+                "run_id": run_id,
+            }
+            yield json.dumps(err)
+            await self._shunt_to_redis_stream(redis, stream_key, err)
+
+        finally:
+            stop_event.set()
+            self.assistant_id = _original_assistant_id
+            LOG.info(
+                "ORCHESTRATOR ▸ Identity restored to %s. Ephemeral state cleared.",
+                _original_assistant_id,
+            )
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Synchronous wrapper
+    # ─────────────────────────────────────────────────────────────────────
+
+    def stream_sync(
+        self,
+        thread_id: str,
+        message_id: str | None,
+        run_id: str,
+        assistant_id: str,
+        model: Any,
+        *,
+        force_refresh: bool = False,
+        stream_reasoning: bool = True,
+        api_key: str | None = None,
+        **kwargs,
+    ) -> Generator[str, None, None]:
+        """
+        Synchronous wrapper around stream().
+
+        Path A — no running event loop (CLI, Celery, test runner):
+            Creates a dedicated loop, drives the async generator, then tears
+            it down cleanly.
+
+        Path B — a loop is already running (called from a sync shim inside
+            an async context):
+            Spins a background thread with its own loop and ferries items
+            back through a thread-safe queue, keeping both loops isolated.
+        """
+        kwargs.update(
+            force_refresh=force_refresh,
+            stream_reasoning=stream_reasoning,
+            api_key=api_key,
+        )
+
+        # ── Path A ────────────────────────────────────────────────────────
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop is None:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            agen = self.stream(
+                thread_id, message_id, run_id, assistant_id, model, **kwargs
+            )
+            try:
+                while True:
+                    try:
+                        yield loop.run_until_complete(agen.__anext__())
+                    except StopAsyncIteration:
+                        break
+            finally:
+                try:
+                    loop.run_until_complete(agen.aclose())
+                except Exception:
+                    pass
+                try:
+                    loop.run_until_complete(loop.shutdown_asyncgens())
+                except Exception:
+                    pass
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    try:
+                        loop.run_until_complete(
+                            asyncio.gather(*pending, return_exceptions=True)
+                        )
+                    except Exception:
+                        pass
+                loop.close()
+                asyncio.set_event_loop(None)
+            return
+
+        # ── Path B ────────────────────────────────────────────────────────
+        _SENTINEL = object()
+        queue_ref: list = []
+        stop_flag = threading.Event()
+
+        def _run_in_thread() -> None:
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            q: _queue_mod.Queue = _queue_mod.Queue()
+            queue_ref.append(q)
+
+            async def _drain() -> None:
+                agen = self.stream(
+                    thread_id, message_id, run_id, assistant_id, model, **kwargs
+                )
+                try:
+                    async for item in agen:
+                        if stop_flag.is_set():
+                            break
+                        q.put(item)
+                finally:
+                    try:
+                        await agen.aclose()
+                    except Exception:
+                        pass
+                    q.put(_SENTINEL)
+
+            try:
+                new_loop.run_until_complete(_drain())
+            finally:
+                try:
+                    new_loop.run_until_complete(new_loop.shutdown_asyncgens())
+                except Exception:
+                    pass
+                pending = asyncio.all_tasks(new_loop)
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    try:
+                        new_loop.run_until_complete(
+                            asyncio.gather(*pending, return_exceptions=True)
+                        )
+                    except Exception:
+                        pass
+                new_loop.close()
+
+        t = threading.Thread(target=_run_in_thread, daemon=True)
+        t.start()
+
+        while not queue_ref:
+            time.sleep(0.001)
+
+        q = queue_ref[0]
+        try:
+            while True:
+                item = q.get()
+                if item is _SENTINEL:
+                    break
+                yield item
+        finally:
+            stop_flag.set()
+
+        t.join()
