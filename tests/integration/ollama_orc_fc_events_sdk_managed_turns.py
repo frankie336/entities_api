@@ -35,6 +35,7 @@ API_KEY = os.getenv("ENTITIES_API_KEY")
 ASSISTANT_ID = config.get("assistant_id", "asst_13HyDgBnZxVwh5XexYu74F")
 MODEL_ID = "ollama/qwen3:4b"
 TEST_PROMPT = "Please provide the flight times for a trip departing from Tokyo and arriving in Sydney?"
+# TEST_PROMPT = "Fetch me today's top headlines"
 
 
 # ------------------------------------------------------------------

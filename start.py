@@ -66,7 +66,7 @@ class DockerManager:
         "SMBCLIENT_USERNAME": ("fastapi_cosmic_catalyst", "SMBCLIENT_USERNAME"),
         "SMBCLIENT_PASSWORD": ("fastapi_cosmic_catalyst", "SMBCLIENT_PASSWORD"),
         "SMBCLIENT_PORT": ("fastapi_cosmic_catalyst", "SMBCLIENT_PORT"),
-        # NEW → automatically pick up the flag we just added in compose
+        # automatically pick up the flag we just added in compose
         "AUTO_MIGRATE": ("fastapi_cosmic_catalyst", "AUTO_MIGRATE"),
         "DISABLE_FIREJAIL": ("sandbox_api", "DISABLE_FIREJAIL"),
     }
@@ -78,13 +78,8 @@ class DockerManager:
         "API_KEY",
         "MYSQL_ROOT_PASSWORD",  # Ensures this is always generated uniquely
         "MYSQL_PASSWORD",  # Ensures this is always generated uniquely
-        "TOGETHER_API_KEY",
-        "HYPERBOLIC_API_KEY",
-        "ADMIN_API_KEY",
-        "ENTITIES_API_KEY",
-        "ENTITIES_USER_ID",
-        "DEEP_SEEK_API_KEY",
-        "SECRET_KEY",  # Ensure the FastAPI/Starlette secret key is unique
+        "SECRET_KEY",
+        "SANDBOX_AUTH_SECRET",
     ]
 
     # Define Tool IDs to be generated.
@@ -96,41 +91,61 @@ class DockerManager:
     ]
 
     # Define default values for keys if they aren't sourced from compose or generated.
-    # Note: SECRET_KEY is removed from here as it's now in _GENERATED_SECRETS
     _DEFAULT_VALUES = {
         # --- Base URLs ---
         "ASSISTANTS_BASE_URL": "http://localhost:9000",
         "SANDBOX_SERVER_URL": "http://localhost:9000",
         "DOWNLOAD_BASE_URL": "http://localhost:9000/v1/files/download",
         "HYPERBOLIC_BASE_URL": "https://api.hyperbolic.xyz/v1",
-        "TOGETHER_BASE_URL=https": "//api.together.xyz/v1",
-        # --- Database Components Fallbacks (passwords are generated) ---
-        "MYSQL_HOST": DEFAULT_DB_SERVICE_NAME,
-        "MYSQL_PORT": DEFAULT_DB_CONTAINER_PORT,
-        "MYSQL_DATABASE": "cosmic_catalyst",  # Default name, can be overridden by compose
-        "MYSQL_USER": "ollama",  # Default user, can be overridden by compose
-        # --- Alembic migration Settings ---
-        "AUTO_MIGRATE": "1",
+        "TOGETHER_BASE_URL": "https://api.together.xyz/v1",
+        "OLLAMA_BASE_URL": "http://ollama:11434",
+        # --- API Keys (Created with empty strings so users can fill them in) ---
+        "TOGETHER_API_KEY": "",
+        "HYPERBOLIC_API_KEY": "",
+        "ADMIN_API_KEY": "",
+        "ENTITIES_API_KEY": "",
+        "ENTITIES_USER_ID": "",
+        "DEEP_SEEK_API_KEY": "",
         # --- Platform Settings ---
         "BASE_URL_HEALTH": "http://localhost:9000/v1/health",
         "SHELL_SERVER_URL": "ws://sandbox_api:8000/ws/computer",
+        "SHELL_SERVER_EXTERNAL_URL": "ws://localhost:8000/ws/computer",
         "CODE_EXECUTION_URL": "ws://sandbox_api:8000/ws/execute",
-        "DISABLE_FIREJAIL": "true",  # Default, can be overridden by compose
+        "DISABLE_FIREJAIL": "true",
+        "DEFAULT_SECRET_KEY": "your_secret_key_here",
+        "SHARED_PATH": "./shared_data",
+        "AUTO_MIGRATE": "1",
+        # --- Database Components ---
+        "MYSQL_HOST": DEFAULT_DB_SERVICE_NAME,
+        "MYSQL_PORT": DEFAULT_DB_CONTAINER_PORT,
+        "MYSQL_DATABASE": "entities_db",
+        "MYSQL_USER": "api_user",
         "REDIS_URL": "redis://redis:6379/0",
-        # --- SMB Client Fallbacks ---
-        "SMBCLIENT_SERVER": "samba_server",  # Default, can be overridden by compose
-        "SMBCLIENT_SHARE": "cosmic_share",  # Default, can be overridden by compose
-        "SMBCLIENT_USERNAME": "samba_user",  # Default, can be overridden by compose
-        "SMBCLIENT_PASSWORD": "default",  # Default, can be overridden by compose
-        "SMBCLIENT_PORT": "445",  # Default, can be overridden by compose
-        # --- Other Standard Vars ---
+        # --- Admin Configuration ---
+        "ADMIN_USER_EMAIL": "admin@example.com",
+        "ADMIN_USER_ID": "",  # Populated at first run or set manually
+        "ADMIN_KEY_PREFIX": "",  # Populated at first run or set manually
+        # --- SMB Client ---
+        "SMBCLIENT_SERVER": "samba_server",
+        "SMBCLIENT_SHARE": "cosmic_share",
+        "SMBCLIENT_USERNAME": "samba_user",
+        "SMBCLIENT_PASSWORD": "default",
+        "SMBCLIENT_PORT": "445",
+        # --- Logging ---
         "LOG_LEVEL": "INFO",
         "PYTHONUNBUFFERED": "1",
     }
 
     # Define the structure and order of the final .env file.
     _ENV_STRUCTURE = {
-        "Base URLs": ["ASSISTANTS_BASE_URL", "SANDBOX_SERVER_URL", "DOWNLOAD_BASE_URL"],
+        "Base URLs": [
+            "ASSISTANTS_BASE_URL",
+            "SANDBOX_SERVER_URL",
+            "DOWNLOAD_BASE_URL",
+            "HYPERBOLIC_BASE_URL",
+            "TOGETHER_BASE_URL",
+            "OLLAMA_BASE_URL",
+        ],
         "Database Configuration": [
             "DATABASE_URL",
             "SPECIAL_DB_URL",
@@ -138,6 +153,9 @@ class DockerManager:
             "MYSQL_DATABASE",
             "MYSQL_USER",
             "MYSQL_PASSWORD",
+            "MYSQL_HOST",
+            "MYSQL_PORT",
+            "REDIS_URL",
         ],
         "API Keys & External Services": [
             "API_KEY",
@@ -151,11 +169,20 @@ class DockerManager:
         "Platform Settings": [
             "BASE_URL_HEALTH",
             "SHELL_SERVER_URL",
+            "SHELL_SERVER_EXTERNAL_URL",
             "CODE_EXECUTION_URL",
             "SIGNED_URL_SECRET",
+            "SANDBOX_AUTH_SECRET",
             "DISABLE_FIREJAIL",
-            "SECRET_KEY",  # Moved here from defaults/generated
+            "SECRET_KEY",
+            "DEFAULT_SECRET_KEY",
+            "SHARED_PATH",
             "AUTO_MIGRATE",
+        ],
+        "Admin Configuration": [
+            "ADMIN_USER_EMAIL",
+            "ADMIN_USER_ID",
+            "ADMIN_KEY_PREFIX",
         ],
         "SMB Client Configuration": [
             "SMBCLIENT_SERVER",
@@ -277,12 +304,10 @@ class DockerManager:
         try:
             service_data = self.compose_config.get("services", {}).get(service_name)
             if not service_data:
-                # self.log.debug(f"Service '{service_name}' not found in compose config.") # Too noisy
                 return None
 
             environment = service_data.get("environment")
             if not environment:
-                # self.log.debug(f"No 'environment' section found for service '{service_name}'.") # Too noisy
                 return None
 
             if isinstance(environment, dict):
@@ -551,8 +576,6 @@ class DockerManager:
                     source = generation_log.get(key, "Unknown source")
                     self.log.debug(f"  - {key}: {source}")
                 self.log.debug("--- End .env Generation Sources ---")
-                # Optionally log the generated content (can be verbose)
-                # self.log.debug(f"Generated {self._ENV_FILE} content:\n---\n{content}\n---")
         except IOError as e:
             self.log.error(f"Failed to write {self._ENV_FILE}: {e}")
             sys.exit(1)
@@ -604,8 +627,6 @@ class DockerManager:
             self.log.info("Ensured shared directory exists: %s", shared_path)
         except OSError as e:
             self.log.error("Failed to create shared directory %s: %s", shared_path, e)
-            # Depending on requirements, you might want to exit here
-            # sys.exit(1)
 
     def _has_docker(self):
         """Checks if the 'docker' command is available in the system PATH."""
@@ -865,8 +886,6 @@ class DockerManager:
                     "macOS detected. GPU passthrough for Docker on Mac has limitations "
                     "and might not work as expected with '--ollama-gpu'. Proceeding with CPU mode is recommended."
                 )
-                # Optionally force CPU mode: use_gpu = False
-                # For now, let the user try, but warn them.
 
         # Check if Docker is available
         if not self._has_docker():
@@ -979,12 +998,10 @@ class DockerManager:
                 services = []
 
             # 3. Check Image History for Build Cache Layers (if services found)
-            # Note: This requires images to have been built previously.
             if services:
                 self.log.info(
                     "Checking image history for potential cache issues (requires images to be built)..."
                 )
-                # Get image names from compose config (more reliable than service names)
                 try:
                     config_cmd = [
                         "docker",
@@ -1016,9 +1033,6 @@ class DockerManager:
                         "image"
                     )  # Check for explicitly defined image name first
                     if not image_name:
-                        # Fallback to default naming convention if image not specified (depends on compose version/project name)
-                        # This part is less reliable; might need project name context. Sticking to defined images.
-                        # image_name = f"{Path('.').name}_{service_name}" # Example guess
                         self.log.debug(
                             f"Service '{service_name}' has no explicit 'image' defined. Skipping history check."
                         )
@@ -1028,7 +1042,6 @@ class DockerManager:
                         f"--- History for image '{image_name}' (service: {service_name}) ---"
                     )
                     try:
-                        # Format: Layer ID (short), Size, Command that created the layer
                         history_cmd = [
                             "docker",
                             "history",
@@ -1052,10 +1065,8 @@ class DockerManager:
                             self.log.info(
                                 "------------ | ------------ | ------------------"
                             )
-                            # Print history line by line for better readability
                             for line in history_res.stdout.strip().splitlines():
                                 self.log.info(line)
-                            # Look for large layers or redundant commands
                             large_layers = [
                                 line
                                 for line in history_res.stdout.strip().splitlines()
@@ -1297,7 +1308,6 @@ class DockerManager:
             self.log.critical(
                 f"Docker build failed (Return Code: {e.returncode}). Check the build logs above for errors."
             )
-            # No need to print stderr again, _run_command already did if capture_output=False
             sys.exit(1)  # Exit script on build failure
         except Exception as e:
             self.log.critical(
@@ -1405,17 +1415,12 @@ class DockerManager:
                 # Get the image name defined or inferred by compose config
                 image_name = service_config.get("image")
                 if not image_name:
-                    # If 'image' isn't specified, compose might use project_service format.
-                    # This requires knowing the project name, hard to infer reliably here.
-                    # Best effort: skip services without an explicit 'image' key.
                     self.log.debug(
                         f"Skipping tagging for service '{service_name}': No explicit 'image' name found in resolved config."
                     )
                     skipped_count += 1
                     continue
 
-                # We assume the image 'image_name' (e.g., 'myrepo/myimage:latest' or 'myimage') exists locally
-                # as it should have just been built or was specified.
                 source_image_ref = image_name
 
                 # Construct the new tag: replace existing tag or append if none exists
@@ -1476,7 +1481,6 @@ class DockerManager:
                 f"Required '{self._ENV_FILE}' file is missing. "
                 f"Cannot run 'docker compose up'. Please ensure the file is generated or exists."
             )
-            # Suggest generating it if the script is capable
             self.log.info(
                 f"You might need to run this script without the 'up' command first, or ensure '{self._ENV_FILE}' is present."
             )
@@ -1484,7 +1488,6 @@ class DockerManager:
         self.log.debug(f"Verified '{self._ENV_FILE}' exists.")
 
         # Load .env into the current environment IF it wasn't loaded earlier (e.g., if file existed)
-        # This ensures compose can read the variables. Override ensures current values are used.
         load_dotenv(dotenv_path=self._ENV_FILE, override=True)
         self.log.debug(f"Loaded environment variables from '{self._ENV_FILE}'.")
 
@@ -1512,8 +1515,6 @@ class DockerManager:
         if not self.args.attached:
             up_cmd.append("-d")
         if self.args.build_before_up:
-            # Build options should ideally be handled by a separate 'build' step,
-            # but '--build' flag on 'up' is common.
             up_cmd.append("--build")
             if self.args.no_cache:
                 up_cmd.append("--no-cache")  # Pass no-cache to build during up
@@ -1604,12 +1605,9 @@ class DockerManager:
         if self.args.with_ollama:
             ollama_ok = self._ensure_ollama(opt_in=True, use_gpu=self.args.ollama_gpu)
             if not ollama_ok:
-                # Logged as error/warning inside _ensure_ollama
-                # Decide if this should be fatal - for now, just warn and continue
                 self.log.warning(
                     "External Ollama setup encountered issues. Continuing script execution..."
                 )
-                # Consider adding: if not ollama_ok and self.args.mode != 'down_only': sys.exit(1) if Ollama is critical
 
         # --- Main workflow based on mode ---
         mode = self.args.mode
@@ -1658,7 +1656,7 @@ class DockerManager:
         # --- Main Operation Mode ---
         parser.add_argument(
             "--mode",
-            choices=["up", "build", "both", "down_only", "logs"],  # Add "logs"
+            choices=["up", "build", "both", "down_only", "logs"],
             default="up",
             help="Primary action: 'up' (start services), 'build' (build images), 'both' (down, build, up), 'down_only' (just stop/remove services), 'logs' (view container logs).",
         )
@@ -1668,7 +1666,7 @@ class DockerManager:
             "--services",
             nargs="+",
             metavar="SERVICE_NAME",
-            default=[],  # Explicitly default to empty list
+            default=[],
             help="Target specific service(s) defined in docker-compose.yml for the selected action (build, up, down). If omitted, action applies to all services.",
         )
 
@@ -1854,7 +1852,6 @@ class DockerManager:
                 log.warning(
                     f"{exclusive_flag} is an exclusive action. Other operational flags will be ignored."
                 )
-            # No need to change args.mode here, the main run() handles these flags first.
 
         return args
 
