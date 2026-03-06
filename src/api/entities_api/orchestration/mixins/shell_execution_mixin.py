@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import json
 import os
 import time
 from typing import Any, Dict, List, Optional
@@ -10,11 +8,11 @@ import jwt
 from projectdavid_common.utilities.tool_validator import ToolValidator
 from projectdavid_common.validation import StatusEnum
 
-from entities_api.platform_tools.handlers.computer.shell_command_interface import (
-    run_shell_commands_async,
-)
+from entities_api.platform_tools.handlers.computer.shell_command_interface import \
+    run_shell_commands_async
 from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.services.native_execution_service import NativeExecutionService
+from src.api.entities_api.services.native_execution_service import \
+    NativeExecutionService
 
 LOG = LoggingUtility()
 
