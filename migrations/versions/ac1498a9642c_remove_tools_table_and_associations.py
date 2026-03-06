@@ -65,9 +65,7 @@ def upgrade() -> None:
 
     # 5. Alter 'messages' columns
     # Make function_call nullable=False
-    safe_alter_column(
-        "messages", "function_call", existing_type=mysql.TEXT(), nullable=False
-    )
+    safe_alter_column("messages", "function_call", existing_type=mysql.TEXT(), nullable=False)
 
     # Change reasoning type to Long Text
     safe_alter_column(
@@ -95,9 +93,7 @@ def downgrade() -> None:
         nullable=True,
     )
 
-    safe_alter_column(
-        "messages", "function_call", existing_type=mysql.TEXT(), nullable=True
-    )
+    safe_alter_column("messages", "function_call", existing_type=mysql.TEXT(), nullable=True)
 
     # 2. Recreate 'tools' table
     if not has_table("tools"):
@@ -124,9 +120,7 @@ def downgrade() -> None:
             sa.ForeignKeyConstraint(
                 ["assistant_id"], ["assistants.id"], name="assistant_tools_ibfk_1"
             ),
-            sa.ForeignKeyConstraint(
-                ["tool_id"], ["tools.id"], name="assistant_tools_ibfk_2"
-            ),
+            sa.ForeignKeyConstraint(["tool_id"], ["tools.id"], name="assistant_tools_ibfk_2"),
             mysql_collate="utf8mb4_0900_ai_ci",
             mysql_default_charset="utf8mb4",
             mysql_engine="InnoDB",
@@ -134,16 +128,12 @@ def downgrade() -> None:
         print("[Alembic-safeDDL] ✅ Re-created table: assistant_tools")
 
     # 4. Add 'tool_id' back to 'actions'
-    add_column_if_missing(
-        "actions", sa.Column("tool_id", mysql.VARCHAR(length=64), nullable=True)
-    )
+    add_column_if_missing("actions", sa.Column("tool_id", mysql.VARCHAR(length=64), nullable=True))
 
     # 5. Re-add Foreign Key to 'actions'
     # Check if constraint exists before adding to avoid duplicate error
     if has_table("actions"):
         existing_fks = [fk["name"] for fk in insp.get_foreign_keys("actions")]
         if "actions_ibfk_2" not in existing_fks:
-            op.create_foreign_key(
-                "actions_ibfk_2", "actions", "tools", ["tool_id"], ["id"]
-            )
+            op.create_foreign_key("actions_ibfk_2", "actions", "tools", ["tool_id"], ["id"])
             print("[Alembic-safeDDL] ✅ Re-created foreign key: actions_ibfk_2")

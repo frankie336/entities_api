@@ -10,7 +10,8 @@ readme = "README.md"
 authors = [
   { name = "Francis Neequaye Armah", email = "francis.neequaye@projectdavid.co.uk" }
 ]
-license = { text = "PolyForm Noncommercial 1.0.0", file = "LICENSE" }
+
+license = { file = "LICENSE" }
 keywords = ["AI", "API", "Assistants", "LLM", "RAG", "Vector"]
 requires-python = ">=3.9"
 
@@ -28,7 +29,8 @@ dependencies = [
   "uvicorn[standard]",
   "ollama>=0.3.0",
   "groq",
-  "pysmb"
+  "pysmb",
+  "typer>=0.12.0"
 ]
 
 [project.optional-dependencies]
@@ -41,16 +43,19 @@ dev = [
   "twine"
 ]
 
+[project.scripts]
+entities-api = "entities_api.__main__:root"
+
 [project.urls]
 Homepage = "https://github.com/frankie336/entities_api"
 Documentation = "https://github.com/frankie336/entities_api/tree/master/docs"
 Changelog = "https://github.com/frankie336/entities_api/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
-package-dir = { "" = "src" }
+package-dir = { "" = "src/api" }
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src/api"]
 exclude = ["tests", "docs"]
 
 [tool.mypy]

@@ -26,17 +26,13 @@ except ImportError as e:
     print(
         "Please ensure 'projectdavid', 'projectdavid_common', and local 'entities_api' modules are accessible."
     )
-    print(
-        "You might need to adjust PYTHONPATH or run the script from the correct directory."
-    )
+    print("You might need to adjust PYTHONPATH or run the script from the correct directory.")
     sys.exit(1)
 
 
 # --- Initialize necessary components ---
 validate = ValidationInterface()
-logging_utility = (
-    LoggingUtility()
-)  # Instantiate logger for use in main block too if needed
+logging_utility = LoggingUtility()  # Instantiate logger for use in main block too if needed
 
 
 class AssistantSetupService:
@@ -90,9 +86,7 @@ class AssistantSetupService:
             if canonical_id:
                 try:
                     tool = self.client.tools.get_tool_by_id(canonical_id)
-                    self.logging_utility.debug(
-                        "Found reserved tool %s (%s)", name, canonical_id
-                    )
+                    self.logging_utility.debug("Found reserved tool %s (%s)", name, canonical_id)
                 except Exception:
                     tool = None
 
@@ -101,9 +95,7 @@ class AssistantSetupService:
                 try:
                     tool = self.client.tools.get_tool_by_name(name)
                     tool_id = tool.id
-                    self.logging_utility.debug(
-                        "Found existing tool %s (%s) by name", name, tool_id
-                    )
+                    self.logging_utility.debug("Found existing tool %s (%s) by name", name, tool_id)
                 except Exception:
                     tool = None  # genuinely missing
 
@@ -121,9 +113,7 @@ class AssistantSetupService:
                     tool = self.client.tools.create_tool(**payload)
                     tool_id = tool.id
                     created += 1
-                    self.logging_utility.info(
-                        "Created tool %-22s  id=%s", name, tool_id
-                    )
+                    self.logging_utility.info("Created tool %-22s  id=%s", name, tool_id)
                 except Exception as e:
                     self.logging_utility.error(
                         "Failed to create tool %s: %s", name, e, exc_info=True
@@ -301,9 +291,7 @@ if __name__ == "__main__":
         # --- MODIFICATION: Use input() instead of getpass() ---
         print("WARNING: API Key will be visible during input.")
         try:
-            api_key = input(
-                "Please enter your API key: "
-            )  # Changed from getpass.getpass
+            api_key = input("Please enter your API key: ")  # Changed from getpass.getpass
             if not api_key:
                 print("API Key cannot be empty. Exiting.", file=sys.stderr)
                 sys.exit(1)
@@ -390,9 +378,7 @@ if __name__ == "__main__":
 
         # Run the orchestration, passing the determined user ID
         print("\nStarting assistant orchestration...")
-        logging_utility.info(
-            f"Initiating orchestration via script execution (User: {user_id})"
-        )
+        logging_utility.info(f"Initiating orchestration via script execution (User: {user_id})")
         assistant = service.orchestrate_default_assistant(user_id=user_id)
 
         if assistant:

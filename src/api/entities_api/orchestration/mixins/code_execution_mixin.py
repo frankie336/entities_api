@@ -39,9 +39,7 @@ class CodeExecutionMixin:
     def _generate_sandbox_token(self, subject_id: str) -> str:
         secret = os.getenv("SANDBOX_AUTH_SECRET")
         if not secret:
-            LOG.error(
-                "CRITICAL: SANDBOX_AUTH_SECRET is missing in environment variables."
-            )
+            LOG.error("CRITICAL: SANDBOX_AUTH_SECRET is missing in environment variables.")
             raise ValueError("Server configuration error: Sandbox secret missing.")
 
         payload = {
@@ -88,9 +86,7 @@ class CodeExecutionMixin:
             LOG.warning(f"CodeInterpreter ▸ Validation Failed: {validation_error}")
 
             # Surface as a recoverable status message — not a raw error chunk
-            yield self._code_status(
-                f"Validation failed: {validation_error}", "error", run_id
-            )
+            yield self._code_status(f"Validation failed: {validation_error}", "error", run_id)
 
             # Native execution for failed validation (creates action, marks failed, submits output)
             await native_svc.submit_failed_tool_execution(
@@ -155,9 +151,7 @@ class CodeExecutionMixin:
 
         try:
             auth_token = self._generate_sandbox_token(subject_id=f"run_{run_id}")
-            sync_iter = iter(
-                self.code_execution_client.stream_output(code, token=auth_token)
-            )
+            sync_iter = iter(self.code_execution_client.stream_output(code, token=auth_token))
 
             def safe_next(it):
                 try:
@@ -301,9 +295,7 @@ class CodeExecutionMixin:
         raw_output = "\n".join(hot_code_buffer).strip()
 
         if execution_had_error:
-            llm_content = self._format_level2_code_error(
-                raw_output or "Unknown execution failure."
-            )
+            llm_content = self._format_level2_code_error(raw_output or "Unknown execution failure.")
             user_content = raw_output or "❌ Code execution failed."
         else:
             llm_content = raw_output or "[Code executed successfully.]"
@@ -388,17 +380,13 @@ class CodeExecutionMixin:
             # Update Action State locally
             if action:
                 status_val = (
-                    StatusEnum.failed.value
-                    if execution_had_error
-                    else StatusEnum.completed.value
+                    StatusEnum.failed.value if execution_had_error else StatusEnum.completed.value
                 )
                 await native_svc.update_action_status(action.id, status_val)
 
         except Exception as e:
             LOG.error(f"CodeInterpreter ▸ Submission failure: {e}")
-            yield self._code_status(
-                f"Tool output submission failed: {e}", "error", run_id
-            )
+            yield self._code_status(f"Tool output submission failed: {e}", "error", run_id)
 
     def process_hot_code_buffer(
         self,
@@ -428,9 +416,7 @@ class CodeExecutionMixin:
         if (has_newline or is_long_enough or is_closed) and safe_cut:
             cursor += len(unsent_buffer)
             clean_segment = (
-                unsent_buffer.replace("\\n", "\n")
-                .replace('\\"', '"')
-                .replace("\\'", "'")
+                unsent_buffer.replace("\\n", "\n").replace('\\"', '"').replace("\\'", "'")
             )
             if len(clean_segment) == 1 and clean_segment in ('"', "}"):
                 return start_index, cursor, None

@@ -67,9 +67,7 @@ class FileService:
         """
         Handles file upload logic with unique filenames for Samba storage.
         """
-        mime_type = self.validate_file_type(
-            file.filename, getattr(file, "content_type", None)
-        )
+        mime_type = self.validate_file_type(file.filename, getattr(file, "content_type", None))
         try:
             temp_file_path = f"/tmp/{file.filename}"
             with open(temp_file_path, "wb") as f:
@@ -105,9 +103,7 @@ class FileService:
         except Exception as e:
             self.db.rollback()
             logging_utility.error(f"Error uploading file: {str(e)}")
-            raise HTTPException(
-                status_code=500, detail=f"Failed to upload file: {str(e)}"
-            )
+            raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
         finally:
             file.file.close()
 
@@ -128,18 +124,14 @@ class FileService:
                     try:
                         self.samba_client.delete_file(storage_location.storage_path)
                     except Exception as e:
-                        logging_utility.error(
-                            f"Failed to delete file from Samba: {str(e)}"
-                        )
+                        logging_utility.error(f"Failed to delete file from Samba: {str(e)}")
             self.db.delete(file_record)
             self.db.commit()
             return True
         except Exception as e:
             self.db.rollback()
             logging_utility.error(f"Error deleting file with ID {file_id}: {str(e)}")
-            raise HTTPException(
-                status_code=500, detail=f"Failed to delete file: {str(e)}"
-            )
+            raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
 
     def get_file_by_id(self, file_id: str) -> dict:
         """
@@ -159,31 +151,21 @@ class FileService:
             }
         except Exception as e:
             logging_utility.error(f"Error retrieving file with ID {file_id}: {str(e)}")
-            raise HTTPException(
-                status_code=500, detail=f"Failed to retrieve file: {str(e)}"
-            )
+            raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")
 
     def get_file_as_object(self, file_id: str) -> io.BytesIO:
         """
         Retrieve file content as a file-like object using storage_path from FileStorage.
         """
-        file_storage = (
-            self.db.query(FileStorage).filter(FileStorage.file_id == file_id).first()
-        )
+        file_storage = self.db.query(FileStorage).filter(FileStorage.file_id == file_id).first()
         if not file_storage:
             raise HTTPException(status_code=404, detail="File storage record not found")
         try:
-            file_bytes = self.samba_client.download_file_to_bytes(
-                file_storage.storage_path
-            )
+            file_bytes = self.samba_client.download_file_to_bytes(file_storage.storage_path)
             return io.BytesIO(file_bytes)
         except Exception as e:
-            logging_utility.error(
-                f"Error retrieving file object for ID {file_id}: {str(e)}"
-            )
-            raise HTTPException(
-                status_code=500, detail=f"Failed to retrieve file: {str(e)}"
-            )
+            logging_utility.error(f"Error retrieving file object for ID {file_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")
 
     def get_file_as_signed_url(
         self, file_id: str, expires_in: int = 3600, label: str = None
@@ -201,9 +183,7 @@ class FileService:
         """
         file_record = self.db.query(File).filter(File.id == file_id).first()
         if not file_record:
-            raise HTTPException(
-                status_code=404, detail=f"File with ID {file_id} not found"
-            )
+            raise HTTPException(status_code=404, detail=f"File with ID {file_id} not found")
         secret_key = os.getenv("SIGNED_URL_SECRET", "default_secret_key")
         expiration_time = datetime.utcnow() + timedelta(seconds=expires_in)
         expiration_timestamp = int(expiration_time.timestamp())
@@ -217,9 +197,7 @@ class FileService:
             "signature": signature,
         }
 
-        base_url = os.getenv(
-            "DOWNLOAD_BASE_URL", "http://localhost:9000/v1/files/download"
-        )
+        base_url = os.getenv("DOWNLOAD_BASE_URL", "http://localhost:9000/v1/files/download")
         signed_url = f"{base_url}?{urlencode(query_params)}"
 
         if label:
@@ -231,23 +209,15 @@ class FileService:
         """
         Retrieve the file content and return it as a BASE64-encoded string.
         """
-        file_storage = (
-            self.db.query(FileStorage).filter(FileStorage.file_id == file_id).first()
-        )
+        file_storage = self.db.query(FileStorage).filter(FileStorage.file_id == file_id).first()
         if not file_storage:
             raise HTTPException(status_code=404, detail="File storage record not found")
         try:
-            file_bytes = self.samba_client.download_file_to_bytes(
-                file_storage.storage_path
-            )
+            file_bytes = self.samba_client.download_file_to_bytes(file_storage.storage_path)
             return base64.b64encode(file_bytes).decode("utf-8")
         except Exception as e:
-            logging_utility.error(
-                f"Error retrieving BASE64 for file ID {file_id}: {str(e)}"
-            )
-            raise HTTPException(
-                status_code=500, detail=f"Failed to retrieve file: {str(e)}"
-            )
+            logging_utility.error(f"Error retrieving BASE64 for file ID {file_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")
 
     def get_file_with_metadata(self, file_id: str) -> Tuple[io.BytesIO, str, str]:
         """

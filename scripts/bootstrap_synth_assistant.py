@@ -28,9 +28,7 @@ class AssistantSetupService:
         self.client = client
         self.logging_utility = LoggingUtility()
 
-    def setup_assistant(
-        self, user_id: str, assistant_name: str, instructions: str
-    ) -> dict:
+    def setup_assistant(self, user_id: str, assistant_name: str, instructions: str) -> dict:
         try:
             assistant = self.client.assistants.create_assistant(
                 name=assistant_name,
@@ -61,9 +59,7 @@ if __name__ == "__main__":
         default=None,
         help="Optional base_workers URL for the API endpoint.",
     )
-    parser.add_argument(
-        "--name", default="Synth", help="Name of the assistant (default: 'Q')."
-    )
+    parser.add_argument("--name", default="Synth", help="Name of the assistant (default: 'Q').")
 
     args = parser.parse_args()
 

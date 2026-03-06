@@ -81,9 +81,7 @@ class GptOssBaseWorker(
         # 2. Setup Cache Service
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(
-            extra["assistant_cache"], AssistantCache
-        ):
+        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
             self._assistant_cache = extra["assistant_cache"]
 
         # 3. Setup Config
@@ -163,9 +161,7 @@ class GptOssBaseWorker(
 
         pre_mapped_model = model
         try:
-            if hasattr(self, "_get_model_map") and (
-                mapped := self._get_model_map(model)
-            ):
+            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
                 model = mapped
 
             self.assistant_id = assistant_id
@@ -220,9 +216,7 @@ class GptOssBaseWorker(
 
             # C. Execute Identity Swap (Refactored for Generalized Roles)
             # This handles the supervisor creation, ID swapping, and config reloading
-            await self._handle_role_based_identity_swap(
-                requested_model=pre_mapped_model
-            )
+            await self._handle_role_based_identity_swap(requested_model=pre_mapped_model)
 
             # ------------------------------------------------------------------
             # SCRATCHPAD THREAD PINNING
@@ -239,9 +233,7 @@ class GptOssBaseWorker(
             if not self._scratch_pad_thread:
                 self._scratch_pad_thread = thread_id
 
-            LOG.info(
-                "STREAM ▸ Scratchpad thread pinned to: %s", self._scratch_pad_thread
-            )
+            LOG.info("STREAM ▸ Scratchpad thread pinned to: %s", self._scratch_pad_thread)
 
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", True)
@@ -251,9 +243,7 @@ class GptOssBaseWorker(
             web_access_setting = self.assistant_config.get("web_access", False)
 
             # 2. Extract Worker / Junior flags
-            research_worker_setting = self.assistant_config.get(
-                "is_research_worker", False
-            )
+            research_worker_setting = self.assistant_config.get("is_research_worker", False)
             raw_meta = self.assistant_config.get("meta_data", {})
             is_junior_val = raw_meta.get(
                 "junior_engineer", raw_meta.get("junior_engineer_calling", False)
@@ -324,9 +314,7 @@ class GptOssBaseWorker(
 
             client = self._get_client_instance(api_key=api_key)
 
-            LOG.info(
-                f"\nRAW_CTX_DUMP:\n{json.dumps(cleaned_ctx, indent=2, ensure_ascii=False)}"
-            )
+            LOG.info(f"\nRAW_CTX_DUMP:\n{json.dumps(cleaned_ctx, indent=2, ensure_ascii=False)}")
 
             raw_stream = client.stream_chat_completion(
                 messages=cleaned_ctx,
@@ -379,9 +367,7 @@ class GptOssBaseWorker(
                     LOG.error(f"Failed to parse decision payload: {e}")
 
             # Keep-Alive Heartbeat
-            yield json.dumps(
-                {"type": "status", "status": "processing", "run_id": run_id}
-            )
+            yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
             # --- SYNC-REPLICA 3: Post-Stream Sanitization ---
             # (Preserved specifically for GPT-OSS malformed tags)
@@ -400,13 +386,9 @@ class GptOssBaseWorker(
                             r"^\s*([a-zA-Z0-9_]+)\s*(\{.*)", original_content, re.DOTALL
                         )
                         if fix_match:
-                            func_name, func_args = fix_match.group(1), fix_match.group(
-                                2
-                            )
+                            func_name, func_args = fix_match.group(1), fix_match.group(2)
                             try:
-                                parsed_args, _ = json.JSONDecoder().raw_decode(
-                                    func_args
-                                )
+                                parsed_args, _ = json.JSONDecoder().raw_decode(func_args)
                                 valid_payload = json.dumps(
                                     {"name": func_name, "arguments": parsed_args}
                                 )
@@ -419,9 +401,7 @@ class GptOssBaseWorker(
                 except Exception as e:
                     LOG.error(f"Error during tool call sanitization: {e}")
 
-            tool_calls_batch = self.parse_and_set_function_calls(
-                accumulated, assistant_reply
-            )
+            tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
             message_to_save = assistant_reply
             final_status = StatusEnum.completed.value
 
@@ -456,13 +436,9 @@ class GptOssBaseWorker(
                 message_to_save = json.dumps(tool_calls_structure)
 
                 # [LOGGING] Verify ID Parity
-                LOG.info(
-                    f"\n🚀[L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}"
-                )
+                LOG.info(f"\n🚀[L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}")
                 for item in tool_calls_structure:
-                    LOG.info(
-                        f"   ▸ Tool: {item['function']['name']} | ID: {item['id']}"
-                    )
+                    LOG.info(f"   ▸ Tool: {item['function']['name']} | ID: {item['id']}")
 
             # Persistence: Assistant Plan/Actions saved to Thread
             if message_to_save:
@@ -480,9 +456,7 @@ class GptOssBaseWorker(
                 )
 
             if not tool_calls_batch:
-                yield json.dumps(
-                    {"type": "status", "status": "complete", "run_id": run_id}
-                )
+                yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
         except Exception as exc:
             LOG.error(f"DEBUG: Stream Exception: {exc}")
@@ -542,9 +516,7 @@ class GptOssBaseWorker(
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                agen = self.stream(
-                    thread_id, message_id, run_id, assistant_id, model, **kwargs
-                )
+                agen = self.stream(thread_id, message_id, run_id, assistant_id, model, **kwargs)
                 while True:
                     try:
                         yield loop.run_until_complete(agen.__anext__())
@@ -573,9 +545,7 @@ class GptOssBaseWorker(
             queue_ref.append(q)
 
             async def _drain() -> None:
-                agen = self.stream(
-                    thread_id, message_id, run_id, assistant_id, model, **kwargs
-                )
+                agen = self.stream(thread_id, message_id, run_id, assistant_id, model, **kwargs)
                 try:
                     async for item in agen:
                         q.put(item)

@@ -29,9 +29,7 @@ class UserService:
         # Each method now creates and manages its own session.
         with SessionLocal() as db:
             if user_create.email:
-                existing_user = (
-                    db.query(User).filter(User.email == user_create.email).first()
-                )
+                existing_user = db.query(User).filter(User.email == user_create.email).first()
                 if existing_user:
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
@@ -80,8 +78,7 @@ class UserService:
             if not user and email and email_verified:
                 potential_user = db.query(User).filter(User.email == email).first()
                 if potential_user and (
-                    not potential_user.oauth_provider
-                    or potential_user.oauth_provider == provider
+                    not potential_user.oauth_provider or potential_user.oauth_provider == provider
                 ):
                     user = potential_user
                     user.oauth_provider = provider
@@ -104,9 +101,7 @@ class UserService:
                     user.email = email
                     user.email_verified = email_verified or False
                     update_occurred = True
-                elif (
-                    email_verified is not None and user.email_verified != email_verified
-                ):
+                elif email_verified is not None and user.email_verified != email_verified:
                     user.email_verified = email_verified
                     update_occurred = True
                 if update_occurred:
@@ -135,9 +130,7 @@ class UserService:
         with SessionLocal() as db:
             user = db.query(User).filter(User.id == user_id).first()
             if not user:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-                )
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
             return ValidationInterface.UserRead.model_validate(user)
 
     def get_user_by_email(self, email: str) -> Optional[ValidationInterface.UserRead]:
@@ -148,9 +141,7 @@ class UserService:
                 return None
             return ValidationInterface.UserRead.model_validate(user)
 
-    def get_users(
-        self, skip: int = 0, limit: int = 100
-    ) -> List[ValidationInterface.UserRead]:
+    def get_users(self, skip: int = 0, limit: int = 100) -> List[ValidationInterface.UserRead]:
         """Gets a list of users with pagination."""
         with SessionLocal() as db:
             users = db.query(User).offset(skip).limit(limit).all()
@@ -163,9 +154,7 @@ class UserService:
         with SessionLocal() as db:
             db_user = db.query(User).filter(User.id == user_id).first()
             if not db_user:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-                )
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
             update_data = user_update.model_dump(exclude_unset=True)
             updated = False
             for key, value in update_data.items():
@@ -183,15 +172,11 @@ class UserService:
         with SessionLocal() as db:
             db_user = db.query(User).filter(User.id == user_id).first()
             if not db_user:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-                )
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
             db.delete(db_user)
             db.commit()
 
-    def get_or_create_user(
-        self, user_id: Optional[str] = None
-    ) -> ValidationInterface.UserRead:
+    def get_or_create_user(self, user_id: Optional[str] = None) -> ValidationInterface.UserRead:
         """
         Gets a user by ID if provided. If not found, creates a new 'local' user.
         """
@@ -208,9 +193,7 @@ class UserService:
         # This now calls the refactored, self-contained create_user method.
         return self.create_user(minimal_user_data)
 
-    def list_assistants_by_user(
-        self, user_id: str
-    ) -> List[ValidationInterface.AssistantRead]:
+    def list_assistants_by_user(self, user_id: str) -> List[ValidationInterface.AssistantRead]:
         """
         Retrieve the list of assistants associated with a specific user.
         """
@@ -223,9 +206,7 @@ class UserService:
                 .first()
             )
             if not user:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-                )
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
             return [
                 ValidationInterface.AssistantRead.model_validate(assistant)
                 for assistant in user.assistants

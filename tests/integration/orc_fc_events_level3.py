@@ -42,9 +42,7 @@ PROVIDER_KW = config.get("provider", "Hyperbolic")
 ASSISTANT_ID = config.get("assistant_id", "asst_13HyDgBnZxVwh5XexYu74F")
 
 # L3 PROMPT: Asks for two different things to trigger parallel planning
-TEST_PROMPT = (
-    "What is the weather in London and what are the flight times from JFK to LHR?"
-)
+TEST_PROMPT = "What is the weather in London and what are the flight times from JFK to LHR?"
 
 print(f"{GREY}[CONFIG] Model: {MODEL_ID} | Provider: {PROVIDER_KW}{RESET}")
 

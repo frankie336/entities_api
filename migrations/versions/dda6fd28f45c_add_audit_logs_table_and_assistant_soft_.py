@@ -62,12 +62,8 @@ def upgrade() -> None:
         )
 
         # Create indexes only if table was just created
-        op.create_index(
-            op.f("ix_audit_logs_action"), "audit_logs", ["action"], unique=False
-        )
-        op.create_index(
-            op.f("ix_audit_logs_entity_id"), "audit_logs", ["entity_id"], unique=False
-        )
+        op.create_index(op.f("ix_audit_logs_action"), "audit_logs", ["action"], unique=False)
+        op.create_index(op.f("ix_audit_logs_entity_id"), "audit_logs", ["entity_id"], unique=False)
         op.create_index(
             op.f("ix_audit_logs_entity_type"),
             "audit_logs",
@@ -75,12 +71,8 @@ def upgrade() -> None:
             unique=False,
         )
         op.create_index(op.f("ix_audit_logs_id"), "audit_logs", ["id"], unique=False)
-        op.create_index(
-            op.f("ix_audit_logs_timestamp"), "audit_logs", ["timestamp"], unique=False
-        )
-        op.create_index(
-            op.f("ix_audit_logs_user_id"), "audit_logs", ["user_id"], unique=False
-        )
+        op.create_index(op.f("ix_audit_logs_timestamp"), "audit_logs", ["timestamp"], unique=False)
+        op.create_index(op.f("ix_audit_logs_user_id"), "audit_logs", ["user_id"], unique=False)
 
         print("[Alembic-safeDDL] ✅ Created table: audit_logs")
     else:

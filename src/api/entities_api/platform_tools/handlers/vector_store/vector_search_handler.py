@@ -29,9 +29,7 @@ class VectorSearchHandler:
                 )
         return mapping
 
-    def execute_search(
-        self, **kwargs
-    ) -> List[ValidationInterface.VectorStoreSearchResult]:
+    def execute_search(self, **kwargs) -> List[ValidationInterface.VectorStoreSearchResult]:
         try:
             self._validate_search_params(kwargs)
             handler = getattr(self, f"handle_{kwargs['search_type']}", None)
@@ -58,9 +56,7 @@ class VectorSearchHandler:
             query_text=params["query"], top_k=params.get("top_k", 5)
         )
 
-    def handle_filtered(
-        self, params: Dict
-    ) -> List[ValidationInterface.VectorStoreSearchResult]:
+    def handle_filtered(self, params: Dict) -> List[ValidationInterface.VectorStoreSearchResult]:
         """Metadata-filtered search"""
         return self.vector_store_client.search_vector_store(
             query_text=params["query"], filters=params.get("filters", {})
@@ -112,24 +108,18 @@ class VectorSearchHandler:
 
         check_value(filters)
 
-    def handle_temporal(
-        self, params: Dict
-    ) -> List[ValidationInterface.VectorStoreSearchResult]:
+    def handle_temporal(self, params: Dict) -> List[ValidationInterface.VectorStoreSearchResult]:
         """Time-weighted search with validation"""
         self._validate_search_params(params)
         return self.vector_store_client.search_vector_store(
             query_text=params["query"], filters=params.get("filters", {})
         )
 
-    def handle_explainable(
-        self, params: Dict
-    ) -> List[ValidationInterface.VectorStoreSearchResult]:
+    def handle_explainable(self, params: Dict) -> List[ValidationInterface.VectorStoreSearchResult]:
         """Search with scoring explanations"""
         return self.vector_store_client.search_vector_store(query_text=params["query"])
 
-    def handle_hybrid(
-        self, params: Dict
-    ) -> List[ValidationInterface.VectorStoreSearchResult]:
+    def handle_hybrid(self, params: Dict) -> List[ValidationInterface.VectorStoreSearchResult]:
         return self.vector_store_service.search_vector_store(
             store_name=self._get_collection_name(params["source_type"]),
             query_text=params["query"],
@@ -162,14 +152,10 @@ class VectorSearchHandler:
                     return self._handle_logical_operator(operator, condition[operator])
             return self._build_field_conditions(condition)
         elif isinstance(condition, list):
-            return models.Filter(
-                must=[self._recursive_filter_builder(c) for c in condition]
-            )
+            return models.Filter(must=[self._recursive_filter_builder(c) for c in condition])
         raise ValueError(f"Unsupported condition type: {type(condition)}")
 
-    def _handle_logical_operator(
-        self, operator: str, conditions: List
-    ) -> models.Filter:
+    def _handle_logical_operator(self, operator: str, conditions: List) -> models.Filter:
         """Process logical operators"""
         parsed_conditions = [self._recursive_filter_builder(c) for c in conditions]
         if operator == "$and":
@@ -189,9 +175,7 @@ class VectorSearchHandler:
                 key=f"metadata.{field}", match=models.MatchValue(value=condition)
             )
 
-    def _parse_comparison_operators(
-        self, field: str, operators: Dict
-    ) -> models.FieldCondition:
+    def _parse_comparison_operators(self, field: str, operators: Dict) -> models.FieldCondition:
         """Process comparison operators"""
         range_params = {}
         match_params = {}

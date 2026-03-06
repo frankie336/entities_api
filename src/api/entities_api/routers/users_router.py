@@ -15,9 +15,7 @@ router = APIRouter(prefix="/users", tags=["Users"])
 logging_utility = LoggingUtility()
 
 
-@router.post(
-    "", response_model=validation.UserRead, status_code=status.HTTP_201_CREATED
-)
+@router.post("", response_model=validation.UserRead, status_code=status.HTTP_201_CREATED)
 def create_user(
     user_data: validation.UserCreate,
     db: Session = Depends(get_db),  # Session is kept here for the admin check.
@@ -28,9 +26,7 @@ def create_user(
     """
     logging_utility.info(f"User '{auth_key.user_id}' requesting to create a new user.")
     # Direct DB access for authorization check remains.
-    requesting_admin = (
-        db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
-    )
+    requesting_admin = db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
     if not requesting_admin or not requesting_admin.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -63,12 +59,8 @@ def get_user(
     """
     Retrieves details for a specific user.
     """
-    logging_utility.info(
-        f"User '{auth_key.user_id}' requesting details for user ID: {user_id}"
-    )
-    requesting_user = (
-        db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
-    )
+    logging_utility.info(f"User '{auth_key.user_id}' requesting details for user ID: {user_id}")
+    requesting_user = db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
     if not requesting_user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -101,12 +93,8 @@ def update_user(
     """
     Updates details for a specific user.
     """
-    logging_utility.info(
-        f"User '{auth_key.user_id}' requesting to update user ID: {user_id}"
-    )
-    requesting_user = (
-        db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
-    )
+    logging_utility.info(f"User '{auth_key.user_id}' requesting to update user ID: {user_id}")
+    requesting_user = db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
     if not requesting_user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -143,12 +131,8 @@ def delete_user(
     """
     Deletes a specific user. Requires **Admin** authentication.
     """
-    logging_utility.info(
-        f"User '{auth_key.user_id}' requesting to delete user ID: {user_id}"
-    )
-    requesting_admin = (
-        db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
-    )
+    logging_utility.info(f"User '{auth_key.user_id}' requesting to delete user ID: {user_id}")
+    requesting_admin = db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
     if not requesting_admin or not requesting_admin.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

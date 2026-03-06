@@ -103,9 +103,7 @@ async def completions(
             yield f"data: {json.dumps({'type': 'error', 'run_id': run_id, 'message': str(e)})}\n\n"
         finally:
             elapsed = time.time() - start_time
-            logging_utility.info(
-                f"Stream finished: {chunk_count} chunks in {elapsed:.2f}s"
-            )
+            logging_utility.info(f"Stream finished: {chunk_count} chunks in {elapsed:.2f}s")
 
     return StreamingResponse(
         stream_generator(),

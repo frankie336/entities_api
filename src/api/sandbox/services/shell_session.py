@@ -148,9 +148,7 @@ class PersistentShellSession:
                 if completion_detected:
                     logger.info(f"Command completion detected in room {self.room}")
                     asyncio.create_task(
-                        self.room_manager.broadcast(
-                            self.room, {"type": "command_complete"}
-                        )
+                        self.room_manager.broadcast(self.room, {"type": "command_complete"})
                     )
             else:
                 self.alive = False

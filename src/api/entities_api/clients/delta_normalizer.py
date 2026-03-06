@@ -573,11 +573,7 @@ class DeltaNormalizer:
                     exit_tags = [cls.CALL_TAG, cls.CH_FINAL, cls.CH_ANALYSIS]
                     if any(buffer.startswith(t) for t in exit_tags):
                         matched = next(t for t in exit_tags if buffer.startswith(t))
-                        state = (
-                            "channel_reasoning"
-                            if matched == cls.CH_ANALYSIS
-                            else "content"
-                        )
+                        state = "channel_reasoning" if matched == cls.CH_ANALYSIS else "content"
                         buffer = buffer[len(matched) :]
                         yielded_something = True
                         continue

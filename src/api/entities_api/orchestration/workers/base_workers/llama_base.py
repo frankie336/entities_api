@@ -78,9 +78,7 @@ class LlamaBaseWorker(
         # 3. Setup the Cache Service
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(
-            extra["assistant_cache"], AssistantCache
-        ):
+        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
             self._assistant_cache = extra["assistant_cache"]
 
         # 4. Setup Config
@@ -166,9 +164,7 @@ class LlamaBaseWorker(
 
         pre_mapped_model = model
         try:
-            if hasattr(self, "_get_model_map") and (
-                mapped := self._get_model_map(model)
-            ):
+            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
                 model = mapped
 
             self.assistant_id = assistant_id
@@ -223,9 +219,7 @@ class LlamaBaseWorker(
 
             # C. Execute Identity Swap (Refactored for Generalized Roles)
             # This handles the supervisor creation, ID swapping, and config reloading
-            await self._handle_role_based_identity_swap(
-                requested_model=pre_mapped_model
-            )
+            await self._handle_role_based_identity_swap(requested_model=pre_mapped_model)
 
             # ------------------------------------------------------------------
             # SCRATCHPAD THREAD PINNING
@@ -242,9 +236,7 @@ class LlamaBaseWorker(
             if not self._scratch_pad_thread:
                 self._scratch_pad_thread = thread_id
 
-            LOG.info(
-                "STREAM ▸ Scratchpad thread pinned to: %s", self._scratch_pad_thread
-            )
+            LOG.info("STREAM ▸ Scratchpad thread pinned to: %s", self._scratch_pad_thread)
 
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", True)
@@ -254,9 +246,7 @@ class LlamaBaseWorker(
             web_access_setting = self.assistant_config.get("web_access", False)
 
             # 2. Extract Worker / Junior flags
-            research_worker_setting = self.assistant_config.get(
-                "is_research_worker", False
-            )
+            research_worker_setting = self.assistant_config.get("is_research_worker", False)
             raw_meta = self.assistant_config.get("meta_data", {})
             is_junior_val = raw_meta.get(
                 "junior_engineer", raw_meta.get("junior_engineer_calling", False)
@@ -326,9 +316,7 @@ class LlamaBaseWorker(
             client = self._get_client_instance(api_key=api_key)
 
             # --- [DEBUG] RAW CONTEXT DUMP ---
-            LOG.info(
-                f"\nRAW_CTX_DUMP:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}"
-            )
+            LOG.info(f"\nRAW_CTX_DUMP:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}")
 
             raw_stream = client.stream_chat_completion(
                 messages=ctx,
@@ -375,9 +363,7 @@ class LlamaBaseWorker(
                 except Exception:
                     pass
 
-            yield json.dumps(
-                {"type": "status", "status": "processing", "run_id": run_id}
-            )
+            yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
             # ---[LEVEL 3] NATIVE PERSISTENCE ---
             # Llama/DeepSeek requirement: Save RAW text (<fc>...</fc>) not JSON structure.
@@ -391,9 +377,7 @@ class LlamaBaseWorker(
             if tool_calls_batch:
                 self._tool_queue = tool_calls_batch
                 final_status = StatusEnum.pending_action.value
-                LOG.info(
-                    f"🚀[L3 NATIVE MODE] Turn 1 Batch size: {len(tool_calls_batch)}"
-                )
+                LOG.info(f"🚀[L3 NATIVE MODE] Turn 1 Batch size: {len(tool_calls_batch)}")
 
             if message_to_save:
                 # [FIX]: Use self.assistant_id to save under the supervisor's ID (if applicable)
@@ -409,9 +393,7 @@ class LlamaBaseWorker(
                 )
 
             if not tool_calls_batch:
-                yield json.dumps(
-                    {"type": "status", "status": "complete", "run_id": run_id}
-                )
+                yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
         except Exception as exc:
             LOG.error(f"DEBUG: Stream Exception: {exc}")
@@ -471,9 +453,7 @@ class LlamaBaseWorker(
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                agen = self.stream(
-                    thread_id, message_id, run_id, assistant_id, model, **kwargs
-                )
+                agen = self.stream(thread_id, message_id, run_id, assistant_id, model, **kwargs)
                 while True:
                     try:
                         yield loop.run_until_complete(agen.__anext__())
@@ -502,9 +482,7 @@ class LlamaBaseWorker(
             queue_ref.append(q)
 
             async def _drain() -> None:
-                agen = self.stream(
-                    thread_id, message_id, run_id, assistant_id, model, **kwargs
-                )
+                agen = self.stream(thread_id, message_id, run_id, assistant_id, model, **kwargs)
                 try:
                     async for item in agen:
                         q.put(item)

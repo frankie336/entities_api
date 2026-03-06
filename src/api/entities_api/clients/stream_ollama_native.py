@@ -11,9 +11,7 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 
 LOG = LoggingUtility()
 
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").removesuffix(
-    "/v1"
-)
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").removesuffix("/v1")
 
 
 async def stream_ollama_raw(
@@ -46,9 +44,7 @@ async def stream_ollama_raw(
         async with client.stream("POST", url, json=payload) as response:
             if response.status_code != 200:
                 body = await response.aread()
-                raise RuntimeError(
-                    f"Ollama returned HTTP {response.status_code}: {body.decode()}"
-                )
+                raise RuntimeError(f"Ollama returned HTTP {response.status_code}: {body.decode()}")
 
             async for raw_line in response.aiter_lines():
                 raw_line = raw_line.strip()
@@ -58,9 +54,7 @@ async def stream_ollama_raw(
                 try:
                     chunk = json.loads(raw_line)
                 except json.JSONDecodeError as exc:
-                    LOG.warning(
-                        "Ollama: malformed JSON line skipped (%s): %r", exc, raw_line
-                    )
+                    LOG.warning("Ollama: malformed JSON line skipped (%s): %r", exc, raw_line)
                     continue
 
                 yield chunk
@@ -142,9 +136,7 @@ Example:
     tool_call_received: Dict | None = None
 
     async for chunk in DeltaNormalizer.async_iter_deltas(
-        stream_ollama_raw(
-            messages, model="qwen3:4b", think=False, tools=None, temperature=0.0
-        ),
+        stream_ollama_raw(messages, model="qwen3:4b", think=False, tools=None, temperature=0.0),
         "smoke-xml-fc-t1",
     ):
         ctype = chunk.get("type")
@@ -177,9 +169,7 @@ Example:
     fn_args = json.loads(fn_args_raw) if isinstance(fn_args_raw, str) else fn_args_raw
     city = fn_args.get("city", "Paris")
 
-    fake_result = json.dumps(
-        {"city": city, "temperature": "18°C", "condition": "Partly cloudy"}
-    )
+    fake_result = json.dumps({"city": city, "temperature": "18°C", "condition": "Partly cloudy"})
     print(f"\n[TOOL RESULT] Injecting fake result: {fake_result}\n")
 
     # ── Turn 2: send tool result back and get final answer ────────────────
@@ -195,9 +185,7 @@ Example:
     print("[TURN 2] Sending tool result, awaiting final answer …\n")
 
     async for chunk in DeltaNormalizer.async_iter_deltas(
-        stream_ollama_raw(
-            messages, model="qwen3:4b", think=False, tools=None, temperature=0.0
-        ),
+        stream_ollama_raw(messages, model="qwen3:4b", think=False, tools=None, temperature=0.0),
         "smoke-xml-fc-t2",
     ):
         ctype = chunk.get("type")

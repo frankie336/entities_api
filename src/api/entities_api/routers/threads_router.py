@@ -47,9 +47,7 @@ def get_thread(
     return ThreadService().get_thread(thread_id)
 
 
-@router.delete(
-    "/{thread_id}", response_model=ValidationInterface.ThreadDeleted
-)  # ← change
+@router.delete("/{thread_id}", response_model=ValidationInterface.ThreadDeleted)  # ← change
 def delete_thread(
     thread_id: str,
     db: Session = Depends(get_db),
@@ -69,18 +67,14 @@ def list_user_threads(
     return ThreadService().list_threads_by_user(user_id)
 
 
-@router.put(
-    "/{thread_id}/metadata", response_model=ValidationInterface.ThreadReadDetailed
-)
+@router.put("/{thread_id}/metadata", response_model=ValidationInterface.ThreadReadDetailed)
 def update_thread_metadata(
     thread_id: str,
     metadata: dict,
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    logging_utility.info(
-        f"[{auth_key.user_id}] Updating metadata for thread {thread_id}"
-    )
+    logging_utility.info(f"[{auth_key.user_id}] Updating metadata for thread {thread_id}")
     return ThreadService().update_thread_metadata(thread_id, metadata)
 
 

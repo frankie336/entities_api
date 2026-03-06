@@ -34,7 +34,9 @@ BASE_URL = os.getenv("BASE_URL", "http://localhost:9000")
 API_KEY = os.getenv("ENTITIES_API_KEY")
 ASSISTANT_ID = config.get("assistant_id", "asst_13HyDgBnZxVwh5XexYu74F")
 MODEL_ID = "ollama/qwen3:4b"
-TEST_PROMPT = "Please provide the flight times for a trip departing from Tokyo and arriving in Sydney?"
+TEST_PROMPT = (
+    "Please provide the flight times for a trip departing from Tokyo and arriving in Sydney?"
+)
 # TEST_PROMPT = "Fetch me today's top headlines"
 
 
@@ -121,9 +123,7 @@ try:
                 event.execute(handler)
                 print(f"{GREEN}[✓] Result submitted — resuming stream...{RESET}\n")
             else:
-                print(
-                    f"{RED}[!] Unknown tool: '{event.tool_name}' — not in registry{RESET}"
-                )
+                print(f"{RED}[!] Unknown tool: '{event.tool_name}' — not in registry{RESET}")
 
 except Exception as e:
     print(f"{RED}[ERROR] {e}{RESET}")

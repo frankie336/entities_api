@@ -55,9 +55,7 @@ client = Entity(base_url=BASE_URL, api_key=ENTITIES_API_KEY)
 
 # Bind clients for synchronous inference
 if hasattr(client, "synchronous_inference_stream"):
-    client.synchronous_inference_stream.bind_clients(
-        client.runs, client.actions, client.messages
-    )
+    client.synchronous_inference_stream.bind_clients(client.runs, client.actions, client.messages)
 
 # ==================================================================
 # TIMER START

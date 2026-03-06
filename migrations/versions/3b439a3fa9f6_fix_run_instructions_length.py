@@ -26,9 +26,7 @@ def upgrade() -> None:
     """Upgrade schema using SafeDDL helpers."""
 
     # 1. Fix messages function_call nullability
-    safe_alter_column(
-        "messages", "function_call", existing_type=mysql.TEXT(), nullable=False
-    )
+    safe_alter_column("messages", "function_call", existing_type=mysql.TEXT(), nullable=False)
 
     # 2. Sync reasoning column type (LongText mapping)
     safe_alter_column(
@@ -95,6 +93,4 @@ def downgrade() -> None:
     )
 
     # 4. Revert messages function_call back to nullable
-    safe_alter_column(
-        "messages", "function_call", existing_type=mysql.TEXT(), nullable=True
-    )
+    safe_alter_column("messages", "function_call", existing_type=mysql.TEXT(), nullable=True)

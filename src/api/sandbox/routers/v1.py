@@ -49,21 +49,15 @@ async def validate_token(websocket: WebSocket, token: str) -> str | None:
 
     except jwt.ExpiredSignatureError:
         logging_utility.warning("Connection rejected: Token expired")
-        await websocket.close(
-            code=status.WS_1008_POLICY_VIOLATION, reason="Token expired"
-        )
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Token expired")
         return None
     except jwt.InvalidTokenError:
         logging_utility.warning("Connection rejected: Invalid token")
-        await websocket.close(
-            code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token"
-        )
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Invalid token")
         return None
     except Exception as e:
         logging_utility.error(f"Token validation error: {str(e)}")
-        await websocket.close(
-            code=status.WS_1011_INTERNAL_ERROR, reason="Authentication error"
-        )
+        await websocket.close(code=status.WS_1011_INTERNAL_ERROR, reason="Authentication error")
         return None
 
 

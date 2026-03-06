@@ -113,9 +113,7 @@ class StreamingMixin:
             # Run sync redis ops in executor so we don't block event loop
             await loop.run_in_executor(
                 None,
-                lambda: redis.xadd(
-                    stream_key, redis_safe_chunk, maxlen=maxlen, approximate=True
-                ),
+                lambda: redis.xadd(stream_key, redis_safe_chunk, maxlen=maxlen, approximate=True),
             )
 
             # Handle TTL
@@ -123,12 +121,8 @@ class StreamingMixin:
             exists = await loop.run_in_executor(None, lambda: redis.exists(ttl_flag))
 
             if not exists:
-                await loop.run_in_executor(
-                    None, lambda: redis.expire(stream_key, ttl_seconds)
-                )
-                await loop.run_in_executor(
-                    None, lambda: redis.set(ttl_flag, "1", ex=ttl_seconds)
-                )
+                await loop.run_in_executor(None, lambda: redis.expire(stream_key, ttl_seconds))
+                await loop.run_in_executor(None, lambda: redis.set(ttl_flag, "1", ex=ttl_seconds))
 
         except Exception as exc:
             LOG.warning(
@@ -181,9 +175,7 @@ class StreamingMixin:
         underlying provider stream to the client **and** Redis.
         """
         reminder = (
-            CODE_INTERPRETER_MESSAGE
-            if name == "code_interpreter"
-            else DEFAULT_REMINDER_MESSAGE
+            CODE_INTERPRETER_MESSAGE if name == "code_interpreter" else DEFAULT_REMINDER_MESSAGE
         )
         self.project_david_client.messages.create_message(
             thread_id=thread_id,
@@ -228,11 +220,7 @@ class StreamingMixin:
 
             # Fire-and-forget the Redis shunt
             if loop and loop.is_running():
-                loop.create_task(
-                    self._shunt_to_redis_stream(self.redis, redis_key, parsed)
-                )
+                loop.create_task(self._shunt_to_redis_stream(self.redis, redis_key, parsed))
 
         if assistant_reply:
-            self.finalize_conversation(
-                reasoning + assistant_reply, thread_id, assistant_id, run_id
-            )
+            self.finalize_conversation(reasoning + assistant_reply, thread_id, assistant_id, run_id)

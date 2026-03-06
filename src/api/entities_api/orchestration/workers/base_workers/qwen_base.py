@@ -75,9 +75,7 @@ class QwenBaseWorker(
         # 2. Cache Service Setup
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(
-            extra["assistant_cache"], AssistantCache
-        ):
+        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
             self._assistant_cache = extra["assistant_cache"]
 
         # 3. Config Legacy Support
@@ -181,9 +179,7 @@ class QwenBaseWorker(
 
         try:
             # --- 2. Model Resolution ---
-            if hasattr(self, "_get_model_map") and (
-                mapped := self._get_model_map(model)
-            ):
+            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
                 model = mapped
 
             self.assistant_id = assistant_id
@@ -208,9 +204,7 @@ class QwenBaseWorker(
             web_access_setting = self.assistant_config.get("web_access", False)
 
             # Worker role flags — mutually exclusive, enforced below
-            research_worker_setting = self.assistant_config.get(
-                "is_research_worker", False
-            )
+            research_worker_setting = self.assistant_config.get("is_research_worker", False)
 
             # Extract from meta_data for dynamic ephemeral flags
             raw_meta = self.assistant_config.get("meta_data", {})
@@ -311,9 +305,7 @@ class QwenBaseWorker(
             # 5. IDENTITY SWAP (Supervisor roles only)
             # Delegates to parent class Orchestrator method. A no-op for workers.
             # ------------------------------------------------------------------
-            await self._handle_role_based_identity_swap(
-                requested_model=pre_mapped_model
-            )
+            await self._handle_role_based_identity_swap(requested_model=pre_mapped_model)
 
             # ------------------------------------------------------------------
             # SCRATCHPAD THREAD PINNING
@@ -330,9 +322,7 @@ class QwenBaseWorker(
             if not self._scratch_pad_thread:
                 self._scratch_pad_thread = thread_id
 
-            LOG.info(
-                "STREAM ▸ Scratchpad thread pinned to: %s", self._scratch_pad_thread
-            )
+            LOG.info("STREAM ▸ Scratchpad thread pinned to: %s", self._scratch_pad_thread)
 
             # ------------------------------------------------------------------
             # 6. CONTEXT WINDOW CONSTRUCTION
@@ -362,9 +352,7 @@ class QwenBaseWorker(
 
             client = self._get_client_instance(api_key=api_key)
 
-            LOG.info(
-                f"\nRAW_CTX_DUMP_QUEN:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}"
-            )
+            LOG.info(f"\nRAW_CTX_DUMP_QUEN:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}")
             # ------------------------------------------------------------------
             # 7. THE STREAM LOOP
             # DeltaNormalizer handles Qwen/Kimi-specific tag parsing and yields
@@ -416,14 +404,10 @@ class QwenBaseWorker(
                 try:
                     self._decision_payload = json.loads(decision_buffer.strip())
                 except Exception:
-                    LOG.warning(
-                        f"Failed to parse decision buffer: {decision_buffer[:50]}..."
-                    )
+                    LOG.warning(f"Failed to parse decision buffer: {decision_buffer[:50]}...")
 
             # 8b. Extract Tool Calls from accumulated stream output
-            tool_calls_batch = self.parse_and_set_function_calls(
-                accumulated, assistant_reply
-            )
+            tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
 
             message_to_save = assistant_reply
             final_status = StatusEnum.completed.value
@@ -454,9 +438,7 @@ class QwenBaseWorker(
                 # Persist the structural representation, not the raw text
                 message_to_save = json.dumps(tool_calls_structure)
 
-            yield json.dumps(
-                {"type": "status", "status": "processing", "run_id": run_id}
-            )
+            yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
             # ------------------------------------------------------------------
             # 10. FINALIZE & PERSIST
@@ -476,9 +458,7 @@ class QwenBaseWorker(
                 )
 
             if not tool_calls_batch:
-                yield json.dumps(
-                    {"type": "status", "status": "complete", "run_id": run_id}
-                )
+                yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
         except Exception as exc:
             LOG.error(f"Stream Exception: {exc}")
@@ -536,9 +516,7 @@ class QwenBaseWorker(
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                agen = self.stream(
-                    thread_id, message_id, run_id, assistant_id, model, **kwargs
-                )
+                agen = self.stream(thread_id, message_id, run_id, assistant_id, model, **kwargs)
                 while True:
                     try:
                         yield loop.run_until_complete(agen.__anext__())
@@ -567,9 +545,7 @@ class QwenBaseWorker(
             queue_ref.append(q)
 
             async def _drain() -> None:
-                agen = self.stream(
-                    thread_id, message_id, run_id, assistant_id, model, **kwargs
-                )
+                agen = self.stream(thread_id, message_id, run_id, assistant_id, model, **kwargs)
                 try:
                     async for item in agen:
                         q.put(item)

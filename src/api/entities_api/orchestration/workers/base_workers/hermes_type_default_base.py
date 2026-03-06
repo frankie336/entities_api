@@ -84,9 +84,7 @@ class HermesDefaultBaseWorker(
         self._assistant_cache: AssistantCache | None = None
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(
-            extra["assistant_cache"], AssistantCache
-        ):
+        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
             self._assistant_cache = extra["assistant_cache"]
 
         # 4. Setup Config
@@ -102,9 +100,7 @@ class HermesDefaultBaseWorker(
         self.base_url = base_url or os.getenv("BASE_URL")
         self.api_key = api_key or extra.get("api_key")
 
-        self.model_name = extra.get(
-            "model_name", "deepcogito/cogito-v2-preview-llama-405B"
-        )
+        self.model_name = extra.get("model_name", "deepcogito/cogito-v2-preview-llama-405B")
         self.max_context_window = extra.get("max_context_window", 128000)
         self.threshold_percentage = extra.get("threshold_percentage", 0.8)
 
@@ -176,9 +172,7 @@ class HermesDefaultBaseWorker(
         pre_mapped_model = model
         try:
             # 2. Model Mapping
-            if hasattr(self, "_get_model_map") and (
-                mapped := self._get_model_map(model)
-            ):
+            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
                 model = mapped
 
             self.assistant_id = assistant_id
@@ -233,9 +227,7 @@ class HermesDefaultBaseWorker(
 
             # C. Execute Identity Swap (Refactored for Generalized Roles)
             # This handles the supervisor creation, ID swapping, and config reloading
-            await self._handle_role_based_identity_swap(
-                requested_model=pre_mapped_model
-            )
+            await self._handle_role_based_identity_swap(requested_model=pre_mapped_model)
 
             # ------------------------------------------------------------------
             # SCRATCHPAD THREAD PINNING
@@ -252,9 +244,7 @@ class HermesDefaultBaseWorker(
             if not self._scratch_pad_thread:
                 self._scratch_pad_thread = thread_id
 
-            LOG.info(
-                "STREAM ▸ Scratchpad thread pinned to: %s", self._scratch_pad_thread
-            )
+            LOG.info("STREAM ▸ Scratchpad thread pinned to: %s", self._scratch_pad_thread)
 
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", False)
@@ -264,9 +254,7 @@ class HermesDefaultBaseWorker(
             web_access_setting = self.assistant_config.get("web_access", False)
 
             # 2. Extract Worker / Junior flags
-            research_worker_setting = self.assistant_config.get(
-                "is_research_worker", False
-            )
+            research_worker_setting = self.assistant_config.get("is_research_worker", False)
             raw_meta = self.assistant_config.get("meta_data", {})
             is_junior_val = raw_meta.get(
                 "junior_engineer", raw_meta.get("junior_engineer_calling", False)
@@ -379,19 +367,13 @@ class HermesDefaultBaseWorker(
                 try:
                     self._decision_payload = json.loads(decision_buffer.strip())
                 except Exception:
-                    LOG.warning(
-                        f"Failed to parse decision buffer: {decision_buffer[:50]}..."
-                    )
+                    LOG.warning(f"Failed to parse decision buffer: {decision_buffer[:50]}...")
 
-            yield json.dumps(
-                {"type": "status", "status": "processing", "run_id": run_id}
-            )
+            yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
             # 6. Parse Tools & Sync IDs
             # The parser ensures every tool in the list has a 'id' key.
-            tool_calls_batch = self.parse_and_set_function_calls(
-                accumulated, assistant_reply
-            )
+            tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
 
             message_to_save = assistant_reply
             final_status = StatusEnum.completed.value
@@ -424,9 +406,7 @@ class HermesDefaultBaseWorker(
                 # CRITICAL: We overwrite message_to_save with the standard tool structure
                 message_to_save = json.dumps(tool_calls_structure)
 
-                LOG.info(
-                    f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}"
-                )
+                LOG.info(f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}")
 
             # Persistence: Assistant Plan/Actions saved to Thread
             if message_to_save:
@@ -444,9 +424,7 @@ class HermesDefaultBaseWorker(
                 )
 
             if not tool_calls_batch:
-                yield json.dumps(
-                    {"type": "status", "status": "complete", "run_id": run_id}
-                )
+                yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
         except Exception as exc:
             LOG.error(f"DEBUG: Stream Exception: {exc}")
@@ -506,9 +484,7 @@ class HermesDefaultBaseWorker(
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                agen = self.stream(
-                    thread_id, message_id, run_id, assistant_id, model, **kwargs
-                )
+                agen = self.stream(thread_id, message_id, run_id, assistant_id, model, **kwargs)
                 while True:
                     try:
                         yield loop.run_until_complete(agen.__anext__())
@@ -537,9 +513,7 @@ class HermesDefaultBaseWorker(
             queue_ref.append(q)
 
             async def _drain() -> None:
-                agen = self.stream(
-                    thread_id, message_id, run_id, assistant_id, model, **kwargs
-                )
+                agen = self.stream(thread_id, message_id, run_id, assistant_id, model, **kwargs)
                 try:
                     async for item in agen:
                         q.put(item)

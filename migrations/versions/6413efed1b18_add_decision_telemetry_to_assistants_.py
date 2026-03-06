@@ -43,9 +43,7 @@ def upgrade() -> None:
 
     # 2. DATA SANITIZATION (Critical for Type Conversion)
     # We must convert strings like 'standard' to '0' so MySQL can cast to Boolean/TINYINT.
-    LOG_MSG = (
-        "Mapping 'standard' to 0 and all other strings to 1 for Boolean conversion..."
-    )
+    LOG_MSG = "Mapping 'standard' to 0 and all other strings to 1 for Boolean conversion..."
     op.execute("UPDATE assistants SET agent_mode = '0' WHERE agent_mode = 'standard'")
     # Catch-all for any other strings to ensure they are truthy (1)
     op.execute("UPDATE assistants SET agent_mode = '1' WHERE agent_mode != '0'")

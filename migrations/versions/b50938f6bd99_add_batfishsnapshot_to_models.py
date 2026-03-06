@@ -167,12 +167,8 @@ def downgrade() -> None:
 
     # --- Table: batfish_snapshots ---
     if has_table("batfish_snapshots"):
-        op.drop_index(
-            op.f("ix_batfish_snapshots_user_id"), table_name="batfish_snapshots"
-        )
-        op.drop_index(
-            op.f("ix_batfish_snapshots_snapshot_key"), table_name="batfish_snapshots"
-        )
+        op.drop_index(op.f("ix_batfish_snapshots_user_id"), table_name="batfish_snapshots")
+        op.drop_index(op.f("ix_batfish_snapshots_snapshot_key"), table_name="batfish_snapshots")
         op.drop_index(op.f("ix_batfish_snapshots_id"), table_name="batfish_snapshots")
         op.drop_index("idx_batfish_user_id", table_name="batfish_snapshots")
         op.drop_index("idx_batfish_status", table_name="batfish_snapshots")

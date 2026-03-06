@@ -38,9 +38,7 @@ class HyperbolicHandler:
     def __init__(self, arbiter: InferenceArbiter):
         self.arbiter = arbiter
         # Sort by length descending to match most specific key first
-        self._sorted_sub_routes = sorted(
-            self.SUBMODEL_CLASS_MAP.keys(), key=len, reverse=True
-        )
+        self._sorted_sub_routes = sorted(self.SUBMODEL_CLASS_MAP.keys(), key=len, reverse=True)
         LOG.info("HyperbolicHandler consolidated dispatcher initialized.")
 
     def _get_specific_handler_instance(self, unified_model_id: str) -> Any:
@@ -51,9 +49,7 @@ class HyperbolicHandler:
         lower_id = unified_model_id.lower()
 
         # Strip platform prefix
-        sub_model_id = (
-            lower_id[len(prefix) :] if lower_id.startswith(prefix) else lower_id
-        )
+        sub_model_id = lower_id[len(prefix) :] if lower_id.startswith(prefix) else lower_id
 
         specific_cls: Optional[Type[Any]] = None
         for route_key in self._sorted_sub_routes:

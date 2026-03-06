@@ -44,9 +44,7 @@ class SSEManager:
             )
             if not sse_subscribers[run_id]:
                 del sse_subscribers[run_id]
-                logger.info(
-                    f"SSEManager: No subscribers remaining for {run_id}. Removed entry."
-                )
+                logger.info(f"SSEManager: No subscribers remaining for {run_id}. Removed entry.")
         except KeyError:
             logger.warning(
                 f"SSEManager: Attempted to remove subscriber for non-existent run_id entry: {run_id}"
@@ -56,9 +54,7 @@ class SSEManager:
                 f"SSEManager: Attempted to remove a queue instance not found for run_id: {run_id}"
             )
 
-    async def broadcast_event(
-        self, run_id: str, event_type: str, event_data: Dict[str, Any]
-    ):
+    async def broadcast_event(self, run_id: str, event_type: str, event_data: Dict[str, Any]):
         """
         Formats an event and puts it into the queues of all clients subscribed to the run_id.
 

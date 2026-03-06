@@ -84,9 +84,7 @@ class FirecrawlService:
                     time.sleep(self.retry_delay)
                     retries += 1
                 else:
-                    logging_utility.warning(
-                        f"Unexpected job status: {results.get('status')}"
-                    )
+                    logging_utility.warning(f"Unexpected job status: {results.get('status')}")
                     break
             else:
                 logging_utility.error("Failed to retrieve job status.")
@@ -109,13 +107,9 @@ class FirecrawlService:
                     print(results_data)
                     results_markdown_dict = results_data[0]
                     print(results_markdown_dict)
-                    current_page = extract_skip_to_content_url(
-                        results_markdown_dict["markdown"]
-                    )
+                    current_page = extract_skip_to_content_url(results_markdown_dict["markdown"])
                     if current_page:
-                        tokens_per_current_page = count_tokens(
-                            input_string=current_page
-                        )
+                        tokens_per_current_page = count_tokens(input_string=current_page)
                         self.token_count.append(tokens_per_current_page)
                         print(self.token_count)
                         print(current_page)

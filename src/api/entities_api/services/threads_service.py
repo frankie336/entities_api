@@ -37,9 +37,7 @@ class ThreadService:
         """Create a new thread and attach participants."""
         # Each method now creates and manages its own session.
         with SessionLocal() as db:
-            existing_users = (
-                db.query(User).filter(User.id.in_(thread.participant_ids)).all()
-            )
+            existing_users = db.query(User).filter(User.id.in_(thread.participant_ids)).all()
             if len(existing_users) != len(thread.participant_ids):
                 raise HTTPException(status_code=400, detail="Invalid user IDs")
 
@@ -78,9 +76,7 @@ class ThreadService:
                 try:
                     msg_cache = get_sync_message_cache()
                     msg_cache.delete_history_sync(thread_id)
-                    logging_utility.info(
-                        f"Invalidated message cache for thread: {thread_id}"
-                    )
+                    logging_utility.info(f"Invalidated message cache for thread: {thread_id}")
                 except Exception as e:
                     logging_utility.error(f"Failed to invalidate message cache: {e}")
 
@@ -93,12 +89,7 @@ class ThreadService:
 
     def list_threads_by_user(self, user_id: str) -> List[str]:
         with SessionLocal() as db:
-            threads = (
-                db.query(Thread)
-                .join(Thread.participants)
-                .filter(User.id == user_id)
-                .all()
-            )
+            threads = db.query(Thread).join(Thread.participants).filter(User.id == user_id).all()
             return [thread.id for thread in threads]
 
     def update_thread_metadata(
@@ -130,10 +121,7 @@ class ThreadService:
                 current_metadata.update(update_data["meta_data"])
                 db_thread.meta_data = current_metadata
 
-            if (
-                "tool_resources" in update_data
-                and update_data["tool_resources"] is not None
-            ):
+            if "tool_resources" in update_data and update_data["tool_resources"] is not None:
                 db_thread.tool_resources = update_data["tool_resources"]
 
             for key, value in update_data.items():
@@ -178,8 +166,7 @@ class ThreadService:
         # calling context. This is safe as it's only called from methods
         # that already have an active `with SessionLocal() as db:` block.
         participants = [
-            ValidationInterface.UserBase.from_orm(user)
-            for user in db_thread.participants
+            ValidationInterface.UserBase.from_orm(user) for user in db_thread.participants
         ]
         return validator.ThreadReadDetailed(
             id=db_thread.id,

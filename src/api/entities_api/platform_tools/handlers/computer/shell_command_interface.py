@@ -20,9 +20,7 @@ class ShellCommandInterface:
         idle_timeout: float = 2.0,
     ):
         self.logging_utility = LoggingUtility()
-        self.endpoint = endpoint or os.getenv(
-            "SHELL_SERVER_URL", "ws://localhost:8000/ws/computer"
-        )
+        self.endpoint = endpoint or os.getenv("SHELL_SERVER_URL", "ws://localhost:8000/ws/computer")
         self.default_thread_id = thread_id or "thread_default_id"
         self.idle_timeout = idle_timeout
 
@@ -42,9 +40,7 @@ class ShellCommandInterface:
 
         # CRITICAL CHANGE: "async for" instead of "await"
         # We iterate over the chunks coming from the client
-        async for chunk in run_commands(
-            commands, target_room, token=token, elevated=elevated
-        ):
+        async for chunk in run_commands(commands, target_room, token=token, elevated=elevated):
             yield chunk
 
     def run_commands(

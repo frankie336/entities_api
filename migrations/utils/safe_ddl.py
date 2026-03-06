@@ -58,9 +58,7 @@ def add_column_if_missing(table_name: str, column: sa.Column) -> None:
             batch_op.add_column(column)
         _log(f"✅ Added column: {table_name}.{column.name}")
     else:
-        _log(
-            f"⚠️ Skipped add column – column already exists: {table_name}.{column.name}"
-        )
+        _log(f"⚠️ Skipped add column – column already exists: {table_name}.{column.name}")
 
 
 def drop_column_if_exists(table_name: str, column_name: str) -> None:
@@ -74,9 +72,7 @@ def drop_column_if_exists(table_name: str, column_name: str) -> None:
             batch_op.drop_column(column_name)
         _log(f"🗑️ Dropped column: {table_name}.{column_name}")
     else:
-        _log(
-            f"⚠️ Skipped drop column – column already absent: {table_name}.{column_name}"
-        )
+        _log(f"⚠️ Skipped drop column – column already absent: {table_name}.{column_name}")
 
 
 def safe_alter_column(table_name: str, column_name: str, **kwargs: Any) -> None:

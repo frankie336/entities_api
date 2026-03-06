@@ -92,9 +92,7 @@ def upload_file_endpoint(
     return FileResponse.model_validate(created)
 
 
-@router.get(
-    "/files/{file_id}", response_model=FileResponse, summary="Retrieve file metadata"
-)
+@router.get("/files/{file_id}", response_model=FileResponse, summary="Retrieve file metadata")
 def retrieve_file_metadata(
     file_id: str,
     db: Session = Depends(get_db),
@@ -108,9 +106,7 @@ def retrieve_file_metadata(
     return FileResponse.model_validate(data)
 
 
-@router.delete(
-    "/files/{file_id}", response_model=FileDeleteResponse, summary="Delete a file"
-)
+@router.delete("/files/{file_id}", response_model=FileDeleteResponse, summary="Delete a file")
 def delete_file_endpoint(
     file_id: str,
     db: Session = Depends(get_db),
@@ -185,9 +181,7 @@ def generate_signed_url(
     return {"signed_url": url}
 
 
-@router.get(
-    "/files/{file_id}/base64", response_model=dict, summary="Get file as Base64"
-)
+@router.get("/files/{file_id}/base64", response_model=dict, summary="Get file as Base64")
 def get_file_as_base64(
     file_id: str,
     db: Session = Depends(get_db),

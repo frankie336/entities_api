@@ -53,9 +53,7 @@ def upgrade() -> None:
     insp = inspect(bind)
     indexes = [idx["name"] for idx in insp.get_indexes("actions")]
     if "ix_actions_tool_call_id" not in indexes:
-        op.create_index(
-            op.f("ix_actions_tool_call_id"), "actions", ["tool_call_id"], unique=False
-        )
+        op.create_index(op.f("ix_actions_tool_call_id"), "actions", ["tool_call_id"], unique=False)
 
     # --- Table: assistants ---
     add_column_if_missing(
@@ -109,9 +107,7 @@ def upgrade() -> None:
     )
 
     # Ensure function_call is NOT NULL
-    safe_alter_column(
-        "messages", "function_call", existing_type=mysql.TEXT(), nullable=False
-    )
+    safe_alter_column("messages", "function_call", existing_type=mysql.TEXT(), nullable=False)
 
     # --- Table: runs ---
     add_column_if_missing(
@@ -171,9 +167,7 @@ def downgrade() -> None:
     drop_column_if_exists("runs", "current_turn")
 
     # --- Table: messages ---
-    safe_alter_column(
-        "messages", "function_call", existing_type=mysql.TEXT(), nullable=True
-    )
+    safe_alter_column("messages", "function_call", existing_type=mysql.TEXT(), nullable=True)
     drop_column_if_exists("messages", "tool_call_id")
     drop_column_if_exists("messages", "tool_calls")
     drop_column_if_exists("messages", "reasoning")

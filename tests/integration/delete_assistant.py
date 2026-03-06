@@ -66,7 +66,5 @@ retrieve_assistant = client.assistants.retrieve_assistant(assistant.id)
 print(retrieve_assistant)
 
 
-delete_assistant = client.assistants.delete_assistant(
-    assistant_id=assistant.id, permanent=True
-)
+delete_assistant = client.assistants.delete_assistant(assistant_id=assistant.id, permanent=True)
 print(delete_assistant)

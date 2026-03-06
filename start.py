@@ -28,9 +28,7 @@ except ImportError:
 from dotenv import load_dotenv  # Keep for loading existing .env if needed
 
 # Standard Python logging setup
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 log = logging.getLogger(__name__)
 
 # --- Constants ---
@@ -419,9 +417,7 @@ class DockerManager:
                 self.log.debug(
                     f"Ignoring placeholder '{value}' from compose for key '{env_key}' - will be generated if needed."
                 )
-        self.log.debug(
-            f"Applied {compose_overrides} overrides from {self._DOCKER_COMPOSE_FILE}."
-        )
+        self.log.debug(f"Applied {compose_overrides} overrides from {self._DOCKER_COMPOSE_FILE}.")
 
         # Step 3: Force generation of REQUIRED secrets (overwrites defaults AND compose placeholders)
         secrets_generated = 0
@@ -453,16 +449,12 @@ class DockerManager:
 
         if all([db_user, db_pass is not None, db_host, db_port, db_name]):
             try:
-                escaped_pass = quote_plus(
-                    str(db_pass)
-                )  # Ensure password is URL encoded
+                escaped_pass = quote_plus(str(db_pass))  # Ensure password is URL encoded
                 # Internal URL (container-to-container)
                 env_values["DATABASE_URL"] = (
                     f"mysql+pymysql://{db_user}:{escaped_pass}@{db_host}:{db_port}/{db_name}"
                 )
-                generation_log["DATABASE_URL"] = (
-                    "Constructed from DB components (for internal use)"
-                )
+                generation_log["DATABASE_URL"] = "Constructed from DB components (for internal use)"
 
                 # External/Host URL (for accessing DB from host machine)
                 host_db_port = self._get_host_port_from_compose_service(
@@ -481,9 +473,7 @@ class DockerManager:
                         f"SPECIAL_DB_URL cannot be constructed."
                     )
                     if "SPECIAL_DB_URL" in env_values:
-                        del env_values[
-                            "SPECIAL_DB_URL"
-                        ]  # Remove if present but cannot be built
+                        del env_values["SPECIAL_DB_URL"]  # Remove if present but cannot be built
                     generation_log["SPECIAL_DB_URL"] = "Skipped: Host port not found"
             except Exception as db_url_err:
                 log.error(
@@ -558,9 +548,7 @@ class DockerManager:
                     env_lines.append(f'{key}="{escaped_value}"')
                 else:
                     env_lines.append(f"{key}={value}")
-                processed_keys.add(
-                    key
-                )  # Add to processed to avoid duplication if logic changes
+                processed_keys.add(key)  # Add to processed to avoid duplication if logic changes
             env_lines.append("")
 
         # Final content and write to file
@@ -603,9 +591,7 @@ class DockerManager:
             if system == "windows":
                 shared_path = os.path.join(default_base, "entities_share")
             elif system == "linux":
-                shared_path = os.path.join(
-                    default_base, ".local", "share", "entities_share"
-                )
+                shared_path = os.path.join(default_base, ".local", "share", "entities_share")
             elif system == "darwin":  # macOS
                 shared_path = os.path.join(
                     default_base, "Library", "Application Support", "entities_share"
@@ -711,9 +697,7 @@ class DockerManager:
                     capture_output=True,
                     suppress_logs=not self.args.verbose,
                 )
-                self.log.debug(
-                    "nvidia-smi executed successfully, NVIDIA support detected."
-                )
+                self.log.debug("nvidia-smi executed successfully, NVIDIA support detected.")
                 return True
             except subprocess.CalledProcessError as e:
                 self.log.debug(
@@ -735,9 +719,7 @@ class DockerManager:
                 )
                 return False
         else:
-            self.log.debug(
-                "nvidia-smi command not found in PATH. Assuming no NVIDIA GPU support."
-            )
+            self.log.debug("nvidia-smi command not found in PATH. Assuming no NVIDIA GPU support.")
             return False
 
     def _start_ollama(self, cpu_only=True):
@@ -748,21 +730,15 @@ class DockerManager:
 
         container_name = self._OLLAMA_CONTAINER
         if self._is_container_running(container_name):
-            self.log.info(
-                "External Ollama container '%s' is already running.", container_name
-            )
+            self.log.info("External Ollama container '%s' is already running.", container_name)
             return True
 
         image_name = self._OLLAMA_IMAGE
         if not self._is_image_present(image_name):
-            self.log.info(
-                "Pulling Ollama image '%s' (this may take a moment)...", image_name
-            )
+            self.log.info("Pulling Ollama image '%s' (this may take a moment)...", image_name)
             try:
                 # Run pull command without suppressing logs to show progress
-                self._run_command(
-                    ["docker", "pull", image_name], check=True, suppress_logs=False
-                )
+                self._run_command(["docker", "pull", image_name], check=True, suppress_logs=False)
                 self.log.info("Successfully pulled image '%s'.", image_name)
             except Exception as e:
                 self.log.error(
@@ -809,9 +785,7 @@ class DockerManager:
 
         # Execute the docker run command
         try:
-            self._run_command(
-                cmd, check=True, suppress_logs=False
-            )  # Show the command being run
+            self._run_command(cmd, check=True, suppress_logs=False)  # Show the command being run
             self.log.info("Ollama container '%s' starting...", container_name)
 
             # Basic check to see if it started - wait a few seconds
@@ -862,9 +836,7 @@ class DockerManager:
     def _ensure_ollama(self, opt_in=False, use_gpu=False):
         """Ensures the external Ollama container is running if opted in."""
         if not opt_in:
-            self.log.info(
-                "External Ollama management not requested via --with-ollama; skipping."
-            )
+            self.log.info("External Ollama management not requested via --with-ollama; skipping.")
             return True  # Indicate success (or rather, no action needed)
 
         self.log.info("--- External Ollama Setup ---")
@@ -875,9 +847,7 @@ class DockerManager:
                 "Running inside a Docker container or using a remote Docker daemon. "
                 "Skipping management of external Ollama container to avoid conflicts."
             )
-            return (
-                True  # Assume Ollama might be managed elsewhere or not needed directly
-            )
+            return True  # Assume Ollama might be managed elsewhere or not needed directly
 
         # Check OS specifics (e.g., macOS GPU limitations)
         if platform.system() == "Darwin":
@@ -895,9 +865,7 @@ class DockerManager:
         # Determine mode (CPU or attempt GPU)
         attempt_gpu = use_gpu  # Respect the --ollama-gpu flag initially
         mode_str = "GPU" if attempt_gpu else "CPU"
-        self.log.info(
-            "Attempting to start external Ollama container in %s mode...", mode_str
-        )
+        self.log.info("Attempting to start external Ollama container in %s mode...", mode_str)
 
         # Call the start function, passing whether to force CPU only
         # Note: _start_ollama handles the actual check for NVIDIA support if attempt_gpu is True
@@ -916,16 +884,12 @@ class DockerManager:
         self.log.debug(f"Calculating directory size for: {start_path}")
         try:
             for item in start_path.rglob("*"):  # Recursively glob all items
-                if (
-                    item.is_file() and not item.is_symlink()
-                ):  # Ensure it's a file and not a symlink
+                if item.is_file() and not item.is_symlink():  # Ensure it's a file and not a symlink
                     try:
                         total_size += item.stat().st_size
                     except FileNotFoundError:
                         # File might have been deleted between rglob and stat
-                        self.log.debug(
-                            f"File not found during size calculation: {item}"
-                        )
+                        self.log.debug(f"File not found during size calculation: {item}")
                         continue
                     except OSError as e:
                         self.log.debug(f"Could not get size for {item}: {e}")
@@ -987,9 +951,7 @@ class DockerManager:
                         f"Services defined in '{self._DOCKER_COMPOSE_FILE}': {', '.join(services)}"
                     )
                 else:
-                    self.log.info(
-                        f"No services found in '{self._DOCKER_COMPOSE_FILE}'."
-                    )
+                    self.log.info(f"No services found in '{self._DOCKER_COMPOSE_FILE}'.")
                     services = []  # Ensure it's a list
             except Exception as e:
                 self.log.warning(
@@ -1059,19 +1021,14 @@ class DockerManager:
                         )
 
                         if history_res.returncode == 0 and history_res.stdout.strip():
-                            self.log.info(
-                                "Layer ID     | Size         | Created By Command"
-                            )
-                            self.log.info(
-                                "------------ | ------------ | ------------------"
-                            )
+                            self.log.info("Layer ID     | Size         | Created By Command")
+                            self.log.info("------------ | ------------ | ------------------")
                             for line in history_res.stdout.strip().splitlines():
                                 self.log.info(line)
                             large_layers = [
                                 line
                                 for line in history_res.stdout.strip().splitlines()
-                                if "MB" in line.split("|")[1]
-                                or "GB" in line.split("|")[1]
+                                if "MB" in line.split("|")[1] or "GB" in line.split("|")[1]
                             ]
 
                             if len(large_layers) > 5:
@@ -1128,9 +1085,7 @@ class DockerManager:
             # Prompt for confirmation
             confirm = input(">>> Type 'confirm nuke' exactly to proceed: ")
         except EOFError:  # Handle non-interactive environments
-            self.log.error(
-                "Nuke operation requires interactive confirmation. Aborting."
-            )
+            self.log.error("Nuke operation requires interactive confirmation. Aborting.")
             sys.exit(1)
 
         if confirm.strip() != "confirm nuke":
@@ -1217,9 +1172,7 @@ class DockerManager:
                 sys.exit(1)
 
             if confirm != "yes":
-                self.log.info(
-                    "Volume deletion cancelled. Proceeding to stop containers only."
-                )
+                self.log.info("Volume deletion cancelled. Proceeding to stop containers only.")
                 volume_flag = False  # Revert to stopping containers only
                 action = "Stopping containers"  # Update action description
             else:
@@ -1249,9 +1202,7 @@ class DockerManager:
             )
         except Exception as e:
             # Log error but don't necessarily exit, as 'down' might be part of a larger workflow
-            self.log.error(
-                f"Error during 'docker compose down': {e}", exc_info=self.args.verbose
-            )
+            self.log.error(f"Error during 'docker compose down': {e}", exc_info=self.args.verbose)
 
     def _handle_build(self):
         """Handles the 'build' command."""
@@ -1261,15 +1212,11 @@ class DockerManager:
             if target_services
             else " for all buildable services"
         )
-        cache_desc = (
-            " without cache (--no-cache)" if self.args.no_cache else " using cache"
-        )
+        cache_desc = " without cache (--no-cache)" if self.args.no_cache else " using cache"
         parallel_desc = " in parallel (--parallel)" if self.args.parallel else ""
         pull_desc = " (will attempt to pull base_workers images)"  # Default behavior
 
-        self.log.info(
-            f"Building images{target_desc}{cache_desc}{parallel_desc}{pull_desc}..."
-        )
+        self.log.info(f"Building images{target_desc}{cache_desc}{parallel_desc}{pull_desc}...")
 
         # Construct build command
         build_cmd = ["docker", "compose", "-f", self._DOCKER_COMPOSE_FILE, "build"]
@@ -1291,17 +1238,13 @@ class DockerManager:
             # Run build, show output, check for errors
             self._run_command(build_cmd, check=True, suppress_logs=False)
             t_end = time.time()
-            self.log.info(
-                "Build completed successfully in %.2f seconds.", t_end - t_start
-            )
+            self.log.info("Build completed successfully in %.2f seconds.", t_end - t_start)
 
             # Tag images if requested
             if self.args.tag:
                 self.log.info(f"Tagging built images with tag '{self.args.tag}'...")
                 # Pass only the services that were targeted for the build (or None for all)
-                self._tag_images(
-                    self.args.tag, targeted_services=target_services or None
-                )
+                self._tag_images(self.args.tag, targeted_services=target_services or None)
 
         except subprocess.CalledProcessError as e:
             # Build failed
@@ -1329,9 +1272,7 @@ class DockerManager:
         tail_desc = f" (last {self.args.tail} lines)" if self.args.tail else ""
         timestamps_desc = " with timestamps" if self.args.timestamps else ""
 
-        self.log.info(
-            f"Fetching logs{target_desc}{follow_desc}{tail_desc}{timestamps_desc}..."
-        )
+        self.log.info(f"Fetching logs{target_desc}{follow_desc}{tail_desc}{timestamps_desc}...")
 
         # Construct docker compose logs command
         logs_cmd = ["docker", "compose", "-f", self._DOCKER_COMPOSE_FILE, "logs"]
@@ -1494,20 +1435,14 @@ class DockerManager:
         mode = "attached (logs will stream)" if self.args.attached else "detached (-d)"
         target_services = self.args.services or []
         target_desc = (
-            f" services: {', '.join(target_services)}"
-            if target_services
-            else " all services"
+            f" services: {', '.join(target_services)}" if target_services else " all services"
         )
         build_opt = " with build (--build)" if self.args.build_before_up else ""
         force_recreate_opt = (
-            " with force-recreate (--force-recreate)"
-            if self.args.force_recreate
-            else ""
+            " with force-recreate (--force-recreate)" if self.args.force_recreate else ""
         )
 
-        self.log.info(
-            f"Starting {target_desc} in {mode} mode{build_opt}{force_recreate_opt}..."
-        )
+        self.log.info(f"Starting {target_desc} in {mode} mode{build_opt}{force_recreate_opt}...")
 
         # Construct docker compose up command
         up_cmd = ["docker", "compose", "-f", self._DOCKER_COMPOSE_FILE, "up"]
@@ -1553,9 +1488,7 @@ class DockerManager:
 
         except subprocess.CalledProcessError as e:
             # 'docker compose up' command failed
-            self.log.critical(
-                f"'docker compose up' failed (Return Code: {e.returncode})."
-            )
+            self.log.critical(f"'docker compose up' failed (Return Code: {e.returncode}).")
             # Attempt to show logs for diagnostics, even if detached
             self.log.info("Attempting to show recent logs for failed services...")
             try:
@@ -1621,18 +1554,14 @@ class DockerManager:
         if self.args.down or self.args.clear_volumes:
             self._handle_down()
             if mode == "down_only":
-                self.log.info(
-                    "Mode 'down_only' selected. Script finished after 'down' operation."
-                )
+                self.log.info("Mode 'down_only' selected. Script finished after 'down' operation.")
                 sys.exit(0)  # Exit after down if mode is down_only
 
         # Handle 'build' action
         if mode in ["build", "both"]:
             self._handle_build()
             if mode == "build":
-                self.log.info(
-                    "Mode 'build' selected. Script finished after 'build' operation."
-                )
+                self.log.info("Mode 'build' selected. Script finished after 'build' operation.")
                 sys.exit(0)  # Exit after build if mode is build
 
         # Handle 'up' action (implicit in 'up' and 'both' modes)
@@ -1641,9 +1570,7 @@ class DockerManager:
             self._handle_up()
 
         end_time = time.time()
-        self.log.info(
-            f"Docker management script finished in {end_time - start_time:.2f} seconds."
-        )
+        self.log.info(f"Docker management script finished in {end_time - start_time:.2f} seconds.")
 
     @staticmethod
     def parse_args():
@@ -1759,9 +1686,7 @@ class DockerManager:
         )
 
         # --- External Ollama Management ---
-        ollama_group = parser.add_argument_group(
-            "External Ollama Management (Optional)"
-        )
+        ollama_group = parser.add_argument_group("External Ollama Management (Optional)")
         ollama_group.add_argument(
             "--with-ollama",
             action="store_true",
@@ -1798,9 +1723,7 @@ class DockerManager:
             log.debug("--clear-volumes implies --down.")
 
         # If only --down or --clear-volumes is specified with default mode 'up', change mode to 'down_only'
-        build_flags_set = (
-            args.tag or args.no_cache or args.parallel or args.build_before_up
-        )
+        build_flags_set = args.tag or args.no_cache or args.parallel or args.build_before_up
         up_flags_set = args.attached or args.force_recreate
         if args.down and args.mode == "up" and not (build_flags_set or up_flags_set):
             args.mode = "down_only"
@@ -1817,9 +1740,7 @@ class DockerManager:
 
         # Disallow --build-before-up with modes that already include build or only down
         if args.build_before_up and args.mode in ["build", "down_only", "both"]:
-            parser.error(
-                f"--build-before-up flag is redundant or invalid with --mode={args.mode}"
-            )
+            parser.error(f"--build-before-up flag is redundant or invalid with --mode={args.mode}")
 
         # Handle exclusive modes (--nuke, --debug-cache)
         exclusive_flags = []
@@ -1876,9 +1797,7 @@ if __name__ == "__main__":
         arguments = DockerManager.parse_args()
     except Exception as parse_err:
         # argparse usually handles errors and exits, but catch unexpected ones
-        log.critical(
-            f"Error parsing command line arguments: {parse_err}", exc_info=True
-        )
+        log.critical(f"Error parsing command line arguments: {parse_err}", exc_info=True)
         sys.exit(1)
 
     # Step 2: Set logging level based on args
@@ -1914,7 +1833,5 @@ if __name__ == "__main__":
         sys.exit(1)
     except Exception as e:
         # Catch-all for unexpected errors
-        log.critical(
-            "An unexpected error occurred: %s", e, exc_info=log.level == logging.DEBUG
-        )
+        log.critical("An unexpected error occurred: %s", e, exc_info=log.level == logging.DEBUG)
         sys.exit(1)

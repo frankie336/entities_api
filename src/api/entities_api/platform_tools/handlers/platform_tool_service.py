@@ -45,9 +45,7 @@ class PlatformToolService:
 
     def _get_vector__search_handler(self):
         if self._vector_search_handler is None:
-            self._vector_search_handler = VectorSearchHandler(
-                assistant_id=self.assistant_id
-            )
+            self._vector_search_handler = VectorSearchHandler(assistant_id=self.assistant_id)
         return self._vector_search_handler
 
     def call_function(
@@ -85,9 +83,7 @@ class PlatformToolService:
                     self._get_vector__search_handler().execute_search
                 )
             elif function_name == "computer":
-                shell_service = ShellCommandInterface(
-                    thread_id=self.thread_id, idle_timeout=5
-                )
+                shell_service = ShellCommandInterface(thread_id=self.thread_id, idle_timeout=5)
                 self.function_handlers[function_name] = shell_service.run_commands
             else:
                 return {"error": f"Unsupported function: {function_name}"}

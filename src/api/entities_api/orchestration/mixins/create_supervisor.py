@@ -14,9 +14,7 @@ def create_supervisor_assistant(client: Entity):
     Creates the 'Brain' of the operation.
     """
 
-    supervisor_system_prompt = assemble_instructions(
-        include_keys=LEVEL_4_SUPERVISOR_INSTRUCTIONS
-    )
+    supervisor_system_prompt = assemble_instructions(include_keys=LEVEL_4_SUPERVISOR_INSTRUCTIONS)
 
     supervisor = client.assistants.create_assistant(
         name="Deep Research Supervisor",

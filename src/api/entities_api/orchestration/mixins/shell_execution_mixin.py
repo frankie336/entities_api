@@ -44,9 +44,7 @@ class ShellExecutionMixin:
         """
         secret = os.getenv("SANDBOX_AUTH_SECRET")
         if not secret:
-            LOG.error(
-                "CRITICAL: SANDBOX_AUTH_SECRET is missing in environment variables."
-            )
+            LOG.error("CRITICAL: SANDBOX_AUTH_SECRET is missing in environment variables.")
             raise ValueError("Server configuration error: Sandbox secret missing.")
 
         payload = {
@@ -100,8 +98,7 @@ class ShellExecutionMixin:
                 action = None
 
             error_msg = (
-                f"{validation_error}\n"
-                "Please correct the function arguments and try again."
+                f"{validation_error}\n" "Please correct the function arguments and try again."
             )
 
             await self.submit_tool_output(
@@ -178,8 +175,7 @@ class ShellExecutionMixin:
             final_state = True  # indicates error
         else:
             final_content = (
-                accumulated_content.strip()
-                or "Command executed successfully with no output."
+                accumulated_content.strip() or "Command executed successfully with no output."
             )
             final_state = False
 
@@ -197,8 +193,6 @@ class ShellExecutionMixin:
             self.project_david_client.actions.update_action,
             action_id=action.id,
             status=(
-                StatusEnum.completed.value
-                if not execution_had_error
-                else StatusEnum.failed.value
+                StatusEnum.completed.value if not execution_had_error else StatusEnum.failed.value
             ),
         )

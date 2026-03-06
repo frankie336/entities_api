@@ -103,9 +103,7 @@ class OrchestratorCore(
         # 2. Setup the Cache Service
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(
-            extra["assistant_cache"], AssistantCache
-        ):
+        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
             self._assistant_cache = extra["assistant_cache"]
 
         # 3. Setup the Data/Config
@@ -182,9 +180,7 @@ class OrchestratorCore(
         Populates self.assistant_config from Redis if not already set.
         """
         if not self.assistant_config and self.assistant_id:
-            self.assistant_config = (
-                await self.assistant_cache.retrieve(self.assistant_id) or {}
-            )
+            self.assistant_config = await self.assistant_cache.retrieve(self.assistant_id) or {}
             LOG.debug(f"Loaded config for {self.assistant_id}")
 
     async def _handle_role_based_identity_swap(self, requested_model: Any) -> None:
@@ -212,9 +208,7 @@ class OrchestratorCore(
         # ==========================================
         if self.is_deep_research:
             LOG.critical("██████ [DEEP_RESEARCH_MODE_ACTIVE] ██████")
-            ephemeral_lead = (
-                await assistant_manager.create_ephemeral_research_supervisor()
-            )
+            ephemeral_lead = await assistant_manager.create_ephemeral_research_supervisor()
             self._worker_thread = await assistant_manager.create_ephemeral_thread()
 
         # ==========================================
@@ -310,9 +304,7 @@ class OrchestratorCore(
                 current_block = "decision"
 
             accumulated += ccontent
-            decision_buffer += (
-                ccontent  # Capture specific buffer for JSON parsing later
-            )
+            decision_buffer += ccontent  # Capture specific buffer for JSON parsing later
 
         return current_block, accumulated, assistant_reply, decision_buffer, should_skip
 
@@ -390,21 +382,15 @@ class OrchestratorCore(
                     f"AgentMode: {self.assistant_config.get('agent_mode')}"
                 )
             else:
-                LOG.warning(
-                    f"⚠️ Cache Miss for {self.assistant_id} — fetching from source"
-                )
+                LOG.warning(f"⚠️ Cache Miss for {self.assistant_id} — fetching from source")
                 # Fallback: fetch from DB and re-populate cache
-                fresh_config = await self._fetch_assistant_config_from_db(
-                    self.assistant_id
-                )
+                fresh_config = await self._fetch_assistant_config_from_db(self.assistant_id)
                 if fresh_config:
                     self.assistant_config = fresh_config
                     await self.assistant_cache.store(self.assistant_id, fresh_config)
                     LOG.info(f"✅ Config rehydrated from DB for {self.assistant_id}")
                 else:
-                    LOG.error(
-                        f"❌ FATAL: No config found anywhere for {self.assistant_id}"
-                    )
+                    LOG.error(f"❌ FATAL: No config found anywhere for {self.assistant_id}")
 
         except Exception as e:
             LOG.error(f"❌ Error loading assistant config: {e}")
@@ -519,9 +505,7 @@ class OrchestratorCore(
                         yield chunk
 
                 except Exception as stream_exc:
-                    LOG.error(
-                        f"ORCHESTRATOR ▸ Turn {turn_count} stream failed: {stream_exc}"
-                    )
+                    LOG.error(f"ORCHESTRATOR ▸ Turn {turn_count} stream failed: {stream_exc}")
 
                     try:
                         await asyncio.to_thread(
@@ -611,9 +595,7 @@ class OrchestratorCore(
                 # RECURSION DECISION
                 # ------------------------------------------------------------------
                 if has_sdk_user_tool:
-                    LOG.info(
-                        "ORCHESTRATOR ▸ SDK tool detected. Handing control to SDK."
-                    )
+                    LOG.info("ORCHESTRATOR ▸ SDK tool detected. Handing control to SDK.")
                     return
 
                 LOG.info(

@@ -257,9 +257,7 @@ class NativeExecutionService:
         Raises HTTPException(404) if the thread does not exist (propagated
         from MessageService unchanged so callers handle it identically).
         """
-        return await asyncio.to_thread(
-            self.message_svc.get_formatted_messages, thread_id
-        )
+        return await asyncio.to_thread(self.message_svc.get_formatted_messages, thread_id)
 
     async def submit_tool_output(
         self,
@@ -303,9 +301,7 @@ class NativeExecutionService:
             action_id = action.id
             await self.update_action_status(action_id, StatusEnum.failed.value)
         except Exception as e:
-            LOG.error(
-                f"NativeExec ▸ Failed to create/update failure action for {tool_name}: {e}"
-            )
+            LOG.error(f"NativeExec ▸ Failed to create/update failure action for {tool_name}: {e}")
 
         await self.submit_tool_output(
             thread_id=thread_id,
@@ -320,9 +316,7 @@ class NativeExecutionService:
         """
         Update a run's status via the local RunService, bypassing the HTTP SDK.
         """
-        return await asyncio.to_thread(
-            self.run_svc.update_run_status, run_id, new_status
-        )
+        return await asyncio.to_thread(self.run_svc.update_run_status, run_id, new_status)
 
     async def save_assistant_message_chunk(
         self,

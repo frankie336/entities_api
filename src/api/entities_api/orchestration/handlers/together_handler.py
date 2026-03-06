@@ -67,9 +67,7 @@ class TogetherAIHandler:
         self.arbiter = arbiter
         # Sort keys by length descending. This ensures that if we ever add a specific
         # long-form override, it matches before the generic family prefix.
-        self._sorted_sub_routes = sorted(
-            self.SUBMODEL_CLASS_MAP.keys(), key=len, reverse=True
-        )
+        self._sorted_sub_routes = sorted(self.SUBMODEL_CLASS_MAP.keys(), key=len, reverse=True)
         LOG.info("TogetherAIHandler consolidated dispatcher initialized.")
 
     def _get_specific_handler_instance(self, unified_model_id: str) -> Any:
@@ -84,9 +82,7 @@ class TogetherAIHandler:
             sub_model_id = lower_id[len(prefix) :]
         else:
             sub_model_id = lower_id
-            LOG.warning(
-                f"Model ID '{unified_model_id}' missing expected prefix '{prefix}'."
-            )
+            LOG.warning(f"Model ID '{unified_model_id}' missing expected prefix '{prefix}'.")
 
         specific_cls: Optional[Type[Any]] = None
 

@@ -67,9 +67,7 @@ def upgrade() -> None:
         )
         print("[Alembic-safeDDL] ✅ Created index: ix_actions_confidence_score")
     else:
-        print(
-            "[Alembic-safeDDL] ⚠️ Skipped – index already exists: ix_actions_confidence_score"
-        )
+        print("[Alembic-safeDDL] ⚠️ Skipped – index already exists: ix_actions_confidence_score")
 
     # --- Table: messages ---
     # 4. Enforce non-nullable content (Maintenance from auto-gen)

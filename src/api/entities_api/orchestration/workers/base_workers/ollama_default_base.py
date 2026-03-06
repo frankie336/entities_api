@@ -81,9 +81,7 @@ class OllamaDefaultBaseWorker(
 
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
-        elif "assistant_cache" in extra and isinstance(
-            extra["assistant_cache"], AssistantCache
-        ):
+        elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
             self._assistant_cache = extra["assistant_cache"]
 
         legacy_config = extra.get("assistant_config") or extra.get("assistant_cache")
@@ -162,9 +160,7 @@ class OllamaDefaultBaseWorker(
 
         try:
             # ── Model alias resolution ────────────────────────────────────
-            if hasattr(self, "_get_model_map") and (
-                mapped := self._get_model_map(model)
-            ):
+            if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
                 model = mapped
 
             # ── Config ───────────────────────────────────────────────────
@@ -184,16 +180,12 @@ class OllamaDefaultBaseWorker(
 
             admin_client = Entity(api_key=os.environ.get("ADMIN_API_KEY"))
             try:
-                run = await asyncio.to_thread(
-                    admin_client.runs.retrieve_run, run_id=run_id
-                )
+                run = await asyncio.to_thread(admin_client.runs.retrieve_run, run_id=run_id)
                 self._run_user_id = run.user_id
                 meta = run.meta_data or {}
 
                 if self._batfish_owner_user_id is None:
-                    self._batfish_owner_user_id = (
-                        meta.get("batfish_owner_user_id") or run.user_id
-                    )
+                    self._batfish_owner_user_id = meta.get("batfish_owner_user_id") or run.user_id
                 if self._scratch_pad_thread is None and meta.get("scratch_pad_thread"):
                     self._scratch_pad_thread = meta["scratch_pad_thread"]
 
@@ -208,9 +200,7 @@ class OllamaDefaultBaseWorker(
                 LOG.warning("STREAM ▸ Could not resolve run_user_id: %s", exc)
 
             # ── Identity swap (supervisor / role-based) ───────────────────
-            await self._handle_role_based_identity_swap(
-                requested_model=pre_mapped_model
-            )
+            await self._handle_role_based_identity_swap(requested_model=pre_mapped_model)
 
             # Scratchpad: prefer meta_data value; fall back to thread_id
             if not self._scratch_pad_thread:
@@ -221,9 +211,7 @@ class OllamaDefaultBaseWorker(
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", True)
             web_access_setting = self.assistant_config.get("web_access", False)
-            research_worker_setting = self.assistant_config.get(
-                "is_research_worker", False
-            )
+            research_worker_setting = self.assistant_config.get("is_research_worker", False)
 
             raw_meta = self.assistant_config.get("meta_data", {})
             is_junior_val = raw_meta.get(
@@ -322,14 +310,10 @@ class OllamaDefaultBaseWorker(
                 try:
                     self._decision_payload = json.loads(decision_buffer.strip())
                 except Exception:
-                    LOG.warning(
-                        f"Failed to parse decision buffer: {decision_buffer[:50]}..."
-                    )
+                    LOG.warning(f"Failed to parse decision buffer: {decision_buffer[:50]}...")
 
             # 8b. Extract Tool Calls from accumulated stream output
-            tool_calls_batch = self.parse_and_set_function_calls(
-                accumulated, assistant_reply
-            )
+            tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
 
             message_to_save = assistant_reply
             final_status = StatusEnum.completed.value
@@ -360,9 +344,7 @@ class OllamaDefaultBaseWorker(
                 # Persist the structural representation, not the raw text
                 message_to_save = json.dumps(tool_calls_structure)
 
-            yield json.dumps(
-                {"type": "status", "status": "processing", "run_id": run_id}
-            )
+            yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
             if message_to_save:
                 await self.finalize_conversation(
@@ -377,9 +359,7 @@ class OllamaDefaultBaseWorker(
                 )
 
             if not tool_calls_batch:
-                yield json.dumps(
-                    {"type": "status", "status": "complete", "run_id": run_id}
-                )
+                yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})
 
         except Exception as exc:
             LOG.error("Stream exception: %s", exc, exc_info=True)
@@ -443,9 +423,7 @@ class OllamaDefaultBaseWorker(
         if running_loop is None:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            agen = self.stream(
-                thread_id, message_id, run_id, assistant_id, model, **kwargs
-            )
+            agen = self.stream(thread_id, message_id, run_id, assistant_id, model, **kwargs)
             try:
                 while True:
                     try:
@@ -466,9 +444,7 @@ class OllamaDefaultBaseWorker(
                     task.cancel()
                 if pending:
                     try:
-                        loop.run_until_complete(
-                            asyncio.gather(*pending, return_exceptions=True)
-                        )
+                        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
                     except Exception:
                         pass
                 loop.close()
@@ -487,9 +463,7 @@ class OllamaDefaultBaseWorker(
             queue_ref.append(q)
 
             async def _drain() -> None:
-                agen = self.stream(
-                    thread_id, message_id, run_id, assistant_id, model, **kwargs
-                )
+                agen = self.stream(thread_id, message_id, run_id, assistant_id, model, **kwargs)
                 try:
                     async for item in agen:
                         if stop_flag.is_set():

@@ -46,9 +46,7 @@ HYPERBOLIC_API_KEY = os.getenv("HYPERBOLIC_API_KEY")
 MODEL_ID = config.get("model", "together-ai/mistralai/Ministral-3-14B-Instruct-2512")
 PROVIDER_KW = config.get("provider", "Hyperbolic")
 ASSISTANT_ID = config.get("assistant_id", "asst_13HyDgBnZxVwh5XexYu74F")
-TEST_PROMPT = config.get(
-    "test_prompt", "Please fetch me the flight times between LAX and JFK."
-)
+TEST_PROMPT = config.get("test_prompt", "Please fetch me the flight times between LAX and JFK.")
 
 print(f"{GREY}[CONFIG] Model: {MODEL_ID} | Provider: {PROVIDER_KW}{RESET}")
 print(f"{GREY}[CONFIG] Assistant: {ASSISTANT_ID}{RESET}")
@@ -59,9 +57,7 @@ client = Entity(base_url=BASE_URL, api_key=ENTITIES_API_KEY)
 
 # Bind clients for synchronous inference (Internal SDK requirement)
 if hasattr(client, "synchronous_inference_stream"):
-    client.synchronous_inference_stream.bind_clients(
-        client.runs, client.actions, client.messages
-    )
+    client.synchronous_inference_stream.bind_clients(client.runs, client.actions, client.messages)
 
 
 # ------------------------------------------------------------------

@@ -71,9 +71,7 @@ class ShellClient:
                     if msg_type in ["shell_output", "shell_error"]:
                         content = data.get("content", "")
                         # Log it for debugging
-                        logging_utility.info(
-                            f"Received output chunk: {content.strip()}"
-                        )
+                        logging_utility.info(f"Received output chunk: {content.strip()}")
                         # CRITICAL: Yield immediately to the upper layers
                         yield content
 
@@ -116,9 +114,7 @@ async def run_commands(
 
 
 # --- SYNC WRAPPER UPDATED ---
-def run_commands_sync(
-    commands: List[str], room: str, token: str, elevated: bool = False
-) -> str:
+def run_commands_sync(commands: List[str], room: str, token: str, elevated: bool = False) -> str:
     """
     Wraps the streaming generator into a single blocking string return.
     """

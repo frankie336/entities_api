@@ -50,9 +50,7 @@ class ServiceRegistryMixin(ClientFactoryMixin):
                 self._services[service_cls] = obj
                 LOG.debug("Instantiated %s", service_cls.__name__)
             except Exception as exc:
-                LOG.error(
-                    "Init failed for %s: %s", service_cls.__name__, exc, exc_info=True
-                )
+                LOG.error("Init failed for %s: %s", service_cls.__name__, exc, exc_info=True)
                 raise
         return self._services[service_cls]
 
@@ -72,9 +70,7 @@ class ServiceRegistryMixin(ClientFactoryMixin):
             elif param.default is not inspect.Parameter.empty:
                 resolved.append(param.default)
             else:
-                raise MissingParameterError(
-                    f"{service_cls.__name__}: '{name}' not found"
-                )
+                raise MissingParameterError(f"{service_cls.__name__}: '{name}' not found")
         return tuple(resolved)
 
     @property

@@ -69,9 +69,7 @@ class PlatformToolHandlersMixin:
         try:
             # Platform service usually returns a list; 0 is the summary
             pretty_content = output[0] if output else "No results found."
-            rendered = (
-                f"{pretty_content}{WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS}"
-            )
+            rendered = f"{pretty_content}{WEB_SEARCH_PRESENTATION_FOLLOW_UP_INSTRUCTIONS}"
 
             await self._submit_platform_tool_output(
                 thread_id=thread_id,
@@ -187,9 +185,7 @@ class PlatformToolHandlersMixin:
             LOG.error(f"PLATFORM-HANDLER ▸ Action creation failed: {e}")
             return  # Terminate if we can't track the action
 
-        LOG.debug(
-            "Action %s created for %s", getattr(action, "id", "unknown"), tool_name
-        )
+        LOG.debug("Action %s created for %s", getattr(action, "id", "unknown"), tool_name)
 
         # 2. Update Run Status to Pending (Offloaded to thread)
         try:
@@ -204,9 +200,7 @@ class PlatformToolHandlersMixin:
         # 3. Call the Platform Service (Heavy Network I/O - Offloaded to thread)
         platform = self.platform_tool_service
         try:
-            result = await asyncio.to_thread(
-                platform.call_function, tool_name, arguments
-            )
+            result = await asyncio.to_thread(platform.call_function, tool_name, arguments)
         except Exception as e:
             LOG.error(f"PLATFORM-HANDLER ▸ Platform service call failed: {e}")
             result = f"CRITICAL ERROR: Platform service failed to execute {tool_name}"

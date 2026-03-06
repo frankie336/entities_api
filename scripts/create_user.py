@@ -6,6 +6,8 @@ import time
 
 from dotenv import load_dotenv
 
+load_dotenv()
+
 try:
     from projectdavid import Entity
 except ImportError:
@@ -51,9 +53,7 @@ def load_admin_key(env_var="ADMIN_API_KEY", creds_file=DEFAULT_CREDS_FILE):
                 f"Please set it as an environment variable or ensure it's in {creds_file}. "
                 "You might need to run 'scripts/bootstrap_admin.py' first."
             )
-    print(
-        f"Using Admin API Key starting with: {admin_api_key[:4]}...{admin_api_key[-4:]}"
-    )
+    print(f"Using Admin API Key starting with: {admin_api_key[:4]}...{admin_api_key[-4:]}")
     return admin_api_key
 
 
@@ -73,11 +73,13 @@ def create_api_client(base_url, api_key):
 def create_user(client, full_name, email):
     print(f"\nAttempting to create user '{full_name}' ({email})...")
     try:
+
         new_user = client.users.create_user(
             full_name=full_name,
             email=email,
             is_admin=False,
         )
+
         print("\nNew REGULAR user created successfully:")
         print(f"  User ID:    {getattr(new_user, 'id', 'N/A')}")
         print(f"  User Email: {getattr(new_user, 'email', 'N/A')}")
@@ -126,17 +128,13 @@ def create_user_vector_store(client, user, store_name=DEFAULT_VECTOR_STORE_NAME)
 
 def generate_user_key(admin_client, user, key_name=DEFAULT_KEY_NAME):
     if not user or not hasattr(user, "id"):
-        print(
-            "\nSkipped API key generation because user object is invalid or missing ID."
-        )
+        print("\nSkipped API key generation because user object is invalid or missing ID.")
         return None
 
     target_user_id = user.id
     user_email = getattr(user, "email", "N/A")
 
-    print(
-        f"\nAttempting to generate initial API key for user {target_user_id} ({user_email})..."
-    )
+    print(f"\nAttempting to generate initial API key for user {target_user_id} ({user_email})...")
 
     try:
         key_payload = {"key_name": key_name}
@@ -166,18 +164,14 @@ def generate_user_key(admin_client, user, key_name=DEFAULT_KEY_NAME):
             print("=" * 50 + "\n")
             return plain_text_key
         else:
-            print(
-                "\nAPI call successful, but plain text key not found in the response."
-            )
+            print("\nAPI call successful, but plain text key not found in the response.")
             print(f"Response details received: {key_creation_response}")
             return None
 
     except AttributeError as ae:
         print("\n--- SDK ERROR ---")
         print(f"AttributeError: {ae}")
-        print(
-            "Could not find the required method (e.g., `create_key_for_user`) on the SDK client."
-        )
+        print("Could not find the required method (e.g., `create_key_for_user`) on the SDK client.")
         print(
             "Verify that `projectdavid.Entity` correctly initializes and attaches the `ApiKeysClient` as `.keys`."
         )
@@ -194,9 +188,7 @@ def generate_user_key(admin_client, user, key_name=DEFAULT_KEY_NAME):
                 error_detail = error_response.text
             print(f"Response Body: {error_detail}")
             if error_response.status_code == 404:
-                print(
-                    f"Hint: Check API endpoint POST /v1/admin/users/{target_user_id}/keys"
-                )
+                print(f"Hint: Check API endpoint POST /v1/admin/users/{target_user_id}/keys")
             elif error_response.status_code == 403:
                 print("Hint: Ensure the ADMIN_API_KEY has permission.")
             elif error_response.status_code == 422:
@@ -260,9 +252,7 @@ def main():
 
     if new_user:
         vector_store = create_user_vector_store(admin_client, new_user)
-        generated_key = generate_user_key(
-            admin_client, new_user, key_name=args.key_name
-        )
+        generated_key = generate_user_key(admin_client, new_user, key_name=args.key_name)
 
         # ✨ Append vector-store summary at bottom
         if vector_store:

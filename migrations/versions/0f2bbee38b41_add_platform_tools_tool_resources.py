@@ -84,8 +84,6 @@ def downgrade() -> None:
             op.drop_column("assistants", "tool_resources")
             print("[alembic.safe_ddl] ✅ Dropped column: assistants.tool_resources")
         else:
-            print(
-                "[alembic.safe_ddl] ⚠️ Skipped drop – column not found: assistants.tool_resources"
-            )
+            print("[alembic.safe_ddl] ⚠️ Skipped drop – column not found: assistants.tool_resources")
     except Exception as e:
         print(f"[alembic.safe_ddl] ❌ Error while dropping 'tool_resources': {e}")

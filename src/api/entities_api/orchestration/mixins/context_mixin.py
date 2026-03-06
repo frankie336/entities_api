@@ -182,8 +182,7 @@ class ContextMixin:
 
         if web_access:
             has_web_tool = any(
-                isinstance(t, dict) and t.get("type") == "web_search"
-                for t in raw_tools_list
+                isinstance(t, dict) and t.get("type") == "web_search" for t in raw_tools_list
             )
             if not has_web_tool:
                 raw_tools_list.append({"type": "web_search"})
@@ -236,8 +235,7 @@ class ContextMixin:
 
         if web_access:
             has_web_tool = any(
-                isinstance(t, dict) and t.get("type") == "web_search"
-                for t in raw_tools_list
+                isinstance(t, dict) and t.get("type") == "web_search" for t in raw_tools_list
             )
             if not has_web_tool:
                 raw_tools_list.append({"type": "web_search"})
@@ -290,8 +288,7 @@ class ContextMixin:
 
         if web_access:
             has_web_tool = any(
-                isinstance(t, dict) and t.get("type") == "web_search"
-                for t in raw_tools_list
+                isinstance(t, dict) and t.get("type") == "web_search" for t in raw_tools_list
             )
             if not has_web_tool:
                 raw_tools_list.append({"type": "web_search"})
@@ -344,8 +341,7 @@ class ContextMixin:
 
         if web_access:
             has_web_tool = any(
-                isinstance(t, dict) and t.get("type") == "web_search"
-                for t in raw_tools_list
+                isinstance(t, dict) and t.get("type") == "web_search" for t in raw_tools_list
             )
             if not has_web_tool:
                 raw_tools_list.append({"type": "web_search"})
@@ -443,8 +439,7 @@ class ContextMixin:
 
         if web_access:
             has_web_tool = any(
-                isinstance(t, dict) and t.get("type") == "web_search"
-                for t in raw_tools_list
+                isinstance(t, dict) and t.get("type") == "web_search" for t in raw_tools_list
             )
             if not has_web_tool:
                 raw_tools_list.append({"type": "web_search"})
@@ -599,14 +594,10 @@ class ContextMixin:
                     if "\n" in tools_json_str:
                         json_part, instructions_part = tools_json_str.split("\n", 1)
                         extracted_tools = json.loads(json_part)
-                        new_msg["content"] = (
-                            f"{system_text}\n{instructions_part}".strip()
-                        )
+                        new_msg["content"] = f"{system_text}\n{instructions_part}".strip()
                     else:
                         extracted_tools = json.loads(tools_json_str)
-                        new_msg["content"] = (
-                            system_text or "You are a helpful assistant."
-                        )
+                        new_msg["content"] = system_text or "You are a helpful assistant."
                 except Exception as e:
                     LOG.error(f"[CTX-MIXIN] Failed tool extraction: {e}")
 

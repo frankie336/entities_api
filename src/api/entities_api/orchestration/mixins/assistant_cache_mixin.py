@@ -30,9 +30,7 @@ class AssistantCacheMixin:
         # 2. Lazy Path: Use ServiceRegistryMixin logic (The "Old/Current Style")
         # This prevents breaking classes that don't have __init__ injection yet.
         if hasattr(self, "_get_service"):
-            return self._get_service(
-                "AssistantCache"
-            )  # Pass string or class if available
+            return self._get_service("AssistantCache")  # Pass string or class if available
 
         # 3. Last Resort: Construct it if 'redis' is available on 'self'
         # (Useful for InferenceArbiter or classes with raw Redis access)

@@ -82,9 +82,7 @@ def get_flight_times(tool_name: str, arguments: dict) -> str:
 def get_weather(tool_name: str, arguments: dict) -> str:
     """Mock weather tool for Batch testing."""
     loc = arguments.get("location", "Unknown")
-    return json.dumps(
-        {"status": "success", "location": loc, "temp": "15C", "condition": "Cloudy"}
-    )
+    return json.dumps({"status": "success", "location": loc, "temp": "15C", "condition": "Cloudy"})
 
 
 # Registry for Dynamic Dispatch
@@ -148,7 +146,9 @@ class ReportManager:
 
         # 3. Write Report
         table_header_row = "| Model Name | Provider | Endpoint ID | Inference | Reasoning | Tools | Parallel | Telemetry | Last Run | Notes |"
-        table_align_row = "| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- | :--- |"
+        table_align_row = (
+            "| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :--- | :--- |"
+        )
 
         main_title = [
             "# 🧪 Model Compatibility Report",
@@ -275,12 +275,8 @@ class ModelTester:
                 content="Calculate Fibonacci recursively. Explain why iterative is better.",
                 assistant_id=self.assistant_id,
             )
-            run = self.client.runs.create_run(
-                assistant_id=self.assistant_id, thread_id=thread.id
-            )
-            stats = self._stream_and_analyze(
-                thread.id, message.id, run.id, timeout=180.0
-            )
+            run = self.client.runs.create_run(assistant_id=self.assistant_id, thread_id=thread.id)
+            stats = self._stream_and_analyze(thread.id, message.id, run.id, timeout=180.0)
 
             result["inference_ok"] = stats["inference_ok"]
             result["reasoning_detected"] = stats["reasoning_detected"]
@@ -296,9 +292,7 @@ class ModelTester:
         if result["inference_ok"]:
             print(f"\n{YELLOW}--- Stage 2: Single Tool ({self.model_label}) ---{RESET}")
             try:
-                thread = self.client.threads.create_thread(
-                    participant_ids=[self.user_id]
-                )
+                thread = self.client.threads.create_thread(participant_ids=[self.user_id])
                 message = self.client.messages.create_message(
                     thread_id=thread.id,
                     role="user",
@@ -308,9 +302,7 @@ class ModelTester:
                 run = self.client.runs.create_run(
                     assistant_id=self.assistant_id, thread_id=thread.id
                 )
-                stats = self._stream_and_analyze(
-                    thread.id, message.id, run.id, timeout=120.0
-                )
+                stats = self._stream_and_analyze(thread.id, message.id, run.id, timeout=120.0)
 
                 if stats["decision_detected"]:
                     result["call_telemetry"] = True
@@ -320,9 +312,7 @@ class ModelTester:
                     print(f"{GREEN}[✓] Single Tool Verified.{RESET}")
                 else:
                     if stats["error"]:
-                        result["error_msg"] = self._classify_error(
-                            stats["detailed_error"]
-                        )
+                        result["error_msg"] = self._classify_error(stats["detailed_error"])
                     elif stats["tool_executed_count"] == 0:
                         print(f"{RED}[!] Tool call not triggered.{RESET}")
 
@@ -331,13 +321,9 @@ class ModelTester:
 
         # --- Stage 3: Batch/Parallel Tools (Level 3) ---
         if result["tool_call_ok"]:
-            print(
-                f"\n{MAGENTA}--- Stage 3: Parallel Batch ({self.model_label}) ---{RESET}"
-            )
+            print(f"\n{MAGENTA}--- Stage 3: Parallel Batch ({self.model_label}) ---{RESET}")
             try:
-                thread = self.client.threads.create_thread(
-                    participant_ids=[self.user_id]
-                )
+                thread = self.client.threads.create_thread(participant_ids=[self.user_id])
                 # Prompt requires TWO tools
                 message = self.client.messages.create_message(
                     thread_id=thread.id,
@@ -348,9 +334,7 @@ class ModelTester:
                 run = self.client.runs.create_run(
                     assistant_id=self.assistant_id, thread_id=thread.id
                 )
-                stats = self._stream_and_analyze(
-                    thread.id, message.id, run.id, timeout=120.0
-                )
+                stats = self._stream_and_analyze(thread.id, message.id, run.id, timeout=120.0)
 
                 # Check if we executed at least 2 distinct tools or 2 calls total
                 if stats["tool_executed_count"] >= 2 and stats["inference_ok"]:

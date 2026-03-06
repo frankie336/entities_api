@@ -11,9 +11,7 @@ def get_delegated_model(requested_model: str) -> str:
     then returns the 'Heavy Lifter' model for that provider.
     """
     if not requested_model or "/" not in requested_model:
-        print(
-            f"  [Log] No provider prefix found in '{requested_model}'. Using default."
-        )
+        print(f"  [Log] No provider prefix found in '{requested_model}'. Using default.")
         return DELEGATED_DEEP_SEARCH_MAP["default"]
 
     # Split ONLY on the first slash.

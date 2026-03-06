@@ -42,9 +42,7 @@ class JsonUtilsMixin:
 
     @staticmethod
     def convert_smart_quotes(text: str) -> str:
-        return (
-            text.replace("‘", "'").replace("’", "'").replace("“", '"').replace("”", '"')
-        )
+        return text.replace("‘", "'").replace("’", "'").replace("“", '"').replace("”", '"')
 
     @staticmethod
     def is_valid_function_call_response(json_data: dict) -> bool:
@@ -79,15 +77,11 @@ class JsonUtilsMixin:
         """Recursively validate operators with $ prefix"""
         for key, value in data.items():
             if key.startswith("$"):
-                if isinstance(value, dict) and (
-                    not self.is_complex_vector_search(value)
-                ):
+                if isinstance(value, dict) and (not self.is_complex_vector_search(value)):
                     return False
                 elif isinstance(value, list):
                     for item in value:
-                        if isinstance(item, dict) and (
-                            not self.is_complex_vector_search(item)
-                        ):
+                        if isinstance(item, dict) and (not self.is_complex_vector_search(item)):
                             return False
             elif isinstance(value, dict):
                 if not self.is_complex_vector_search(value):
@@ -202,9 +196,7 @@ class JsonUtilsMixin:
         missing = [f for f in required_fields if f not in args or args[f] is None]
 
         if missing:
-            return (
-                f"Missing required arguments for '{tool_name}': {', '.join(missing)}."
-            )
+            return f"Missing required arguments for '{tool_name}': {', '.join(missing)}."
 
         # Optional: Add type checking here (e.g. ensure 'count' is an int)
         return None

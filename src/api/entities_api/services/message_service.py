@@ -73,9 +73,7 @@ class MessageService:
                 logging_utility.error(f"Error saving message: {e}")
                 raise HTTPException(status_code=500, detail="Failed to create message")
 
-            return validator.MessageRead.model_validate(
-                self._prepare_for_read(db_message)
-            )
+            return validator.MessageRead.model_validate(self._prepare_for_read(db_message))
 
     def retrieve_message(self, message_id: str) -> validator.MessageRead:
         with SessionLocal() as db:
@@ -83,9 +81,7 @@ class MessageService:
             if not db_message:
                 raise HTTPException(status_code=404, detail="Message not found")
 
-            return validator.MessageRead.model_validate(
-                self._prepare_for_read(db_message)
-            )
+            return validator.MessageRead.model_validate(self._prepare_for_read(db_message))
 
     def list_messages(
         self,
@@ -107,8 +103,7 @@ class MessageService:
             db_messages = query.limit(limit).all()
 
             messages = [
-                validator.MessageRead.model_validate(self._prepare_for_read(m))
-                for m in db_messages
+                validator.MessageRead.model_validate(self._prepare_for_read(m)) for m in db_messages
             ]
 
             return validator.MessagesList(
@@ -158,9 +153,7 @@ class MessageService:
                 db.rollback()
                 raise HTTPException(status_code=500, detail="Failed to save message")
 
-            return validator.MessageRead.model_validate(
-                self._prepare_for_read(db_message)
-            )
+            return validator.MessageRead.model_validate(self._prepare_for_read(db_message))
 
     def get_formatted_messages(self, thread_id: str) -> List[Dict[str, Any]]:
         """
@@ -199,9 +192,7 @@ class MessageService:
                         is_tool_list = (
                             isinstance(parsed, list)
                             and len(parsed) > 0
-                            and all(
-                                isinstance(i, dict) and "function" in i for i in parsed
-                            )
+                            and all(isinstance(i, dict) and "function" in i for i in parsed)
                         )
 
                         if is_tool_list:
@@ -231,9 +222,7 @@ class MessageService:
 
             return formatted_messages
 
-    def submit_tool_output(
-        self, message: validator.MessageCreate
-    ) -> validator.MessageRead:
+    def submit_tool_output(self, message: validator.MessageCreate) -> validator.MessageRead:
         with SessionLocal() as db:
             db_thread = db.query(Thread).filter(Thread.id == message.thread_id).first()
             if not db_thread:
@@ -259,9 +248,7 @@ class MessageService:
                 db.rollback()
                 raise HTTPException(status_code=500, detail="Failed to create message")
 
-            return validator.MessageRead.model_validate(
-                self._prepare_for_read(db_message)
-            )
+            return validator.MessageRead.model_validate(self._prepare_for_read(db_message))
 
     def delete_message(self, message_id: str) -> validator.MessageDeleted:
         with SessionLocal() as db:

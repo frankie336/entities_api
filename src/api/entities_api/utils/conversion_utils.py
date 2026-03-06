@@ -39,9 +39,7 @@ def convert_nested_dict(data: dict, key_converter: callable) -> dict:
     """Recursively convert keys in a nested dictionary."""
     return {
         key_converter(key): (
-            convert_nested_dict(value, key_converter)
-            if isinstance(value, dict)
-            else value
+            convert_nested_dict(value, key_converter) if isinstance(value, dict) else value
         )
         for key, value in data.items()
     }

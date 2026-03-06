@@ -126,11 +126,7 @@ class DelegationMixin:
             try:
                 # ── REPLACED: was self.project_david_client.runs.retrieve_run(...)
                 run = await self._native_exec.retrieve_run(run_id)
-                status_value = (
-                    run.status.value
-                    if hasattr(run.status, "value")
-                    else str(run.status)
-                )
+                status_value = run.status.value if hasattr(run.status, "value") else str(run.status)
                 LOG.critical(
                     "██████ [DELEGATE_POLL] run_id=%s status=%s elapsed=%.1fs ██████",
                     run_id,
@@ -149,9 +145,7 @@ class DelegationMixin:
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
         LOG.error("❌ [DELEGATE_POLL] run_id=%s timed out after %ss.", run_id, timeout)
-        raise asyncio.TimeoutError(
-            f"Worker run {run_id} did not complete within {timeout}s"
-        )
+        raise asyncio.TimeoutError(f"Worker run {run_id} did not complete within {timeout}s")
 
     # ------------------------------------------------------------------
     # HELPER: Lifecycle cleanup
@@ -228,9 +222,7 @@ class DelegationMixin:
             content=content,
         )
 
-    async def create_ephemeral_run(
-        self, assistant_id, thread_id, meta_data: Dict | None = None
-    ):
+    async def create_ephemeral_run(self, assistant_id, thread_id, meta_data: Dict | None = None):
         # ── REPLACED: was self.project_david_client.runs.create_run(...)
         # user_id is required by RunService.create_run; use the owner resolved
         # earlier in handle_delegate_research_task and cached on self.
@@ -313,8 +305,7 @@ class DelegationMixin:
                             try:
                                 parsed = json.loads(stripped)
                                 if isinstance(parsed, list) and all(
-                                    isinstance(item, dict) and "type" in item
-                                    for item in parsed
+                                    isinstance(item, dict) and "type" in item for item in parsed
                                 ):
                                     LOG.info(
                                         "[WORKER_FETCH] Skipping tool_calls_structure "
@@ -400,9 +391,7 @@ class DelegationMixin:
         else:
             args = arguments_dict
 
-        yield self._research_status(
-            "Initializing delegation worker...", "in_progress", run_id
-        )
+        yield self._research_status("Initializing delegation worker...", "in_progress", run_id)
 
         action = None
         try:
@@ -477,9 +466,7 @@ class DelegationMixin:
                 self._scratch_pad_thread,
             )
 
-            yield self._research_status(
-                "Worker active. Streaming...", "in_progress", run_id
-            )
+            yield self._research_status("Worker active. Streaming...", "in_progress", run_id)
 
             LOG.info(f"🔄 [SUPERVISORS_THREAD_ID]: {thread_id}")
             LOG.info(f"🔄 [WORKERS_THREAD_ID]: {ephemeral_thread.id}")
@@ -553,14 +540,10 @@ class DelegationMixin:
                 # ----------------------------------------------------------------
                 # 🛑 GUARD 2: Exclude Tool Call Argument Frames
                 # ----------------------------------------------------------------
-                if getattr(event, "tool_calls", None) or getattr(
-                    event, "function_call", None
-                ):
+                if getattr(event, "tool_calls", None) or getattr(event, "function_call", None):
                     continue
 
-                chunk_content = getattr(event, "content", None) or getattr(
-                    event, "text", None
-                )
+                chunk_content = getattr(event, "content", None) or getattr(event, "text", None)
                 chunk_reasoning = getattr(event, "reasoning", None)
 
                 if chunk_reasoning:
@@ -597,17 +580,13 @@ class DelegationMixin:
                     run_id=ephemeral_run.id,
                     thread_id=ephemeral_thread.id,
                 )
-                LOG.info(
-                    "✅ [DELEGATE] Worker run completed. Status=%s", final_run_status
-                )
+                LOG.info("✅ [DELEGATE] Worker run completed. Status=%s", final_run_status)
             except asyncio.TimeoutError:
                 LOG.error("⏳[DELEGATE] Worker run timed out. Attempting fetch anyway.")
                 execution_had_error = True
                 final_run_status = "timed_out"
 
-            final_content = await self._fetch_worker_final_report(
-                thread_id=ephemeral_thread.id
-            )
+            final_content = await self._fetch_worker_final_report(thread_id=ephemeral_thread.id)
 
             LOG.critical(
                 "██████ [FINAL_THREAD_CONTENT_SUBMITTED_BY_RESEARCH_WORKER]=%s ██████",

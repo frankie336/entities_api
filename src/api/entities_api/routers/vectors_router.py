@@ -89,9 +89,7 @@ def delete_vector_store(
     )
     service = VectorStoreDBService(db)
     store = service.get_vector_store_by_id(vector_store_id)
-    if not store or (
-        store.user_id != auth_key.user_id and (not _is_admin(auth_key.user_id, db))
-    ):
+    if not store or (store.user_id != auth_key.user_id and (not _is_admin(auth_key.user_id, db))):
         raise HTTPException(status_code=404, detail="Vector store not found.")
     try:
         if permanent:
@@ -113,9 +111,7 @@ def get_vector_store(
 ):
     service = VectorStoreDBService(db)
     store = service.get_vector_store_by_id(vector_store_id)
-    if not store or (
-        store.user_id != auth_key.user_id and (not _is_admin(auth_key.user_id, db))
-    ):
+    if not store or (store.user_id != auth_key.user_id and (not _is_admin(auth_key.user_id, db))):
         raise HTTPException(status_code=404, detail="Vector store not found.")
     return store
 
@@ -152,9 +148,7 @@ def _require_store_access(
     store_id: str, db: Session, auth_key: ApiKeyModel, service: VectorStoreDBService
 ):
     store = service.get_vector_store_by_id(store_id)
-    if not store or (
-        store.user_id != auth_key.user_id and (not _is_admin(auth_key.user_id, db))
-    ):
+    if not store or (store.user_id != auth_key.user_id and (not _is_admin(auth_key.user_id, db))):
         raise HTTPException(status_code=404, detail="Vector store not found.")
     return store
 
@@ -196,9 +190,7 @@ def list_files(
     return service.list_vector_store_files(vector_store_id)
 
 
-@router.delete(
-    "/vector-stores/{vector_store_id}/files", status_code=status.HTTP_204_NO_CONTENT
-)
+@router.delete("/vector-stores/{vector_store_id}/files", status_code=status.HTTP_204_NO_CONTENT)
 def delete_file(
     vector_store_id: str = FastApiPath(...),
     file_path: str = Query(...),
