@@ -390,6 +390,22 @@ class Assistant(Base):
         comment='Resource map keyed by tool type, e.g. {"file_search": {"vector_store_ids": ["vs_123","vs_456"]}}',
     )
 
+    # ── NEW: canonical ownership ───────────────────────────────────────────────
+    # Nullable during the migration window.  Back-fill migration sets this from
+    # user_assistants; a follow-up revision will tighten to NOT NULL once clean.
+    owner_id = Column(
+        String(64),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment=(
+            "Canonical owner of this assistant. "
+            "Primary key for row-level access filtering. "
+            "Separate from the many-to-many (user_assistants) which handles sharing."
+        ),
+    )
+    # ── END NEW ───────────────────────────────────────────────────────────────
+
     # --- Agentic Behavior Extensions (Level 3) ---
     max_turns = Column(
         Integer,
@@ -397,7 +413,6 @@ class Assistant(Base):
         server_default="1",
         comment="Max number of iterative loops for Level 3 agency. 1 = Standard Level 2 (ReAct).",
     )
-
     agent_mode = Column(
         Boolean,
         default=False,
@@ -405,8 +420,6 @@ class Assistant(Base):
         nullable=False,
         comment="False = Standard (Level 2), True = Autonomous (Level 3).",
     )
-
-    # NEW: Web Access Toggle
     web_access = Column(
         Boolean,
         default=False,
@@ -414,7 +427,6 @@ class Assistant(Base):
         nullable=False,
         comment="Enable live web search and browsing capabilities.",
     )
-
     deep_research = Column(
         Boolean,
         default=False,
@@ -422,8 +434,6 @@ class Assistant(Base):
         nullable=False,
         comment="Enable deep research capabilities.",
     )
-
-    # NEW: Engineering Mode Toggle
     engineer = Column(
         Boolean,
         default=False,
@@ -431,7 +441,6 @@ class Assistant(Base):
         nullable=False,
         comment="Enable network engineering capabilities and inventory map access.",
     )
-
     decision_telemetry = Column(
         Boolean,
         default=False,
@@ -449,8 +458,19 @@ class Assistant(Base):
     )
 
     # --- Relationships ---
+    # NEW: direct owner relationship (single-hop, no join table)
+    owner = relationship(
+        "User",
+        foreign_keys=[owner_id],
+        lazy="select",
+    )
+
+    # Kept: many-to-many for sharing / collaboration
     users = relationship(
-        "User", secondary="user_assistants", back_populates="assistants", lazy="select"
+        "User",
+        secondary="user_assistants",
+        back_populates="assistants",
+        lazy="select",
     )
     vector_stores = relationship(
         "VectorStore",

@@ -83,7 +83,6 @@ stream.setup(
     assistant_id=ASSISTANT_ID,
     message_id=message.id,
     run_id=run.id,
-    api_key="ollama",  # Ollama ignores auth — placeholder required
 )
 
 # ------------------------------------------------------------------

@@ -5,3 +5,7 @@ docker compose exec api alembic revision --autogenerate -m "add BatfishSnapshot 
 
 
 docker compose exec api alembic revision --autogenerate -m "add ID to BatfishSnapshot to models"
+
+
+
+docker compose exec api alembic revision --autogenerate -m "add owner_id to assistants"
