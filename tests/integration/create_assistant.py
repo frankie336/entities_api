@@ -31,7 +31,6 @@ tool_instructions = assemble_instructions(
 # -------------------------------------------
 # create_assistant
 # --------------------------------------------
-
 assistant = client.assistants.create_assistant(
     name="Test Assistant",
     model="gpt-oss-120b",

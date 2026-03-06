@@ -37,16 +37,49 @@ class AssistantService:
         self.client = Entity()
 
     # ────────────────────────────────────────────────
+    # Ownership guard
+    # ────────────────────────────────────────────────
+
+    @staticmethod
+    def _assert_owner(db_asst: Assistant, user_id: str) -> None:
+        """
+        Raise 403 if *user_id* is not the canonical owner of *db_asst*.
+
+        Back-fill window: if owner_id is still NULL (migration not yet
+        settled) we fall back to checking the many-to-many relationship.
+        Once the back-fill follow-up migration sets owner_id NOT NULL,
+        the fallback branch can be removed.
+        """
+        if db_asst.owner_id is not None:
+            # Fast path — direct ownership column is populated.
+            if db_asst.owner_id != user_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="You do not have permission to modify this assistant.",
+                )
+        else:
+            # Fallback during back-fill window — check association table.
+            associated_ids = {u.id for u in db_asst.users}
+            if user_id not in associated_ids:
+                raise HTTPException(
+                    status_code=403,
+                    detail="You do not have permission to modify this assistant.",
+                )
+
+    # ────────────────────────────────────────────────
     # CRUD
-    # ────────────────────────────────────────────────#
-    def create_assistant(self, assistant: validator.AssistantCreate) -> validator.AssistantRead:
+    # ────────────────────────────────────────────────
+
+    def create_assistant(
+        self,
+        assistant: validator.AssistantCreate,
+        user_id: str,
+    ) -> validator.AssistantRead:
         with SessionLocal() as db:
             assistant_id = assistant.id or UtilsInterface.IdentifierService.generate_assistant_id()
-            # Check if exists (and not soft deleted)
+
             existing = db.query(Assistant).filter(Assistant.id == assistant_id).first()
             if existing:
-                # If it was soft deleted, we could technically "revive" it,
-                # but standard practice creates a collision error or requires a purge first.
                 raise HTTPException(
                     status_code=400,
                     detail=f"Assistant with ID '{assistant_id}' already exists",
@@ -70,9 +103,10 @@ class AssistantService:
                 agent_mode=assistant.agent_mode,
                 web_access=assistant.web_access,
                 deep_research=assistant.deep_research,
-                engineer=assistant.engineer,  # <--- NEW
+                engineer=assistant.engineer,
                 decision_telemetry=assistant.decision_telemetry,
-                deleted_at=None,  # Explicitly active
+                owner_id=user_id,  # ← set canonical owner at creation time
+                deleted_at=None,
             )
 
             db.add(db_assistant)
@@ -82,13 +116,11 @@ class AssistantService:
 
     def retrieve_assistant(self, assistant_id: str) -> validator.AssistantRead:
         with SessionLocal() as db:
-            # UPDATE: Filter out soft-deleted items
             db_asst = (
                 db.query(Assistant)
                 .filter(Assistant.id == assistant_id, Assistant.deleted_at.is_(None))
                 .first()
             )
-
             if not db_asst:
                 raise HTTPException(status_code=404, detail="Assistant not found")
 
@@ -98,8 +130,8 @@ class AssistantService:
         self,
         assistant_id: str,
         assistant_update: validator.AssistantUpdate,
+        user_id: str,  # ← NEW required param
     ) -> validator.AssistantRead:
-        # Cache invalidation logic
         try:
             cache = get_sync_invalidator()
             cache.invalidate_sync(assistant_id)
@@ -108,15 +140,16 @@ class AssistantService:
             logging_utility.error(f"Failed to invalidate cache: {e}")
 
         with SessionLocal() as db:
-            # UPDATE: Ensure we don't update a soft-deleted record
             db_asst = (
                 db.query(Assistant)
                 .filter(Assistant.id == assistant_id, Assistant.deleted_at.is_(None))
                 .first()
             )
-
             if not db_asst:
                 raise HTTPException(404, "Assistant not found")
+
+            # ── Ownership check ──────────────────────────────────────────────
+            self._assert_owner(db_asst, user_id)
 
             data = assistant_update.model_dump(exclude_unset=True)
 
@@ -149,27 +182,19 @@ class AssistantService:
             if not user:
                 raise HTTPException(404, "User not found")
 
-            # Python-side filtering for relationships is safer if the relationship
-            # query isn't dynamic, or we join explicitly.
-            # Ideally, change relationship to lazy='dynamic' or filter list comp:
             active_assistants = [a for a in user.assistants if a.deleted_at is None]
-
             return [self.map_to_read_model(a) for a in active_assistants]
 
     # ────────────────────────────────────────────────
     # DELETE (GDPR Compliant)
     # ────────────────────────────────────────────────
-    def delete_assistant(self, assistant_id: str, permanent: bool = False) -> None:
-        """
-        Deletes an assistant.
 
-        :param assistant_id: The ID of the assistant.
-        :param permanent:
-            If False (Default): Soft delete (sets deleted_at). Recoverable by admin.
-            If True: Hard delete (GDPR 'Right to Erasure'). Irreversible.
-        """
-
-        # 1. Invalidate Cache immediately
+    def delete_assistant(
+        self,
+        assistant_id: str,
+        user_id: str,  # ← NEW required param
+        permanent: bool = False,
+    ) -> None:
         try:
             cache = get_sync_invalidator()
             cache.invalidate_sync(assistant_id)
@@ -177,42 +202,32 @@ class AssistantService:
             logging_utility.error(f"Failed to invalidate cache during delete: {e}")
 
         with SessionLocal() as db:
-            # Find the assistant (even if already soft-deleted, so we can hard delete if requested)
             db_asst = db.query(Assistant).filter(Assistant.id == assistant_id).first()
 
             if not db_asst:
-                # Determine if we should 404.
-                # Security best practice: If it doesn't exist, say 404.
-                # If it exists but is soft-deleted and this is a soft-delete request, say 404 (already gone).
                 raise HTTPException(404, "Assistant not found")
 
-            if permanent:
-                # HARD DELETE
-                logging_utility.warning(f"PERMANENTLY deleting assistant {assistant_id}")
+            # ── Ownership check ──────────────────────────────────────────────
+            self._assert_owner(db_asst, user_id)
 
-                # Clear relationships explicitly if not handled by CASCADE
+            if permanent:
+                logging_utility.warning(f"PERMANENTLY deleting assistant {assistant_id}")
                 db_asst.users = []
                 db_asst.vector_stores = []
-
                 db.delete(db_asst)
                 db.commit()
             else:
-                # SOFT DELETE
                 if db_asst.deleted_at is not None:
-                    # Already deleted
                     raise HTTPException(404, "Assistant not found")
 
                 logging_utility.info(f"Soft deleting assistant {assistant_id}")
                 db_asst.deleted_at = int(time.time())
-
-                # Optional: You might want to strip PII from 'name' or 'instructions' here
-                # if your policy is strict, but usually Soft Delete retains data for x days.
-
                 db.commit()
 
     # ────────────────────────────────────────────────
     # ASSOCIATIONS
     # ────────────────────────────────────────────────
+
     def associate_assistant_with_user(self, user_id: str, assistant_id: str) -> None:
         with SessionLocal() as db:
             user = db.query(User).filter(User.id == user_id).first()
@@ -254,6 +269,7 @@ class AssistantService:
     # ────────────────────────────────────────────────
     # Mapper
     # ────────────────────────────────────────────────
+
     def map_to_read_model(self, db_asst: Assistant) -> validator.AssistantRead:
         data = db_asst.__dict__.copy()
         data.pop("_sa_instance_state", None)

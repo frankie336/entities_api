@@ -1,9 +1,8 @@
 import asyncio
 import json
 import os
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, Union
 
-from projectdavid import Entity
 from redis import Redis as SyncRedis
 
 try:
@@ -14,15 +13,35 @@ except ImportError:
         pass
 
 
+from src.api.entities_api.services.logging_service import LoggingUtility
+
+LOG = LoggingUtility()
+
 REDIS_ASSISTANT_TTL = int(os.getenv("REDIS_ASSISTANT_TTL_SECONDS", "300"))
 
 
 class AssistantCache:
 
-    def __init__(self, redis: Union[SyncRedis, "AsyncRedis"], pd_base_url: str, pd_api_key: str):
+    def __init__(self, redis: Union[SyncRedis, "AsyncRedis"]):
+        """
+        pd_base_url / pd_api_key removed — assistant data is now fetched
+        directly via NativeExecutionService, eliminating the internal HTTP
+        round-trip and any API-key dependency.
+        """
         self.redis = redis
-        self.pd_base_url = pd_base_url
-        self.pd_api_key = pd_api_key
+        self._native_exec_svc = None  # lazy-initialised on first access
+
+    @property
+    def _native_exec(self):
+        # Mirrors the lazy-load pattern used across mixin classes so
+        # NativeExecutionService is only instantiated when actually needed,
+        # and the deferred import keeps circular dependencies at bay.
+        if self._native_exec_svc is None:
+            from src.api.entities_api.services.native_execution_service import \
+                NativeExecutionService
+
+            self._native_exec_svc = NativeExecutionService()
+        return self._native_exec_svc
 
     def _cache_key(self, assistant_id: str) -> str:
         return f"assistant:{assistant_id}:config"
@@ -53,26 +72,26 @@ class AssistantCache:
             return value == 1
         return False
 
-    async def retrieve(self, assistant_id: str):
+    async def retrieve(self, assistant_id: str) -> Dict[str, Any]:
         """
         Fetches assistant details and caches them.
+
+        Previously used Entity (SDK) for an internal HTTP round-trip.
+        Now delegates to NativeExecutionService.retrieve_assistant which
+        calls AssistantService → DB directly. No network hop, no API key,
+        no ownership concern (read-only config fetch).
         """
-        # 1. Check Cache
+        # 1. Cache hit
         cached = await self.get(assistant_id)
         if cached:
             return cached
 
-        client = Entity(base_url=self.pd_base_url, api_key=self.pd_api_key)
+        # 2. Fetch directly from DB via NativeExecutionService
+        assistant = await self._native_exec.retrieve_assistant(assistant_id)
 
-        # 2. Fetch Assistant from the platform
-        assistant = await asyncio.to_thread(
-            client.assistants.retrieve_assistant, assistant_id=assistant_id
-        )
-
-        # 3. Extract Tools directly from the Assistant object
+        # 3. Extract Tools (AssistantRead already returns a plain list)
         raw_tools = getattr(assistant, "tools", []) or []
 
-        # Normalize tools for JSON serialization
         clean_tools = []
         for t in raw_tools:
             if isinstance(t, dict):
@@ -84,40 +103,37 @@ class AssistantCache:
             else:
                 clean_tools.append(dict(t))
 
-        # 4. Safely Extract Metadata
+        # 4. Metadata
         raw_meta = getattr(assistant, "meta_data", {}) or {}
 
-        # Safe extraction of the ephemeral worker flags (handling strings vs bools)
-        research_worker_val = raw_meta.get("research_worker_calling", False)
-        is_research_worker = self._normalize_bool(research_worker_val)
+        is_research_worker = self._normalize_bool(raw_meta.get("research_worker_calling", False))
+        is_junior_engineer = self._normalize_bool(raw_meta.get("junior_engineer_calling", False))
 
-        junior_engineer_val = raw_meta.get("junior_engineer_calling", False)
-        is_junior_engineer = self._normalize_bool(junior_engineer_val)
-
-        # 5. Safely Extract Tool Resources
-        # e.g. {"file_search": {"vector_store_ids": ["vs_123", "vs_456"]}}
+        # 5. Tool resources
         raw_tool_resources = getattr(assistant, "tool_resources", {}) or {}
 
-        # 6. Construct Payload
+        # 6. Build payload
         payload = {
             "instructions": assistant.instructions,
             "tools": clean_tools,
-            "tool_resources": raw_tool_resources,  # ✅ NEW: tool-bound resource map
+            "tool_resources": raw_tool_resources,
             "agent_mode": getattr(assistant, "agent_mode", False),
             "decision_telemetry": getattr(assistant, "decision_telemetry", False),
             "web_access": getattr(assistant, "web_access", False),
             "deep_research": getattr(assistant, "deep_research", False),
             "is_engineer": getattr(assistant, "engineer", False),
-            # ✅ STORE FULL METADATA
             "meta_data": raw_meta,
-            # ✅ Flattened, type-safe flags for the worker
             "is_research_worker": is_research_worker,
             "junior_engineer": is_junior_engineer,
         }
 
-        # 7. Save to Redis
+        # 7. Populate cache
         await self.set(assistant_id, payload)
         return payload
+
+    async def store(self, assistant_id: str, payload: dict):
+        """Alias used by OrchestratorCore._ensure_config_loaded rehydration path."""
+        await self.set(assistant_id, payload)
 
     async def delete(self, assistant_id: str):
         key = self._cache_key(assistant_id)

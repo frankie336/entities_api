@@ -415,13 +415,7 @@ class HermesDefaultBaseWorker(
                     message_to_save, thread_id, self.assistant_id, run_id
                 )
 
-            # Update Run status to trigger Dispatch Turn
-            if self.project_david_client:
-                await asyncio.to_thread(
-                    self.project_david_client.runs.update_run_status,
-                    run_id,
-                    final_status,
-                )
+            await self._native_exec.update_run_status(run_id, final_status)
 
             if not tool_calls_batch:
                 yield json.dumps({"type": "status", "status": "complete", "run_id": run_id})

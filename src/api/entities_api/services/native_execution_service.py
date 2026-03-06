@@ -10,6 +10,7 @@ from src.api.entities_api.cache.web_cache import WebSessionCache
 from src.api.entities_api.db.database import SessionLocal
 from src.api.entities_api.dependencies import get_redis_sync
 from src.api.entities_api.services.actions_service import ActionService
+from src.api.entities_api.services.assistant_service import AssistantService
 from src.api.entities_api.services.logging_service import LoggingUtility
 from src.api.entities_api.services.message_service import MessageService
 from src.api.entities_api.services.runs_service import RunService
@@ -26,6 +27,7 @@ class NativeExecutionService:
     Helper service to manage native database executions, bypassing the HTTP SDK.
 
     Provides async-friendly wrappers around:
+      - Assistant retrieval                    (retrieve_assistant)
       - Action and Message operations          (create, update, submit)
       - Vector store lookups                   (get_vector_store)
       - Web reading and SERP search            (read_url, scroll_url,
@@ -38,6 +40,7 @@ class NativeExecutionService:
 
     def __init__(self):
         self.action_svc = ActionService()
+        self.assistant_svc = AssistantService()  # ← NEW
         self.run_svc = RunService()
         self.thread_svc = ThreadService()
         self.message_svc = MessageService()
@@ -46,9 +49,25 @@ class NativeExecutionService:
         redis = get_redis_sync()
 
         self.scratchpad_svc = ScratchpadService(cache=ScratchpadCache(redis=redis))
-
-        # Web reader — shares the same Redis instance for its session cache
         self.web_reader = UniversalWebReader(cache_service=WebSessionCache(redis=redis))
+
+    # ------------------------------------------------------------------
+    # Assistant
+    # ------------------------------------------------------------------
+
+    async def retrieve_assistant(self, assistant_id: str) -> Any:
+        """
+        Fetch a single assistant directly from the DB via AssistantService,
+        bypassing the HTTP SDK.
+
+        Returns a validated AssistantRead object — identical shape to what the
+        SDK call produced, so all downstream consumers (AssistantCache,
+        OrchestratorCore config loaders) are drop-in compatible.
+
+        Raises HTTPException(404) if the assistant does not exist or has been
+        soft-deleted (propagated from AssistantService unchanged).
+        """
+        return await asyncio.to_thread(self.assistant_svc.retrieve_assistant, assistant_id)
 
     # ------------------------------------------------------------------
     # Vector Store
@@ -88,7 +107,6 @@ class NativeExecutionService:
                 return parsed if isinstance(parsed, dict) else {"raw": function_args}
             except (json.JSONDecodeError, ValueError):
                 return {"raw": function_args}
-        # Fallback for any other type (int, list, …)
         return {"raw": str(function_args)}
 
     async def create_action(
@@ -130,16 +148,11 @@ class NativeExecutionService:
         update does not overwrite previously stored result data with None.
         """
 
-        # Build the update payload with an explicit sentinel so ActionService
-        # never receives result=None and blindly wipes the stored value.
-        # ActionUpdate.result has no default sentinel in the validator, so we
-        # pass the current stored value by fetching it first.
         def _update():
-            # Fetch the existing action so we can preserve its result field.
             existing = self.action_svc.get_action(action_id)
             req = self.val_interface.ActionUpdate(
                 status=status,
-                result=existing.result,  # preserve whatever is already stored
+                result=existing.result,
             )
             return self.action_svc.update_action_status(action_id, req)
 
@@ -154,17 +167,6 @@ class NativeExecutionService:
     ) -> Any:
         """
         Create a run record via the local RunService, bypassing the HTTP SDK.
-
-        We deliberately avoid val_interface.RunCreate here because the local
-        Pydantic model requires id, created_at, expires_at, and instructions as
-        mandatory fields — those are all generated or resolved by RunService
-        itself and must NOT be supplied by the caller.  The SDK's RunCreate is
-        a lighter model that only needs assistant_id + thread_id.
-
-        Instead we pass a SimpleNamespace that satisfies every attribute access
-        RunService.create_run performs, using the same fallback logic the method
-        applies (None / empty collection where the service falls back to the
-        assistant's own values).
         """
         import types
 
@@ -172,8 +174,6 @@ class NativeExecutionService:
             assistant_id=assistant_id,
             thread_id=thread_id,
             meta_data=meta_data or {},
-            # Fields RunService reads with "getattr(..., None)" or "x or assistant.x"
-            # — supply None so the service falls back to the assistant's own values.
             model=None,
             instructions=None,
             tools=None,
@@ -196,20 +196,9 @@ class NativeExecutionService:
     async def create_thread(self, user_id: str) -> Any:
         """
         Create a thread owned by the given user, bypassing the HTTP SDK.
-
-        The SDK previously passed the admin user as participant, which was
-        incorrect.  This method passes the resolved owner user_id so the
-        ephemeral thread is correctly associated with the real user who
-        triggered the delegation.
-
-        ThreadService.create_thread validates that the participant exists in
-        the users table before inserting, so an invalid user_id will raise
-        HTTPException(400) rather than producing an orphaned thread.
         """
         import types
 
-        # ThreadService only accesses thread.participant_ids — use a
-        # SimpleNamespace to avoid any mandatory-field issues on ThreadCreate.
         req = types.SimpleNamespace(participant_ids=[user_id])
         return await asyncio.to_thread(self.thread_svc.create_thread, req)
 
@@ -223,10 +212,6 @@ class NativeExecutionService:
         """
         Create a message on a thread via the local MessageService,
         bypassing the HTTP SDK.
-
-        role defaults to 'user' which matches the delegation flow where the
-        supervisor prompt is injected as a user-turn message before the
-        ephemeral run is created.
         """
         req = self.val_interface.MessageCreate(
             thread_id=thread_id,
@@ -240,22 +225,13 @@ class NativeExecutionService:
         """
         Delete a thread and its messages via the local ThreadService,
         bypassing the HTTP SDK.
-
-        Also invalidates the Redis message cache for the thread (handled
-        internally by ThreadService.delete_thread).
         """
         return await asyncio.to_thread(self.thread_svc.delete_thread, thread_id)
 
     async def get_formatted_messages(self, thread_id: str) -> list:
         """
-        Fetch all messages for a thread formatted for LLM consumption.
-
-        Delegates directly to MessageService.get_formatted_messages, bypassing
-        the HTTP SDK.  Returns the same List[Dict[str, Any]] shape the SDK
-        call produces so all call sites are drop-in replaceable.
-
-        Raises HTTPException(404) if the thread does not exist (propagated
-        from MessageService unchanged so callers handle it identically).
+        Fetch all messages for a thread formatted for LLM consumption,
+        bypassing the HTTP SDK.
         """
         return await asyncio.to_thread(self.message_svc.get_formatted_messages, thread_id)
 
@@ -330,9 +306,6 @@ class NativeExecutionService:
         """
         Persist an assistant message chunk via the local MessageService,
         bypassing the HTTP SDK.
-
-        is_last_chunk defaults to True — callers in the orchestration layer
-        always flush the complete assembled reply in a single call.
         """
         return await asyncio.to_thread(
             self.message_svc.save_assistant_message_chunk,
@@ -349,71 +322,21 @@ class NativeExecutionService:
     # ------------------------------------------------------------------
 
     async def read_url(self, url: str, force_refresh: bool = False) -> str:
-        """
-        Scrape a URL via the remote browserless container.
-
-        Checks Redis first; only hits the browser service on a cache miss
-        (or when force_refresh=True).  Returns page 0 of the chunked content.
-
-        Args:
-            url:           The target URL to fetch.
-            force_refresh: Bypass the cache and re-fetch unconditionally.
-
-        Returns:
-            Markdown-formatted page content (first chunk / page 0).
-        """
+        """Scrape a URL via the remote browserless container."""
         LOG.info(f"NativeExec ▸ read_url: {url} (force_refresh={force_refresh})")
         return await self.web_reader.read(url, force_refresh=force_refresh)
 
     async def scroll_url(self, url: str, page: int) -> str:
-        """
-        Return a specific page of a previously cached URL.
-
-        The URL must have been fetched with read_url first; scroll_url operates
-        entirely from Redis and never hits the browser service.
-
-        Args:
-            url:  The previously-fetched URL.
-            page: Zero-based page index into the cached chunks.
-
-        Returns:
-            The requested chunk as a Markdown string, or an appropriate
-            cache-miss message if the session doesn't exist yet.
-        """
+        """Return a specific page of a previously cached URL."""
         LOG.info(f"NativeExec ▸ scroll_url: {url} page={page}")
         return await self.web_reader.scroll(url, page)
 
     async def search_url(self, url: str, query: str) -> str:
-        """
-        Full-text search within the cached content of a URL.
-
-        Searches the Redis-stored session for the given URL.  The URL must have
-        been fetched with read_url first.
-
-        Args:
-            url:   The previously-fetched URL whose cache will be searched.
-            query: The search term(s) to look for.
-
-        Returns:
-            Relevant excerpts as a Markdown string.
-        """
+        """Full-text search within the cached content of a URL."""
         LOG.info(f"NativeExec ▸ search_url: '{query}' in {url}")
         return await self.web_reader.search(url, query)
 
     async def serp_search(self, query: str) -> str:
-        """
-        Perform a live DuckDuckGo SERP search via the browser service.
-
-        Results are always force-refreshed (no caching of SERP pages) and
-        returned as a numbered Markdown list of titles + URLs, ready for the
-        agent to decide which to read_url next.
-
-        Args:
-            query: The search query string.
-
-        Returns:
-            A formatted Markdown string with up to 5 results and a system
-            hint directing the agent to call read_url on chosen links.
-        """
+        """Perform a live DuckDuckGo SERP search via the browser service."""
         LOG.info(f"NativeExec ▸ serp_search: '{query}'")
         return await self.web_reader.perform_serp_search(query)

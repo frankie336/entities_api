@@ -1,11 +1,7 @@
 # src/api/entities_api/orchestration/mixins/context_mixin.py
-import asyncio
 import json
-import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
-
-from projectdavid import Entity
 
 from entities_api.constants.tools import PLATFORM_TOOL_MAP
 from entities_api.orchestration.instructions.assembler import \

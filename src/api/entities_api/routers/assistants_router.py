@@ -1,7 +1,8 @@
+# src/api/entities_api/routers/assistants.py
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from projectdavid_common import ValidationInterface
 
-# NOTE: get_db is no longer needed in the endpoint signatures.
 from src.api.entities_api.dependencies import get_api_key
 from src.api.entities_api.models.models import ApiKey as ApiKeyModel
 from src.api.entities_api.services.assistants_service import AssistantService
@@ -16,18 +17,14 @@ def create_assistant(
     assistant: ValidationInterface.AssistantCreate,
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    """
-    Create a new assistant.
-    """
     logging_utility.info(
         "User '%s' – creating assistant id=%s",
         auth_key.user_id,
         assistant.id or "auto-generated",
     )
-    # --- FIX APPLIED HERE ---
     service = AssistantService()
     try:
-        return service.create_assistant(assistant)
+        return service.create_assistant(assistant, user_id=auth_key.user_id)
     except HTTPException:
         raise
     except Exception as exc:
@@ -44,7 +41,6 @@ def get_assistant(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     logging_utility.info("User '%s' – get assistant id=%s", auth_key.user_id, assistant_id)
-    # --- FIX APPLIED HERE ---
     service = AssistantService()
     try:
         return service.retrieve_assistant(assistant_id)
@@ -63,14 +59,14 @@ def update_assistant(
     assistant_update: ValidationInterface.AssistantUpdate,
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    """
-    Update any mutable assistant fields – including `tool_resources`.
-    """
     logging_utility.info("User '%s' – update assistant id=%s", auth_key.user_id, assistant_id)
-    # --- FIX APPLIED HERE ---
     service = AssistantService()
     try:
-        return service.update_assistant(assistant_id, assistant_update)
+        return service.update_assistant(
+            assistant_id,
+            assistant_update,
+            user_id=auth_key.user_id,  # ← ownership enforced in service
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -82,12 +78,9 @@ def update_assistant(
 
 @router.get("/assistants", response_model=list[ValidationInterface.AssistantRead])
 def list_assistants(auth_key: ApiKeyModel = Depends(get_api_key)):
-    """List assistants for the caller (derived from API-key)."""
-    user_id = auth_key.user_id
-    logging_utility.info("User %s – list assistants", user_id)
-    # --- FIX APPLIED HERE ---
+    logging_utility.info("User %s – list assistants", auth_key.user_id)
     service = AssistantService()
-    return service.list_assistants_by_user(user_id)
+    return service.list_assistants_by_user(auth_key.user_id)
 
 
 @router.post("/users/{user_id}/assistants/{assistant_id}")
@@ -102,7 +95,6 @@ def associate_assistant_with_user(
         assistant_id,
         user_id,
     )
-    # --- FIX APPLIED HERE ---
     service = AssistantService()
     try:
         service.associate_assistant_with_user(user_id, assistant_id)
@@ -128,7 +120,6 @@ def disassociate_assistant_from_user(
         assistant_id,
         user_id,
     )
-    # --- FIX APPLIED HERE ---
     service = AssistantService()
     try:
         service.disassociate_assistant_from_user(user_id, assistant_id)
@@ -147,12 +138,6 @@ def delete_assistant(
     permanent: bool = False,
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    """
-    Delete an assistant.
-
-    - **Standard Delete**: (Default) Soft delete. Moves to trash, recoverable.
-    - **Permanent Delete**: (permanent=True) GDPR-compliant hard delete. Irreversible.
-    """
     action_type = "PERMANENTLY" if permanent else "soft"
     logging_utility.info(
         "User '%s' – %s deleting assistant id=%s",
@@ -160,10 +145,13 @@ def delete_assistant(
         action_type,
         assistant_id,
     )
-
     service = AssistantService()
     try:
-        service.delete_assistant(assistant_id, permanent=permanent)
+        service.delete_assistant(
+            assistant_id,
+            user_id=auth_key.user_id,  # ← ownership enforced in service
+            permanent=permanent,
+        )
     except HTTPException:
         raise
     except Exception as exc:
