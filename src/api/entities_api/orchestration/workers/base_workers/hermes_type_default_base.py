@@ -178,13 +178,75 @@ class HermesDefaultBaseWorker(
             self.assistant_id = assistant_id
             await self._ensure_config_loaded()
 
-            # --- [NEW] DEEP RESEARCH & ENGINEER LOGIC ---
+            # ------------------------------------------------------------------
+            # 3. ROLE FLAG EXTRACTION
+            # Read all role signals from the assistant's normalized config.
+            # ------------------------------------------------------------------
             self.is_deep_research = self.assistant_config.get("deep_research", False)
             self.is_engineer = self.assistant_config.get("is_engineer", False)
-            LOG.info(
-                "[DEEP_RESEARCH_MODE]=%s | [ENGINEER_MODE]=%s",
-                self.is_deep_research,
+
+            agent_mode_setting = self.assistant_config.get("agent_mode", False)
+            decision_telemetry = self.assistant_config.get("decision_telemetry", False)
+
+            # Default web_access from config
+            web_access_setting = self.assistant_config.get("web_access", False)
+
+            # Extract from meta_data for dynamic ephemeral flags
+            raw_meta = self.assistant_config.get("meta_data", {})
+
+            # Worker role flags
+            is_worker_val = raw_meta.get(
+                "is_research_worker", raw_meta.get("research_worker_calling", False)
+            )
+            research_worker_setting = str(
+                is_worker_val
+            ).lower() == "true" or self.assistant_config.get("is_research_worker", False)
+
+            # Check for "junior_engineer"
+            is_junior_val = raw_meta.get(
+                "junior_engineer", raw_meta.get("junior_engineer_calling", False)
+            )
+            junior_engineer_setting = str(is_junior_val).lower() == "true"
+
+            # ------------------------------------------------------------------
+            # 4. ROLE CONFLICT RESOLUTION
+            # Exactly one role is active per invocation.
+            # ------------------------------------------------------------------
+            if self.is_engineer:
+                # SENIOR ENGINEER (SUPERVISOR)
+                web_access_setting = False
+                research_worker_setting = False
+                junior_engineer_setting = False
+                self.is_deep_research = False
+
+            elif self.is_deep_research:
+                # RESEARCH SUPERVISOR
+                web_access_setting = False
+                research_worker_setting = False
+                junior_engineer_setting = False
+
+            elif research_worker_setting:
+                # RESEARCH WORKER
+                web_access_setting = True
+                junior_engineer_setting = False
+
+            elif junior_engineer_setting:
+                # JUNIOR NETWORK ENGINEER
+                web_access_setting = False
+                research_worker_setting = False
+
+            LOG.critical(
+                "██████[ROLE CONFIG] "
+                "SeniorEngineer=%s | "
+                "DeepResearch=%s | "
+                "ResearchWorker=%s | "
+                "JuniorEngineer=%s | "
+                "WebAccess=%s ██████",
                 self.is_engineer,
+                self.is_deep_research,
+                research_worker_setting,
+                junior_engineer_setting,
+                web_access_setting,
             )
 
             # ------------------------------------------------------------------
@@ -225,80 +287,25 @@ class HermesDefaultBaseWorker(
                 self._run_user_id = None
                 LOG.warning("STREAM ▸ Could not resolve run_user_id: %s", e)
 
-            # C. Execute Identity Swap (Refactored for Generalized Roles)
-            # This handles the supervisor creation, ID swapping, and config reloading
+            # ------------------------------------------------------------------
+            # 5. IDENTITY SWAP & RELOAD (Supervisor roles only)
+            # ------------------------------------------------------------------
             await self._handle_role_based_identity_swap(requested_model=pre_mapped_model)
+
+            # --- CRITICAL FIX: Reload config if identity was swapped! ---
+            if self.assistant_id != _original_assistant_id:
+                LOG.info(
+                    f"Identity swapped from {_original_assistant_id} to {self.assistant_id}. Reloading config."
+                )
+                await self._ensure_config_loaded()
 
             # ------------------------------------------------------------------
             # SCRATCHPAD THREAD PINNING
-            #
-            # Priority:
-            #   1. meta_scratchpad from run.meta_data (set above) — used by workers
-            #      so they read/write the supervisor's shared pad, not their own thread.
-            #   2. Falls back to thread_id — used by supervisors and standard assistants
-            #      who own their own scratchpad.
-            #
-            # The guard here is critical — do NOT unconditionally assign thread_id or
-            # workers will lose the supervisor thread resolved from meta_data above.
             # ------------------------------------------------------------------
             if not self._scratch_pad_thread:
                 self._scratch_pad_thread = thread_id
 
             LOG.info("STREAM ▸ Scratchpad thread pinned to: %s", self._scratch_pad_thread)
-
-            agent_mode_setting = self.assistant_config.get("agent_mode", False)
-            decision_telemetry = self.assistant_config.get("decision_telemetry", False)
-
-            # --- [CRITICAL FIX START] ---
-            # 1. Default to user preference (usually True for standard agents)
-            web_access_setting = self.assistant_config.get("web_access", False)
-
-            # 2. Extract Worker / Junior flags
-            research_worker_setting = self.assistant_config.get("is_research_worker", False)
-            raw_meta = self.assistant_config.get("meta_data", {})
-            is_junior_val = raw_meta.get(
-                "junior_engineer", raw_meta.get("junior_engineer_calling", False)
-            )
-            junior_engineer_setting = str(is_junior_val).lower() == "true"
-
-            # 3. CONFLICT RESOLUTION:
-            if self.is_engineer:
-                # SENIOR ENGINEER (SUPERVISOR)
-                web_access_setting = False
-                research_worker_setting = False
-                junior_engineer_setting = False
-                self.is_deep_research = False
-
-            elif self.is_deep_research:
-                # RESEARCH SUPERVISOR
-                web_access_setting = False
-                research_worker_setting = False
-                junior_engineer_setting = False
-
-            elif research_worker_setting:
-                # RESEARCH WORKER
-                web_access_setting = True
-                junior_engineer_setting = False
-
-            elif junior_engineer_setting:
-                # JUNIOR NETWORK ENGINEER
-                web_access_setting = False
-                research_worker_setting = False
-
-            # --- [FIX 2] Conflict Resolution Logging ---
-            LOG.critical(
-                "██████[ROLE CONFIG] "
-                "SeniorEngineer=%s | "
-                "DeepResearch=%s | "
-                "ResearchWorker=%s | "
-                "JuniorEngineer=%s | "
-                "WebAccess=%s ██████",
-                self.is_engineer,
-                self.is_deep_research,
-                research_worker_setting,
-                junior_engineer_setting,
-                web_access_setting,
-            )
 
             # 3. Context Setup
             ctx = await self._set_up_context_window(
@@ -406,7 +413,7 @@ class HermesDefaultBaseWorker(
                 # CRITICAL: We overwrite message_to_save with the standard tool structure
                 message_to_save = json.dumps(tool_calls_structure)
 
-                LOG.info(f"\n🚀 [L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}")
+                LOG.info(f"\n🚀[L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}")
 
             # Persistence: Assistant Plan/Actions saved to Thread
             if message_to_save:

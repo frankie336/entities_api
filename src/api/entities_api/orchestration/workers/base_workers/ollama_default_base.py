@@ -167,58 +167,39 @@ class OllamaDefaultBaseWorker(
             self.assistant_id = assistant_id
             await self._ensure_config_loaded()
 
+            # ------------------------------------------------------------------
+            # 3. ROLE FLAG EXTRACTION
+            # Read all role signals from the assistant's normalized config.
+            # ------------------------------------------------------------------
             self.is_deep_research = self.assistant_config.get("deep_research", False)
             self.is_engineer = self.assistant_config.get("is_engineer", False)
-            LOG.info(
-                "[DEEP_RESEARCH_MODE]=%s |[ENGINEER_MODE]=%s",
-                self.is_deep_research,
-                self.is_engineer,
-            )
 
-            # ── Resolve run ownership & scratchpad ────────────────────────
-            from projectdavid import Entity
-
-            admin_client = Entity(api_key=os.environ.get("ADMIN_API_KEY"))
-            try:
-                run = await asyncio.to_thread(admin_client.runs.retrieve_run, run_id=run_id)
-                self._run_user_id = run.user_id
-                meta = run.meta_data or {}
-
-                if self._batfish_owner_user_id is None:
-                    self._batfish_owner_user_id = meta.get("batfish_owner_user_id") or run.user_id
-                if self._scratch_pad_thread is None and meta.get("scratch_pad_thread"):
-                    self._scratch_pad_thread = meta["scratch_pad_thread"]
-
-                LOG.info(
-                    "STREAM ▸ run_user_id=%s | batfish_owner=%s | scratch_pad_thread=%s",
-                    self._run_user_id,
-                    self._batfish_owner_user_id,
-                    self._scratch_pad_thread,
-                )
-            except Exception as exc:
-                self._run_user_id = None
-                LOG.warning("STREAM ▸ Could not resolve run_user_id: %s", exc)
-
-            # ── Identity swap (supervisor / role-based) ───────────────────
-            await self._handle_role_based_identity_swap(requested_model=pre_mapped_model)
-
-            # Scratchpad: prefer meta_data value; fall back to thread_id
-            if not self._scratch_pad_thread:
-                self._scratch_pad_thread = thread_id
-            LOG.info("STREAM ▸ Scratchpad pinned to: %s", self._scratch_pad_thread)
-
-            # ── Role config resolution ────────────────────────────────────
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", True)
-            web_access_setting = self.assistant_config.get("web_access", False)
-            research_worker_setting = self.assistant_config.get("is_research_worker", False)
 
+            # Default web_access from config
+            web_access_setting = self.assistant_config.get("web_access", False)
+
+            # Extract from meta_data for dynamic ephemeral flags
             raw_meta = self.assistant_config.get("meta_data", {})
+
+            # Worker role flags
+            is_worker_val = raw_meta.get(
+                "is_research_worker", raw_meta.get("research_worker_calling", False)
+            )
+            research_worker_setting = str(
+                is_worker_val
+            ).lower() == "true" or self.assistant_config.get("is_research_worker", False)
+
+            # Check for "junior_engineer"
             is_junior_val = raw_meta.get(
                 "junior_engineer", raw_meta.get("junior_engineer_calling", False)
             )
             junior_engineer_setting = str(is_junior_val).lower() == "true"
 
+            # ------------------------------------------------------------------
+            # 4. ROLE CONFLICT RESOLUTION
+            # ------------------------------------------------------------------
             if self.is_engineer:
                 web_access_setting = False
                 research_worker_setting = False
@@ -244,6 +225,49 @@ class OllamaDefaultBaseWorker(
                 junior_engineer_setting,
                 web_access_setting,
             )
+
+            # ------------------------------------------------------------------
+            # CAPTURE REAL USER ID — before any identity swap mutates state.
+            # ------------------------------------------------------------------
+            try:
+                # [FIXED SDK REMOVAL] Replaced HTTP SDK usage with native execution DB lookup
+                run = await self._native_exec.retrieve_run(run_id)
+                self._run_user_id = run.user_id
+
+                meta = run.meta_data or {}
+
+                if self._batfish_owner_user_id is None:
+                    self._batfish_owner_user_id = meta.get("batfish_owner_user_id") or run.user_id
+
+                if self._scratch_pad_thread is None and meta.get("scratch_pad_thread"):
+                    self._scratch_pad_thread = meta["scratch_pad_thread"]
+
+                LOG.info(
+                    "STREAM ▸ Captured run_user_id=%s | batfish_owner=%s | scratch_pad_thread=%s",
+                    self._run_user_id,
+                    self._batfish_owner_user_id,
+                    self._scratch_pad_thread,
+                )
+            except Exception as exc:
+                self._run_user_id = None
+                LOG.warning("STREAM ▸ Could not resolve run_user_id: %s", exc)
+
+            # ------------------------------------------------------------------
+            # 5. IDENTITY SWAP & RELOAD (Supervisor roles only)
+            # ------------------------------------------------------------------
+            await self._handle_role_based_identity_swap(requested_model=pre_mapped_model)
+
+            # --- CRITICAL FIX: Reload config if identity was swapped! ---
+            if self.assistant_id != _original_assistant_id:
+                LOG.info(
+                    f"Identity swapped from {_original_assistant_id} to {self.assistant_id}. Reloading config."
+                )
+                await self._ensure_config_loaded()
+
+            # Scratchpad: prefer meta_data value; fall back to thread_id
+            if not self._scratch_pad_thread:
+                self._scratch_pad_thread = thread_id
+            LOG.info("STREAM ▸ Scratchpad pinned to: %s", self._scratch_pad_thread)
 
             # ── Build context window ──────────────────────────────────────
             ctx = await self._set_up_context_window(
@@ -347,6 +371,7 @@ class OllamaDefaultBaseWorker(
             yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
             if message_to_save:
+                # [FIX]: Use self.assistant_id to save under the supervisor's ID (if applicable)
                 await self.finalize_conversation(
                     message_to_save, thread_id, self.assistant_id, run_id
                 )

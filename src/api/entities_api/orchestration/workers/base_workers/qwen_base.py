@@ -203,11 +203,16 @@ class QwenBaseWorker(
             # Default web_access from config — may be overridden by role resolution below
             web_access_setting = self.assistant_config.get("web_access", False)
 
-            # Worker role flags — mutually exclusive, enforced below
-            research_worker_setting = self.assistant_config.get("is_research_worker", False)
-
             # Extract from meta_data for dynamic ephemeral flags
             raw_meta = self.assistant_config.get("meta_data", {})
+
+            # Worker role flags — mutually exclusive, enforced below
+            is_worker_val = raw_meta.get(
+                "is_research_worker", raw_meta.get("research_worker_calling", False)
+            )
+            research_worker_setting = str(
+                is_worker_val
+            ).lower() == "true" or self.assistant_config.get("is_research_worker", False)
 
             # Check for "junior_engineer" (and fallback to "junior_engineer_calling" just in case)
             is_junior_val = raw_meta.get(
@@ -251,7 +256,7 @@ class QwenBaseWorker(
             # else: STANDARD ASSISTANT — all flags remain at config defaults.
 
             LOG.critical(
-                "██████ [ROLE CONFIG] "
+                "██████[ROLE CONFIG] "
                 "SeniorEngineer=%s | "
                 "DeepResearch=%s | "
                 "ResearchWorker=%s | "
@@ -306,6 +311,13 @@ class QwenBaseWorker(
             # Delegates to parent class Orchestrator method. A no-op for workers.
             # ------------------------------------------------------------------
             await self._handle_role_based_identity_swap(requested_model=pre_mapped_model)
+
+            # --- CRITICAL FIX: Reload config if identity was swapped! ---
+            if self.assistant_id != _original_assistant_id:
+                LOG.info(
+                    f"Identity swapped from {_original_assistant_id} to {self.assistant_id}. Reloading config."
+                )
+                await self._ensure_config_loaded()
 
             # ------------------------------------------------------------------
             # SCRATCHPAD THREAD PINNING
