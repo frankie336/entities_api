@@ -23,36 +23,29 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 # IMPORTS
 # -------------------------------------------------------------------------
 from projectdavid import StreamEvent
-from projectdavid_common import \
-    ToolValidator  # Assumed available based on snippet
+from projectdavid_common import ToolValidator
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.dependencies import get_redis_sync
-from entities_api.platform_tools.delegated_model_map.delegation_model_map import \
-    get_delegated_model
+from entities_api.platform_tools.delegated_model_map.delegation_model_map import get_delegated_model
 from entities_api.utils.assistant_manager import AssistantManager
-# from projectdavid_common.constants.plaform_tools import PLATFORM_TOOLS
 from src.api.entities_api.constants.platform import PLATFORM_TOOLS
+
 # Mixins
-from src.api.entities_api.orchestration.mixins.code_execution_mixin import \
-    CodeExecutionMixin
-from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import \
-    ConsumerToolHandlersMixin
-from src.api.entities_api.orchestration.mixins.context_mixin import \
-    ContextMixin
-from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
-    JsonUtilsMixin
-from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import \
-    PlatformToolHandlersMixin
-from src.api.entities_api.orchestration.mixins.service_registry_mixin import \
-    ServiceRegistryMixin
-from src.api.entities_api.orchestration.mixins.shell_execution_mixin import \
-    ShellExecutionMixin
-from src.api.entities_api.orchestration.mixins.streaming_mixin import \
-    StreamingMixin
-from src.api.entities_api.orchestration.mixins.tool_routing_mixin import \
-    ToolRoutingMixin
+from src.api.entities_api.orchestration.mixins.code_execution_mixin import CodeExecutionMixin
+from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import (
+    ConsumerToolHandlersMixin,
+)
+from src.api.entities_api.orchestration.mixins.context_mixin import ContextMixin
+from src.api.entities_api.orchestration.mixins.json_utils_mixin import JsonUtilsMixin
+from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import (
+    PlatformToolHandlersMixin,
+)
+from src.api.entities_api.orchestration.mixins.service_registry_mixin import ServiceRegistryMixin
+from src.api.entities_api.orchestration.mixins.shell_execution_mixin import ShellExecutionMixin
+from src.api.entities_api.orchestration.mixins.streaming_mixin import StreamingMixin
+from src.api.entities_api.orchestration.mixins.tool_routing_mixin import ToolRoutingMixin
 
 LOG = LoggingUtility()
 
@@ -187,18 +180,31 @@ class OrchestratorCore(
         """
         Performs the 'Hot Swap' for specialized agent loops:
         Deep Research (Supervisor -> Workers) OR Engineering (Senior -> Junior)
+
+        user_id is resolved from self._run_user_id (stamped in stream() before
+        this method is called) so ephemeral assistants are correctly owned.
         """
         is_engineer_active = getattr(self, "is_engineer", False)
 
         # 1. ENFORCE MUTUAL EXCLUSIVITY
         if self.is_deep_research and is_engineer_active:
             LOG.error(
-                "CRITICAL: Assistant configured with BOTH Deep Research and Engineer. Defaulting to Engineer."
+                "CRITICAL: Assistant configured with BOTH Deep Research and Engineer. "
+                "Defaulting to Engineer."
             )
-            self.is_deep_research = False  # Force exclusivity (or raise ValueError)
+            self.is_deep_research = False
 
-        # 2. Check if either mode is active
+        # 2. No-op for standard assistants
         if not self.is_deep_research and not is_engineer_active:
+            return
+
+        # 3. Resolve owner for ephemeral assistants — must be set before this call
+        user_id = getattr(self, "_run_user_id", None)
+        if not user_id:
+            LOG.error(
+                "ORCHESTRATOR ▸ _handle_role_based_identity_swap: "
+                "_run_user_id is not set — ephemeral assistants cannot be created without an owner."
+            )
             return
 
         assistant_manager = AssistantManager()
@@ -208,16 +214,20 @@ class OrchestratorCore(
         # ==========================================
         if self.is_deep_research:
             LOG.critical("██████ [DEEP_RESEARCH_MODE_ACTIVE] ██████")
-            ephemeral_lead = await assistant_manager.create_ephemeral_research_supervisor()
-            self._worker_thread = await assistant_manager.create_ephemeral_thread()
+            ephemeral_lead = await assistant_manager.create_ephemeral_research_supervisor(
+                user_id=user_id
+            )
+            self._worker_thread = await assistant_manager.create_ephemeral_thread(user_id=user_id)
 
         # ==========================================
         # PATH B: ENGINEER SWAP
         # ==========================================
         elif is_engineer_active:
             LOG.critical("██████ [ENGINEER_MODE_ACTIVE] ██████")
-            ephemeral_lead = await assistant_manager.create_ephemeral_senior_engineer()
-            self._worker_thread = await assistant_manager.create_ephemeral_thread()
+            ephemeral_lead = await assistant_manager.create_ephemeral_senior_engineer(
+                user_id=user_id
+            )
+            self._worker_thread = await assistant_manager.create_ephemeral_thread(user_id=user_id)
 
         # ==========================================
         # COMMON IDENTITY SWAP LOGIC
@@ -238,81 +248,56 @@ class OrchestratorCore(
         current_block: str | None,
         accumulated: str,
         assistant_reply: str,
-        decision_buffer: str = "",  # Added to capture raw decision JSON
+        decision_buffer: str = "",
     ) -> tuple[str | None, str, str, str, bool]:
-        """
-        Handle chunk accumulation with XML block management.
-        Updates state for: content, call_arguments (fc), reasoning (think), plan, and decision.
-
-        Returns:
-            tuple: (current_block, accumulated, assistant_reply, decision_buffer, should_skip_yield)
-        """
         ctype = chunk.get("type")
         ccontent = chunk.get("content") or ""
         should_skip = False
 
-        # --- 1. CONTENT (Standard Text) ---
         if ctype == "content":
-            # Close any active XML block if we switch back to content
             if current_block:
                 accumulated += f"</{current_block}>"
                 current_block = None
-
             assistant_reply += ccontent
             accumulated += ccontent
 
-        # --- 2. TOOL ARGUMENTS (<fc>) ---
-        # Normalized from Kimi's <|tool_call_argument_begin|> or Qwen's <tool_call>
         elif ctype == "call_arguments":
             if current_block != "fc":
                 if current_block:
                     accumulated += f"</{current_block}>"
                 accumulated += "<fc>"
                 current_block = "fc"
-
             accumulated += ccontent
-            should_skip = True  # We usually don't yield raw args to the frontend stream
+            should_skip = True
 
-        # --- 3. REASONING (<think>) ---
         elif ctype == "reasoning":
             if current_block != "think":
                 if current_block:
                     accumulated += f"</{current_block}>"
                 accumulated += "<think>"
                 current_block = "think"
-
-            # Note: We usually DO yield reasoning, so no accumulated += ccontent here strictly for 'assistant_reply'
-            # but we do add it to 'accumulated' for history preservation.
             accumulated += ccontent
 
-        # --- 4. PLANNING (<plan>) ---
         elif ctype == "plan":
             if current_block != "plan":
                 if current_block:
                     accumulated += f"</{current_block}>"
                 accumulated += "<plan>"
                 current_block = "plan"
-
             accumulated += ccontent
 
-        # --- 5. DECISION (<decision>) ---
         elif ctype == "decision":
             if current_block != "decision":
                 if current_block:
                     accumulated += f"</{current_block}>"
                 accumulated += "<decision>"
                 current_block = "decision"
-
             accumulated += ccontent
-            decision_buffer += ccontent  # Capture specific buffer for JSON parsing later
+            decision_buffer += ccontent
 
         return current_block, accumulated, assistant_reply, decision_buffer, should_skip
 
     def _update_stream_state(self, chunk: dict, state: StreamState) -> None:
-        """
-        Updates the accumulation buffers based on the chunk type and current XML block state.
-        Encapsulates the Real-Time State Machine logic.
-        """
         ctype = chunk.get("type")
         ccontent = chunk.get("content") or ""
 
@@ -383,7 +368,6 @@ class OrchestratorCore(
                 )
             else:
                 LOG.warning(f"⚠️ Cache Miss for {self.assistant_id} — fetching from source")
-                # Fallback: fetch from DB and re-populate cache
                 fresh_config = await self._fetch_assistant_config_from_db(self.assistant_id)
                 if fresh_config:
                     self.assistant_config = fresh_config
@@ -396,7 +380,6 @@ class OrchestratorCore(
             LOG.error(f"❌ Error loading assistant config: {e}")
 
     def _build_tool_structure(self, batch):
-        """Helper to format tool calls for history."""
         structure = []
         for tool in batch:
             tool_id = tool.get("id") or f"call_{uuid.uuid4().hex[:8]}"
@@ -433,13 +416,6 @@ class OrchestratorCore(
         """
         Level 3 Recursive Orchestrator (Batch-Aware).
 
-        Logic Flow:
-        1. Stream LLM tokens.
-        2. Check for tool calls.
-        3. If NO tools -> Finish.
-        4. If SDK tools -> Execute tool envelopes -> Return (SDK handles next turn).
-        5. If PLATFORM tools -> Execute tools -> Continue loop (Orchestrator handles next turn).
-
         Run lifecycle guarantees:
         - started_at   : written on Turn 1
         - current_turn : written every turn
@@ -471,11 +447,8 @@ class OrchestratorCore(
                     if turn_count == 1:
                         fields["started_at"] = int(time.time())
 
-                    await asyncio.to_thread(
-                        self.project_david_client.runs.update_run_fields,
-                        run_id,
-                        **fields,
-                    )
+                    await self._native_exec.update_run_fields(run_id, **fields)
+
                 except Exception as lifecycle_exc:
                     LOG.warning(
                         f"ORCHESTRATOR ▸ Failed to write turn state (non-fatal): {lifecycle_exc}"
@@ -508,8 +481,7 @@ class OrchestratorCore(
                     LOG.error(f"ORCHESTRATOR ▸ Turn {turn_count} stream failed: {stream_exc}")
 
                     try:
-                        await asyncio.to_thread(
-                            self.project_david_client.runs.update_run_fields,
+                        await self._native_exec.update_run_fields(
                             run_id,
                             last_error=str(stream_exc),
                             failed_at=int(time.time()),
@@ -537,8 +509,7 @@ class OrchestratorCore(
                     LOG.info(f"ORCHESTRATOR ▸ Turn {turn_count} completed with text.")
 
                     try:
-                        await asyncio.to_thread(
-                            self.project_david_client.runs.update_run_fields,
+                        await self._native_exec.update_run_fields(
                             run_id,
                             completed_at=int(time.time()),
                         )
@@ -555,9 +526,6 @@ class OrchestratorCore(
                 has_sdk_user_tool = False
 
                 for call in batch:
-                    # Support both:
-                    # {"name": "...", "arguments": {...}}
-                    # {"function": {"name": "...", "arguments": {...}}}
                     if "function" in call and isinstance(call["function"], dict):
                         tool_name = call["function"].get("name")
                         args = call["function"].get("arguments", {})
@@ -603,7 +571,6 @@ class OrchestratorCore(
                 )
                 await asyncio.sleep(0.5)
 
-                # Force context rebuild from injected tool results
                 current_message_id = None
                 continue
 
@@ -614,8 +581,7 @@ class OrchestratorCore(
                 LOG.error("ORCHESTRATOR ▸ Max turns reached.")
 
                 try:
-                    await asyncio.to_thread(
-                        self.project_david_client.runs.update_run_fields,
+                    await self._native_exec.update_run_fields(
                         run_id,
                         failed_at=int(time.time()),
                         incomplete_details=(
@@ -644,8 +610,7 @@ class OrchestratorCore(
             LOG.error(f"ORCHESTRATOR ▸ Unhandled exception: {exc}")
 
             try:
-                await asyncio.to_thread(
-                    self.project_david_client.runs.update_run_fields,
+                await self._native_exec.update_run_fields(
                     run_id,
                     last_error=str(exc),
                     failed_at=int(time.time()),

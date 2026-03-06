@@ -1,6 +1,6 @@
 import asyncio
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from projectdavid_common import ValidationInterface
 from projectdavid_common.validation import StatusEnum
@@ -27,7 +27,8 @@ class NativeExecutionService:
     Helper service to manage native database executions, bypassing the HTTP SDK.
 
     Provides async-friendly wrappers around:
-      - Assistant retrieval                    (retrieve_assistant)
+      - Assistant CRUD                         (create_assistant, retrieve_assistant,
+                                                delete_assistant)
       - Action and Message operations          (create, update, submit)
       - Vector store lookups                   (get_vector_store)
       - Web reading and SERP search            (read_url, scroll_url,
@@ -40,7 +41,7 @@ class NativeExecutionService:
 
     def __init__(self):
         self.action_svc = ActionService()
-        self.assistant_svc = AssistantService()  # ← NEW
+        self.assistant_svc = AssistantService()
         self.run_svc = RunService()
         self.thread_svc = ThreadService()
         self.message_svc = MessageService()
@@ -55,6 +56,59 @@ class NativeExecutionService:
     # Assistant
     # ------------------------------------------------------------------
 
+    async def create_assistant(
+        self,
+        user_id: str,
+        name: str,
+        model: str = "gpt-oss-120b",
+        description: str = "",
+        instructions: str = "",
+        tools: Optional[List] = None,
+        tool_resources: Optional[Dict] = None,
+        meta_data: Optional[Dict] = None,
+        web_access: bool = False,
+        deep_research: bool = False,
+        engineer: bool = False,
+        agent_mode: bool = False,
+        decision_telemetry: bool = False,
+        max_turns: int = 1,
+        temperature: Optional[float] = None,  # <-- Change int to float
+        top_p: Optional[float] = None,  # <-- Change int to float
+        response_format: str = "text",
+    ) -> Any:
+        """
+        Create an assistant record via AssistantService, bypassing the HTTP SDK.
+        """
+
+        # 1. Build a dictionary of arguments, excluding top_p and temperature for now
+        kwargs = {
+            "name": name,
+            "model": model,
+            "description": description,
+            "instructions": instructions,
+            "tools": tools or [],
+            "tool_resources": tool_resources or {},
+            "meta_data": meta_data or {},
+            "web_access": web_access,
+            "deep_research": deep_research,
+            "engineer": engineer,
+            "agent_mode": agent_mode,
+            "decision_telemetry": decision_telemetry,
+            "max_turns": max_turns,
+            "response_format": response_format,
+        }
+
+        # 2. Only add them if they were actually provided, allowing Pydantic to use its defaults
+        if temperature is not None:
+            kwargs["temperature"] = temperature
+        if top_p is not None:
+            kwargs["top_p"] = top_p
+
+        # 3. Spread kwargs into your Pydantic model
+        req = self.val_interface.AssistantCreate(**kwargs)
+
+        return await asyncio.to_thread(self.assistant_svc.create_assistant, req, user_id)
+
     async def retrieve_assistant(self, assistant_id: str) -> Any:
         """
         Fetch a single assistant directly from the DB via AssistantService,
@@ -68,6 +122,28 @@ class NativeExecutionService:
         soft-deleted (propagated from AssistantService unchanged).
         """
         return await asyncio.to_thread(self.assistant_svc.retrieve_assistant, assistant_id)
+
+    async def delete_assistant(
+        self,
+        assistant_id: str,
+        user_id: str,
+        permanent: bool = False,
+    ) -> None:
+        """
+        Delete an assistant via AssistantService, bypassing the HTTP SDK.
+
+        user_id must match the owner_id on the record — the ownership guard
+        in AssistantService.delete_assistant enforces this.
+
+        Used by AssistantManager for ephemeral cleanup and by
+        _ephemeral_clean_up in OrchestratorCore.
+        """
+        return await asyncio.to_thread(
+            self.assistant_svc.delete_assistant,
+            assistant_id,
+            user_id,
+            permanent,
+        )
 
     # ------------------------------------------------------------------
     # Vector Store
@@ -293,6 +369,22 @@ class NativeExecutionService:
         Update a run's status via the local RunService, bypassing the HTTP SDK.
         """
         return await asyncio.to_thread(self.run_svc.update_run_status, run_id, new_status)
+
+    async def update_run_fields(self, run_id: str, **fields) -> Any:
+        """
+        Update arbitrary lifecycle fields on a run record via RunService,
+        bypassing the HTTP SDK.
+
+        Accepts any keyword arguments that RunService.update_run_fields
+        supports, e.g.:
+            current_turn, started_at, completed_at, failed_at,
+            last_error, incomplete_details
+
+        Used exclusively by OrchestratorCore.process_conversation for
+        turn-by-turn lifecycle stamping. Non-fatal callers should wrap
+        this in try/except and log warnings on failure.
+        """
+        return await asyncio.to_thread(self.run_svc.update_run_fields, run_id, **fields)
 
     async def save_assistant_message_chunk(
         self,

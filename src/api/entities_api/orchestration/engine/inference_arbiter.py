@@ -10,7 +10,6 @@ Central gate-keeper for inference requests.
 
 from __future__ import annotations
 
-import os
 from typing import Any, Type, Union
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
@@ -55,20 +54,10 @@ class InferenceArbiter:
                 f"InferenceArbiter expected redis.Redis or redis.asyncio.Redis, got {type(redis)}"
             )
 
-        base_url = os.getenv("BASE_URL")
-        admin_api_key = os.getenv("ADMIN_API_KEY")
-
-        if not base_url or not admin_api_key:
-            logging_utility.warning(
-                "BASE_URL or ADMIN_API_KEY not set – AssistantCache may fallback to slow DB lookups."
-            )
-
-        # Shared infrastructure (safe to reuse)
-        self._assistant_cache = AssistantCache(
-            redis=self._redis,
-            pd_base_url=base_url,
-            pd_api_key=admin_api_key,
-        )
+        # AssistantCache now fetches assistant config directly via
+        # NativeExecutionService → AssistantService → DB.
+        # No BASE_URL or ADMIN_API_KEY required.
+        self._assistant_cache = AssistantCache(redis=self._redis)
 
         logging_utility.info(
             "InferenceArbiter initialised (redis=%s async=%s)",

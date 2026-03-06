@@ -1,115 +1,113 @@
 import asyncio
-import os
 import uuid
 from typing import Any, Optional
 
-from dotenv import load_dotenv
-from projectdavid import Entity
+from entities_api.platform_tools.tool_reigistry.junior_network_engineer import JUNIOR_ENGINEER_TOOLS
+from entities_api.platform_tools.tool_reigistry.research_supervisor import SUPERVISOR_TOOLS
+from entities_api.platform_tools.tool_reigistry.senior_network_engineer import SENIOR_ENGINEER_TOOLS
+from src.api.entities_api.services.logging_service import LoggingUtility
 
-from entities_api.platform_tools.tool_reigistry.junior_network_engineer import \
-    JUNIOR_ENGINEER_TOOLS
-from entities_api.platform_tools.tool_reigistry.research_supervisor import \
-    SUPERVISOR_TOOLS
-from entities_api.platform_tools.tool_reigistry.senior_network_engineer import \
-    SENIOR_ENGINEER_TOOLS
-
-load_dotenv()
+LOG = LoggingUtility()
 
 
 class AssistantManager:
-    def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None):
-        """
-        Initialize the AssistantManager with projectdavid Entity client.
-        Uses environment variables if arguments are not provided.
-        """
-        self.base_url = base_url or os.getenv("BASE_URL", "http://localhost:9000")
-        self.api_key = api_key or os.getenv("ADMIN_API_KEY")
+    """
+    Creates and destroys ephemeral assistants and threads used by the
+    orchestration layer (deep research, senior/junior engineer flows).
 
-        if not self.api_key:
-            raise ValueError("ADMIN_API_KEY is not set in environment or arguments.")
+    Previously used the Entity SDK (HTTP round-trip + ADMIN_API_KEY).
+    Now routes through NativeExecutionService → AssistantService → DB directly.
 
-        self.client = Entity(
-            base_url=self.base_url,
-            api_key=self.api_key,
+    All mutating methods require a user_id so the ownership guard in
+    AssistantService is satisfied. Callers should pass self._run_user_id
+    resolved from the run record before any identity swap.
+    """
+
+    @property
+    def _native_exec(self):
+        if getattr(self, "_native_exec_svc", None) is None:
+            from src.api.entities_api.services.native_execution_service import (
+                NativeExecutionService,
+            )
+
+            self._native_exec_svc = NativeExecutionService()
+        return self._native_exec_svc
+
+    # ------------------------------------------------------------------
+    # Primary (non-ephemeral) helpers
+    # ------------------------------------------------------------------
+
+    async def create_primary_assistant(
+        self,
+        user_id: str,
+        name: str = "Test Assistant",
+        model: str = "gpt-oss-120b",
+    ):
+        """Creates the main supervisor assistant."""
+        return await self._native_exec.create_assistant(
+            user_id=user_id,
+            name=name,
+            model=model,
+            tools=SUPERVISOR_TOOLS,
+            web_access=True,
         )
 
-    def create_primary_assistant(self, name: str = "Test Assistant", model: str = "gpt-oss-120b"):
-        """
-        Creates the main supervisor assistant (Synchronous).
-        """
+    async def create_thread(self, user_id: str):
+        """Creates a thread owned by user_id."""
+        return await self._native_exec.create_thread(user_id=user_id)
 
-        return self.client.assistants.create_assistant(
-            name=name, model=model, tools=SUPERVISOR_TOOLS, web_access=True
-        )
+    # ------------------------------------------------------------------
+    # Ephemeral assistants
+    # ------------------------------------------------------------------
 
-    def create_thread(self, name: str = "Test Assistant", model: str = "gpt-oss-120b"):
-        """
-        Creates the main supervisor assistant (Synchronous).
-        """
-        return self.client.threads.create_thread()
-
-    async def create_ephemeral_research_supervisor(self):
-        """
-        Creates a temporary worker assistant with a unique UUID.
-        Wraps the blocking SDK call in a thread for async compatibility.
-        """
-        ephemeral_worker = await asyncio.to_thread(
-            self.client.assistants.create_assistant,
+    async def create_ephemeral_research_supervisor(self, user_id: str):
+        """Temporary research supervisor — owned by the run's user."""
+        return await self._native_exec.create_assistant(
+            user_id=user_id,
             name=f"worker_{uuid.uuid4().hex[:8]}",
             description="Temp research supervisor",
             tools=SUPERVISOR_TOOLS,
             deep_research=True,
         )
-        return ephemeral_worker
 
-    async def create_ephemeral_senior_engineer(self):
-
-        ephemeral_worker = await asyncio.to_thread(
-            self.client.assistants.create_assistant,
+    async def create_ephemeral_senior_engineer(self, user_id: str):
+        """Temporary senior network engineer — owned by the run's user."""
+        return await self._native_exec.create_assistant(
+            user_id=user_id,
             name=f"worker_{uuid.uuid4().hex[:8]}",
-            description="Temp research supervisor",
+            description="Temp senior network engineer",
             tools=SENIOR_ENGINEER_TOOLS,
             deep_research=True,
         )
-        return ephemeral_worker
 
-    async def create_ephemeral_worker_assistant(self):
+    async def create_ephemeral_worker_assistant(self, user_id: str):
         """
-        Creates the sub-worker.
-        Crucially, we inject 'research_worker_calling': True into meta_data.
-        This allows QwenBaseWorker to identify its role upon loading.
+        Temporary research worker.
+        Injects research_worker_calling=True into meta_data so
+        QwenBaseWorker can identify its role on load.
         """
-
-        # ======================================================================================
-        # Instead of relying on the web services {"type": "computer"}
-        # platform tools placeholder , the workers tools are
-        # injected directly with WORKER_TOOLS to allow for granular control over its tools
-        # =======================================================================================
-        ephemeral_worker = await asyncio.to_thread(
-            self.client.assistants.create_assistant,
+        return await self._native_exec.create_assistant(
+            user_id=user_id,
             name=f"worker_{uuid.uuid4().hex[:8]}",
             description="Temp assistant for deep research",
             tools=[{"type": "web_search"}],
             web_access=True,
             deep_research=False,
-            # ✅ FIX: Pass state here so the worker knows what it is immediately
             meta_data={"research_worker_calling": True},
         )
 
-        return ephemeral_worker
+    async def create_ephemeral_thread(self, user_id: str):
+        """Creates a throw-away thread owned by the run's user."""
+        return await self._native_exec.create_thread(user_id=user_id)
 
-    async def create_ephemeral_thread(self):
-        return await asyncio.to_thread(self.client.threads.create_thread)
-
-    async def create_ephemeral_junior_engineer(self):
+    async def create_ephemeral_junior_engineer(self, user_id: str):
         """
         Spawns the Junior Engineer worker for Batfish analysis.
-        STRICTLY sets web_access=False and deep_research=False to prevent
-        the orchestrator from injecting web tools or the Research instructions.
+        web_access and deep_research are explicitly False to prevent
+        the orchestrator injecting web tools or research instructions.
         """
-
-        ephemeral_worker = await asyncio.to_thread(
-            self.client.assistants.create_assistant,
+        return await self._native_exec.create_assistant(
+            user_id=user_id,
             name=f"junior_eng_{uuid.uuid4().hex[:8]}",
             description="Temp Junior Network Engineer for Batfish RCA",
             tools=JUNIOR_ENGINEER_TOOLS,
@@ -118,14 +116,23 @@ class AssistantManager:
             meta_data={"junior_engineer": "true"},
         )
 
-        return ephemeral_worker
+    # ------------------------------------------------------------------
+    # Cleanup
+    # ------------------------------------------------------------------
 
-    async def delete_assistant(self, assistant_id: str, permanent: bool = False) -> Any:
+    async def delete_assistant(
+        self,
+        assistant_id: str,
+        user_id: str,
+        permanent: bool = False,
+    ) -> Any:
         """
         Deletes a temporary worker assistant.
+        user_id must match the owner set at creation time so the
+        ownership guard in AssistantService is satisfied.
         """
-        return await asyncio.to_thread(
-            self.client.assistants.delete_assistant,
+        return await self._native_exec.delete_assistant(
             assistant_id=assistant_id,
+            user_id=user_id,
             permanent=permanent,
         )
