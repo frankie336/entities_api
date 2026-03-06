@@ -10,7 +10,7 @@ from src.api.entities_api.cache.web_cache import WebSessionCache
 from src.api.entities_api.db.database import SessionLocal
 from src.api.entities_api.dependencies import get_redis_sync
 from src.api.entities_api.services.actions_service import ActionService
-from src.api.entities_api.services.assistant_service import AssistantService
+from src.api.entities_api.services.assistants_service import AssistantService
 from src.api.entities_api.services.logging_service import LoggingUtility
 from src.api.entities_api.services.message_service import MessageService
 from src.api.entities_api.services.runs_service import RunService
