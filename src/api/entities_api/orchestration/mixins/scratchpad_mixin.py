@@ -9,8 +9,7 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
 # Import the newly created NativeExecutionService
-from src.api.entities_api.services.native_execution_service import \
-    NativeExecutionService
+from src.api.entities_api.services.native_execution_service import NativeExecutionService
 
 LOG = LoggingUtility()
 

@@ -10,21 +10,28 @@ import jwt
 from projectdavid_common.utilities.tool_validator import ToolValidator
 from projectdavid_common.validation import StatusEnum
 
-# --- DEPENDENCIES ---
-from entities_api.platform_tools.handlers.computer.shell_command_interface import \
-    run_shell_commands_async
+from entities_api.platform_tools.handlers.computer.shell_command_interface import (
+    run_shell_commands_async,
+)
 from src.api.entities_api.services.logging_service import LoggingUtility
+from src.api.entities_api.services.native_execution_service import NativeExecutionService
 
 LOG = LoggingUtility()
 
 
 class ShellExecutionMixin:
     """
-    Executes POSIX‑style shell commands inside the Project‑David sandbox asynchronously.
+    Executes POSIX-style shell commands inside the Project-David sandbox asynchronously.
 
     Level 2 Enhancement: Automated self-correction for shell failures (missing binaries,
     path errors, or command syntax issues).
     """
+
+    @property
+    def _native_exec(self) -> NativeExecutionService:
+        if getattr(self, "_native_exec_svc", None) is None:
+            self._native_exec_svc = NativeExecutionService()
+        return self._native_exec_svc
 
     @staticmethod
     def _format_level2_shell_error(error_content: str) -> str:
@@ -84,10 +91,9 @@ class ShellExecutionMixin:
         if not is_valid:
             LOG.warning(f"ShellExecution ▸ Validation Failed: {validation_error}")
 
-            # Attempt to create a failed action record for history
+            action = None
             try:
-                action = await asyncio.to_thread(
-                    self.project_david_client.actions.create_action,
+                action = await self._native_exec.create_action(
                     tool_name=tool_name,
                     run_id=run_id,
                     tool_call_id=tool_call_id,
@@ -95,7 +101,7 @@ class ShellExecutionMixin:
                     decision=decision,
                 )
             except Exception:
-                action = None
+                pass
 
             error_msg = (
                 f"{validation_error}\n" "Please correct the function arguments and try again."
@@ -113,8 +119,7 @@ class ShellExecutionMixin:
 
         # --- CREATE ACTION ---
         try:
-            action = await asyncio.to_thread(
-                self.project_david_client.actions.create_action,
+            action = await self._native_exec.create_action(
                 tool_name=tool_name,
                 run_id=run_id,
                 tool_call_id=tool_call_id,
@@ -151,7 +156,6 @@ class ShellExecutionMixin:
             ):
                 accumulated_content += chunk
 
-                # Detect shell errors
                 if any(
                     err_marker in chunk.lower()
                     for err_marker in [
@@ -172,7 +176,7 @@ class ShellExecutionMixin:
             final_content = self._format_level2_shell_error(
                 accumulated_content or "Unknown shell failure."
             )
-            final_state = True  # indicates error
+            final_state = True
         else:
             final_content = (
                 accumulated_content.strip() or "Command executed successfully with no output."
@@ -188,11 +192,8 @@ class ShellExecutionMixin:
             is_error=final_state,
         )
 
-        # Update DB Action Status
-        await asyncio.to_thread(
-            self.project_david_client.actions.update_action,
-            action_id=action.id,
-            status=(
-                StatusEnum.completed.value if not execution_had_error else StatusEnum.failed.value
-            ),
+        # --- UPDATE ACTION STATUS ---
+        await self._native_exec.update_action_status(
+            action.id,
+            StatusEnum.completed.value if not execution_had_error else StatusEnum.failed.value,
         )

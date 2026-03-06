@@ -23,7 +23,7 @@ class ToolRoutingMixin:
 
     _tool_response: bool = False
     _function_calls: List[Dict] = []
-    _tools_called: List[str] = []  # Full ordered log of every tool dispatched this run
+    _tools_called: List[str] = []
 
     # -----------------------------------------------------
     # State Management
@@ -47,15 +47,9 @@ class ToolRoutingMixin:
         return self._function_calls
 
     def reset_tools_called(self) -> None:
-        """Reset the tools called log at the start of each turn."""
         self._tools_called = []
 
     def get_tools_called(self) -> List[str]:
-        """
-        Returns the full ordered log of every tool dispatched this run,
-        including duplicates. Parallel tool batches are captured in
-        dispatch order within each batch.
-        """
         return list(self._tools_called)
 
     # -----------------------------------------------------
@@ -79,8 +73,7 @@ class ToolRoutingMixin:
     def parse_and_set_function_calls(
         self, accumulated_content: str, assistant_reply: str
     ) -> List[Dict]:
-        from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
-            JsonUtilsMixin
+        from src.api.entities_api.orchestration.mixins.json_utils_mixin import JsonUtilsMixin
 
         if not isinstance(self, JsonUtilsMixin):
             raise TypeError("ToolRoutingMixin must be mixed with JsonUtilsMixin")
@@ -170,9 +163,8 @@ class ToolRoutingMixin:
                 continue
 
             LOG.info(f"TOOL-ROUTER ▸ scratchpad thread id: {scratch_pad_thread}")
-
             LOG.info("TOOL-ROUTER ▶ dispatching: %s (ID: %s)", name, current_call_id)
-            self._tools_called.append(name)  # ← capture every dispatch in order
+            self._tools_called.append(name)
 
             # ---------------------------------------------------------
             # 1. PLATFORM TOOLS (Explicit Routing)
@@ -189,18 +181,18 @@ class ToolRoutingMixin:
                     yield chunk
 
             elif name == "computer":
-                async for chunk in self.handle_shell_action(
+                # handle_shell_action is a coroutine (async def → None),
+                # NOT an async generator — must be awaited, not iterated.
+                await self.handle_shell_action(
                     thread_id=thread_id,
                     run_id=run_id,
                     assistant_id=assistant_id,
                     arguments_dict=args,
                     tool_call_id=current_call_id,
                     decision=decision,
-                ):
-                    yield chunk
+                )
 
             elif name == "file_search":
-
                 await self.handle_file_search(
                     thread_id=thread_id,
                     run_id=run_id,
@@ -209,6 +201,7 @@ class ToolRoutingMixin:
                     tool_call_id=current_call_id,
                     decision=decision,
                 )
+
             elif name == "read_web_page":
                 async for chunk in self.handle_read_web_page(
                     thread_id=thread_id,

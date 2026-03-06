@@ -4,14 +4,12 @@ from typing import Any, AsyncGenerator, Generator, Optional, Type
 
 from projectdavid_common.utilities.logging_service import LoggingUtility
 
-from src.api.entities_api.orchestration.engine.inference_arbiter import \
-    InferenceArbiter
-from src.api.entities_api.orchestration.workers.ollama.ollama_default import \
-    OllamaDefaultWorker
-from src.api.entities_api.orchestration.workers.togeterai.together_deepseek import \
-    TogetherDs1
-from src.api.entities_api.orchestration.workers.togeterai.together_default import \
-    TogetherDefaultWorker
+from src.api.entities_api.orchestration.engine.inference_arbiter import InferenceArbiter
+from src.api.entities_api.orchestration.workers.ollama.ollama_default import OllamaDefaultWorker
+from src.api.entities_api.orchestration.workers.togeterai.together_deepseek import TogetherDs1
+from src.api.entities_api.orchestration.workers.togeterai.together_default import (
+    TogetherDefaultWorker,
+)
 
 LOG = LoggingUtility()
 
