@@ -8,8 +8,6 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 from sqlalchemy.orm import Session
 
 from entities_api.utils.cache_utils import get_sync_message_cache
-# Import the SessionLocal factory from your central database file.
-# NOTE: Ensure this import path is correct for your project structure.
 from src.api.entities_api.db.database import SessionLocal
 from src.api.entities_api.models.models import Message, Thread, User
 
@@ -20,26 +18,56 @@ validator = ValidationInterface()
 class ThreadService:
     """CRUD logic for Thread objects."""
 
-    # ──────────────────────────────────────────────────────────
-    # Constructor
-    # ──────────────────────────────────────────────────────────
-    # The constructor no longer accepts or stores a database session.
     def __init__(self):
         pass
 
     # ──────────────────────────────────────────────────────────
+    # Ownership guard  (mirrors AssistantService._assert_owner)
+    # ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _assert_owner(db_thread: Thread, user_id: str) -> None:
+        """
+        Raise 403 if *user_id* is not the canonical owner of *db_thread*.
+
+        Fast path: owner_id column (add via migration to unlock this).
+        Fallback:  thread_participants association table (works today,
+                   remove once owner_id is NOT NULL and back-filled).
+        """
+        if db_thread.owner_id is not None:
+            if db_thread.owner_id != user_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="You do not have permission to modify this thread.",
+                )
+        else:
+            # Fallback during back-fill window.
+            participant_ids = {u.id for u in db_thread.participants}
+            if user_id not in participant_ids:
+                raise HTTPException(
+                    status_code=403,
+                    detail="You do not have permission to modify this thread.",
+                )
+
+    # ──────────────────────────────────────────────────────────
     # Public CRUD
     # ──────────────────────────────────────────────────────────
+
     def create_thread(
         self,
         thread: validator.ThreadCreate,
+        user_id: str,  # ← NEW: canonical owner
     ) -> validator.ThreadReadDetailed:
-        """Create a new thread and attach participants."""
-        # Each method now creates and manages its own session.
+        """Create a new thread, record the creator as owner, and attach participants."""
         with SessionLocal() as db:
             existing_users = db.query(User).filter(User.id.in_(thread.participant_ids)).all()
             if len(existing_users) != len(thread.participant_ids):
                 raise HTTPException(status_code=400, detail="Invalid user IDs")
+
+            # Ensure the creator is always a participant even if omitted from the list.
+            creator = db.query(User).filter(User.id == user_id).first()
+            if not creator:
+                raise HTTPException(status_code=404, detail="Owning user not found")
 
             db_thread = Thread(
                 id=UtilsInterface.IdentifierService.generate_thread_id(),
@@ -47,10 +75,15 @@ class ThreadService:
                 meta_data=json.dumps({}),
                 object="thread",
                 tool_resources=json.dumps({}),
+                owner_id=user_id,  # ← set canonical owner at creation time
             )
             db.add(db_thread)
-            for user in existing_users:
+
+            participant_set = {u.id: u for u in existing_users}
+            participant_set[user_id] = creator  # idempotent creator inclusion
+            for user in participant_set.values():
                 db_thread.participants.append(user)
+
             db.commit()
             db.refresh(db_thread)
             return self._create_thread_read_detailed(db_thread)
@@ -60,11 +93,18 @@ class ThreadService:
             db_thread = self._get_thread_or_404(thread_id, db)
             return self._create_thread_read_detailed(db_thread)
 
-    def delete_thread(self, thread_id: str) -> validator.ThreadDeleted:
+    def delete_thread(
+        self,
+        thread_id: str,
+        user_id: str,  # ← NEW: ownership required to delete
+    ) -> validator.ThreadDeleted:
         logging_utility.info("Deleting thread and clearing history: %s", thread_id)
         with SessionLocal() as db:
             try:
                 db_thread = self._get_thread_or_404(thread_id, db)
+
+                # ── Ownership check ──────────────────────────────────────────
+                self._assert_owner(db_thread, user_id)
 
                 # 1. DB Cleanup
                 db.query(Message).filter(Message.thread_id == thread_id).delete()
@@ -72,7 +112,7 @@ class ThreadService:
                 db.delete(db_thread)
                 db.commit()
 
-                # 2. Cache Invalidation using the Sync Helper
+                # 2. Cache Invalidation
                 try:
                     msg_cache = get_sync_message_cache()
                     msg_cache.delete_history_sync(thread_id)
@@ -82,6 +122,8 @@ class ThreadService:
 
                 return validator.ThreadDeleted(id=thread_id)
 
+            except HTTPException:
+                raise
             except Exception as e:
                 db.rollback()
                 logging_utility.error("Error deleting thread: %s", str(e))
@@ -96,9 +138,14 @@ class ThreadService:
         self,
         thread_id: str,
         new_metadata: Dict[str, Any],
+        user_id: str,  # ← NEW
     ) -> validator.ThreadReadDetailed:
         with SessionLocal() as db:
             db_thread = self._get_thread_or_404(thread_id, db)
+
+            # ── Ownership check ──────────────────────────────────────────────
+            self._assert_owner(db_thread, user_id)
+
             db_thread.meta_data = json.dumps(new_metadata)
             db.commit()
             db.refresh(db_thread)
@@ -108,12 +155,17 @@ class ThreadService:
         self,
         thread_id: str,
         thread_update: validator.ThreadUpdate,
+        user_id: str,  # ← NEW
     ) -> validator.ThreadReadDetailed:
         logging_utility.info(f"Attempting to update thread with id: {thread_id}")
         logging_utility.info(f"Update data: {thread_update.dict()}")
 
         with SessionLocal() as db:
             db_thread = self._get_thread_or_404(thread_id, db)
+
+            # ── Ownership check ──────────────────────────────────────────────
+            self._assert_owner(db_thread, user_id)
+
             update_data = thread_update.dict(exclude_unset=True)
 
             if "meta_data" in update_data and update_data["meta_data"] is not None:
@@ -136,7 +188,7 @@ class ThreadService:
     # ──────────────────────────────────────────────────────────
     # Internal helpers
     # ──────────────────────────────────────────────────────────
-    # Helper methods that need a session must now accept it as a parameter.
+
     def _get_thread_or_404(self, thread_id: str, db: Session) -> Thread:
         db_thread = db.query(Thread).filter(Thread.id == thread_id).first()
         if not db_thread:
@@ -145,7 +197,6 @@ class ThreadService:
 
     @staticmethod
     def _ensure_dict(value: Any) -> Dict[str, Any]:
-        """Coerce JSON/text column to dict (handles legacy str rows)."""
         if value is None:
             return {}
         if isinstance(value, dict):
@@ -157,14 +208,7 @@ class ThreadService:
                 return {}
         return {}
 
-    def _create_thread_read_detailed(
-        self,
-        db_thread: Thread,
-    ) -> validator.ThreadReadDetailed:
-        """Convert SQLAlchemy Thread → Pydantic ThreadReadDetailed."""
-        # This method uses lazy loading which depends on the session from the
-        # calling context. This is safe as it's only called from methods
-        # that already have an active `with SessionLocal() as db:` block.
+    def _create_thread_read_detailed(self, db_thread: Thread) -> validator.ThreadReadDetailed:
         participants = [
             ValidationInterface.UserBase.from_orm(user) for user in db_thread.participants
         ]
