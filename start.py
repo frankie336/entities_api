@@ -13,7 +13,8 @@ import time
 from pathlib import Path
 from urllib.parse import quote_plus
 
-from scripts.generate_docker_compose import generate_dev_docker_compose
+from entities_api.cli.generate_docker_compose import \
+    generate_dev_docker_compose
 
 # Third-party import
 try:

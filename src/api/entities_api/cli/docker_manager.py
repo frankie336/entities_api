@@ -1005,7 +1005,7 @@ class DockerManager:
 # ---------------------------------------------------------------------------
 
 
-@app.command()
+@app.callback(invoke_without_command=True)
 def docker_manager(
     # --- Mode ---
     mode: str = typer.Option(
@@ -1136,7 +1136,7 @@ def docker_manager(
     # actually invoked (not at module import time, which would break --help
     # and every other sub-command when run outside the project root).
     try:
-        from scripts.generate_docker_compose import \
+        from entities_api.cli.generate_docker_compose import \
             generate_dev_docker_compose  # noqa: PLC0415
 
         generate_dev_docker_compose()
@@ -1144,7 +1144,7 @@ def docker_manager(
     except ImportError as exc:
         typer.echo(
             f"[error] Could not import generate_dev_docker_compose: {exc}\n"
-            "Run this command from the project root where scripts/ is located.",
+            "Ensure the package is installed (`pip install -e .`) or run from the project root.",
             err=True,
         )
         raise SystemExit(1)
