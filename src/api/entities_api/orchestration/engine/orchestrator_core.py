@@ -34,7 +34,7 @@ from entities_api.utils.assistant_manager import AssistantManager
 from src.api.entities_api.constants.platform import PLATFORM_TOOLS
 # Mixins
 from src.api.entities_api.orchestration.mixins.code_interpreter_mixin import \
-    CodeExecutionMixin
+    CodeInterpreterMixin
 from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import \
     ConsumerToolHandlersMixin
 from src.api.entities_api.orchestration.mixins.context_mixin import \
@@ -75,7 +75,7 @@ class OrchestratorCore(
     PlatformToolHandlersMixin,
     ConsumerToolHandlersMixin,
     StreamingMixin,
-    CodeExecutionMixin,
+    CodeInterpreterMixin,
     ShellExecutionMixin,
     ABC,
 ):

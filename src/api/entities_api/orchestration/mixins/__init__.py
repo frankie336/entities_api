@@ -6,7 +6,7 @@ from src.api.entities_api.orchestration.mixins.assistant_cache_mixin import \
 from src.api.entities_api.orchestration.mixins.client_factory_mixin import \
     ClientFactoryMixin
 from src.api.entities_api.orchestration.mixins.code_interpreter_mixin import \
-    CodeExecutionMixin
+    CodeInterpreterMixin
 from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import \
     ConsumerToolHandlersMixin
 from src.api.entities_api.orchestration.mixins.context_mixin import \
@@ -19,6 +19,8 @@ from src.api.entities_api.orchestration.mixins.file_search_mixin import \
     FileSearchMixin
 from src.api.entities_api.orchestration.mixins.json_utils_mixin import \
     JsonUtilsMixin
+from src.api.entities_api.orchestration.mixins.native_exec_mixin import \
+    NativeExecMixin
 from src.api.entities_api.orchestration.mixins.platform_tool_handlers_mixin import \
     PlatformToolHandlersMixin
 from src.api.entities_api.orchestration.mixins.scratchpad_mixin import \
@@ -40,11 +42,12 @@ __all__ = [
     "AssistantCacheMixin",
     "JsonUtilsMixin",
     "ContextMixin",
+    "NativeExecMixin",
     "DelegationMixin",
     "ToolRoutingMixin",
     "PlatformToolHandlersMixin",
     "ConsumerToolHandlersMixin",
-    "CodeExecutionMixin",
+    "CodeInterpreterMixin",
     "ShellExecutionMixin",
     "FileSearchMixin",
     "WebSearchMixin",

@@ -20,7 +20,7 @@ from src.api.entities_api.services.native_execution_service import \
 LOG = LoggingUtility()
 
 
-class CodeExecutionMixin:
+class CodeInterpreterMixin:
     """
     Mixin that handles the `code_interpreter` tool.
     """

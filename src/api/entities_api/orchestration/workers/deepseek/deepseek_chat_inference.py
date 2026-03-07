@@ -16,7 +16,7 @@ from entities_api.orchestration.engine.orchestrator_core import \
     OrchestratorCore
 from src.api.entities_api.dependencies import get_redis
 from src.api.entities_api.orchestration.mixins import (
-    AssistantCacheMixin, CodeExecutionMixin, ConsumerToolHandlersMixin,
+    AssistantCacheMixin, CodeInterpreterMixin, ConsumerToolHandlersMixin,
     ContextMixin, FileSearchMixin, JsonUtilsMixin, PlatformToolHandlersMixin,
     ShellExecutionMixin, ToolRoutingMixin)
 # TODO: Move this to the clients cache
@@ -34,7 +34,7 @@ class _ProviderMixins(
     ToolRoutingMixin,
     PlatformToolHandlersMixin,
     ConsumerToolHandlersMixin,
-    CodeExecutionMixin,
+    CodeInterpreterMixin,
     ShellExecutionMixin,
     FileSearchMixin,
 ):
