@@ -22,33 +22,38 @@ An open-source API for sending messages to an LLM and getting responses back, wi
 
 ## Quick Start
 
-**1. Build the Docker containers.**
-
-```bash
-python start.py --mode both
-```
-
-Docker Compose is managed through `start.py` — see the full command reference here:
-[Docker orchestration commands](https://github.com/project-david-ai/projectdavid_docs/blob/master/src/pages/api-infra/docker_commands.md)
-
-**2. Install the local package.**
+**1. Install the local package.**
 
 ```bash
 pip install -e .
 ```
+
+**2. Build the Docker containers.**
+
 ```bash
-entities-api --help
+platform-api docker-manager --mode both
+```
+
+For the full command reference see:
+[Docker orchestration commands](https://github.com/project-david-ai/projectdavid_docs/blob/master/src/pages/api-infra/docker_commands.md)
+
+Verify the CLI is working:
+
+```bash
+platform-api --help
 ```
 
 Expected output:
+
 ```
-Usage: entities-api [OPTIONS] COMMAND [ARGS]...
+Usage: platform-api [OPTIONS] COMMAND [ARGS]...
 
- Entities API management commands.
+ Entities API management CLI.
 
-╭─ Commands ──────────────────────────────────────────────────────╮
-│ bootstrap-admin   Bootstrap the initial admin user and API key. │
-╰─────────────────────────────────────────────────────────────────╯
+╭─ Commands ────────────────────────────────────────────────────────────────────╮
+│ bootstrap-admin   Bootstrap the initial admin user and API key.               │
+│ docker-manager    Manage Docker Compose stack: build, run, set up .env...     │
+╰───────────────────────────────────────────────────────────────────────────────╯
 ```
 
 **3. Provision your admin credentials.**
@@ -57,7 +62,7 @@ The command reads `SPECIAL_DB_URL` from your environment. Set it before running:
 
 **Linux / macOS:**
 ```bash
-export SPECIAL_DB_URL=mysql+pymysql://user:password@localhost:3306/entities_db
+export SPECIAL_DB_URL=mysql+pymysql://user:password@localhost:3307/entities_db
 ```
 
 **Windows PowerShell:**
@@ -70,20 +75,22 @@ Get-Content .env | ForEach-Object {
 ```
 
 Then run:
+
 ```bash
-entities-api
+platform-api bootstrap-admin
 ```
 
 This will walk you through the options step by step. To pass all options explicitly:
 
 ```bash
-entities-api \
-  --db-url "mysql+pymysql://user:password@localhost:3306/entities_db" \
+platform-api bootstrap-admin \
+  --db-url "mysql+pymysql://user:password@localhost:3307/entities_db" \
   --email "admin@example.com" \
   --name "Default Admin"
 ```
 
 Expected output on first run:
+
 ```
 ================================================================
   ✓  Admin API Key Generated
@@ -106,11 +113,13 @@ Expected output on first run:
 **4. Provision your first user.**
 
 Install the SDK:
+
 ```bash
 pip install projectdavid
 ```
 
 Create a user:
+
 ```python
 import os
 from dotenv import load_dotenv
@@ -129,6 +138,7 @@ print(new_user)
 ```
 
 Expected output:
+
 ```
 id='user_h5YYXC9b200Xv3QYT0Bv12' email='flynn@encom.com' full_name='Kevin Flynn' ...
 ```
@@ -144,6 +154,7 @@ print(create_api_key.plain_key)
 ```
 
 Expected output:
+
 ```
 ea_z_5YV4zGly50UHKlenc9BgTCQXtE....
 ```
