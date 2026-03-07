@@ -25,6 +25,24 @@ from urllib.parse import quote_plus
 import typer
 
 # ---------------------------------------------------------------------------
+# Container guard — this script manages Docker from the HOST only.
+# Running it inside a container would cause Docker-in-Docker chaos.
+# ---------------------------------------------------------------------------
+
+
+def _running_in_docker() -> bool:
+    return os.getenv("RUNNING_IN_DOCKER") == "1" or Path("/.dockerenv").exists()
+
+
+if _running_in_docker():
+    print(
+        "[error] docker_manager.py cannot be run inside a container.\n"
+        "This script manages the Docker Compose stack from the HOST machine only.\n"
+        "Exiting to prevent Docker-in-Docker chaos."
+    )
+    sys.exit(1)
+
+# ---------------------------------------------------------------------------
 # Optional third-party imports — graceful failure with clear guidance
 # ---------------------------------------------------------------------------
 try:
@@ -1131,10 +1149,6 @@ def docker_manager(
     )
 
     # --- Ensure docker-compose.yml exists before DockerManager initialises ---
-    # Deferred import: scripts/ lives in the project root, not inside the
-    # installed package, so we only attempt to load it when this command is
-    # actually invoked (not at module import time, which would break --help
-    # and every other sub-command when run outside the project root).
     try:
         from entities_api.cli.generate_docker_compose import \
             generate_dev_docker_compose  # noqa: PLC0415
