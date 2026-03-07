@@ -38,6 +38,83 @@ services:
     networks:
       - my_custom_network
 
+  redis:
+    image: redis:7
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - my_custom_network
+
+  browser:
+    image: ghcr.io/browserless/chromium:latest
+    container_name: browserless_chromium
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - MAX_CONCURRENT_SESSIONS=10
+      - CONNECTION_TIMEOUT=60000
+    networks:
+      - my_custom_network
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./docker/searxng:/etc/searxng
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080/
+      - SEARXNG_SECRET_KEY=REPLACE_ME     # ← generated dynamically
+    depends_on:
+      - redis
+    networks:
+      - my_custom_network
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel_collector
+    restart: always
+    command: ["--config=/etc/otel-config.yaml"]
+    volumes:
+      - ./docker/otel/otel-config.yaml:/etc/otel-config.yaml
+    ports:
+      - "4317:4317"  # gRPC receiver
+      - "4318:4318"  # HTTP receiver
+    depends_on:
+      - jaeger
+    networks:
+      - my_custom_network
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger_ui
+    restart: always
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"  # UI
+      - "14250:14250"  # gRPC collector
+    networks:
+      - my_custom_network
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - my_custom_network
+
   api:
     build:
       context: .
@@ -48,17 +125,48 @@ services:
       - .env
     environment:
       - DATABASE_URL=mysql+pymysql://api_user:REPLACE_ME@db:3306/entities_db
+      - AUTO_MIGRATE=1
       - SANDBOX_SERVER_URL=http://sandbox:8000
       - QDRANT_URL=http://qdrant:6333
-      - DEFAULT_SECRET_KEY=REPLACE_ME  # ← generated dynamically
+      - REDIS_URL=redis://redis:6379/0
+      - BROWSER_WS_ENDPOINT=ws://browser:3000
+      - DEFAULT_SECRET_KEY=REPLACE_ME    # ← generated dynamically
+      - SEARXNG_URL=http://searxng:8080
+      - OTEL_SERVICE_NAME=api-api
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=none
+      - OTEL_LOGS_EXPORTER=none
+      - OLLAMA_BASE_URL=http://ollama:11434/v1
+      # Override the host-side SHARED_PATH with the container-internal mount point
+      # so the purge daemon writes to the same directory the samba container serves
+      - SHARED_PATH=/app/shared_data
     ports:
       - "9000:9000"
+    volumes:
+      - ./src:/app/src
+      - ./alembic.ini:/app/alembic.ini
+      - ./migrations:/app/migrations
+      # Mount the same host directory that samba exposes — both containers
+      # now read/write the same files on disk
+      - ${SHARED_PATH}:/app/shared_data
     depends_on:
       db:
         condition: service_healthy
       sandbox:
         condition: service_started
       qdrant:
+        condition: service_started
+      redis:
+        condition: service_started
+      browser:
+        condition: service_started
+      searxng:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+      ollama:
         condition: service_started
     command: ["./wait-for-it.sh", "db:3306", "--", "uvicorn", "entities_api.app:app", "--host", "0.0.0.0", "--port", "9000"]
     networks:
@@ -111,6 +219,10 @@ volumes:
   mysql_data:
     driver: local
   qdrant_storage:
+    driver: local
+  redis_data:
+    driver: local
+  ollama_data:
     driver: local
 
 networks:

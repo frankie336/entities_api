@@ -1,4 +1,4 @@
-#!scripts/generate_docker_compose.py
+#!src/api/entities_api/cli/generate_docker_compose.py
 """
 Generate a development‑friendly docker‑compose.yml.
 
@@ -6,7 +6,6 @@ All sensitive values (DB passwords, DEFAULT_SECRET_KEY, etc.) are expressed as
 ${ENV_VAR} placeholders.  The orchestration script will create real secrets and
 write them into .env on first run.
 """
-import uuid
 from pathlib import Path
 
 
@@ -22,21 +21,17 @@ def generate_dev_docker_compose() -> None:
         print(f"⚠️  {output_path.name} already exists – generation skipped.")
         return
 
-    # A non‑secret UUID for the custom bridge network
-    unique_network_secret = str(uuid.uuid4())
-
-    compose_yaml = f"""version: '3.8'
-
+    compose_yaml = """\
 services:
   db:
     image: mysql:8.0
     container_name: my_mysql_cosmic_catalyst
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: ${{MYSQL_ROOT_PASSWORD:-default}}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-default}
       MYSQL_DATABASE: entities_db
       MYSQL_USER: api_user
-      MYSQL_PASSWORD: ${{MYSQL_PASSWORD:-default}}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-default}
     volumes:
       - mysql_data:/var/lib/mysql
     ports:
@@ -76,6 +71,72 @@ services:
     networks:
       - my_custom_network
 
+  browser:
+    image: ghcr.io/browserless/chromium:latest
+    container_name: browserless_chromium
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - MAX_CONCURRENT_SESSIONS=10
+      - CONNECTION_TIMEOUT=60000
+    networks:
+      - my_custom_network
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./docker/searxng:/etc/searxng
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080/
+      - SEARXNG_SECRET_KEY=${SEARXNG_SECRET_KEY:-changeme_use_a_real_secret}
+    depends_on:
+      - redis
+    networks:
+      - my_custom_network
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: otel_collector
+    restart: always
+    command: ["--config=/etc/otel-config.yaml"]
+    volumes:
+      - ./docker/otel/otel-config.yaml:/etc/otel-config.yaml
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on:
+      - jaeger
+    networks:
+      - my_custom_network
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger_ui
+    restart: always
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"
+      - "14250:14250"
+    networks:
+      - my_custom_network
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - my_custom_network
+
   api:
     build:
       context: .
@@ -85,18 +146,33 @@ services:
     env_file:
       - .env
     environment:
-      - DATABASE_URL=${{DATABASE_URL}}
+      - DATABASE_URL=${DATABASE_URL}
       - AUTO_MIGRATE=1
       - SANDBOX_SERVER_URL=http://sandbox:8000
       - QDRANT_URL=http://qdrant:6333
-      - DEFAULT_SECRET_KEY=${{DEFAULT_SECRET_KEY}}
       - REDIS_URL=redis://redis:6379/0
+      - BROWSER_WS_ENDPOINT=ws://browser:3000
+      - DEFAULT_SECRET_KEY=${DEFAULT_SECRET_KEY}
+      - SEARXNG_URL=http://searxng:8080
+      - OTEL_SERVICE_NAME=api-api
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - OTEL_TRACES_EXPORTER=otlp
+      - OTEL_METRICS_EXPORTER=none
+      - OTEL_LOGS_EXPORTER=none
+      - OLLAMA_BASE_URL=http://ollama:11434/v1
+      # Override the host-side SHARED_PATH with the container-internal mount point
+      # so the purge daemon writes to the same directory the samba container serves
+      - SHARED_PATH=/app/shared_data
     ports:
       - "9000:9000"
     volumes:
       - ./src:/app/src
       - ./alembic.ini:/app/alembic.ini
       - ./migrations:/app/migrations
+      # Mount the same host directory that samba exposes — both containers
+      # now read/write the same files on disk
+      - ${SHARED_PATH}:/app/shared_data
     depends_on:
       db:
         condition: service_healthy
@@ -105,6 +181,14 @@ services:
       qdrant:
         condition: service_started
       redis:
+        condition: service_started
+      browser:
+        condition: service_started
+      searxng:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+      ollama:
         condition: service_started
     networks:
       - my_custom_network
@@ -123,12 +207,12 @@ services:
       - /dev/fuse
     ports:
       - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
     volumes:
       - ./src/api/sandbox:/app/sandbox
       - /tmp/sandbox_logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
     env_file:
       - .env
     networks:
@@ -139,8 +223,8 @@ services:
     container_name: samba_server
     restart: unless-stopped
     environment:
-      USERID: ${{SAMBA_USERID:-1000}}
-      GROUPID: ${{SAMBA_GROUPID:-1000}}
+      USERID: ${SAMBA_USERID:-1000}
+      GROUPID: ${SAMBA_GROUPID:-1000}
       TZ: UTC
       USER: "samba_user;default"
       SHARE: "cosmic_share;/samba/share;yes;no;no;samba_user"
@@ -149,23 +233,19 @@ services:
       - "139:139"
       - "1445:445"
     volumes:
-      - ${{SHARED_PATH}}:/samba/share
+      - ${SHARED_PATH}:/samba/share
     networks:
       - my_custom_network
 
 volumes:
   mysql_data:
-    driver: local
   qdrant_storage:
-    driver: local
   redis_data:
-    driver: local
+  ollama_data:
 
 networks:
   my_custom_network:
     driver: bridge
-    driver_opts:
-      unique_secret: "{unique_network_secret}"
 """
 
     output_path.write_text(compose_yaml, encoding="utf-8")
