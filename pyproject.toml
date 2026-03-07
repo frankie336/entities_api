@@ -30,7 +30,8 @@ dependencies = [
   "ollama>=0.3.0",
   "groq",
   "pysmb",
-  "typer>=0.12.0"
+  "typer>=0.12.0",
+  "PyYAML>=6.0"
 ]
 
 [project.optional-dependencies]
@@ -44,12 +45,12 @@ dev = [
 ]
 
 [project.scripts]
-entities-api = "entities_api.__main__:root"
+platform-api = "entities_api.__main__:root"
 
 [project.urls]
-Homepage = "https://github.com/frankie336/entities_api"
-Documentation = "https://github.com/frankie336/entities_api/tree/master/docs"
-Changelog = "https://github.com/frankie336/entities_api/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/project-david-ai/platform"
+Documentation = "https://github.com/project-david-ai/projectdavid_docs/tree/master/src/pages"
+Changelog = "https://github.com/project-david-ai/platform/blob/master/CHANGELOG.md"
 
 [tool.setuptools]
 package-dir = { "" = "src/api" }

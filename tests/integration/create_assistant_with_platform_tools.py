@@ -24,10 +24,12 @@ client = Entity(
 assistant = client.assistants.create_assistant(
     name="Test Assistant",
     model="gpt-oss-120b",
-    instructions="You are a helpful AI assistant, your name is Nexa.",
+    instructions="You are a helpful AI assistant, your name is Test.",
     tools=[
         {"type": "code_interpreter"},
         {"type": "computer"},
+        {"type": "file_search"},
+        {"type": "web_search"},
         {
             "type": "function",
             "function": {

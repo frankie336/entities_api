@@ -41,6 +41,6 @@ config = {
     "model": "ollama/qwen3:4b",
     # "provider": "together",
     "provider": "hyperbolic",
-    "assistant_id": "asst_13HyDgBnZxVwh5XexYu74F",
+    "assistant_id": "asst_YscCYmaK7xCVzGylYFe1pN",
     "test_prompt": content,
 }

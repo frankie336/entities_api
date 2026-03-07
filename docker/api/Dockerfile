@@ -73,7 +73,8 @@ deb http://security.debian.org/debian-security bookworm-security main contrib no
 COPY --from=unhashed_builder /install/packages /usr/local
 COPY --from=hashed_builder   /install/packages /usr/local
 
-
+# Fix charset_normalizer version conflict from dual-stage copy
+RUN pip install --force-reinstall --no-cache-dir charset-normalizer
 # ------------------------------------------------------------------
 # WEB READER DEPENDENCIES
 # ------------------------------------------------------------------

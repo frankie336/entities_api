@@ -1,4 +1,3 @@
-# src/api/entities_api/orchestration/mixins/web_search_mixin.py
 from __future__ import annotations
 
 import asyncio
@@ -78,7 +77,7 @@ class SearxNGClient:
     Thin async HTTP client for the internal SearxNG container.
 
     Calls http://searxng:8080 directly — no SDK round-trip, no browser
-    overhead.  The browserless container is reserved for page *reading*,
+    overhead. The browserless container is reserved for page *reading*,
     not discovery.
     """
 
@@ -153,7 +152,7 @@ class SearxNGClient:
     ) -> str:
         """
         Search and return a structured, agent-ready string with tier-aware
-        guidance.  Drop-in replacement for the old DDG markdown scrape output.
+        guidance. Drop-in replacement for the old DDG markdown scrape output.
 
         Args:
             query:       Search query.
@@ -168,9 +167,7 @@ class SearxNGClient:
             return f"❌ SearxNG search failed: {exc}"
 
         if not results:
-            return (
-                f"❌ No results found for '{query}'. " "Try a broader query or different keywords."
-            )
+            return f"❌ No results found for '{query}'. Try a broader query or different keywords."
 
         min_sources = {1: 2, 2: 3, 3: 5}.get(query_tier, 2)
 
@@ -357,6 +354,19 @@ class WebSearchMixin:
         if run_id in self._research_sessions:
             del self._research_sessions[run_id]
 
+    @staticmethod
+    def _is_tool_response_usable(content: Any) -> bool:
+        """Return True only for non-empty string payloads."""
+        return isinstance(content, str) and bool(content.strip())
+
+    @staticmethod
+    def _looks_like_explicit_tool_error(content: str) -> bool:
+        """
+        Detect only explicit tool-generated failure payloads, not arbitrary page text.
+        """
+        normalized = content.lstrip()
+        return normalized.startswith("❌ ")
+
     # ------------------------------------------------------------------
     # SCROLL GUARD
     # ------------------------------------------------------------------
@@ -371,7 +381,7 @@ class WebSearchMixin:
             never been called on this URL. Page 0 is always allowed.
 
         Rule 2 — Hard scroll limit:
-            Once SCROLL_LIMIT_PER_URL scrolls have been issued for a URL,
+            Once SCROLL_LIMIT_PER_URL successful scrolls have been issued for a URL,
             further calls are blocked and the worker is instructed to pivot.
         """
         session = self._get_or_create_session(run_id)
@@ -390,7 +400,7 @@ class WebSearchMixin:
         current_count = session["url_scroll_counts"][target_url]
         if current_count >= SCROLL_LIMIT_PER_URL:
             return (
-                f"🛑 SCROLL LIMIT REACHED — scroll_web_page called {current_count} times "
+                f"🛑 SCROLL LIMIT REACHED — scroll_web_page succeeded {current_count} times "
                 f"on this URL (limit: {SCROLL_LIMIT_PER_URL}).\n"
                 f"MANDATORY ACTION: Stop scrolling '{target_url}'.\n"
                 f"You are doom-scrolling. This URL is exhausted. You MUST:\n"
@@ -538,6 +548,7 @@ class WebSearchMixin:
         # --- [3] EXECUTION ---
         try:
             final_content = ""
+            is_soft_failure = False
 
             # ----------------------------------------------------------------
             # read_web_page — NativeExecutionService → browserless
@@ -547,31 +558,36 @@ class WebSearchMixin:
                 yield _status(run_id, tool_name, f"Reading: {target_url}...")
 
                 session = self._get_or_create_session(run_id)
-                if target_url not in session["urls_visited"]:
-                    session["urls_visited"].add(target_url)
-                    session["sources_read"] += 1
-                    LOG.info(
-                        f"[{run_id}] Progress: {session['sources_read']} sources read "
-                        f"(Tier {session.get('query_tier', 'N/A')} query)"
-                    )
 
                 raw_content = await native_svc.read_url(
                     url=target_url,
                     force_refresh=arguments_dict.get("force_refresh", False),
                 )
 
-                tier = session.get("query_tier", 1)
-                min_sources = {1: 2, 2: 3, 3: 5}.get(tier, 2)
-                progress_note = (
-                    f"\n\n📊 RESEARCH PROGRESS: {session['sources_read']}/{min_sources} "
-                    f"sources read (Tier {tier} query)\n"
-                    f"⚡ NEXT STEP: Call search_web_page('{target_url}', '<your query>') "
-                    f"to extract facts. Do NOT scroll."
-                )
+                if not self._is_tool_response_usable(raw_content):
+                    is_soft_failure = True
+                    final_content = "Tool execution returned no readable page content."
+                else:
+                    if target_url not in session["urls_visited"]:
+                        session["urls_visited"].add(target_url)
+                        session["sources_read"] += 1
+                        LOG.info(
+                            f"[{run_id}] Progress: {session['sources_read']} sources read "
+                            f"(Tier {session.get('query_tier', 'N/A')} query)"
+                        )
 
-                final_content = (
-                    self._inject_navigation_guidance(raw_content, target_url) + progress_note
-                )
+                    tier = session.get("query_tier", 1)
+                    min_sources = {1: 2, 2: 3, 3: 5}.get(tier, 2)
+                    progress_note = (
+                        f"\n\n📊 RESEARCH PROGRESS: {session['sources_read']}/{min_sources} "
+                        f"sources read (Tier {tier} query)\n"
+                        f"⚡ NEXT STEP: Call search_web_page('{target_url}', '<your query>') "
+                        f"to extract facts. Do NOT scroll."
+                    )
+
+                    final_content = (
+                        self._inject_navigation_guidance(raw_content, target_url) + progress_note
+                    )
 
             # ----------------------------------------------------------------
             # scroll_web_page — NativeExecutionService → browserless / Redis
@@ -607,21 +623,19 @@ class WebSearchMixin:
                     )
                     return
 
-                # Guard passed — increment counter and execute.
                 session = self._get_or_create_session(run_id)
-                session["url_scroll_counts"][target_url] += 1
-                scroll_count = session["url_scroll_counts"][target_url]
+                attempted_scroll = session["url_scroll_counts"][target_url] + 1
 
                 LOG.info(
                     f"[{run_id}] scroll_web_page '{target_url}' page={page_num} "
-                    f"(scroll {scroll_count}/{SCROLL_LIMIT_PER_URL})"
+                    f"(attempt {attempted_scroll}/{SCROLL_LIMIT_PER_URL})"
                 )
 
                 yield _status(
                     run_id,
                     tool_name,
                     f"Scrolling to page {page_num} "
-                    f"(scroll {scroll_count}/{SCROLL_LIMIT_PER_URL})...",
+                    f"(attempt {attempted_scroll}/{SCROLL_LIMIT_PER_URL})...",
                 )
 
                 raw_content = await native_svc.scroll_url(
@@ -629,21 +643,36 @@ class WebSearchMixin:
                     page=page_num,
                 )
 
-                remaining = SCROLL_LIMIT_PER_URL - scroll_count
-                scroll_budget_note = (
-                    f"\n\n📜 SCROLL BUDGET: {scroll_count}/{SCROLL_LIMIT_PER_URL} scrolls used "
-                    f"on this URL ({remaining} remaining).\n"
-                    + (
-                        "⚠️ BUDGET EXHAUSTED after this scroll. "
-                        "Run search_web_page or get a new URL."
-                        if remaining == 0
-                        else "Prefer search_web_page over further scrolling unless reading a narrative."
+                if not self._is_tool_response_usable(raw_content):
+                    is_soft_failure = True
+                    final_content = (
+                        f"Tool execution returned no scroll content for page {page_num}."
                     )
-                )
+                else:
+                    session["url_scroll_counts"][target_url] = attempted_scroll
+                    scroll_count = session["url_scroll_counts"][target_url]
 
-                final_content = (
-                    self._inject_navigation_guidance(raw_content, target_url) + scroll_budget_note
-                )
+                    LOG.info(
+                        f"[{run_id}] scroll_web_page '{target_url}' page={page_num} "
+                        f"accepted (scroll {scroll_count}/{SCROLL_LIMIT_PER_URL})"
+                    )
+
+                    remaining = SCROLL_LIMIT_PER_URL - scroll_count
+                    scroll_budget_note = (
+                        f"\n\n📜 SCROLL BUDGET: {scroll_count}/{SCROLL_LIMIT_PER_URL} successful "
+                        f"scrolls used on this URL ({remaining} remaining).\n"
+                        + (
+                            "⚠️ BUDGET EXHAUSTED after this scroll. "
+                            "Run search_web_page or get a new URL."
+                            if remaining == 0
+                            else "Prefer search_web_page over further scrolling unless reading a narrative."
+                        )
+                    )
+
+                    final_content = (
+                        self._inject_navigation_guidance(raw_content, target_url)
+                        + scroll_budget_note
+                    )
 
             # ----------------------------------------------------------------
             # search_web_page — NativeExecutionService → Redis cache
@@ -652,16 +681,22 @@ class WebSearchMixin:
                 target_url = arguments_dict["url"]
                 query_val = arguments_dict["query"]
 
-                # Record that search_web_page has been run — unlocks scroll gate.
-                session = self._get_or_create_session(run_id)
-                session["urls_searched"].add(target_url)
-
                 yield _status(run_id, tool_name, f"Searching page for '{query_val}'...")
 
-                final_content = await native_svc.search_url(
+                raw_content = await native_svc.search_url(
                     url=target_url,
                     query=query_val,
                 )
+
+                if not self._is_tool_response_usable(raw_content):
+                    is_soft_failure = True
+                    final_content = (
+                        f"Tool execution returned no search results for query '{query_val}'."
+                    )
+                else:
+                    session = self._get_or_create_session(run_id)
+                    session["urls_searched"].add(target_url)
+                    final_content = raw_content
 
             # ----------------------------------------------------------------
             # perform_web_search — SearxNG direct (internal HTTP, no SDK hop)
@@ -677,20 +712,24 @@ class WebSearchMixin:
                 searxng = SearxNGClient()
                 yield _status(run_id, tool_name, "Parsing search results...")
 
-                final_content = await searxng.format_for_agent(
+                raw_content = await searxng.format_for_agent(
                     query=query_val,
                     count=10,
                     query_tier=query_tier,
                 )
 
+                if not self._is_tool_response_usable(raw_content):
+                    is_soft_failure = True
+                    final_content = "Search returned no usable response."
+                else:
+                    final_content = raw_content
+
             else:
                 raise ValueError(f"Unknown web tool: {tool_name}")
 
             # --- [4] RESULT ANALYSIS ---
-            if final_content is None:
-                final_content = "❌ Error: Tool execution returned no data."
-
-            is_soft_failure = "❌ Error" in final_content or "Error:" in str(final_content)[0:50]
+            if self._looks_like_explicit_tool_error(final_content):
+                is_soft_failure = True
 
             if is_soft_failure:
                 yield _status(run_id, tool_name, "Encountered external error...", status="warning")
