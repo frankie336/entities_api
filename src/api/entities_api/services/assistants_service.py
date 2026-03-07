@@ -269,7 +269,6 @@ class AssistantService:
     # ────────────────────────────────────────────────
     # Mapper
     # ────────────────────────────────────────────────
-
     def map_to_read_model(self, db_asst: Assistant) -> validator.AssistantRead:
         data = db_asst.__dict__.copy()
         data.pop("_sa_instance_state", None)

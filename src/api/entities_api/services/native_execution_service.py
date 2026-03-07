@@ -314,14 +314,12 @@ class NativeExecutionService:
     async def retrieve_run(self, run_id: str):
         return await asyncio.to_thread(self.run_svc.retrieve_run, run_id)
 
+    # Fixed
     async def create_thread(self, user_id: str) -> Any:
-        """
-        Create a thread owned by the given user, bypassing the HTTP SDK.
-        """
         import types
 
-        req = types.SimpleNamespace(participant_ids=[user_id])
-        return await asyncio.to_thread(self.thread_svc.create_thread, req)
+        req = types.SimpleNamespace(participant_ids=[user_id], meta_data=None)
+        return await asyncio.to_thread(self.thread_svc.create_thread, req, user_id)
 
     async def create_message(
         self,
@@ -342,12 +340,9 @@ class NativeExecutionService:
         )
         return await asyncio.to_thread(self.message_svc.create_message, req)
 
-    async def delete_thread(self, thread_id: str) -> Any:
-        """
-        Delete a thread and its messages via the local ThreadService,
-        bypassing the HTTP SDK.
-        """
-        return await asyncio.to_thread(self.thread_svc.delete_thread, thread_id)
+    # Fixed
+    async def delete_thread(self, thread_id: str, user_id: str) -> Any:
+        return await asyncio.to_thread(self.thread_svc.delete_thread, thread_id, user_id)
 
     async def get_formatted_messages(self, thread_id: str) -> list:
         """

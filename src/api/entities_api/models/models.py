@@ -237,6 +237,16 @@ class Thread(Base):
     object = Column(String(64), nullable=False)
     tool_resources = Column(JSON, nullable=False, default={})
     participants = relationship("User", secondary=thread_participants, back_populates="threads")
+
+    owner_id = Column(
+        String(64),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Canonical creator/owner of this thread. Used for row-level access control.",
+    )
+    owner = relationship("User", foreign_keys=[owner_id], lazy="select")
+
     vector_stores = relationship(
         "VectorStore",
         secondary=thread_vector_stores,

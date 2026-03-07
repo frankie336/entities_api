@@ -8,4 +8,6 @@ docker compose exec api alembic revision --autogenerate -m "add ID to BatfishSna
 
 
 
-docker compose exec api alembic revision --autogenerate -m "add owner_id to assistants"
+
+
+docker compose exec api alembic revision --autogenerate -m "add owner_id to Thread table"

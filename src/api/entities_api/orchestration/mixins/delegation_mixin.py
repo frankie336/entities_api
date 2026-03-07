@@ -139,8 +139,12 @@ class DelegationMixin:
 
         if delete_thread and thread_id:
             try:
-                # ── REPLACED: was self.project_david_client.threads.delete_thread(...)
-                await self._native_exec.delete_thread(thread_id)
+                if not user_id:
+                    LOG.warning(
+                        "⚠️ [CLEANUP] Cannot delete thread %s — user_id not resolved.", thread_id
+                    )
+                else:
+                    await self._native_exec.delete_thread(thread_id, user_id=user_id)
             except Exception as e:
                 LOG.warning(f"⚠️ [CLEANUP] Thread delete failed: {e}")
 
