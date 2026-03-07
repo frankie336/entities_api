@@ -68,7 +68,7 @@ try:
     # ---------------------------------------------------------------------
     # 5. WRITE TO FILE
     # ---------------------------------------------------------------------
-    output_filename = "openapi.json"
+    output_filename = "../openapi.json"
     with open(output_filename, "w") as f:
         json.dump(openapi_schema, f, indent=2)
 

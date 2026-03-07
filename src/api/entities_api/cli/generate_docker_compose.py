@@ -13,8 +13,9 @@ from pathlib import Path
 # main generator
 # --------------------------------------------------------------------------- #
 def generate_dev_docker_compose() -> None:
-    # project root (this file lives in scripts/ one level below)
-    project_root = Path(__file__).resolve().parent.parent
+    # project root — file lives at src/api/entities_api/cli/generate_docker_compose.py
+    # so we must walk up 5 levels: cli → entities_api → api → src → repo root
+    project_root = Path(__file__).resolve().parents[4]
     output_path = project_root / "docker-compose.yml"
 
     if output_path.exists():
