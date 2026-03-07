@@ -52,10 +52,55 @@ class NativeExecutionService:
         self.scratchpad_svc = ScratchpadService(cache=ScratchpadCache(redis=redis))
         self.web_reader = UniversalWebReader(cache_service=WebSessionCache(redis=redis))
 
+    async def assert_assistant_access(
+        self,
+        assistant_id: str,
+        user_id: str,
+    ) -> None:
+        """
+        Verifies the user owns or is shared on the assistant.
+        Closes the attack vector: valid user + known assistant_id they don't own.
+
+        Raises HTTPException 403 if access denied.
+        Raises HTTPException 404 if assistant not found.
+        """
+        from fastapi import HTTPException
+
+        from src.api.entities_api.models.models import Assistant
+
+        def _check():
+            with SessionLocal() as db:
+                assistant = (
+                    db.query(Assistant)
+                    .filter(
+                        Assistant.id == assistant_id,
+                        Assistant.deleted_at.is_(None),
+                    )
+                    .first()
+                )
+
+                if not assistant:
+                    raise HTTPException(status_code=404, detail="Assistant not found.")
+
+                is_owner = assistant.owner_id == user_id
+                is_shared = any(u.id == user_id for u in assistant.users)
+
+                if not is_owner and not is_shared:
+                    LOG.warning(
+                        "[ACCESS GUARD] User %s attempted inference against assistant %s owned by %s",
+                        user_id,
+                        assistant_id,
+                        assistant.owner_id,
+                    )
+                    raise HTTPException(
+                        status_code=403, detail="You do not have access to this assistant."
+                    )
+
+        await asyncio.to_thread(_check)
+
     # ------------------------------------------------------------------
     # Assistant
     # ------------------------------------------------------------------
-
     async def create_assistant(
         self,
         user_id: str,
