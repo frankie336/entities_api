@@ -12,9 +12,6 @@ from projectdavid_common import ToolValidator
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from projectdavid_common.validation import StatusEnum
 
-from src.api.entities_api.services.native_execution_service import \
-    NativeExecutionService
-
 LOG = LoggingUtility()
 
 # Hard cap on scroll_web_page calls per URL per research session.
@@ -494,7 +491,6 @@ class WebSearchMixin:
         Yields raw JSON strings conforming to the stream EVENT_CONTRACT.
         """
         ts_start = asyncio.get_event_loop().time()
-        native_svc = NativeExecutionService()
 
         # --- [1] STATUS: VALIDATING ---
         yield _status(run_id, tool_name, "Validating parameters...")
@@ -513,7 +509,7 @@ class WebSearchMixin:
             )
 
             try:
-                await native_svc.submit_failed_tool_execution(
+                await self._native_exec.submit_failed_tool_execution(
                     tool_name=tool_name,
                     run_id=run_id,
                     thread_id=thread_id,
@@ -533,7 +529,7 @@ class WebSearchMixin:
 
         action = None
         try:
-            action = await native_svc.create_action(
+            action = await self._native_exec.create_action(
                 tool_name=tool_name,
                 run_id=run_id,
                 tool_call_id=tool_call_id,
@@ -559,7 +555,7 @@ class WebSearchMixin:
 
                 session = self._get_or_create_session(run_id)
 
-                raw_content = await native_svc.read_url(
+                raw_content = await self._native_exec.read_url(
                     url=target_url,
                     force_refresh=arguments_dict.get("force_refresh", False),
                 )
@@ -609,7 +605,7 @@ class WebSearchMixin:
                         f"Scroll blocked by guard (page {page_num}).",
                         status="warning",
                     )
-                    await native_svc.submit_tool_output(
+                    await self._native_exec.submit_tool_output(
                         thread_id=thread_id,
                         assistant_id=assistant_id,
                         tool_call_id=tool_call_id,
@@ -617,7 +613,7 @@ class WebSearchMixin:
                         action_id=action.id,
                         is_error=True,
                     )
-                    await native_svc.update_action_status(
+                    await self._native_exec.update_action_status(
                         action_id=action.id,
                         status=StatusEnum.failed.value,
                     )
@@ -638,7 +634,7 @@ class WebSearchMixin:
                     f"(attempt {attempted_scroll}/{SCROLL_LIMIT_PER_URL})...",
                 )
 
-                raw_content = await native_svc.scroll_url(
+                raw_content = await self._native_exec.scroll_url(
                     url=target_url,
                     page=page_num,
                 )
@@ -683,7 +679,7 @@ class WebSearchMixin:
 
                 yield _status(run_id, tool_name, f"Searching page for '{query_val}'...")
 
-                raw_content = await native_svc.search_url(
+                raw_content = await self._native_exec.search_url(
                     url=target_url,
                     query=query_val,
                 )
@@ -745,7 +741,7 @@ class WebSearchMixin:
                 )
 
             # --- [5] SUBMIT OUTPUT ---
-            await native_svc.submit_tool_output(
+            await self._native_exec.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
@@ -756,7 +752,7 @@ class WebSearchMixin:
 
             # --- [6] UPDATE ACTION ---
             if action:
-                await native_svc.update_action_status(
+                await self._native_exec.update_action_status(
                     action_id=action.id,
                     status=(
                         StatusEnum.completed.value
@@ -781,11 +777,11 @@ class WebSearchMixin:
 
             try:
                 if action:
-                    await native_svc.update_action_status(
+                    await self._native_exec.update_action_status(
                         action_id=action.id,
                         status=StatusEnum.failed.value,
                     )
-                await native_svc.submit_tool_output(
+                await self._native_exec.submit_tool_output(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
                     tool_call_id=tool_call_id,

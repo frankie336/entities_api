@@ -24,12 +24,6 @@ class ContextMixin:
     _message_cache = None
 
     @property
-    def _native_exec(self) -> NativeExecutionService:
-        if getattr(self, "_native_exec_svc", None) is None:
-            self._native_exec_svc = NativeExecutionService()
-        return self._native_exec_svc
-
-    @property
     def message_cache(self):
         if not self._message_cache:
             from src.api.entities_api.cache.message_cache import \

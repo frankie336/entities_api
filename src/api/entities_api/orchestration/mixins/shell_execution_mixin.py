@@ -25,12 +25,6 @@ class ShellExecutionMixin:
     path errors, or command syntax issues).
     """
 
-    @property
-    def _native_exec(self) -> NativeExecutionService:
-        if getattr(self, "_native_exec_svc", None) is None:
-            self._native_exec_svc = NativeExecutionService()
-        return self._native_exec_svc
-
     @staticmethod
     def _format_level2_shell_error(error_content: str) -> str:
         """

@@ -26,20 +26,6 @@ class ConsumerToolHandlersMixin:
     Shifted error orchestration logic to the SDK to support agentic self-correction.
     """
 
-    # ------------------------------------------------------------------
-    # NATIVE EXECUTION SERVICE — lazy singleton, own instance per mixin.
-    # Not shared with DelegationMixin to avoid MRO conflicts; each mixin
-    # owns its instance, both share the same underlying service singletons
-    # (ActionService, RunService, etc.) via NativeExecutionService.__init__.
-    # getattr-safe for subclasses that skip super().__init__().
-    # ------------------------------------------------------------------
-
-    @property
-    def _native_exec(self) -> NativeExecutionService:
-        if getattr(self, "_consumer_native_exec_svc", None) is None:
-            self._consumer_native_exec_svc = NativeExecutionService()
-        return self._consumer_native_exec_svc
-
     async def submit_tool_output(
         self,
         *,

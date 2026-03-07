@@ -35,26 +35,6 @@ class DelegationMixin:
         self._batfish_owner_user_id = None
         self._native_exec_svc: Optional[NativeExecutionService] = None
 
-    # ------------------------------------------------------------------
-    # NATIVE EXECUTION SERVICE — lazy singleton per mixin instance
-    # Instantiated on first access; never re-created.  Avoids adding
-    # NativeExecutionService to the MRO while still reusing the same
-    # Redis / DB connections across calls within a single request.
-    #
-    # Uses a single leading underscore (not double) to avoid Python's
-    # name-mangling, which would make the attribute invisible to
-    # subclasses and break the lazy-init guard.
-    # ------------------------------------------------------------------
-
-    @property
-    def _native_exec(self) -> NativeExecutionService:
-        # Use getattr so this works even when DelegationMixin.__init__ was
-        # never called (e.g. TogetherQwenWorker and other concrete subclasses
-        # that do not call super().__init__() through the full MRO).
-        if getattr(self, "_native_exec_svc", None) is None:
-            self._native_exec_svc = NativeExecutionService()
-        return self._native_exec_svc
-
     @property
     def _assistant_manager(self) -> AssistantManager:
         if getattr(self, "_assistant_manager_svc", None) is None:

@@ -11,8 +11,6 @@ from projectdavid_common import ToolValidator
 from projectdavid_common.validation import StatusEnum
 
 from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.services.native_execution_service import \
-    NativeExecutionService
 
 LOG = LoggingUtility()
 
@@ -68,9 +66,6 @@ class FileSearchMixin:
     ) -> None:
         ts_start = asyncio.get_event_loop().time()
 
-        # Instantiate the new helper wrapper
-        native_svc = NativeExecutionService()
-
         # ---[L2] SHARED INPUT VALIDATION ---
         validator = ToolValidator()
         validator.schema_registry = {"file_search": ["query_text"]}
@@ -83,7 +78,7 @@ class FileSearchMixin:
                 f"{validation_error}\nPlease provide a valid 'query_text' string for the search."
             )
 
-            await native_svc.submit_failed_tool_execution(
+            await self._native_exec.submit_failed_tool_execution(
                 tool_name="file_search",
                 run_id=run_id,
                 thread_id=thread_id,
@@ -105,7 +100,7 @@ class FileSearchMixin:
                 "FileSearch ▸ No vector_store_ids found in tool_resources for assistant %s.",
                 assistant_id,
             )
-            await native_svc.submit_failed_tool_execution(
+            await self._native_exec.submit_failed_tool_execution(
                 tool_name="file_search",
                 run_id=run_id,
                 thread_id=thread_id,
@@ -119,7 +114,7 @@ class FileSearchMixin:
 
         # 1. Create Action Record Natively
         try:
-            action = await native_svc.create_action(
+            action = await self._native_exec.create_action(
                 tool_name="file_search",
                 run_id=run_id,
                 tool_call_id=tool_call_id,
@@ -152,7 +147,7 @@ class FileSearchMixin:
                         top_k_val = 5
 
                     # A: Fetch metadata natively directly from the database!
-                    store_info = await native_svc.get_vector_store(vid)
+                    store_info = await self._native_exec.get_vector_store(vid)
 
                     if not store_info:
                         raise Exception(f"Vector store '{vid}' not found in the database.")
@@ -227,7 +222,7 @@ class FileSearchMixin:
                 final_content = json.dumps(aggregated, indent=2)
 
             # 5. Native submit tool output
-            await native_svc.submit_tool_output(
+            await self._native_exec.submit_tool_output(
                 thread_id=thread_id,
                 assistant_id=assistant_id,
                 tool_call_id=tool_call_id,
@@ -238,7 +233,7 @@ class FileSearchMixin:
 
             # 6. Mark Native Action Status
             status_val = StatusEnum.failed.value if is_soft_failure else StatusEnum.completed.value
-            await native_svc.update_action_status(action.id, status_val)
+            await self._native_exec.update_action_status(action.id, status_val)
 
             LOG.info(
                 "[%s] file_search completed in %.2fs (action=%s, stores=%d, results=%d)",
@@ -254,8 +249,8 @@ class FileSearchMixin:
             error_hint = self._format_level2_search_error(str(exc), query_text)
 
             try:
-                await native_svc.update_action_status(action.id, StatusEnum.failed.value)
-                await native_svc.submit_tool_output(
+                await self._native_exec.update_action_status(action.id, StatusEnum.failed.value)
+                await self._native_exec.submit_tool_output(
                     thread_id=thread_id,
                     assistant_id=assistant_id,
                     tool_call_id=tool_call_id,
