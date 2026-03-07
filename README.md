@@ -34,6 +34,17 @@ pip install -e .
 platform-api docker-manager --mode both
 ```
 
+> 📦 **What gets generated on first run**
+>
+> Running this command bootstraps two files at the repository root if they don't already exist:
+>
+> | File | What it contains |
+> |---|---|
+> | `.env` | Unique, locally-generated secrets — DB passwords, `DEFAULT_SECRET_KEY`, `SEARXNG_SECRET_KEY`, etc. Never committed to version control. |
+> | `docker-compose.yml` | A fully-wired Compose file referencing those secrets via `${ENV_VAR}` placeholders. |
+>
+> Both files are created once and left untouched on subsequent runs, so your local secrets remain stable across restarts.
+
 For the full command reference see:
 [Docker orchestration commands](https://github.com/project-david-ai/projectdavid_docs/blob/master/src/pages/api-infra/docker_commands.md)
 
