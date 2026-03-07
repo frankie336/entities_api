@@ -33,7 +33,7 @@ from entities_api.platform_tools.delegated_model_map.delegation_model_map import
 from entities_api.utils.assistant_manager import AssistantManager
 from src.api.entities_api.constants.platform import PLATFORM_TOOLS
 # Mixins
-from src.api.entities_api.orchestration.mixins.code_execution_mixin import \
+from src.api.entities_api.orchestration.mixins.code_interpreter_mixin import \
     CodeExecutionMixin
 from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import \
     ConsumerToolHandlersMixin

@@ -78,7 +78,7 @@ class FileService:
                 object="file",
                 bytes=os.path.getsize(temp_file_path),
                 created_at=datetime.now(),
-                expires_at=None,
+                expires_at=datetime.utcnow() + timedelta(seconds=3600),
                 filename=file.filename,
                 purpose=request.purpose,
                 user_id=request.user_id,

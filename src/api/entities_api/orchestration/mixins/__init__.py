@@ -5,7 +5,7 @@ from src.api.entities_api.orchestration.mixins.assistant_cache_mixin import \
 # Non-MRO mixins (kept, but placed after ordered stack)
 from src.api.entities_api.orchestration.mixins.client_factory_mixin import \
     ClientFactoryMixin
-from src.api.entities_api.orchestration.mixins.code_execution_mixin import \
+from src.api.entities_api.orchestration.mixins.code_interpreter_mixin import \
     CodeExecutionMixin
 from src.api.entities_api.orchestration.mixins.consumer_tool_handlers_mixin import \
     ConsumerToolHandlersMixin

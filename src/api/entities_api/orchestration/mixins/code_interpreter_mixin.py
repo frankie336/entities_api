@@ -1,4 +1,4 @@
-# src/api/entities_api/orchestration/mixins/code_execution_mixin.py
+# src/api/entities_api/orchestration/mixins/code_interpreter_mixin.py
 from __future__ import annotations
 
 import asyncio
