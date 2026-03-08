@@ -233,7 +233,7 @@ class MessageService:
                 assistant_id=message.assistant_id,
                 content=message.content,
                 created_at=int(time.time()),
-                meta_data=message.meta_data or {},  # FIX: Raw dict
+                meta_data=message.meta_data or {},
                 object="message",
                 role="tool",
                 thread_id=message.thread_id,
