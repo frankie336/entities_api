@@ -229,12 +229,21 @@ class OllamaDefaultBaseWorker(
             # ------------------------------------------------------------------
             # CAPTURE REAL USER ID — before any identity swap mutates state.
             # ------------------------------------------------------------------
+
+            # Extract dynamically injected metadata from the stream kwargs
+            request_meta = kwargs.get("meta_data", {})
+            custom_ollama_url = request_meta.get("ollama_base_url")
+
             try:
                 # [FIXED SDK REMOVAL] Replaced HTTP SDK usage with native execution DB lookup
                 run = await self._native_exec.retrieve_run(run_id)
                 self._run_user_id = run.user_id
 
                 meta = run.meta_data or {}
+
+                # Fallback to run-level metadata if not passed directly in the stream
+                if not custom_ollama_url:
+                    custom_ollama_url = meta.get("ollama_base_url")
 
                 if self._batfish_owner_user_id is None:
                     self._batfish_owner_user_id = meta.get("batfish_owner_user_id") or run.user_id
@@ -299,6 +308,7 @@ class OllamaDefaultBaseWorker(
                     temperature=kwargs.get("temperature", 0.6),
                     max_tokens=kwargs.get("max_tokens", 10_000),
                     think=kwargs.get("think", False),
+                    base_url=custom_ollama_url,  # <-- Pass dynamically extracted custom URL down
                 ),
                 run_id,
             ):

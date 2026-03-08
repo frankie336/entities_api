@@ -74,14 +74,19 @@ class OllamaNativeStreamMixin:
         max_tokens: int = 10_000,
         think: bool = False,
         tools: List[Dict] | None = None,
+        base_url: str | None = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
+
+        # Resolve the URL: 1. Request Override -> 2. Class Level -> 3. Environment/Default
+        resolved_base_url = base_url or getattr(self, "OLLAMA_BASE_URL", OLLAMA_BASE_URL)
+
         async for chunk in stream_ollama_raw(
             messages=messages,
             model=model,
-            base_url=getattr(self, "OLLAMA_BASE_URL", OLLAMA_BASE_URL),
+            base_url=resolved_base_url,
             temperature=temperature,
             max_tokens=max_tokens,
-            think=False,
+            think=think,
             tools=tools,
         ):
             yield chunk
