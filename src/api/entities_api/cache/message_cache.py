@@ -32,7 +32,6 @@ class MessageCache:
 
     def __init__(self, redis: Union[SyncRedis, "AsyncRedis"]):
         self.redis = redis
-        # No Entity / SDK client instantiated here.
 
     # ------------------------------------------------------------------
     # Lazy service accessors (avoids circular imports at module load time)
@@ -80,8 +79,8 @@ class MessageCache:
         Retrieve history from Redis, falling back to DB on a cache miss.
 
         Cold-load uses NativeExecutionService.get_formatted_messages which
-        calls MessageService → DB directly with no ownership check needed
-        (internal orchestration path).
+        calls MessageService.get_formatted_messages_internal directly —
+        no ownership check needed (internal orchestration path).
         """
         key = self._cache_key(thread_id)
 
@@ -156,9 +155,8 @@ class MessageCache:
         """
         Retrieve history from Redis, falling back to DB on a cache miss.
 
-        This is the hot path called by ContextMixin._set_up_context_window.
-        Cold-load uses MessageService.get_formatted_messages directly —
-        no SDK client, no HTTP hop, no user-identity mismatch.
+        Cold-load uses MessageService.get_formatted_messages_internal —
+        no SDK client, no HTTP hop, no ownership check (trusted internal path).
         """
         if not isinstance(self.redis, SyncRedis):
             return []
@@ -172,7 +170,8 @@ class MessageCache:
         LOG.debug(f"[CACHE-SYNC] Miss for thread {thread_id}. Performing sync cold load.")
 
         try:
-            full_hist = self._message_svc.get_formatted_messages(thread_id)
+            # _internal variant: no user_id required, no ownership check
+            full_hist = self._message_svc.get_formatted_messages_internal(thread_id)
             if full_hist:
                 self.set_history_sync(thread_id, full_hist)
             return full_hist or []
@@ -220,7 +219,6 @@ class MessageCache:
 def get_sync_message_cache() -> MessageCache:
     """
     Create a synchronous MessageCache instance backed by a SyncRedis client.
-    This is what ContextMixin and ThreadService import.
     """
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     client = SyncRedis.from_url(redis_url, decode_responses=True)

@@ -55,6 +55,11 @@ SWEEPS = [
         "module": "tests.integration.files_intrusion_test",
         "entry": "run_sweep",
     },
+    {
+        "label": "Message Isolation",
+        "module": "tests.integration.message_intrusion_test",
+        "entry": "run_sweep",
+    },
 ]
 
 # ──────────────────────────────────────────────────────────────────────────────

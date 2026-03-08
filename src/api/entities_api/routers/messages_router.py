@@ -1,3 +1,4 @@
+# src/api/entities_api/routers/messages.py
 import json
 from typing import Any, Dict, List
 
@@ -6,7 +7,6 @@ from projectdavid_common import ValidationInterface
 from projectdavid_common.utilities.logging_service import LoggingUtility
 from redis.asyncio import Redis
 
-# NOTE: get_db is no longer needed in the endpoint signatures.
 from src.api.entities_api.dependencies import get_api_key, get_redis
 from src.api.entities_api.models.models import ApiKey as ApiKeyModel
 from src.api.entities_api.services.message_service import MessageService
@@ -20,7 +20,6 @@ async def _push_to_redis(redis: Redis, message_obj):
     """Asynchronously pushes message data to Redis list and trims."""
     try:
         key = f"thread:{message_obj.thread_id}:history"
-        # Use model_dump for Pydantic v2 compatibility
         data = message_obj.model_dump(exclude_unset=True)
         data["role"] = message_obj.role
         data["content"] = message_obj.content if message_obj.content is not None else ""
@@ -39,10 +38,9 @@ async def create_message(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     logging_utility.info(f"[{auth_key.user_id}] Creating message in thread {message.thread_id}")
-    # --- FIX APPLIED HERE ---
     svc = MessageService()
     try:
-        new_message = svc.create_message(message)
+        new_message = svc.create_message(message, user_id=auth_key.user_id)
         logging_utility.info(f"Created message ID {new_message.id}")
         await _push_to_redis(redis, new_message)
         return new_message
@@ -65,10 +63,9 @@ async def submit_tool_response(
     logging_utility.info(
         f"[{auth_key.user_id}] Submitting tool output for thread {message.thread_id}"
     )
-    # --- FIX APPLIED HERE ---
     svc = MessageService()
     try:
-        new_message = svc.submit_tool_output(message)
+        new_message = svc.submit_tool_output(message, user_id=auth_key.user_id)
         logging_utility.info(f"Created tool message ID {new_message.id}")
         await _push_to_redis(redis, new_message)
         return new_message
@@ -88,10 +85,9 @@ def get_message(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     logging_utility.info(f"[{auth_key.user_id}] Retrieving message {message_id}")
-    # --- FIX APPLIED HERE ---
     svc = MessageService()
     try:
-        return svc.retrieve_message(message_id)
+        return svc.retrieve_message(message_id, user_id=auth_key.user_id)
     except HTTPException:
         raise
     except Exception as e:
@@ -113,10 +109,11 @@ def list_messages(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     logging_utility.info(f"[{auth_key.user_id}] Listing messages for thread {thread_id}")
-    # --- FIX APPLIED HERE ---
     svc = MessageService()
     try:
-        return svc.list_messages(thread_id=thread_id, limit=limit, order=order)
+        return svc.list_messages(
+            thread_id=thread_id, user_id=auth_key.user_id, limit=limit, order=order
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -135,10 +132,9 @@ def get_formatted_messages(
     logging_utility.info(
         f"[{auth_key.user_id}] Retrieving formatted messages for thread {thread_id}"
     )
-    # --- FIX APPLIED HERE ---
     svc = MessageService()
     try:
-        return svc.get_formatted_messages(thread_id)
+        return svc.get_formatted_messages(thread_id, user_id=auth_key.user_id)
     except HTTPException:
         raise
     except Exception as e:
@@ -158,11 +154,11 @@ async def save_assistant_message(
     logging_utility.info(
         f"[{auth_key.user_id}] Saving assistant chunk for thread {message.thread_id}"
     )
-    # --- FIX APPLIED HERE ---
-    # NOTE: The in-memory chunking in MessageService will only work for a single request.
+    # NOTE: save_assistant_message_chunk is an internal/trusted-caller path used
+    # by the execution engine — it does not perform end-user ownership checks.
+    # The endpoint still requires a valid API key for authentication.
     svc = MessageService()
     try:
-        # The service method is optional because it only returns a message on the final chunk.
         new_message = svc.save_assistant_message_chunk(
             thread_id=message.thread_id,
             content=message.content,
@@ -175,7 +171,6 @@ async def save_assistant_message(
             logging_utility.info(f"Saved assistant message ID {new_message.id}")
             await _push_to_redis(redis, new_message)
             return new_message
-        # If not the final chunk, the service returns None, which FastAPI handles correctly.
         return None
     except HTTPException:
         raise
@@ -196,10 +191,9 @@ def delete_message(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     logging_utility.info(f"[{auth_key.user_id}] Deleting message {message_id}")
-    # --- FIX APPLIED HERE ---
     svc = MessageService()
     try:
-        return svc.delete_message(message_id)
+        return svc.delete_message(message_id, user_id=auth_key.user_id)
     except HTTPException:
         raise
     except Exception as e:

@@ -362,7 +362,7 @@ class NativeExecutionService:
             content=content,
             role=role,
         )
-        return await asyncio.to_thread(self.message_svc.create_message, req)
+        return await asyncio.to_thread(self.message_svc.create_message_internal, req)
 
     async def delete_thread(self, thread_id: str, user_id: str) -> Any:
         return await asyncio.to_thread(self.thread_svc.delete_thread, thread_id, user_id)
@@ -372,7 +372,7 @@ class NativeExecutionService:
         Fetch all messages for a thread formatted for LLM consumption,
         bypassing the HTTP SDK.
         """
-        return await asyncio.to_thread(self.message_svc.get_formatted_messages, thread_id)
+        return await asyncio.to_thread(self.message_svc.get_formatted_messages_internal, thread_id)
 
     async def submit_tool_output(
         self,
@@ -391,7 +391,7 @@ class NativeExecutionService:
             tool_call_id=tool_call_id,
             meta_data={"action_id": action_id, "is_error": is_error},
         )
-        return await asyncio.to_thread(self.message_svc.submit_tool_output, msg_req)
+        return await asyncio.to_thread(self.message_svc.submit_tool_output_internal, msg_req)
 
     async def submit_failed_tool_execution(
         self,
