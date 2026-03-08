@@ -29,6 +29,12 @@ MUTABLE_RUN_FIELDS = {
     "meta_data",
 }
 
+# Sentinel for valid truncation_strategy values.
+# Old dev runs may have '{}' or other non-enum strings written before the
+# schema was locked. Anything outside this set is coerced to None in
+# _to_read_model to prevent Pydantic ValidationErrors on list endpoints.
+_VALID_TRUNCATION = {"auto", "disabled"}
+
 
 class RunService:
     def __init__(self) -> None:
@@ -74,6 +80,12 @@ class RunService:
 
     def _to_read_model(self, r: Run) -> validator.Run:
         """Standardized mapping to prevent 'missing field' errors in Pydantic."""
+        # Coerce stale/malformed truncation_strategy values from old dev runs.
+        # '{}', '', or any non-enum string → None (schema accepts Optional).
+        raw_truncation = r.truncation_strategy
+        if raw_truncation not in _VALID_TRUNCATION:  # ← module-level constant, no self.
+            raw_truncation = None
+
         return validator.Run(
             id=r.id,
             user_id=r.user_id,
@@ -99,7 +111,7 @@ class RunService:
             thread_id=r.thread_id,
             tool_choice=r.tool_choice or "none",
             tools=(r.tools if r.tools is not None else []),
-            truncation_strategy=r.truncation_strategy or "auto",
+            truncation_strategy=raw_truncation,
             usage=r.usage or {},
             temperature=r.temperature if r.temperature is not None else 0.7,
             top_p=r.top_p if r.top_p is not None else 0.9,

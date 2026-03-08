@@ -238,8 +238,17 @@ def list_runs(
             "last_id": runs[-1].id if runs else None,
             "has_more": has_more,
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
+        import traceback
+
+        logging_utility.error(
+            "list_runs 500 for user %s:\n%s",
+            user_id,
+            traceback.format_exc(),
+        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get(
