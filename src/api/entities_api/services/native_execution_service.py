@@ -155,6 +155,11 @@ class NativeExecutionService:
         Fetch a single assistant directly from the DB via AssistantService,
         bypassing the HTTP SDK.
 
+        Uses the internal (no-ownership-check) variant because NativeExecutionService
+        operates inside the trust boundary — ownership is enforced once at the HTTP
+        boundary when the run is created, and by assert_assistant_access when the
+        orchestrator validates access before inference begins.
+
         Returns a validated AssistantRead object — identical shape to what the
         SDK call produced, so all downstream consumers (AssistantCache,
         OrchestratorCore config loaders) are drop-in compatible.
@@ -162,7 +167,7 @@ class NativeExecutionService:
         Raises HTTPException(404) if the assistant does not exist or has been
         soft-deleted (propagated from AssistantService unchanged).
         """
-        return await asyncio.to_thread(self.assistant_svc.retrieve_assistant, assistant_id)
+        return await asyncio.to_thread(self.assistant_svc.retrieve_assistant_internal, assistant_id)
 
     async def delete_assistant(
         self,

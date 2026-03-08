@@ -43,7 +43,8 @@ def retrieve_assistant(
     logging_utility.info("User '%s' – get assistant id=%s", auth_key.user_id, assistant_id)
     service = AssistantService()
     try:
-        return service.retrieve_assistant(assistant_id)
+        # ── Forward user_id so the service can enforce ownership ────────────
+        return service.retrieve_assistant(assistant_id, user_id=auth_key.user_id)
     except HTTPException:
         raise
     except Exception as exc:
@@ -65,7 +66,7 @@ def update_assistant(
         return service.update_assistant(
             assistant_id,
             assistant_update,
-            user_id=auth_key.user_id,  # ← ownership enforced in service
+            user_id=auth_key.user_id,
         )
     except HTTPException:
         raise
@@ -149,7 +150,7 @@ def delete_assistant(
     try:
         service.delete_assistant(
             assistant_id,
-            user_id=auth_key.user_id,  # ← ownership enforced in service
+            user_id=auth_key.user_id,
             permanent=permanent,
         )
     except HTTPException:

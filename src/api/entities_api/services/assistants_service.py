@@ -117,8 +117,15 @@ class AssistantService:
     def retrieve_assistant(
         self,
         assistant_id: str,
-        user_id: str,  # ← add this
+        user_id: str,
     ) -> validator.AssistantRead:
+        """
+        Fetch an assistant and enforce ownership.
+
+        Use this for all HTTP-boundary calls where the caller must be the
+        owner of the assistant.  Raises 403 if user_id does not own the
+        record, 404 if the assistant does not exist or is soft-deleted.
+        """
         with SessionLocal() as db:
             db_asst = (
                 db.query(Assistant)
@@ -133,11 +140,36 @@ class AssistantService:
 
             return self.map_to_read_model(db_asst)
 
+    def retrieve_assistant_internal(
+        self,
+        assistant_id: str,
+    ) -> validator.AssistantRead:
+        """
+        Fetch an assistant WITHOUT an ownership check.
+
+        FOR INTERNAL / TRUSTED CALLERS ONLY — do not expose this through any
+        HTTP router.  Intended for services that operate inside the trust
+        boundary (e.g. NativeExecutionService, OrchestratorCore) where
+        ownership was already verified at the point the run was created.
+
+        Raises 404 if the assistant does not exist or is soft-deleted.
+        """
+        with SessionLocal() as db:
+            db_asst = (
+                db.query(Assistant)
+                .filter(Assistant.id == assistant_id, Assistant.deleted_at.is_(None))
+                .first()
+            )
+            if not db_asst:
+                raise HTTPException(status_code=404, detail="Assistant not found")
+
+            return self.map_to_read_model(db_asst)
+
     def update_assistant(
         self,
         assistant_id: str,
         assistant_update: validator.AssistantUpdate,
-        user_id: str,  # ← NEW required param
+        user_id: str,
     ) -> validator.AssistantRead:
         try:
             cache = get_sync_invalidator()
@@ -184,13 +216,40 @@ class AssistantService:
             return self.map_to_read_model(db_asst)
 
     def list_assistants_by_user(self, user_id: str) -> List[validator.AssistantRead]:
+        """
+        Return all active assistants belonging to *user_id*.
+
+        Ownership is determined by the ``owner_id`` column (set at creation).
+        We also union in any assistants linked via the legacy many-to-many
+        ``user.assistants`` relationship so that records created before the
+        ``owner_id`` migration are still visible.
+        """
         with SessionLocal() as db:
+            # ── Primary path: owner_id column (all new records) ──────────────
+            owned_by_column = (
+                db.query(Assistant)
+                .filter(
+                    Assistant.owner_id == user_id,
+                    Assistant.deleted_at.is_(None),
+                )
+                .all()
+            )
+
+            # ── Legacy path: many-to-many association table ──────────────────
             user = db.query(User).filter(User.id == user_id).first()
             if not user:
                 raise HTTPException(404, "User not found")
 
-            active_assistants = [a for a in user.assistants if a.deleted_at is None]
-            return [self.map_to_read_model(a) for a in active_assistants]
+            associated_ids = {a.id for a in user.assistants if a.deleted_at is None}
+
+            # Merge: owned_by_column takes precedence; add any legacy-only entries
+            owned_ids = {a.id for a in owned_by_column}
+            legacy_only = [
+                a for a in user.assistants if a.id not in owned_ids and a.deleted_at is None
+            ]
+
+            all_assistants = owned_by_column + legacy_only
+            return [self.map_to_read_model(a) for a in all_assistants]
 
     # ────────────────────────────────────────────────
     # DELETE (GDPR Compliant)
@@ -199,7 +258,7 @@ class AssistantService:
     def delete_assistant(
         self,
         assistant_id: str,
-        user_id: str,  # ← NEW required param
+        user_id: str,
         permanent: bool = False,
     ) -> None:
         try:
