@@ -482,13 +482,6 @@ class Assistant(Base):
         back_populates="assistants",
         lazy="select",
     )
-    vector_stores = relationship(
-        "VectorStore",
-        secondary="vector_store_assistants",
-        back_populates="assistants",
-        lazy="select",
-        passive_deletes=True,
-    )
 
 
 class Action(Base):
@@ -689,13 +682,6 @@ class VectorStore(Base):
         lazy="select",
     )
 
-    assistants = relationship(
-        "Assistant",
-        secondary="vector_store_assistants",
-        back_populates="vector_stores",
-        lazy="select",
-        passive_deletes=True,
-    )
     files = relationship(
         "VectorStoreFile",
         back_populates="vector_store",
