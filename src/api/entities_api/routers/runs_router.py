@@ -54,7 +54,7 @@ def retrieve_run(
     logging_utility.info(f"[{auth_key.user_id}] Retrieving run ID: {run_id}")
     run_service = RunService()
     try:
-        run = run_service.retrieve_run(run_id)
+        run = run_service.retrieve_run(run_id, user_id=auth_key.user_id)  # ← FIXED
         logging_utility.info(f"Run retrieved successfully: {run_id}")
         return run
     except HTTPException as e:
@@ -75,6 +75,7 @@ def update_run_status(
     logging_utility.info(
         f"[{auth_key.user_id}] Updating status of run {run_id} → {status_update.status}"
     )
+    # Admin gate — ownership not checked; admin privilege is the guard here.
     requesting_admin = db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
     if not requesting_admin or not requesting_admin.is_admin:
         raise HTTPException(
@@ -120,7 +121,9 @@ def update_run_fields(
     )
     svc = RunService()
     try:
-        return svc.update_run_fields(run_id, **payload)
+        return svc.update_run_fields(  # ← FIXED: user_id now forwarded
+            run_id, user_id=auth_key.user_id, **payload
+        )
     except HTTPException as e:
         raise e
     except Exception as e:
@@ -143,8 +146,8 @@ def update_run_metadata(
         else payload
     )
     svc = RunService()
-    updated = svc.update_run(run_id, metadata, user_id=auth_key.user_id)
-    return updated
+    # user_id already forwarded in original — no change needed here.
+    return svc.update_run(run_id, metadata, user_id=auth_key.user_id)
 
 
 @router.post("/runs/{run_id}/cancel", response_model=ValidationInterface.Run)
@@ -155,7 +158,9 @@ def cancel_run(
     logging_utility.info(f"[{auth_key.user_id}] Cancelling run {run_id}")
     run_service = RunService()
     try:
-        cancelled_run = run_service.cancel_run(run_id)
+        cancelled_run = run_service.cancel_run(  # ← FIXED: user_id now forwarded
+            run_id, user_id=auth_key.user_id
+        )
         logging_utility.info(f"Run cancelled successfully: {run_id}")
         return cancelled_run
     except HTTPException as e:
@@ -177,10 +182,19 @@ async def stream_run_events(
     run_svc = RunService()
     action_svc = ActionService()
 
+    # ── Ownership verified once at connection time, before the stream opens. ──
+    # Raises 403 immediately if the caller doesn't own this run.
+    # The internal poll loop below omits user_id — no repeated auth overhead.
+    try:
+        run_svc.retrieve_run(run_id, user_id=auth_key.user_id)  # ← FIXED
+    except HTTPException as e:
+        raise e
+
     async def event_generator():
         while True:
             if await request.is_disconnected():
                 break
+            # Internal poll — user_id omitted intentionally.
             run = run_svc.retrieve_run(run_id)
             if not run:
                 yield {"event": "error", "data": '{"msg":"run not found"}'}

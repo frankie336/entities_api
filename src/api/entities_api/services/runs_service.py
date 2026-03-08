@@ -1,4 +1,4 @@
-# src/api/entities_api/services/run_service.py
+# src/api/entities_api/services/runs_service.py
 import json
 import time
 from datetime import datetime
@@ -34,9 +34,10 @@ class RunService:
     def __init__(self) -> None:
         self.logger = LoggingUtility()
 
-    # -----------------------------------
+    # ──────────────────────────────────────────────────────────────────
     # Helpers
-    # -----------------------------------
+    # ──────────────────────────────────────────────────────────────────
+
     @staticmethod
     def _to_epoch(value: Optional[Any]) -> Optional[int]:
         if value is None:
@@ -105,14 +106,66 @@ class RunService:
             tool_resources=self._ensure_dict(r.tool_resources),
         )
 
-    # -----------------------------------
+    # ──────────────────────────────────────────────────────────────────
+    # Ownership guard
+    # ──────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _assert_owner(run: Run, user_id: str) -> None:
+        """
+        Raise 403 if user_id is not the owner of this run.
+        Used by all user-facing mutating endpoints.
+        Internal orchestration callers (NativeExecutionService) bypass
+        this by omitting user_id from the call.
+        """
+        if run.user_id != user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have permission to access this run.",
+            )
+
+    # ──────────────────────────────────────────────────────────────────
+    # Cross-resource guard (creation time)
+    # ──────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _assert_assistant_access(assistant: Assistant, user_id: str) -> None:
+        """
+        At run creation time, verify the caller owns or is shared on the
+        assistant they are trying to run against.
+
+        Closes the attack vector: valid user + known assistant_id they don't own
+        could otherwise spin up runs against someone else's assistant and consume
+        their context, tools, and quota.
+
+        Back-fill window: if owner_id is still NULL, falls back to checking the
+        many-to-many users relationship — identical logic to AssistantService._assert_owner.
+        """
+        if assistant.owner_id is not None:
+            is_owner = assistant.owner_id == user_id
+        else:
+            is_owner = any(u.id == user_id for u in assistant.users)
+
+        is_shared = any(u.id == user_id for u in assistant.users)
+
+        if not is_owner and not is_shared:
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have access to this assistant.",
+            )
+
+    # ──────────────────────────────────────────────────────────────────
     # CRUD
-    # -----------------------------------
+    # ──────────────────────────────────────────────────────────────────
+
     def create_run(self, run_data: validator.RunCreate, *, user_id: str) -> validator.Run:
         with SessionLocal() as db:
             assistant = db.query(Assistant).filter(Assistant.id == run_data.assistant_id).first()
             if not assistant:
                 raise HTTPException(status_code=404, detail="Assistant not found")
+
+            # ── Cross-resource ownership check ──────────────────────────────
+            self._assert_assistant_access(assistant, user_id)
 
             tools_override = getattr(run_data, "tools", None)
             effective_tools = (
@@ -154,13 +207,35 @@ class RunService:
             self.logger.info("Run created successfully: %s", new_run.id)
             return self._to_read_model(new_run)
 
-    def retrieve_run(self, run_id: str) -> validator.RunReadDetailed:
+    def retrieve_run(
+        self,
+        run_id: str,
+        *,
+        user_id: Optional[str] = None,
+    ) -> validator.RunReadDetailed:
+        """
+        Fetch a run by ID.
+
+        user_id is optional:
+          - Pass it from user-facing router endpoints to enforce ownership (403).
+          - Omit it from internal orchestration callers (NativeExecutionService,
+            OrchestratorCore) that need to poll any run regardless of ownership.
+        """
         with SessionLocal() as db:
             run = self._get_run_or_404(run_id, db)
+
+            # ── Ownership check (user-facing calls only) ─────────────────────
+            if user_id is not None:
+                self._assert_owner(run, user_id)
+
             base_data = self._to_read_model(run).dict()
             return validator.RunReadDetailed(**base_data, actions=[])
 
     def update_run_status(self, run_id: str, new_status: str) -> validator.Run:
+        """
+        Admin-only status override.
+        Ownership is NOT checked here — the router gate already requires is_admin.
+        """
         with SessionLocal() as db:
             run = self._get_run_or_404(run_id, db)
             try:
@@ -171,20 +246,27 @@ class RunService:
             db.refresh(run)
             return self._to_read_model(run)
 
-    def update_run_fields(self, run_id: str, **kwargs) -> validator.Run:
+    def update_run_fields(
+        self,
+        run_id: str,
+        *,
+        user_id: Optional[str] = None,
+        **kwargs,
+    ) -> validator.Run:
         """
         Targeted field update for mid-run lifecycle writes.
 
         Accepts any subset of MUTABLE_RUN_FIELDS. All other kwargs are silently
         ignored so callers cannot accidentally corrupt structural columns.
 
-        Designed to be called from within process_conversation at lifecycle
-        boundaries — turn start, clean exit, error paths, and max-turns failsafe.
+        user_id is optional:
+          - Pass it from the user-facing PATCH router to enforce ownership.
+          - Omit it from internal orchestration callers (NativeExecutionService)
+            that update lifecycle fields on behalf of the run engine.
 
         Usage:
-            svc.update_run_fields(run_id, started_at=int(time.time()), current_turn=1)
-            svc.update_run_fields(run_id, completed_at=int(time.time()))
-            svc.update_run_fields(run_id, failed_at=int(time.time()), last_error="...")
+            svc.update_run_fields(run_id, user_id=uid, started_at=int(time.time()))
+            svc.update_run_fields(run_id, completed_at=int(time.time()))   # internal
         """
         safe = {k: v for k, v in kwargs.items() if k in MUTABLE_RUN_FIELDS}
 
@@ -198,6 +280,10 @@ class RunService:
 
         with SessionLocal() as db:
             run = self._get_run_or_404(run_id, db)
+
+            # ── Ownership check (user-facing calls only) ─────────────────────
+            if user_id is not None:
+                self._assert_owner(run, user_id)
 
             for field, value in safe.items():
                 # Special case: meta_data always merges, never replaces
@@ -234,9 +320,12 @@ class RunService:
 
             return [self._to_read_model(r) for r in rows], has_more
 
-    def cancel_run(self, run_id: str) -> validator.Run:
+    def cancel_run(self, run_id: str, *, user_id: str) -> validator.Run:
         with SessionLocal() as db:
             run = self._get_run_or_404(run_id, db)
+
+            # ── Ownership check ──────────────────────────────────────────────
+            self._assert_owner(run, user_id)
 
             if run.status in {StatusEnum.completed, StatusEnum.cancelled}:
                 raise HTTPException(status_code=400, detail="Run is already finished")
@@ -258,8 +347,10 @@ class RunService:
         with SessionLocal() as db:
             run = self._get_run_or_404(run_id, db)
 
-            if user_id and run.user_id != user_id:
-                raise HTTPException(status_code=404, detail="Run not found")
+            # ── Ownership check — 403 not 404 ────────────────────────────────
+            # Previous version returned 404 on mismatch, which leaks existence.
+            if user_id is not None:
+                self._assert_owner(run, user_id)
 
             current = self._ensure_dict(run.meta_data)
             current.update(self._ensure_dict(new_metadata))
