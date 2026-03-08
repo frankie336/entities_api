@@ -114,7 +114,11 @@ class AssistantService:
             db.refresh(db_assistant)
             return self.map_to_read_model(db_assistant)
 
-    def retrieve_assistant(self, assistant_id: str) -> validator.AssistantRead:
+    def retrieve_assistant(
+        self,
+        assistant_id: str,
+        user_id: str,  # ← add this
+    ) -> validator.AssistantRead:
         with SessionLocal() as db:
             db_asst = (
                 db.query(Assistant)
@@ -123,6 +127,9 @@ class AssistantService:
             )
             if not db_asst:
                 raise HTTPException(status_code=404, detail="Assistant not found")
+
+            # ── Ownership check ─────────────────────────────────────────────
+            self._assert_owner(db_asst, user_id)
 
             return self.map_to_read_model(db_asst)
 

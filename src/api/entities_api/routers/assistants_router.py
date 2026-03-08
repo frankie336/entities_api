@@ -36,7 +36,7 @@ def create_assistant(
 
 
 @router.get("/assistants/{assistant_id}", response_model=ValidationInterface.AssistantRead)
-def get_assistant(
+def retrieve_assistant(
     assistant_id: str,
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
