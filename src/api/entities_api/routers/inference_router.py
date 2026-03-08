@@ -36,9 +36,26 @@ async def completions(
 
     # ------------------------------------------------------------------
     # OWNERSHIP GUARD
-    # Retrieve the run (trusted — created under auth) → get user_id
-    # Verify that user owns or is shared on the requested assistant.
-    # No header auth needed — the run is the trust anchor.
+    #
+    # The run is the trust anchor. It was created under auth, so its
+    # user_id is reliable. We verify that the thread and assistant IDs
+    # in the request are consistent with the run — this closes the
+    # mismatched-ID attack vector without requiring a second API key.
+    #
+    # ARCH NOTE: This endpoint requires two separate credentials:
+    #   - stream_request.api_key → Inference provider key (forwarded to LLM)
+    #   - Project David identity  → Derived from run.user_id (trust anchor)
+    #
+    # We cannot add get_api_key here without breaking the dual-key
+    # constraint: the client cannot simultaneously pass a Project David
+    # key in the header AND an inference provider key in the body through
+    # the current SDK flow. Identity is therefore established via the run.
+    #
+    # Chain of trust:
+    #   1. Run exists and was created under auth (run.user_id is trusted)
+    #   2. run.thread_id matches the request (no thread grafting)
+    #   3. run.assistant_id matches the request (no assistant grafting)
+    #   4. Caller has owner/shared access to the assistant
     # ------------------------------------------------------------------
     try:
         native = NativeExecutionService()
@@ -47,6 +64,21 @@ async def completions(
         if not run:
             raise HTTPException(status_code=404, detail="Run not found.")
 
+        # ── Guard 1: run.thread_id matches the request ───────────────
+        if run.thread_id != stream_request.thread_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Thread ID does not match the run.",
+            )
+
+        # ── Guard 2: run.assistant_id matches the request ────────────
+        if run.assistant_id != stream_request.assistant_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Assistant ID does not match the run.",
+            )
+
+        # ── Guard 3: caller has access to the assistant ──────────────
         await native.assert_assistant_access(
             assistant_id=stream_request.assistant_id,
             user_id=run.user_id,
