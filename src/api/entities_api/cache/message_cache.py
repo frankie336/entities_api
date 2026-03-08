@@ -4,7 +4,6 @@ import json
 import os
 from typing import Any, Dict, List, Union
 
-from projectdavid import Entity
 from redis import Redis as SyncRedis
 
 from src.api.entities_api.services.logging_service import LoggingUtility
@@ -22,22 +21,68 @@ REDIS_HISTORY_TTL = int(os.getenv("REDIS_HISTORY_TTL_SECONDS", "3600"))
 
 
 class MessageCache:
+    """
+    Redis-backed message history cache.
+
+    SDK Entity client removed — all cold-load paths now go directly through
+    MessageService (sync) or NativeExecutionService (async), eliminating the
+    internal HTTP round-trip and the user-identity mismatch that caused 403s
+    after ownership primitives were tightened.
+    """
+
     def __init__(self, redis: Union[SyncRedis, "AsyncRedis"]):
         self.redis = redis
-        self.client = Entity(
-            base_url=os.getenv("ASSISTANTS_BASE_URL"),
-            api_key=os.getenv("ADMIN_API_KEY"),
-        )
+        # No Entity / SDK client instantiated here.
+
+    # ------------------------------------------------------------------
+    # Lazy service accessors (avoids circular imports at module load time)
+    # ------------------------------------------------------------------
+
+    @property
+    def _message_svc(self):
+        """
+        Synchronous MessageService — used by the sync cold-load path.
+        Instantiated once and cached on the instance.
+        """
+        if not hasattr(self, "_message_svc_instance") or self._message_svc_instance is None:
+            from src.api.entities_api.services.message_service import \
+                MessageService
+
+            self._message_svc_instance = MessageService()
+        return self._message_svc_instance
+
+    @property
+    def _native_exec(self):
+        """
+        NativeExecutionService — used by the async cold-load path.
+        Instantiated once and cached on the instance.
+        """
+        if not hasattr(self, "_native_exec_instance") or self._native_exec_instance is None:
+            from src.api.entities_api.services.native_execution_service import \
+                NativeExecutionService
+
+            self._native_exec_instance = NativeExecutionService()
+        return self._native_exec_instance
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
 
     def _cache_key(self, thread_id: str) -> str:
         return f"thread:{thread_id}:history"
 
-    # ──────────────────────────────────────────────────────────
-    # Asynchronous Methods (Core)
-    # ──────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
+    # Asynchronous Methods
+    # ------------------------------------------------------------------
 
     async def get_history(self, thread_id: str) -> List[Dict]:
-        """Retrieves history from Redis, falling back to DB if empty."""
+        """
+        Retrieve history from Redis, falling back to DB on a cache miss.
+
+        Cold-load uses NativeExecutionService.get_formatted_messages which
+        calls MessageService → DB directly with no ownership check needed
+        (internal orchestration path).
+        """
         key = self._cache_key(thread_id)
 
         if isinstance(self.redis, AsyncRedis):
@@ -48,18 +93,25 @@ class MessageCache:
         if raw_list:
             return [json.loads(m) for m in raw_list]
 
-        LOG.debug(f"[CACHE] Miss for thread {thread_id}. Performing cold load.")
-        full_hist = await asyncio.to_thread(
-            self.client.messages.get_formatted_messages, thread_id, system_message=None
-        )
+        LOG.debug(f"[CACHE] Miss for thread {thread_id}. Performing async cold load.")
+
+        try:
+            full_hist = await self._native_exec.get_formatted_messages(thread_id)
+        except Exception as e:
+            LOG.warning(
+                "[CACHE] Async cold load failed for thread %s (%s). Returning empty history.",
+                thread_id,
+                e,
+            )
+            return []
 
         if full_hist:
             await self.set_history(thread_id, full_hist)
 
-        return full_hist
+        return full_hist or []
 
     async def set_history(self, thread_id: str, messages: List[Dict]):
-        """Overwrite/Initialize the cache for a thread."""
+        """Overwrite / initialise the cache for a thread."""
         key = self._cache_key(thread_id)
         serialized = [json.dumps(m) for m in messages[-200:]]
 
@@ -96,34 +148,44 @@ class MessageCache:
         else:
             await asyncio.to_thread(self.redis.delete, key)
 
-    # ──────────────────────────────────────────────────────────
-    # Synchronous Helpers (The Bridge)
-    # ──────────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
+    # Synchronous Methods (hot path for context building)
+    # ------------------------------------------------------------------
+
     def get_history_sync(self, thread_id: str) -> List[Dict]:
+        """
+        Retrieve history from Redis, falling back to DB on a cache miss.
+
+        This is the hot path called by ContextMixin._set_up_context_window.
+        Cold-load uses MessageService.get_formatted_messages directly —
+        no SDK client, no HTTP hop, no user-identity mismatch.
+        """
+        if not isinstance(self.redis, SyncRedis):
+            return []
+
         key = self._cache_key(thread_id)
-        if isinstance(self.redis, SyncRedis):
-            raw_list = self.redis.lrange(key, 0, -1)
-            if raw_list:
-                return [json.loads(m) for m in raw_list]
-            # Cache miss — attempt cold load, but never block the stream
-            try:
-                full_hist = self.client.messages.get_formatted_messages(
-                    thread_id, system_message=None
-                )
-                if full_hist:
-                    self.set_history_sync(thread_id, full_hist)
-                return full_hist or []
-            except Exception as e:
-                LOG.warning(
-                    "[CACHE-SYNC] Cold load failed for thread %s (%s). " "Returning empty history.",
-                    thread_id,
-                    e,
-                )
-                return []
-        return []
+        raw_list = self.redis.lrange(key, 0, -1)
+
+        if raw_list:
+            return [json.loads(m) for m in raw_list]
+
+        LOG.debug(f"[CACHE-SYNC] Miss for thread {thread_id}. Performing sync cold load.")
+
+        try:
+            full_hist = self._message_svc.get_formatted_messages(thread_id)
+            if full_hist:
+                self.set_history_sync(thread_id, full_hist)
+            return full_hist or []
+        except Exception as e:
+            LOG.warning(
+                "[CACHE-SYNC] Cold load failed for thread %s (%s). Returning empty history.",
+                thread_id,
+                e,
+            )
+            return []
 
     def set_history_sync(self, thread_id: str, messages: List[Dict]):
-        """Synchronous wrapper to initialize the cache."""
+        """Synchronous wrapper to initialise the cache."""
         if isinstance(self.redis, SyncRedis):
             key = self._cache_key(thread_id)
             serialized = [json.dumps(m) for m in messages[-200:]]
@@ -152,15 +214,13 @@ class MessageCache:
             asyncio.run(self.append_message(thread_id, message))
 
 
-# ──────────────────────────────────────────────────────────
-# Standalone Factory Function (OUTSIDE THE CLASS)
-# ──────────────────────────────────────────────────────────
-
-
+# ------------------------------------------------------------------
+# Standalone factory (imported by mixins and services)
+# ------------------------------------------------------------------
 def get_sync_message_cache() -> MessageCache:
     """
-    Standalone factory to create a synchronous MessageCache instance.
-    This is what your Mixins will import.
+    Create a synchronous MessageCache instance backed by a SyncRedis client.
+    This is what ContextMixin and ThreadService import.
     """
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     client = SyncRedis.from_url(redis_url, decode_responses=True)
