@@ -101,6 +101,7 @@ class NativeExecutionService:
     # ------------------------------------------------------------------
     # Assistant
     # ------------------------------------------------------------------
+
     async def create_assistant(
         self,
         user_id: str,
@@ -117,15 +118,13 @@ class NativeExecutionService:
         agent_mode: bool = False,
         decision_telemetry: bool = False,
         max_turns: int = 1,
-        temperature: Optional[float] = None,  # <-- Change int to float
-        top_p: Optional[float] = None,  # <-- Change int to float
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
         response_format: str = "text",
     ) -> Any:
         """
         Create an assistant record via AssistantService, bypassing the HTTP SDK.
         """
-
-        # 1. Build a dictionary of arguments, excluding top_p and temperature for now
         kwargs = {
             "name": name,
             "model": model,
@@ -143,15 +142,12 @@ class NativeExecutionService:
             "response_format": response_format,
         }
 
-        # 2. Only add them if they were actually provided, allowing Pydantic to use its defaults
         if temperature is not None:
             kwargs["temperature"] = temperature
         if top_p is not None:
             kwargs["top_p"] = top_p
 
-        # 3. Spread kwargs into your Pydantic model
         req = self.val_interface.AssistantCreate(**kwargs)
-
         return await asyncio.to_thread(self.assistant_svc.create_assistant, req, user_id)
 
     async def retrieve_assistant(self, assistant_id: str) -> Any:
@@ -195,10 +191,29 @@ class NativeExecutionService:
     # ------------------------------------------------------------------
 
     async def get_vector_store(self, vector_store_id: str) -> Any:
+        """
+        Fetch a vector store by ID for internal use.
+
+        Returns None if the store does not exist OR has been soft-deleted.
+        Callers should treat a None return as "store unavailable" and surface
+        an appropriate error — never proceed to query a deleted collection in
+        Qdrant, as the underlying data may have been purged.
+        """
+
         def _fetch():
             with SessionLocal() as db:
                 svc = VectorStoreDBService(db)
-                return svc.get_vector_store_by_id(vector_store_id)
+                store = svc.get_vector_store_by_id(vector_store_id)
+                # Treat soft-deleted stores as non-existent for all internal
+                # callers — querying a deleted collection produces undefined
+                # results and may surface data the user believed was removed.
+                if store and store.status == StatusEnum.deleted:
+                    LOG.warning(
+                        "NativeExec ▸ get_vector_store: store '%s' is soft-deleted, returning None.",
+                        vector_store_id,
+                    )
+                    return None
+                return store
 
         return await asyncio.to_thread(_fetch)
 
@@ -311,10 +326,14 @@ class NativeExecutionService:
 
         return await asyncio.to_thread(_create)
 
-    async def retrieve_run(self, run_id: str):
+    async def retrieve_run(self, run_id: str) -> Any:
+        """
+        Internal run lookup — user_id intentionally omitted.
+        Ownership is enforced at the HTTP boundary (runs router).
+        Internal orchestration callers poll any run regardless of ownership.
+        """
         return await asyncio.to_thread(self.run_svc.retrieve_run, run_id)
 
-    # Fixed
     async def create_thread(self, user_id: str) -> Any:
         import types
 
@@ -340,7 +359,6 @@ class NativeExecutionService:
         )
         return await asyncio.to_thread(self.message_svc.create_message, req)
 
-    # Fixed
     async def delete_thread(self, thread_id: str, user_id: str) -> Any:
         return await asyncio.to_thread(self.thread_svc.delete_thread, thread_id, user_id)
 
@@ -407,6 +425,7 @@ class NativeExecutionService:
     async def update_run_status(self, run_id: str, new_status: str) -> Any:
         """
         Update a run's status via the local RunService, bypassing the HTTP SDK.
+        Ownership is NOT checked — this is an internal lifecycle write.
         """
         return await asyncio.to_thread(self.run_svc.update_run_status, run_id, new_status)
 
@@ -419,6 +438,10 @@ class NativeExecutionService:
         supports, e.g.:
             current_turn, started_at, completed_at, failed_at,
             last_error, incomplete_details
+
+        user_id intentionally omitted — internal orchestration callers write
+        lifecycle fields on behalf of the run engine without re-checking ownership.
+        Ownership is enforced once at the HTTP boundary when the run is created.
 
         Used exclusively by OrchestratorCore.process_conversation for
         turn-by-turn lifecycle stamping. Non-fatal callers should wrap
