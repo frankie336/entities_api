@@ -11,7 +11,7 @@ class OllamaDefaultWorker(OllamaDefaultBaseWorker):
 
     Unlike cloud-backed workers (e.g. TogetherDs1, HyperbolicNemotron), this
     worker does NOT use the unified async client. Streaming is handled natively
-    by OllamaNativeStreamMixin via a direct httpx POST to /api/chat, which gives
+    by OllamaNativeStream via a direct httpx POST to /api/chat, which gives
     us access to the `thinking` field that the OpenAI-compat /v1 endpoint drops.
 
     _get_client_instance and _execute_stream_request satisfy the architectural
@@ -29,7 +29,7 @@ class OllamaDefaultWorker(OllamaDefaultBaseWorker):
     async def _execute_stream_request(self, client, payload: dict):
         """
         Not used in the native Ollama path.
-        Streaming is handled by OllamaNativeStreamMixin._stream_ollama_raw().
+        Streaming is handled by OllamaNativeStream._stream_ollama_raw().
         OLLAMA_BASE_URL is read from the environment (default: http://localhost:11434).
         """
         raise NotImplementedError(

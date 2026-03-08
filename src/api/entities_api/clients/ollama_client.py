@@ -1,4 +1,4 @@
-# src/api/entities_api/clients/stream_ollama_native.py
+# src/api/entities_api/clients/ollama_client.py
 from __future__ import annotations
 
 import asyncio
@@ -62,7 +62,7 @@ async def stream_ollama_raw(
                     return
 
 
-class OllamaNativeStreamMixin:
+class OllamaNativeStream:
     OLLAMA_BASE_URL: str = OLLAMA_BASE_URL
 
     async def _stream_ollama_raw(

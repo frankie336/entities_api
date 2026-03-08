@@ -10,3 +10,6 @@ docker compose exec api alembic revision --autogenerate -m "add owner_id to Thre
 
 
 docker compose exec api alembic revision --autogenerate -m "Remove assistant ---> vector_store relationship"
+
+
+docker compose exec api alembic revision --autogenerate -m "Remove thread ---> vector_store relationship"

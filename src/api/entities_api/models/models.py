@@ -35,14 +35,6 @@ user_assistants = Table(
 )
 
 
-thread_vector_stores = Table(
-    "thread_vector_stores",
-    Base.metadata,
-    Column("thread_id", String(64), ForeignKey("threads.id"), primary_key=True),
-    Column("vector_store_id", String(64), ForeignKey("vector_stores.id"), primary_key=True),
-)
-
-
 # --- Enums & Context ---
 
 
@@ -661,12 +653,6 @@ class VectorStore(Base):
     config = Column(JSON, nullable=True)
     file_count = Column(Integer, default=0, nullable=False)
     user = relationship("User", back_populates="vector_stores", lazy="select")
-
-    threads = relationship(
-        "Thread",
-        secondary=thread_vector_stores,
-        lazy="select",
-    )
 
     files = relationship(
         "VectorStoreFile",

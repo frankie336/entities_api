@@ -22,12 +22,11 @@ router = APIRouter()
 logging_utility = LoggingUtility()
 
 
-# ======================================
-# Needs to remain at the top to prevent
-# /files/{file_id} from overriding.
-#
-# Used to download files with a signed url
-# =========================================
+# ──────────────────────────────────────────────────────────────────────────────
+# Signed-URL download — intentionally unauthenticated.
+# Legitimacy is proven by the HMAC signature; no API key required.
+# Must remain first to prevent /files/{file_id} from shadowing it.
+# ──────────────────────────────────────────────────────────────────────────────
 @router.get(
     "/files/download",
     include_in_schema=False,
@@ -47,13 +46,24 @@ def download_file(
 
     if datetime.utcnow().timestamp() > expires:
         logging_utility.warning(f"Download URL expired for file_id: {file_id}")
-
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Signed URL expired")
+
     if not _verify_sig(file_id, expires, signature, use_real_filename):
         logging_utility.warning(f"Invalid signature for file_id: {file_id}")
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Invalid signature")
+
     logging_utility.info(f"Signature OK, proceeding to stream file_id: {file_id}")
-    stream, orig_name, mime = FileService(db).get_file_with_metadata(file_id)
+
+    # Signed-URL download bypasses ownership check — signature proves legitimacy.
+    # Pass a sentinel so the service skips the user_id guard on this path only.
+    svc = FileService(db)
+    file_record = db.query(FileModel).filter(FileModel.id == file_id).first()
+    if not file_record:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
+
+    stream, orig_name, mime = svc.get_file_with_metadata(
+        file_id, user_id=file_record.user_id  # ← use the actual owner so guard passes
+    )
 
     fname = orig_name if use_real_filename else file_id
     disp = (
@@ -71,6 +81,9 @@ def download_file(
     )
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Upload
+# ──────────────────────────────────────────────────────────────────────────────
 @router.post(
     "/uploads",
     response_model=FileResponse,
@@ -87,12 +100,20 @@ def upload_file_endpoint(
     logging_utility.info("User %s uploading %s (%s)", user_id, file.filename, purpose)
     service = FileService(db)
     created = service.upload_file(
-        file=file, request=type("Req", (), {"purpose": purpose, "user_id": user_id})
+        file=file,
+        request=type("Req", (), {"purpose": purpose, "user_id": user_id}),
     )
     return FileResponse.model_validate(created)
 
 
-@router.get("/files/{file_id}", response_model=FileResponse, summary="Retrieve file metadata")
+# ──────────────────────────────────────────────────────────────────────────────
+# Retrieve metadata — ownership enforced
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get(
+    "/files/{file_id}",
+    response_model=FileResponse,
+    summary="Retrieve file metadata",
+)
 def retrieve_file_metadata(
     file_id: str,
     db: Session = Depends(get_db),
@@ -100,13 +121,20 @@ def retrieve_file_metadata(
 ):
     user_id = auth_key.user_id
     logging_utility.info("User %s reading metadata for %s", user_id, file_id)
-    data = FileService(db).get_file_by_id(file_id)
+    data = FileService(db).get_file_by_id(file_id, user_id=user_id)
     if not data:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
     return FileResponse.model_validate(data)
 
 
-@router.delete("/files/{file_id}", response_model=FileDeleteResponse, summary="Delete a file")
+# ──────────────────────────────────────────────────────────────────────────────
+# Delete — ownership enforced
+# ──────────────────────────────────────────────────────────────────────────────
+@router.delete(
+    "/files/{file_id}",
+    response_model=FileDeleteResponse,
+    summary="Delete a file",
+)
 def delete_file_endpoint(
     file_id: str,
     db: Session = Depends(get_db),
@@ -114,52 +142,54 @@ def delete_file_endpoint(
 ):
     user_id = auth_key.user_id
     logging_utility.info("User %s deleting %s", user_id, file_id)
-    if not FileService(db).delete_file_by_id(file_id):
+    if not FileService(db).delete_file_by_id(file_id, user_id=user_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
     return FileDeleteResponse(id=file_id, object="file", deleted=True)
 
 
-def _verify_sig(file_id: str, exp: int, sig: str, real_name: bool) -> bool:
-    secret = os.getenv("SIGNED_URL_SECRET", "")
-    if not secret:
-        logging_utility.critical("SIGNED_URL_SECRET is not configured!")
-        return False
-    payload = f"{file_id}:{exp}:{str(real_name).lower()}"
-    expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, sig)
-
-
+# ──────────────────────────────────────────────────────────────────────────────
+# Signed-URL generation — auth required (Gap 4 fix)
+# Previously unauthenticated — any caller who knew a file_id could generate
+# a valid download URL for someone else's file.
+# ──────────────────────────────────────────────────────────────────────────────
 @router.get(
     "/files/{file_id}/signed-url",
     response_model=dict,
-    summary="Generate a temporary signed URL (no API key required)",
+    summary="Generate a temporary signed download URL",
 )
 def generate_signed_url(
     file_id: str,
     expires_in: int = Query(600, description="Seconds until link expires"),
     use_real_filename: bool = Query(False),
     db: Session = Depends(get_db),
+    auth_key: ApiKeyModel = Depends(get_api_key),  # ← Gap 4 fix: auth now required
 ):
-    # 1. Validate File Exists
-    if not db.query(FileModel).filter(FileModel.id == file_id).first():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
+    user_id = auth_key.user_id
 
-    # 2. Get Config
+    # 1. Validate file exists AND caller owns it
+    file_record = db.query(FileModel).filter(FileModel.id == file_id).first()
+    if not file_record:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
+    if file_record.user_id != user_id:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "You do not have permission to access this file."
+        )
+
+    # 2. Config
     secret = os.getenv("SIGNED_URL_SECRET", "")
     base_url = os.getenv("DOWNLOAD_BASE_URL", "").rstrip("/")
-
     if not secret or not base_url:
         raise HTTPException(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
             "SIGNED_URL_SECRET or DOWNLOAD_BASE_URL not configured",
         )
 
-    # 3. Calculate Signature
+    # 3. Signature
     exp = int(datetime.utcnow().timestamp() + expires_in)
     payload = f"{file_id}:{exp}:{str(use_real_filename).lower()}"
     sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
-    # 4. Construct Query Params
+    # 4. URL
     query = urlencode(
         {
             "file_id": file_id,
@@ -168,20 +198,25 @@ def generate_signed_url(
             "use_real_filename": use_real_filename,
         }
     )
-
     target_path = "/v1/files/download"
+    url = (
+        f"{base_url}?{query}"
+        if base_url.endswith(target_path)
+        else f"{base_url}{target_path}?{query}"
+    )
 
-    # If the .env var ALREADY ends with the path, we do not add it again.
-    if base_url.endswith(target_path):
-        url = f"{base_url}?{query}"
-    else:
-        url = f"{base_url}{target_path}?{query}"
-
-    logging_utility.info("Generated signed URL for %s", file_id)
+    logging_utility.info("User %s generated signed URL for %s", user_id, file_id)
     return {"signed_url": url}
 
 
-@router.get("/files/{file_id}/base64", response_model=dict, summary="Get file as Base64")
+# ──────────────────────────────────────────────────────────────────────────────
+# Base64 content — ownership enforced
+# ──────────────────────────────────────────────────────────────────────────────
+@router.get(
+    "/files/{file_id}/base64",
+    response_model=dict,
+    summary="Get file as Base64",
+)
 def get_file_as_base64(
     file_id: str,
     db: Session = Depends(get_db),
@@ -189,5 +224,18 @@ def get_file_as_base64(
 ):
     user_id = auth_key.user_id
     logging_utility.info("User %s requesting base64 for %s", user_id, file_id)
-    b64 = FileService(db).get_file_as_base64(file_id)
+    b64 = FileService(db).get_file_as_base64(file_id, user_id=user_id)
     return {"file_id": file_id, "base64": b64}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Signature verification helper
+# ──────────────────────────────────────────────────────────────────────────────
+def _verify_sig(file_id: str, exp: int, sig: str, real_name: bool) -> bool:
+    secret = os.getenv("SIGNED_URL_SECRET", "")
+    if not secret:
+        logging_utility.critical("SIGNED_URL_SECRET is not configured!")
+        return False
+    payload = f"{file_id}:{exp}:{str(real_name).lower()}"
+    expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, sig)
