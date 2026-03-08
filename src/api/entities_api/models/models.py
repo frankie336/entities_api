@@ -34,12 +34,6 @@ user_assistants = Table(
     Column("assistant_id", String(64), ForeignKey("assistants.id"), primary_key=True),
 )
 
-vector_store_assistants = Table(
-    "vector_store_assistants",
-    Base.metadata,
-    Column("vector_store_id", String(64), ForeignKey("vector_stores.id"), primary_key=True),
-    Column("assistant_id", String(64), ForeignKey("assistants.id"), primary_key=True),
-)
 
 thread_vector_stores = Table(
     "thread_vector_stores",
@@ -246,13 +240,6 @@ class Thread(Base):
         comment="Canonical creator/owner of this thread. Used for row-level access control.",
     )
     owner = relationship("User", foreign_keys=[owner_id], lazy="select")
-
-    vector_stores = relationship(
-        "VectorStore",
-        secondary=thread_vector_stores,
-        back_populates="threads",
-        lazy="select",
-    )
 
 
 class Message(Base):
@@ -678,7 +665,6 @@ class VectorStore(Base):
     threads = relationship(
         "Thread",
         secondary=thread_vector_stores,
-        back_populates="vector_stores",
         lazy="select",
     )
 
