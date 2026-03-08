@@ -52,7 +52,7 @@ SWEEPS = [
     },
     {
         "label": "File Isolation",
-        "module": "tests.integration.files_intrusion",
+        "module": "tests.integration.files_intrusion_test",
         "entry": "run_sweep",
     },
 ]
