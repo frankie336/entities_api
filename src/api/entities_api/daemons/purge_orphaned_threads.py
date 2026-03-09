@@ -3,52 +3,56 @@
 """
 purge_orphaned_threads.py
 ─────────────────────────
-GDPR housekeeping daemon — purges threads whose owner was erased.
+GDPR / housekeeping daemon — two complementary thread cleanup passes.
 
-After a user erasure, Thread.owner_id is SET NULL by the FK constraint.
-Those threads (and their messages) are inaccessible via ownership guards but
-persist in the DB indefinitely.  This daemon hard-deletes them once they are
-older than ORPHAN_THREAD_RETENTION_DAYS.
+Pass 1 — Orphaned threads  (GDPR)
+  Threads whose owner was erased: owner_id IS NULL.
+  Messages must be deleted manually (no FK cascade on Message.thread_id).
+  Retained for ORPHAN_THREAD_RETENTION_DAYS before deletion (default: 30).
+
+Pass 2 — Abandoned threads  (housekeeping)
+  Threads whose owner still exists but that were never used:
+    owner_id IS NOT NULL
+    AND no messages
+    AND no runs
+  Retained for ABANDONED_THREAD_RETENTION_DAYS before deletion (default: 7).
+  thread_participants rows cascade automatically (FK ondelete=CASCADE).
+  No messages to delete by definition.
 
 Key schema facts (from models.py)
 ──────────────────────────────────
   Thread.created_at  — Integer (Unix epoch seconds), NOT a DateTime column.
-  Message.thread_id  — plain String, intentionally has NO FK constraint.
-                       There is no DB-level cascade; messages must be deleted
-                       manually before (or alongside) their threads.
-  Thread.owner_id    — SET NULL on user deletion (FK: users.id).
+  Message.thread_id  — plain String, no FK constraint, no DB-level cascade.
+  Run.thread_id      — plain String, no FK constraint.
+  thread_participants.thread_id — FK with ondelete=CASCADE (auto-deleted).
 
-Deletion order (safest first)
-──────────────────────────────
-  1. DELETE messages WHERE thread_id IN (batch)
-  2. DELETE threads  WHERE id        IN (batch)
-
-What is never touched
-──────────────────────
-  Threads with owner_id IS NOT NULL (live / shared threads)
-  audit_logs  (compliance trail — never modified by this daemon)
+Deletion order
+──────────────
+  Orphaned  : DELETE messages → DELETE threads
+  Abandoned : DELETE threads only (participants cascade; no messages by definition)
 
 Environment variables  (same .env the API uses)
 ────────────────────────────────────────────────
-  DATABASE_URL                  — resolved automatically via database.py
-  ORPHAN_THREAD_RETENTION_DAYS  — days to retain orphaned threads (default: 30)
-  CHECK_INTERVAL_SECONDS        — daemon polling interval in seconds  (default: 3600)
-  PURGE_BATCH_SIZE              — rows per batch deletion             (default: 200)
-  DRY_RUN                       — "true" to log without deleting      (default: false)
+  DATABASE_URL                    — resolved automatically via database.py
+  ORPHAN_THREAD_RETENTION_DAYS    — orphan retention in days      (default: 30)
+  ABANDONED_THREAD_RETENTION_DAYS — abandoned retention in days   (default: 7)
+  CHECK_INTERVAL_SECONDS          — daemon polling interval        (default: 3600)
+  PURGE_BATCH_SIZE                — rows per batch deletion        (default: 200)
+  DRY_RUN                         — "true" to log without deleting (default: false)
 
 Usage
 ─────
-  # Safe dry-run
-  DRY_RUN=true python /app/src/api/entities_api/daemons/purge_orphaned_threads.py --once
+  # Safe dry-run (both passes)
+  DRY_RUN=true python .../purge_orphaned_threads.py --once --skip-wait
 
-  # One-shot (cron / CI)
-  python /app/src/api/entities_api/daemons/purge_orphaned_threads.py --once
+  # One-shot
+  python .../purge_orphaned_threads.py --once
 
-  # Daemon (background service / supervisord sidecar)
-  python /app/src/api/entities_api/daemons/purge_orphaned_threads.py
+  # Daemon (supervisord)
+  python .../purge_orphaned_threads.py
 
-Supervisord stanza (add to supervisord.conf)
-────────────────────────────────────────────
+Supervisord stanza
+──────────────────
   [program:purge_orphaned_threads]
   command=python /app/src/api/entities_api/daemons/purge_orphaned_threads.py
   directory=/app
@@ -78,7 +82,6 @@ from sqlalchemy import text
 load_dotenv()
 
 # ── Reuse the centralised engine / session factory ────────────────────────────
-# database.py handles running_in_docker() URL resolution automatically.
 from entities_api.db.database import SessionLocal, wait_for_databases
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -93,32 +96,61 @@ log = logging.getLogger("purge-orphaned-threads")
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-RETENTION_DAYS: int = int(os.getenv("ORPHAN_THREAD_RETENTION_DAYS", "30"))
+ORPHAN_RETENTION_DAYS: int = int(os.getenv("ORPHAN_THREAD_RETENTION_DAYS", "30"))
+ABANDONED_RETENTION_DAYS: int = int(os.getenv("ABANDONED_THREAD_RETENTION_DAYS", "7"))
 CHECK_INTERVAL: int = int(os.getenv("CHECK_INTERVAL_SECONDS", "3600"))
 BATCH_SIZE: int = int(os.getenv("PURGE_BATCH_SIZE", "200"))
 DRY_RUN: bool = os.getenv("DRY_RUN", "false").lower() == "true"
 
 
-# ── Core logic ────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _cutoff_epoch(retention_days: int) -> int:
+    return int((datetime.now(tz=timezone.utc) - timedelta(days=retention_days)).timestamp())
+
+
+def _batch_delete(session, batch_ids: list[str], label: str) -> tuple[int, int]:
+    """
+    Delete one batch of threads (and their messages if orphaned).
+
+    Returns (threads_deleted, messages_deleted).
+    """
+    id_params = {f"id_{i}": v for i, v in enumerate(batch_ids)}
+    in_clause = ", ".join(f":id_{i}" for i in range(len(batch_ids)))
+
+    msg_count = 0
+
+    if label == "orphaned":
+        # Message.thread_id has no FK cascade — must delete manually.
+        msg_result = session.execute(
+            text(f"DELETE FROM messages WHERE thread_id IN ({in_clause})"),
+            id_params,
+        )
+        msg_count = msg_result.rowcount
+
+    thr_result = session.execute(
+        text(f"DELETE FROM threads WHERE id IN ({in_clause})"),
+        id_params,
+    )
+    # thread_participants cascades automatically on thread deletion.
+
+    session.commit()
+    return thr_result.rowcount, msg_count
+
+
+# ── Pass 1: Orphaned threads (owner erased → owner_id IS NULL) ────────────────
 
 
 def purge_orphaned_threads(session) -> tuple[int, int]:
     """
-    Delete orphaned threads older than the retention window, plus their messages.
+    Delete threads with owner_id IS NULL older than ORPHAN_RETENTION_DAYS,
+    plus their messages (no FK cascade on Message.thread_id).
 
-    Thread.created_at is stored as Unix epoch seconds (Integer column), so the
-    cutoff is an integer, not a datetime.
-
-    Message.thread_id carries no FK constraint — there is no DB-level cascade.
-    Messages are deleted explicitly in the same transaction as their threads.
-
-    Returns (threads_attempted, threads_deleted).
+    Returns (threads_deleted, messages_deleted).
     """
-    cutoff_epoch: int = int(
-        (datetime.now(tz=timezone.utc) - timedelta(days=RETENTION_DAYS)).timestamp()
-    )
+    cutoff = _cutoff_epoch(ORPHAN_RETENTION_DAYS)
 
-    # ── Count qualifying threads ──────────────────────────────────────────────
     count_row = session.execute(
         text(
             """
@@ -128,99 +160,203 @@ def purge_orphaned_threads(session) -> tuple[int, int]:
               AND  created_at  < :cutoff
             """
         ),
-        {"cutoff": cutoff_epoch},
+        {"cutoff": cutoff},
     ).fetchone()
 
     total = count_row.cnt if count_row else 0
     log.info(
-        "Orphaned threads older than %d day(s): %d  (cutoff epoch=%d)",
-        RETENTION_DAYS,
+        "[orphaned] Threads with owner_id=NULL older than %d day(s): %d  (cutoff epoch=%d)",
+        ORPHAN_RETENTION_DAYS,
         total,
-        cutoff_epoch,
+        cutoff,
     )
 
     if total == 0:
-        log.info("Nothing to purge — exiting cleanly.")
+        log.info("[orphaned] Nothing to purge.")
         return 0, 0
 
     if DRY_RUN:
-        log.info("[DRY_RUN] Would delete %d thread(s) and their messages.", total)
-        return total, total
+        log.info("[orphaned][DRY_RUN] Would delete %d thread(s) and their messages.", total)
+        return total, 0
 
-    # ── Batch deletion loop ───────────────────────────────────────────────────
-    threads_deleted = 0
-    messages_deleted = 0
+    threads_deleted = messages_deleted = 0
 
     while True:
-        # Fetch next batch of orphaned thread IDs
         rows = session.execute(
             text(
                 """
-                SELECT id
-                FROM   threads
+                SELECT id FROM threads
                 WHERE  owner_id   IS NULL
                   AND  created_at  < :cutoff
                 LIMIT  :batch_size
                 """
             ),
-            {"cutoff": cutoff_epoch, "batch_size": BATCH_SIZE},
+            {"cutoff": cutoff, "batch_size": BATCH_SIZE},
         ).fetchall()
 
         if not rows:
             break
 
         batch_ids = [r.id for r in rows]
+        try:
+            t, m = _batch_delete(session, batch_ids, "orphaned")
+        except Exception as exc:
+            session.rollback()
+            log.error("[orphaned] Batch failed — rolled back | %s", exc, exc_info=True)
+            raise
 
-        # SQLAlchemy text() doesn't support list binding natively — use named
-        # params :id_0, :id_1, … to build a safe IN-list.
+        threads_deleted += t
+        messages_deleted += m
+        log.info(
+            "[orphaned] Batch: threads=%d  messages=%d  (running: %d / %d)",
+            t,
+            m,
+            threads_deleted,
+            messages_deleted,
+        )
+
+        if len(batch_ids) < BATCH_SIZE:
+            break
+        time.sleep(0.05)
+
+    log.info(
+        "[orphaned] Complete — threads: %d  messages: %d",
+        threads_deleted,
+        messages_deleted,
+    )
+    return threads_deleted, messages_deleted
+
+
+# ── Pass 2: Abandoned threads (owner exists, never used) ─────────────────────
+
+
+def purge_abandoned_threads(session) -> int:
+    """
+    Delete threads that have a live owner but were never used:
+      - owner_id IS NOT NULL
+      - no rows in messages for this thread_id
+      - no rows in runs    for this thread_id
+      - created_at older than ABANDONED_RETENTION_DAYS
+
+    thread_participants rows cascade automatically (FK ondelete=CASCADE).
+    There are no messages to delete by definition.
+
+    Returns threads_deleted.
+    """
+    cutoff = _cutoff_epoch(ABANDONED_RETENTION_DAYS)
+
+    count_row = session.execute(
+        text(
+            """
+            SELECT COUNT(*) AS cnt
+            FROM   threads t
+            WHERE  t.owner_id   IS NOT NULL
+              AND  t.created_at  < :cutoff
+              AND  NOT EXISTS (
+                       SELECT 1 FROM messages m WHERE m.thread_id = t.id
+                   )
+              AND  NOT EXISTS (
+                       SELECT 1 FROM runs r WHERE r.thread_id = t.id
+                   )
+            """
+        ),
+        {"cutoff": cutoff},
+    ).fetchone()
+
+    total = count_row.cnt if count_row else 0
+    log.info(
+        "[abandoned] Threads with no messages/runs older than %d day(s): %d  (cutoff epoch=%d)",
+        ABANDONED_RETENTION_DAYS,
+        total,
+        cutoff,
+    )
+
+    if total == 0:
+        log.info("[abandoned] Nothing to purge.")
+        return 0
+
+    if DRY_RUN:
+        log.info("[abandoned][DRY_RUN] Would delete %d abandoned thread(s).", total)
+        return total
+
+    threads_deleted = 0
+
+    while True:
+        rows = session.execute(
+            text(
+                """
+                SELECT t.id
+                FROM   threads t
+                WHERE  t.owner_id   IS NOT NULL
+                  AND  t.created_at  < :cutoff
+                  AND  NOT EXISTS (
+                           SELECT 1 FROM messages m WHERE m.thread_id = t.id
+                       )
+                  AND  NOT EXISTS (
+                           SELECT 1 FROM runs r WHERE r.thread_id = t.id
+                       )
+                LIMIT  :batch_size
+                """
+            ),
+            {"cutoff": cutoff, "batch_size": BATCH_SIZE},
+        ).fetchall()
+
+        if not rows:
+            break
+
+        batch_ids = [r.id for r in rows]
         id_params = {f"id_{i}": v for i, v in enumerate(batch_ids)}
         in_clause = ", ".join(f":id_{i}" for i in range(len(batch_ids)))
 
         try:
-            # Step 1: delete messages (no FK cascade on Message.thread_id)
-            msg_result = session.execute(
-                text(f"DELETE FROM messages WHERE thread_id IN ({in_clause})"),
-                id_params,
-            )
-
-            # Step 2: delete the thread rows themselves
-            thr_result = session.execute(
+            result = session.execute(
                 text(f"DELETE FROM threads WHERE id IN ({in_clause})"),
                 id_params,
             )
-
+            # thread_participants cascade automatically — no manual step needed.
             session.commit()
-
-            msgs_in_batch = msg_result.rowcount
-            threads_in_batch = thr_result.rowcount
-
-            threads_deleted += threads_in_batch
-            messages_deleted += msgs_in_batch
-
-            log.info(
-                "Batch: threads=%d  messages=%d  (running totals: %d / %d)",
-                threads_in_batch,
-                msgs_in_batch,
-                threads_deleted,
-                messages_deleted,
-            )
-
         except Exception as exc:
             session.rollback()
-            log.error("Batch failed — rolled back | %s", exc, exc_info=True)
+            log.error("[abandoned] Batch failed — rolled back | %s", exc, exc_info=True)
             raise
 
+        t = result.rowcount
+        threads_deleted += t
+        log.info(
+            "[abandoned] Batch: threads=%d  (running total: %d)",
+            t,
+            threads_deleted,
+        )
+
         if len(batch_ids) < BATCH_SIZE:
-            break  # Final partial batch — nothing more to do
+            break
+        time.sleep(0.05)
 
-        time.sleep(0.05)  # Brief pause to avoid saturating the DB under load
+    log.info("[abandoned] Complete — threads deleted: %d", threads_deleted)
+    return threads_deleted
 
-    log.info(
-        "Purge complete — threads deleted: %d  messages deleted: %d",
-        threads_deleted,
-        messages_deleted,
-    )
-    return threads_deleted, threads_deleted
+
+# ── Combined cycle ────────────────────────────────────────────────────────────
+
+
+def run_cycle() -> None:
+    """Run both passes inside a single DB session lifecycle."""
+    db = SessionLocal()
+    try:
+        log.info("── Pass 1: orphaned threads ──────────────────────────────")
+        orphan_t, orphan_m = purge_orphaned_threads(db)
+
+        log.info("── Pass 2: abandoned threads ─────────────────────────────")
+        abandoned_t = purge_abandoned_threads(db)
+
+        log.info(
+            "Cycle summary — orphaned: %d threads / %d messages  |  abandoned: %d threads",
+            orphan_t,
+            orphan_m,
+            abandoned_t,
+        )
+    finally:
+        db.close()
 
 
 # ── Entry points ──────────────────────────────────────────────────────────────
@@ -228,34 +364,28 @@ def purge_orphaned_threads(session) -> tuple[int, int]:
 
 def run_once() -> None:
     log.info(
-        "=== One-shot orphaned-thread purge | retention=%dd | DRY_RUN=%s ===",
-        RETENTION_DAYS,
+        "=== One-shot thread purge"
+        " | orphan_retention=%dd | abandoned_retention=%dd | DRY_RUN=%s ===",
+        ORPHAN_RETENTION_DAYS,
+        ABANDONED_RETENTION_DAYS,
         DRY_RUN,
     )
-    db = SessionLocal()
-    try:
-        attempted, deleted = purge_orphaned_threads(db)
-    finally:
-        db.close()
-    log.info("Done. %d/%d thread(s) purged.", deleted, attempted)
+    run_cycle()
+    log.info("=== Done ===")
 
 
 def run_daemon() -> None:
     log.info(
-        "=== Orphaned-thread purge daemon started"
-        " | interval=%ds | retention=%dd | DRY_RUN=%s ===",
+        "=== Thread purge daemon started"
+        " | interval=%ds | orphan_retention=%dd | abandoned_retention=%dd | DRY_RUN=%s ===",
         CHECK_INTERVAL,
-        RETENTION_DAYS,
+        ORPHAN_RETENTION_DAYS,
+        ABANDONED_RETENTION_DAYS,
         DRY_RUN,
     )
     while True:
         try:
-            db = SessionLocal()
-            try:
-                attempted, deleted = purge_orphaned_threads(db)
-            finally:
-                db.close()
-            log.info("Cycle complete. %d/%d thread(s) purged.", deleted, attempted)
+            run_cycle()
         except Exception as exc:
             log.error("Unexpected error during purge cycle: %s", exc, exc_info=True)
         log.info("Sleeping %d seconds until next cycle…", CHECK_INTERVAL)
@@ -265,7 +395,7 @@ def run_daemon() -> None:
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Orphaned thread cleanup daemon")
+    parser = argparse.ArgumentParser(description="Orphaned + abandoned thread cleanup daemon")
     parser.add_argument(
         "--once",
         action="store_true",
