@@ -18,22 +18,17 @@ logging_utility = LoggingUtility()
 @router.post("", response_model=validation.UserRead, status_code=status.HTTP_201_CREATED)
 def create_user(
     user_data: validation.UserCreate,
-    db: Session = Depends(get_db),  # Session is kept here for the admin check.
+    db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    """
-    Creates a new user. Requires **Admin** authentication via API Key.
-    """
+    """Creates a new user. Requires Admin authentication via API Key."""
     logging_utility.info(f"User '{auth_key.user_id}' requesting to create a new user.")
-    # Direct DB access for authorization check remains.
     requesting_admin = db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
     if not requesting_admin or not requesting_admin.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required to create users.",
         )
-
-    # --- FIX APPLIED HERE ---
     user_service = UserService()
     try:
         new_user = user_service.create_user(user_data)
@@ -41,9 +36,9 @@ def create_user(
             f"User '{new_user.email}' (ID: {new_user.id}) created successfully by admin {requesting_admin.id}."
         )
         return new_user
-    except HTTPException as e:
-        raise e
-    except Exception as e:
+    except HTTPException:
+        raise
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred while creating the user.",
@@ -53,12 +48,10 @@ def create_user(
 @router.get("/{user_id}", response_model=validation.UserRead)
 def get_user(
     user_id: str,
-    db: Session = Depends(get_db),  # Session is kept here for the auth check.
+    db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    """
-    Retrieves details for a specific user.
-    """
+    """Retrieves details for a specific user."""
     logging_utility.info(f"User '{auth_key.user_id}' requesting details for user ID: {user_id}")
     requesting_user = db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
     if not requesting_user:
@@ -71,15 +64,12 @@ def get_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Insufficient permissions to access this user's details.",
         )
-
-    # --- FIX APPLIED HERE ---
     user_service = UserService()
     try:
-        user = user_service.get_user(user_id)
-        return user
-    except HTTPException as e:
-        raise e
-    except Exception as e:
+        return user_service.get_user(user_id)
+    except HTTPException:
+        raise
+    except Exception:
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
@@ -87,12 +77,10 @@ def get_user(
 def update_user(
     user_id: str,
     user_update: UserUpdate,
-    db: Session = Depends(get_db),  # Session is kept here for the auth check.
+    db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    """
-    Updates details for a specific user.
-    """
+    """Updates details for a specific user."""
     logging_utility.info(f"User '{auth_key.user_id}' requesting to update user ID: {user_id}")
     requesting_user = db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
     if not requesting_user:
@@ -110,28 +98,29 @@ def update_user(
     update_data = user_update.model_dump(exclude_unset=True)
     if not is_admin_request and "is_admin" in update_data:
         del update_data["is_admin"]
-
-    # --- FIX APPLIED HERE ---
     user_service = UserService()
     try:
-        updated_user = user_service.update_user(user_id, UserUpdate(**update_data))
-        return updated_user
-    except HTTPException as e:
-        raise e
-    except Exception as e:
+        return user_service.update_user(user_id, UserUpdate(**update_data))
+    except HTTPException:
+        raise
+    except Exception:
         raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
     user_id: str,
-    db: Session = Depends(get_db),  # Session is kept here for the admin check.
+    db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     """
-    Deletes a specific user. Requires **Admin** authentication.
+    GDPR right-to-erasure.  Permanently deletes a user and all of their data,
+    including physical files from Samba and Qdrant vector store collections.
+    Requires Admin authentication.
     """
-    logging_utility.info(f"User '{auth_key.user_id}' requesting to delete user ID: {user_id}")
+    logging_utility.info(
+        f"User '{auth_key.user_id}' requesting GDPR erasure for user ID: {user_id}"
+    )
     requesting_admin = db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
     if not requesting_admin or not requesting_admin.is_admin:
         raise HTTPException(
@@ -143,16 +132,20 @@ def delete_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin self-deletion via API is disallowed.",
         )
-
-    # --- FIX APPLIED HERE ---
     user_service = UserService()
     try:
-        user_service.delete_user(user_id)
+        # erase_user() handles physical assets + messages + audit log
+        # before delegating to DB cascades for the rest.
+        user_service.erase_user(user_id)
         return None
-    except HTTPException as e:
-        raise e
-    except Exception as e:
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logging_utility.error(
+            f"Unexpected error during GDPR erasure of user {user_id}: {exc}",
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred.",
+            detail="An unexpected error occurred during user erasure.",
         )

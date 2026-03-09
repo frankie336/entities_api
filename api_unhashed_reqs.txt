@@ -14,7 +14,7 @@ websockets==15.0.1
 transformers>=4.33.0,<5.0.0
 # ------------------------------------------------------------------ #
 # Internal packages
-projectdavid[embeddings]==1.74.10
+projectdavid[embeddings]==1.74.11
 
 # web search tools
 

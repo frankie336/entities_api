@@ -1,32 +1,251 @@
+import os
 from datetime import datetime
 from typing import List, Optional
 
 from fastapi import HTTPException, status
+from projectdavid.clients.vector_store_manager import VectorStoreManager
 from projectdavid_common import UtilsInterface, ValidationInterface
 from sqlalchemy import orm
 from sqlalchemy.orm import Session
 
-# --- FIX: Step 1 ---
-# Import the SessionLocal factory.
 from src.api.entities_api.db.database import SessionLocal
-from src.api.entities_api.models.models import User
+from src.api.entities_api.models.models import (Assistant, AuditLog, File,
+                                                FileStorage, Message, Thread,
+                                                User, VectorStore)
+from src.api.entities_api.services.logging_service import LoggingUtility
+from src.api.entities_api.utils.samba_client import SambaClient
+
+logging_utility = LoggingUtility()
 
 
 class UserService:
 
-    # --- FIX: Step 2 ---
-    # The constructor no longer accepts or stores a database session.
     def __init__(self):
         pass
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # GDPR — Right to Erasure
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def erase_user(self, user_id: str) -> None:
+        """
+        GDPR right-to-erasure.  Permanently and completely removes a user and
+        all of their data, including physical assets that DB cascades cannot
+        reach.
+
+        Deletion order
+        ──────────────
+        1.  Physical files from Samba       (must precede DB row deletion)
+        2.  Qdrant vector store collections (must precede DB row deletion)
+        3.  Messages in user's threads      (no FK — must be explicit)
+        4.  Soft-delete exclusively-owned assistants
+        5.  Write immutable AuditLog entry  (survives with user_id = NULL)
+        6.  db.delete(user) + commit        (DB cascades clean up the rest)
+
+        After step 6 the following are removed by cascade:
+            api_keys, runs → actions, files → file_storage,
+            vector_stores → vector_store_files,
+            sandboxes, batfish_snapshots,
+            thread_participants rows, user_assistants rows
+
+        And the following are nullified by SET NULL:
+            threads.owner_id, assistants.owner_id, audit_logs.user_id
+        """
+        with SessionLocal() as db:
+            db_user = db.query(User).filter(User.id == user_id).first()
+            if not db_user:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="User not found",
+                )
+
+            # ── 1. Physical file deletion from Samba ─────────────────────────
+            self._erase_physical_files(db, user_id)
+
+            # ── 2. Qdrant collection deletion ────────────────────────────────
+            self._erase_vector_store_collections(db, user_id)
+
+            # ── 3. Delete messages in user's threads ─────────────────────────
+            # messages.thread_id has no FK — orphans must be cleaned explicitly.
+            self._erase_messages_for_user_threads(db, user_id)
+
+            # ── 4. Soft-delete exclusively-owned assistants ──────────────────
+            self._soft_delete_exclusive_assistants(db, user_id)
+
+            # ── 5. Write immutable audit log entry ───────────────────────────
+            # Written before the user row is deleted so the DB session is still
+            # valid. user_id will be SET NULL by cascade when user row is gone.
+            self._write_erasure_audit_log(db, user_id)
+
+            # ── 6. Delete the user row — cascades handle the rest ────────────
+            db.delete(db_user)
+            db.commit()
+
+            logging_utility.info("GDPR erasure complete for user_id=%s", user_id)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Erasure helpers (private)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _erase_physical_files(self, db: Session, user_id: str) -> None:
+        """
+        Delete every physical file from Samba for all files owned by user_id.
+        Errors are logged but do not abort the erasure — a missing physical
+        file should never block a legal deletion request.
+        """
+        samba = SambaClient(
+            os.getenv("SMBCLIENT_SERVER"),
+            os.getenv("SMBCLIENT_SHARE"),
+            os.getenv("SMBCLIENT_USERNAME"),
+            os.getenv("SMBCLIENT_PASSWORD"),
+        )
+
+        storage_rows = (
+            db.query(FileStorage)
+            .join(File, File.id == FileStorage.file_id)
+            .filter(File.user_id == user_id)
+            .all()
+        )
+
+        for row in storage_rows:
+            if row.storage_system == "samba":
+                try:
+                    samba.delete_file(row.storage_path)
+                    logging_utility.info(
+                        "Erased physical file: %s (file_id=%s)",
+                        row.storage_path,
+                        row.file_id,
+                    )
+                except Exception as exc:
+                    logging_utility.error(
+                        "Failed to delete physical file %s during erasure of user %s: %s",
+                        row.storage_path,
+                        user_id,
+                        exc,
+                    )
+
+    def _erase_vector_store_collections(self, db: Session, user_id: str) -> None:
+        """
+        Delete every Qdrant collection owned by user_id.
+        Errors are logged but do not abort the erasure.
+        """
+        qdrant_host = os.getenv("VECTOR_STORE_HOST", "qdrant")
+        vector_manager = VectorStoreManager(vector_store_host=qdrant_host)
+
+        stores = db.query(VectorStore).filter(VectorStore.user_id == user_id).all()
+
+        for store in stores:
+            try:
+                vector_manager.delete_store(store.collection_name)
+                logging_utility.info(
+                    "Erased Qdrant collection: %s (store_id=%s)",
+                    store.collection_name,
+                    store.id,
+                )
+            except Exception as exc:
+                logging_utility.error(
+                    "Failed to delete Qdrant collection %s during erasure of user %s: %s",
+                    store.collection_name,
+                    user_id,
+                    exc,
+                )
+
+    def _erase_messages_for_user_threads(self, db: Session, user_id: str) -> None:
+        """
+        Delete all messages in threads owned by user_id.
+
+        messages.thread_id is a plain string with no FK constraint — there is
+        no cascade that reaches it.  We must delete explicitly before the
+        thread rows are removed (which happens via SET NULL on owner_id, not
+        hard delete — but we still want the content gone for erasure).
+        """
+        owned_thread_ids = db.query(Thread.id).filter(Thread.owner_id == user_id).all()
+        thread_id_list = [row.id for row in owned_thread_ids]
+
+        if not thread_id_list:
+            return
+
+        deleted = (
+            db.query(Message)
+            .filter(Message.thread_id.in_(thread_id_list))
+            .delete(synchronize_session=False)
+        )
+        db.flush()
+        logging_utility.info(
+            "Erased %d message(s) across %d thread(s) for user_id=%s",
+            deleted,
+            len(thread_id_list),
+            user_id,
+        )
+
+    def _soft_delete_exclusive_assistants(self, db: Session, user_id: str) -> None:
+        """
+        Soft-delete any assistant where user_id is the canonical owner AND
+        no other users are associated via user_assistants.
+
+        Assistants shared with other users are left intact — their owner_id
+        will be SET NULL by the cascade when the user row is deleted.
+        """
+        now = int(datetime.utcnow().timestamp())
+
+        owned_assistants = (
+            db.query(Assistant)
+            .filter(
+                Assistant.owner_id == user_id,
+                Assistant.deleted_at.is_(None),
+            )
+            .all()
+        )
+
+        for asst in owned_assistants:
+            # Count other users associated with this assistant
+            other_users = [u for u in asst.users if u.id != user_id]
+            if not other_users:
+                asst.deleted_at = now
+                logging_utility.info(
+                    "Soft-deleted exclusively-owned assistant %s for user_id=%s",
+                    asst.id,
+                    user_id,
+                )
+            else:
+                logging_utility.info(
+                    "Skipped soft-delete of shared assistant %s (has %d other user(s))",
+                    asst.id,
+                    len(other_users),
+                )
+
+        db.flush()
+
+    def _write_erasure_audit_log(self, db: Session, user_id: str) -> None:
+        """
+        Write an immutable compliance record of the erasure.
+
+        The AuditLog row is written while the user still exists.
+        After db.delete(user), the user_id FK is SET NULL by cascade —
+        the record survives anonymised as the legal proof of erasure.
+        """
+        log_entry = AuditLog(
+            user_id=user_id,
+            action="ERASE",
+            entity_type="User",
+            entity_id=user_id,
+            timestamp=datetime.utcnow(),
+            details={
+                "reason": "GDPR right-to-erasure request",
+                "erased_at": datetime.utcnow().isoformat(),
+            },
+        )
+        db.add(log_entry)
+        db.flush()
+        logging_utility.info("Audit log entry written for erasure of user_id=%s", user_id)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Standard CRUD (unchanged)
+    # ─────────────────────────────────────────────────────────────────────────
 
     def create_user(
         self, user_create: ValidationInterface.UserCreate
     ) -> ValidationInterface.UserRead:
-        """
-        Creates a new user directly from provided details.
-        """
-        # --- FIX: Step 3 ---
-        # Each method now creates and manages its own session.
         with SessionLocal() as db:
             if user_create.email:
                 existing_user = db.query(User).filter(User.email == user_create.email).first()
@@ -62,10 +281,6 @@ class UserService:
         family_name: Optional[str],
         picture_url: Optional[str],
     ) -> ValidationInterface.UserRead:
-        """
-        Finds a user by OAuth provider and ID, or optionally by verified email.
-        If found, updates profile info. If not found, creates a new user.
-        """
         with SessionLocal() as db:
             user = (
                 db.query(User)
@@ -126,7 +341,6 @@ class UserService:
             return ValidationInterface.UserRead.model_validate(user)
 
     def get_user(self, user_id: str) -> ValidationInterface.UserRead:
-        """Gets a user by their internal ID."""
         with SessionLocal() as db:
             user = db.query(User).filter(User.id == user_id).first()
             if not user:
@@ -134,7 +348,6 @@ class UserService:
             return ValidationInterface.UserRead.model_validate(user)
 
     def get_user_by_email(self, email: str) -> Optional[ValidationInterface.UserRead]:
-        """Gets a user by their email address."""
         with SessionLocal() as db:
             user = db.query(User).filter(User.email == email).first()
             if not user:
@@ -142,15 +355,13 @@ class UserService:
             return ValidationInterface.UserRead.model_validate(user)
 
     def get_users(self, skip: int = 0, limit: int = 100) -> List[ValidationInterface.UserRead]:
-        """Gets a list of users with pagination."""
         with SessionLocal() as db:
             users = db.query(User).offset(skip).limit(limit).all()
-            return [ValidationInterface.UserRead.model_validate(user) for user in users]
+            return [ValidationInterface.UserRead.model_validate(u) for u in users]
 
     def update_user(
         self, user_id: str, user_update: ValidationInterface.UserUpdate
     ) -> ValidationInterface.UserRead:
-        """Updates user fields based on the UserUpdate model."""
         with SessionLocal() as db:
             db_user = db.query(User).filter(User.id == user_id).first()
             if not db_user:
@@ -168,7 +379,10 @@ class UserService:
             return ValidationInterface.UserRead.model_validate(db_user)
 
     def delete_user(self, user_id: str) -> None:
-        """Deletes a user by their internal ID."""
+        """
+        Hard delete with no physical asset cleanup.
+        Use erase_user() for GDPR right-to-erasure.
+        """
         with SessionLocal() as db:
             db_user = db.query(User).filter(User.id == user_id).first()
             if not db_user:
@@ -177,9 +391,6 @@ class UserService:
             db.commit()
 
     def get_or_create_user(self, user_id: Optional[str] = None) -> ValidationInterface.UserRead:
-        """
-        Gets a user by ID if provided. If not found, creates a new 'local' user.
-        """
         if user_id:
             with SessionLocal() as db:
                 user = db.query(User).filter(User.id == user_id).first()
@@ -190,15 +401,10 @@ class UserService:
                     detail=f"User with ID {user_id} not found",
                 )
         minimal_user_data = ValidationInterface.UserCreate(oauth_provider="local")
-        # This now calls the refactored, self-contained create_user method.
         return self.create_user(minimal_user_data)
 
     def list_assistants_by_user(self, user_id: str) -> List[ValidationInterface.AssistantRead]:
-        """
-        Retrieve the list of assistants associated with a specific user.
-        """
         with SessionLocal() as db:
-            # Eagerly load assistants to ensure they are accessible
             user = (
                 db.query(User)
                 .options(orm.joinedload(User.assistants))
@@ -207,7 +413,4 @@ class UserService:
             )
             if not user:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-            return [
-                ValidationInterface.AssistantRead.model_validate(assistant)
-                for assistant in user.assistants
-            ]
+            return [ValidationInterface.AssistantRead.model_validate(a) for a in user.assistants]

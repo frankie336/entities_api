@@ -23,15 +23,20 @@ validation = ValidationInterface
 thread_participants = Table(
     "thread_participants",
     Base.metadata,
-    Column("thread_id", String(64), ForeignKey("threads.id"), primary_key=True),
-    Column("user_id", String(64), ForeignKey("users.id"), primary_key=True),
+    Column("thread_id", String(64), ForeignKey("threads.id", ondelete="CASCADE"), primary_key=True),
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
 )
 
 user_assistants = Table(
     "user_assistants",
     Base.metadata,
-    Column("user_id", String(64), ForeignKey("users.id"), primary_key=True),
-    Column("assistant_id", String(64), ForeignKey("assistants.id"), primary_key=True),
+    Column("user_id", String(64), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "assistant_id",
+        String(64),
+        ForeignKey("assistants.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
 )
 
 
@@ -162,7 +167,6 @@ class User(Base):
     files = relationship("File", back_populates="user", cascade="all, delete-orphan", lazy="select")
     runs = relationship("Run", back_populates="user", lazy="select")
 
-    # NEW: Audit Logs relationship
     audit_logs = relationship("AuditLog", back_populates="user", lazy="dynamic")
 
     __table_args__ = (
@@ -179,21 +183,30 @@ class AuditLog(Base):
     """
     Immutable record of system actions.
     Supports GDPR compliance by tracking deletions and administrative access.
+
+    FK: user_id → SET NULL on user deletion.
+    Audit records must survive user erasure — they are the compliance trail.
     """
 
     __tablename__ = "audit_logs"
 
     id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
 
-    # Who performed the action
-    user_id = Column(String(64), ForeignKey("users.id"), nullable=True, index=True)
+    # Who performed the action.
+    # Nullable: SET NULL when the user is erased (record survives, identity is anonymised).
+    user_id = Column(
+        String(64),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # What was done
     action = Column(
         String(32),
         nullable=False,
         index=True,
-        comment="e.g. CREATE, UPDATE, DELETE, HARD_DELETE",
+        comment="e.g. CREATE, UPDATE, DELETE, HARD_DELETE, ERASE",
     )
 
     # What entity was affected
@@ -224,6 +237,8 @@ class Thread(Base):
     tool_resources = Column(JSON, nullable=False, default={})
     participants = relationship("User", secondary=thread_participants, back_populates="threads")
 
+    # SET NULL on user deletion — thread record is preserved, ownership is cleared.
+    # Application-level erase_user() handles physical cleanup of thread content.
     owner_id = Column(
         String(64),
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -273,6 +288,11 @@ class Message(Base):
     tool_id = Column(String(64), nullable=True)
 
     status = Column(String(32), nullable=True)
+
+    # NOTE: thread_id is intentionally stored as a plain string with no FK constraint.
+    # Orphaned messages (after thread deletion) are handled by:
+    #   a) application-level erase_user() during right-to-erasure
+    #   b) purge_orphaned_threads daemon (periodic background cleanup)
     thread_id = Column(String(64), nullable=False)
     sender_id = Column(String(64), nullable=True)
 
@@ -280,6 +300,7 @@ class Message(Base):
 class Run(Base):
     __tablename__ = "runs"
 
+    # CASCADE: runs are deleted when their owning user is erased.
     user_id = Column(
         String(64),
         ForeignKey("users.id", ondelete="CASCADE"),
@@ -315,6 +336,8 @@ class Run(Base):
     response_format = Column(String(64), nullable=True)
 
     status = Column(SAEnum(validation.StatusEnum), nullable=False)
+
+    # NOTE: thread_id stored as plain string — no FK constraint (mirrors Message.thread_id).
     thread_id = Column(String(64), nullable=False)
     tool_choice = Column(String(64), nullable=True)
 
@@ -379,9 +402,9 @@ class Assistant(Base):
         comment='Resource map keyed by tool type, e.g. {"file_search": {"vector_store_ids": ["vs_123","vs_456"]}}',
     )
 
-    # ── NEW: canonical ownership ───────────────────────────────────────────────
-    # Nullable during the migration window.  Back-fill migration sets this from
-    # user_assistants; a follow-up revision will tighten to NOT NULL once clean.
+    # SET NULL on user deletion — assistant record is preserved (may be shared with
+    # other users via user_assistants). Application-level erase_user() decides
+    # whether to soft-delete exclusively-owned assistants.
     owner_id = Column(
         String(64),
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -393,7 +416,6 @@ class Assistant(Base):
             "Separate from the many-to-many (user_assistants) which handles sharing."
         ),
     )
-    # ── END NEW ───────────────────────────────────────────────────────────────
 
     # --- Agentic Behavior Extensions (Level 3) ---
     max_turns = Column(
@@ -447,14 +469,12 @@ class Assistant(Base):
     )
 
     # --- Relationships ---
-    # NEW: direct owner relationship (single-hop, no join table)
     owner = relationship(
         "User",
         foreign_keys=[owner_id],
         lazy="select",
     )
 
-    # Kept: many-to-many for sharing / collaboration
     users = relationship(
         "User",
         secondary="user_assistants",
@@ -467,7 +487,13 @@ class Action(Base):
     __tablename__ = "actions"
 
     id = Column(String(64), primary_key=True, index=True)
-    run_id = Column(String(64), ForeignKey("runs.id"), nullable=True)
+
+    # CASCADE: actions are deleted when their parent run is deleted.
+    run_id = Column(
+        String(64),
+        ForeignKey("runs.id", ondelete="CASCADE"),
+        nullable=True,
+    )
 
     # --- Agentic Tracking (Level 3) ---
     tool_call_id = Column(
@@ -522,7 +548,13 @@ class Action(Base):
 class Sandbox(Base):
     __tablename__ = "sandboxes"
     id = Column(String(64), primary_key=True, index=True)
-    user_id = Column(String(64), ForeignKey("users.id"), nullable=False)
+
+    # CASCADE: sandboxes are deleted when their owning user is erased.
+    user_id = Column(
+        String(64),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     name = Column(String(128), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     status = Column(String(32), nullable=False, default="active")
@@ -540,7 +572,14 @@ class File(Base):
     filename = Column(String(256), nullable=False)
     purpose = Column(String(64), nullable=False)
     mime_type = Column(String(255))
-    user_id = Column(String(64), ForeignKey("users.id"), nullable=False)
+
+    # CASCADE: files are deleted when their owning user is erased.
+    # Physical file deletion from Samba is handled by erase_user() before the DB delete.
+    user_id = Column(
+        String(64),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     user = relationship("User", back_populates="files")
     storage_locations = relationship(
         "FileStorage", back_populates="file", cascade="all, delete-orphan"
@@ -550,7 +589,13 @@ class File(Base):
 class FileStorage(Base):
     __tablename__ = "file_storage"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    file_id = Column(String(64), ForeignKey("files.id", ondelete="CASCADE"), nullable=False)
+
+    # CASCADE: storage records are deleted when their parent file is deleted.
+    file_id = Column(
+        String(64),
+        ForeignKey("files.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     storage_system = Column(
         String(64),
         nullable=False,
@@ -601,6 +646,7 @@ class BatfishSnapshot(Base):
         comment="Namespaced isolation key: {user_id}_{id}",
     )
 
+    # CASCADE: snapshots are deleted when their owning user is erased.
     user_id = Column(
         String(64),
         ForeignKey("users.id", ondelete="CASCADE"),
@@ -643,7 +689,14 @@ class VectorStore(Base):
     __tablename__ = "vector_stores"
     id = Column(String(64), primary_key=True, index=True)
     name = Column(String(128), nullable=False, unique=False)
-    user_id = Column(String(64), ForeignKey("users.id"), nullable=False)
+
+    # CASCADE: vector stores are deleted when their owning user is erased.
+    # Qdrant collection deletion is handled by erase_user() before the DB delete.
+    user_id = Column(
+        String(64),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     collection_name = Column(String(128), nullable=False, unique=True)
     vector_size = Column(Integer, nullable=False)
     distance_metric = Column(String(32), nullable=False)
@@ -665,7 +718,13 @@ class VectorStore(Base):
 class VectorStoreFile(Base):
     __tablename__ = "vector_store_files"
     id = Column(String(64), primary_key=True, index=True)
-    vector_store_id = Column(String(64), ForeignKey("vector_stores.id"), nullable=False)
+
+    # CASCADE: vector store files are deleted when their parent store is deleted.
+    vector_store_id = Column(
+        String(64),
+        ForeignKey("vector_stores.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     file_name = Column(String(256), nullable=False)
     file_path = Column(String(1024), nullable=False)
     processed_at = Column(Integer, nullable=True)
