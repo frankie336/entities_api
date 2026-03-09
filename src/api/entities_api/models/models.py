@@ -573,8 +573,15 @@ class File(Base):
     purpose = Column(String(64), nullable=False)
     mime_type = Column(String(255))
 
-    # CASCADE: files are deleted when their owning user is erased.
-    # Physical file deletion from Samba is handled by erase_user() before the DB delete.
+    # ── GDPR / Lifecycle ────────────────────────────────────────────
+    deleted_at = Column(
+        Integer,
+        nullable=True,
+        default=None,
+        index=True,
+        comment="Unix timestamp of soft-deletion. Non-null = file is in Recycle Bin.",
+    )
+
     user_id = Column(
         String(64),
         ForeignKey("users.id", ondelete="CASCADE"),

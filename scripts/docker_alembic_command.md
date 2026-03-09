@@ -13,3 +13,6 @@ docker compose exec api alembic revision --autogenerate -m "Remove assistant ---
 
 
 docker compose exec api alembic revision --autogenerate -m "Remove thread ---> vector_store relationship"
+
+
+docker compose exec api alembic revision --autogenerate -m "Add soft delete to Files"

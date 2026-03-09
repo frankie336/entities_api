@@ -128,12 +128,12 @@ def retrieve_file_metadata(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Delete — ownership enforced
+# Hard delete — ownership enforced, physical bytes removed from Samba
 # ──────────────────────────────────────────────────────────────────────────────
 @router.delete(
     "/files/{file_id}",
     response_model=FileDeleteResponse,
-    summary="Delete a file",
+    summary="Hard-delete a file (removes DB row and Samba bytes)",
 )
 def delete_file_endpoint(
     file_id: str,
@@ -141,16 +141,35 @@ def delete_file_endpoint(
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     user_id = auth_key.user_id
-    logging_utility.info("User %s deleting %s", user_id, file_id)
+    logging_utility.info("User %s hard-deleting %s", user_id, file_id)
     if not FileService(db).delete_file_by_id(file_id, user_id=user_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
     return FileDeleteResponse(id=file_id, object="file", deleted=True)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Signed-URL generation — auth required (Gap 4 fix)
-# Previously unauthenticated — any caller who knew a file_id could generate
-# a valid download URL for someone else's file.
+# Soft delete — ownership enforced, physical bytes preserved on Samba
+# Stamps deleted_at; file becomes invisible to all normal read/write paths.
+# ──────────────────────────────────────────────────────────────────────────────
+@router.patch(
+    "/files/{file_id}/soft-delete",
+    response_model=FileDeleteResponse,
+    summary="Soft-delete a file (preserves Samba bytes, hides from normal queries)",
+)
+def soft_delete_file_endpoint(
+    file_id: str,
+    db: Session = Depends(get_db),
+    auth_key: ApiKeyModel = Depends(get_api_key),
+):
+    user_id = auth_key.user_id
+    logging_utility.info("User %s soft-deleting %s", user_id, file_id)
+    if not FileService(db).soft_delete_file_by_id(file_id, user_id=user_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found or already deleted")
+    return FileDeleteResponse(id=file_id, object="file", deleted=True)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Signed-URL generation — auth required
 # ──────────────────────────────────────────────────────────────────────────────
 @router.get(
     "/files/{file_id}/signed-url",
@@ -162,12 +181,14 @@ def generate_signed_url(
     expires_in: int = Query(600, description="Seconds until link expires"),
     use_real_filename: bool = Query(False),
     db: Session = Depends(get_db),
-    auth_key: ApiKeyModel = Depends(get_api_key),  # ← Gap 4 fix: auth now required
+    auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     user_id = auth_key.user_id
 
-    # 1. Validate file exists AND caller owns it
-    file_record = db.query(FileModel).filter(FileModel.id == file_id).first()
+    # Validate file exists, is not soft-deleted, and caller owns it.
+    file_record = (
+        db.query(FileModel).filter(FileModel.id == file_id, FileModel.deleted_at.is_(None)).first()
+    )
     if not file_record:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
     if file_record.user_id != user_id:
@@ -175,7 +196,6 @@ def generate_signed_url(
             status.HTTP_403_FORBIDDEN, "You do not have permission to access this file."
         )
 
-    # 2. Config
     secret = os.getenv("SIGNED_URL_SECRET", "")
     base_url = os.getenv("DOWNLOAD_BASE_URL", "").rstrip("/")
     if not secret or not base_url:
@@ -184,12 +204,10 @@ def generate_signed_url(
             "SIGNED_URL_SECRET or DOWNLOAD_BASE_URL not configured",
         )
 
-    # 3. Signature
     exp = int(datetime.utcnow().timestamp() + expires_in)
     payload = f"{file_id}:{exp}:{str(use_real_filename).lower()}"
     sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
-    # 4. URL
     query = urlencode(
         {
             "file_id": file_id,

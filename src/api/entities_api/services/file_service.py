@@ -160,6 +160,43 @@ class FileService:
             raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
 
     # ──────────────────────────────────────────────────────────────────
+    # Soft-delete  — ownership enforced, physical bytes preserved
+    # ──────────────────────────────────────────────────────────────────
+    def soft_delete_file_by_id(self, file_id: str, *, user_id: str) -> bool:
+        """
+        Soft-delete a file by stamping deleted_at with the current UTC epoch.
+        The DB row and Samba bytes are preserved; the file becomes invisible
+        to all normal queries.
+
+        Returns False (→ 404 at router) if the file does not exist or is
+        already soft-deleted.
+        Raises 403 if user_id does not own the file.
+        """
+        try:
+            file_record = (
+                self.db.query(File).filter(File.id == file_id, File.deleted_at.is_(None)).first()
+            )
+            if not file_record:
+                logging_utility.warning(
+                    "File %s not found or already deleted — soft-delete aborted.", file_id
+                )
+                return False
+
+            self._assert_owner(file_record, user_id)
+
+            file_record.deleted_at = int(datetime.utcnow().timestamp())
+            self.db.commit()
+            logging_utility.info("File %s soft-deleted by user %s.", file_id, user_id)
+            return True
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            self.db.rollback()
+            logging_utility.error("Error soft-deleting file %s: %s", file_id, str(e))
+            raise HTTPException(status_code=500, detail=f"Failed to soft-delete file: {str(e)}")
+
+    # ──────────────────────────────────────────────────────────────────
     # Retrieve metadata  — ownership enforced
     # ──────────────────────────────────────────────────────────────────
 
