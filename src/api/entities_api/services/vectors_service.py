@@ -92,14 +92,20 @@ class VectorStoreDBService:
     def mark_vector_store_deleted(
         self, vector_store_id: str
     ) -> ValidationInterface.VectorStoreRead:
-        """Soft deletes a vector store record by ID."""
+        """
+        Soft-deletes a vector store by setting status=deleted and stamping deleted_at.
+        Idempotent — returns current state if already deleted.
+        """
         store = self.db.get(VectorStore, vector_store_id)
         if not store:
             raise VectorStoreNotFoundError(f"Store ID '{vector_store_id}' not found.")
         if store.status == StatusEnum.deleted:
             return ValidationInterface.VectorStoreRead.model_validate(store)
+
+        now = int(time.time())
         store.status = StatusEnum.deleted
-        store.updated_at = int(time.time())
+        store.deleted_at = now  # ← new: GDPR audit timestamp
+        store.updated_at = now
         try:
             self.db.commit()
             self.db.refresh(store)

@@ -126,11 +126,10 @@ def list_vector_stores_by_user(
 def get_vector_store_by_collection(
     name: str = Query(..., description="Collection name to look up"),
     db: Session = Depends(get_db),
-    auth_key: ApiKeyModel = Depends(get_api_key),  # was missing entirely
+    auth_key: ApiKeyModel = Depends(get_api_key),
 ):
     service = VectorStoreDBService(db)
     store = service.get_vector_store_by_collection_name(name)
-    # 404 regardless of reason — avoids confirming existence to non-owners
     if not store or (store.user_id != auth_key.user_id and not _is_admin(auth_key.user_id, db)):
         raise HTTPException(status_code=404, detail="Collection not found.")
     return store
@@ -156,10 +155,21 @@ def get_vector_store(
     "/vector-stores/{vector_store_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete Vector Store",
+    description=(
+        "Deletes a vector store.\n\n"
+        "- **Soft-delete** (default, `permanent=false`) → stamps `deleted_at` and sets "
+        "`status=deleted`. The DB record and Qdrant collection are preserved and can be "
+        "restored. The store becomes invisible to all normal read/write paths immediately.\n\n"
+        "- **Hard-delete** (`permanent=true`) → permanently destroys the DB record and the "
+        "backing Qdrant collection. This action is irreversible."
+    ),
 )
 def delete_vector_store(
     vector_store_id: str = FastApiPath(...),
-    permanent: bool = Query(False),
+    permanent: bool = Query(
+        False,
+        description="Set true to permanently destroy the DB record and Qdrant collection.",
+    ),
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
@@ -253,14 +263,3 @@ def update_file_status(
     return service.update_vector_store_file_status(
         file_id, file_status.status, file_status.error_message
     )
-
-
-# ── Removed endpoints ─────────────────────────────────────────────────────────
-#
-#  POST   /assistants/{assistant_id}/vector-stores/{vector_store_id}/attach
-#  DELETE /assistants/{assistant_id}/vector-stores/{vector_store_id}/detach
-#  GET    /assistants/{assistant_id}/vector-stores
-#
-#  The assistant ↔ vector-store M2M relationship is no longer used.
-#  Orchestration is handled exclusively via the tool_resources field.
-#  The join table (vector_store_assistants) is dropped in migration 3a42e4f129e4.

@@ -697,8 +697,6 @@ class VectorStore(Base):
     id = Column(String(64), primary_key=True, index=True)
     name = Column(String(128), nullable=False, unique=False)
 
-    # CASCADE: vector stores are deleted when their owning user is erased.
-    # Qdrant collection deletion is handled by erase_user() before the DB delete.
     user_id = Column(
         String(64),
         ForeignKey("users.id", ondelete="CASCADE"),
@@ -712,8 +710,17 @@ class VectorStore(Base):
     status = Column(SAEnum(StatusEnum), nullable=False)
     config = Column(JSON, nullable=True)
     file_count = Column(Integer, default=0, nullable=False)
-    user = relationship("User", back_populates="vector_stores", lazy="select")
 
+    # ── GDPR / Lifecycle ────────────────────────────────────────────────────
+    deleted_at = Column(
+        Integer,
+        nullable=True,
+        default=None,
+        index=True,
+        comment="Unix timestamp of soft-deletion. Non-null = store is in Recycle Bin.",
+    )
+
+    user = relationship("User", back_populates="vector_stores", lazy="select")
     files = relationship(
         "VectorStoreFile",
         back_populates="vector_store",
