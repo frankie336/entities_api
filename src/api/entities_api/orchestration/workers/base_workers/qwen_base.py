@@ -399,7 +399,6 @@ class QwenBaseWorker(
                     continue
 
                 yield json.dumps(chunk)
-                await self._shunt_to_redis_stream(redis, stream_key, chunk)
 
             # Ensure any dangling XML tag is closed cleanly at end of stream
             if current_block:

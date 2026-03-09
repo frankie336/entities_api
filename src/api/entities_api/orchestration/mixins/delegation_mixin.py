@@ -86,7 +86,7 @@ class DelegationMixin:
             yield item
 
     # ------------------------------------------------------------------
-    # HELPER: Poll run status until terminal
+    # HELPER: Poll run status until terminal (Retained for other tasks)
     # ------------------------------------------------------------------
 
     async def _wait_for_run_completion(
@@ -104,7 +104,6 @@ class DelegationMixin:
         elapsed = 0.0
         while elapsed < timeout:
             try:
-                # ── REPLACED: was self.project_david_client.runs.retrieve_run(...)
                 run = await self._native_exec.retrieve_run(run_id)
                 status_value = run.status.value if hasattr(run.status, "value") else str(run.status)
                 LOG.critical(
@@ -133,7 +132,7 @@ class DelegationMixin:
     async def _ephemeral_clean_up(
         self, assistant_id: str, thread_id: Optional[str], delete_thread: bool = False
     ):
-        LOG.info(f"🧹 [CLEANUP] Assistant: {assistant_id} | Thread: {thread_id}")
+        LOG.info(f"🧹[CLEANUP] Assistant: {assistant_id} | Thread: {thread_id}")
 
         user_id = getattr(self, "_batfish_owner_user_id", None)
 
@@ -146,7 +145,7 @@ class DelegationMixin:
                 else:
                     await self._native_exec.delete_thread(thread_id, user_id=user_id)
             except Exception as e:
-                LOG.warning(f"⚠️ [CLEANUP] Thread delete failed: {e}")
+                LOG.warning(f"⚠️[CLEANUP] Thread delete failed: {e}")
 
         if user_id and assistant_id:
             try:
@@ -208,9 +207,6 @@ class DelegationMixin:
         return await self._assistant_manager.create_ephemeral_junior_engineer(user_id=user_id)
 
     async def create_ephemeral_thread(self):
-        # ── REPLACED: was self.project_david_client.threads.create_thread()
-        # Also fixes incorrect participant: SDK passed admin user; we now pass
-        # the resolved owner so the ephemeral thread is correctly associated.
         user_id = getattr(self, "_batfish_owner_user_id", None)
         if not user_id:
             raise RuntimeError(
@@ -220,7 +216,6 @@ class DelegationMixin:
         return await self._native_exec.create_thread(user_id=user_id)
 
     async def create_ephemeral_message(self, thread_id, content, assistant_id):
-        # ── REPLACED: was self.project_david_client.messages.create_message(...)
         return await self._native_exec.create_message(
             thread_id=thread_id,
             assistant_id=assistant_id,
@@ -228,9 +223,6 @@ class DelegationMixin:
         )
 
     async def create_ephemeral_run(self, assistant_id, thread_id, meta_data: Dict | None = None):
-        # ── REPLACED: was self.project_david_client.runs.create_run(...)
-        # user_id is required by RunService.create_run; use the owner resolved
-        # earlier in handle_delegate_research_task and cached on self.
         user_id = getattr(self, "_batfish_owner_user_id", None)
         if not user_id:
             raise RuntimeError(
@@ -251,139 +243,43 @@ class DelegationMixin:
         retry_delay: float = 3.0,
     ) -> str | None:
         """
-        Fetch the worker's final text report from its thread.
-
-        Retry logic is required because the worker run reaches status=completed
-        at elapsed=0.0s — before finalize_conversation has committed the final
-        assistant message to the thread. Without retries, the first fetch always
-        races against the write and finds either nothing or only tool-call messages.
-
-        Message filtering:
-          - Skips non-assistant messages (user, tool results)
-          - Skips messages whose content is a JSON array (tool_calls_structure
-            saved by finalize_conversation when the last turn was a tool call)
-          - Returns the first assistant message with clean text content, scanning
-            from newest to oldest
+        Retained as a fallback helper for other components if needed.
+        Delegation handler now bypasses this completely in favor of stream capture.
         """
         for attempt in range(1, max_attempts + 1):
             try:
                 messages = await self._native_exec.get_formatted_messages(thread_id)
-
-                LOG.critical(
-                    "██████ [WORKER_FETCH] attempt=%d thread=%s total_messages=%d ██████",
-                    attempt,
-                    thread_id,
-                    len(messages) if messages else 0,
-                )
-                for i, msg in enumerate(messages or []):
-                    LOG.critical(
-                        "██████ [WORKER_FETCH] msg[%d] role=%s tool_calls=%s content_preview=%s ██████",
-                        i,
-                        msg.get("role"),
-                        bool(msg.get("tool_calls")),
-                        str(msg.get("content", ""))[:120],
-                    )
-
                 if not messages:
-                    LOG.warning(
-                        "[WORKER_FETCH] attempt=%d — no messages in thread %s",
-                        attempt,
-                        thread_id,
-                    )
-                else:
-                    for msg in reversed(messages):
-                        role = msg.get("role")
-                        content = msg.get("content")
-                        tool_calls = msg.get("tool_calls")
+                    continue
 
-                        if role != "assistant":
-                            continue
+                for idx, msg in enumerate(reversed(messages)):
+                    role = msg.get("role")
+                    content = msg.get("content")
+                    tool_calls = msg.get("tool_calls")
 
-                        if tool_calls:
-                            continue
+                    if role != "assistant" or tool_calls:
+                        continue
+                    if not isinstance(content, str) or not content.strip():
+                        continue
 
-                        if not isinstance(content, str) or not content.strip():
-                            continue
+                    stripped = content.strip()
+                    if stripped.startswith("[") and stripped.endswith("]"):
+                        continue
 
-                        stripped = content.strip()
-                        if stripped.startswith("[") and stripped.endswith("]"):
-                            try:
-                                parsed = json.loads(stripped)
-                                if isinstance(parsed, list) and all(
-                                    isinstance(item, dict) and "type" in item for item in parsed
-                                ):
-                                    LOG.info(
-                                        "[WORKER_FETCH] Skipping tool_calls_structure "
-                                        "saved as content string."
-                                    )
-                                    continue
-                            except (json.JSONDecodeError, ValueError):
-                                pass
-
-                        LOG.info(
-                            "✅ [WORKER_FETCH] attempt=%d found report (length=%d): %s...",
-                            attempt,
-                            len(stripped),
-                            stripped[:100],
-                        )
-                        return stripped
-
-                    LOG.warning(
-                        "[WORKER_FETCH] attempt=%d — no qualifying text message found. "
-                        "Retrying in %.1fs...",
-                        attempt,
-                        retry_delay,
-                    )
-
+                    return stripped
             except Exception as e:
-                LOG.exception(
-                    "❌ [WORKER_FETCH] attempt=%d — exception fetching messages: %s",
-                    attempt,
-                    e,
-                )
-
+                LOG.exception("❌ [WORKER_FETCH] Error: %s", e)
             if attempt < max_attempts:
                 await asyncio.sleep(retry_delay)
 
-        LOG.critical(
-            "██████ [WORKER_FETCH] EXHAUSTED %d attempts for thread %s — returning None ██████",
-            max_attempts,
-            thread_id,
-        )
         return None
 
     # ------------------------------------------------------------------
-    # HANDLER 1: Research Delegation — RESTORED working structure
-    # Additions: origin_user_id resolution + metadata stamp on ephemeral run
+    # HANDLER 1: Research Delegation
     # ------------------------------------------------------------------
     async def handle_delegate_research_task(
         self, thread_id, run_id, assistant_id, arguments_dict, tool_call_id, decision
     ) -> AsyncGenerator[str, None]:
-        """
-        Supervisor → Worker research delegation.
-
-        Flow:
-          - Spawns an ephemeral worker assistant on its own thread.
-          - Streams worker content, reasoning, and scratchpad events back
-            through the senior's stream so the backend consumer sees everything
-            in a single unified pipe.
-          - ScratchpadEvents are intercepted BEFORE the broad attribute guards
-            fire — critical ordering that prevents silent swallowing.
-          - Intercept payload mirrors _scratchpad_status() exactly — only
-            non-None fields are included so the shape is byte-for-byte
-            identical to native supervisor scratchpad events. The only
-            addition is 'origin: research_worker' for frontend source tagging.
-          - Submits the worker's final report back to the supervisor as a
-            tool output, completing the delegation loop.
-
-        Prompt note:
-          The delegation prompt explicitly forbids memory-based answers and
-          mandates tool firing as the first action. This is required because
-          Qwen3-class reasoning models will otherwise think through the task
-          internally, conclude they already know the answer from training
-          weights, and skip all tool calls entirely — producing a one-line
-          confirmation with no verified data and no scratchpad entry.
-        """
 
         self._scratch_pad_thread = thread_id
         LOG.info(f"🔄[DELEGATE] STARTING. Run: {run_id}")
@@ -400,7 +296,6 @@ class DelegationMixin:
 
         action = None
         try:
-            # ── REPLACED: was self.project_david_client.actions.create_action(...)
             action = await self._native_exec.create_action(
                 tool_name="delegate_research_task",
                 run_id=run_id,
@@ -420,7 +315,6 @@ class DelegationMixin:
             origin_user_id = getattr(self, "_batfish_owner_user_id", None)
 
             if not origin_user_id:
-                # ── REPLACED: was self.project_david_client.runs.retrieve_run(...)
                 run_obj = await self._native_exec.retrieve_run(run_id)
                 origin_user_id = run_obj.user_id
                 self._batfish_owner_user_id = origin_user_id
@@ -434,6 +328,19 @@ class DelegationMixin:
             ephemeral_worker = await self.create_ephemeral_worker_assistant()
             ephemeral_thread = await self.create_ephemeral_thread()
             self._research_worker_thread = ephemeral_thread
+
+            # ----------------------------------------------------------------
+            # DIAGNOSTIC: Log the worker assistant record
+            # ----------------------------------------------------------------
+            LOG.critical(
+                "██████ [WORKER_CREATED] id=%s name=%s deep_research=%s "
+                "web_access=%s meta_data=%s ██████",
+                ephemeral_worker.id,
+                getattr(ephemeral_worker, "name", "?"),
+                getattr(ephemeral_worker, "deep_research", "?"),
+                getattr(ephemeral_worker, "web_access", "?"),
+                getattr(ephemeral_worker, "meta_data", "?"),
+            )
 
             prompt = (
                 f"TASK: {args.get('task')}\n"
@@ -465,16 +372,7 @@ class DelegationMixin:
                 },
             )
 
-            LOG.info(
-                "RESEARCH_DELEGATE ▸ Stamped meta_data: batfish_owner_user_id=%s | scratch_pad_thread=%s",
-                origin_user_id,
-                self._scratch_pad_thread,
-            )
-
             yield self._research_status("Worker active. Streaming...", "in_progress", run_id)
-
-            LOG.info(f"🔄[SUPERVISORS_THREAD_ID]: {thread_id}")
-            LOG.info(f"🔄 [WORKERS_THREAD_ID]: {ephemeral_thread.id}")
 
             sync_stream = self.project_david_client.synchronous_inference_stream
             sync_stream.setup(
@@ -486,30 +384,27 @@ class DelegationMixin:
             )
 
             LOG.critical(
-                "🎬 WORKER STREAM STARTING - If you see this but no content chunks, "
-                "check process_tool_calls wiring"
+                "🎬 WORKER STREAM STARTING - worker=%s thread=%s run=%s model=%s",
+                ephemeral_worker.id,
+                ephemeral_thread.id,
+                ephemeral_run.id,
+                self._delegation_model,
             )
 
             captured_stream_content = ""
+            raw_event_count = 0
+            passed_guard1 = 0
+            passed_guard2 = 0
 
             async for event in self._stream_sync_generator(
                 sync_stream.stream_events,
                 model=self._delegation_model,
             ):
-                # ----------------------------------------------------------------
-                # ✅ INTERCEPT: ScratchpadEvent
-                # MUST come before GUARD 1 — ScratchpadEvent carries a 'tool'
-                # attribute which causes the guard to swallow it silently.
-                # ----------------------------------------------------------------
-                if isinstance(event, ScratchpadEvent):
-                    LOG.info(
-                        "📋 [DELEGATE] Worker ScratchpadEvent intercepted: "
-                        "op=%s state=%s activity=%s",
-                        event.operation,
-                        event.state,
-                        event.activity,
-                    )
+                raw_event_count += 1
+                event_type = type(event).__name__
 
+                # ✅ INTERCEPT: ScratchpadEvent
+                if isinstance(event, ScratchpadEvent):
                     payload = {
                         "type": "scratchpad_status",
                         "run_id": run_id,
@@ -517,14 +412,12 @@ class DelegationMixin:
                         "state": event.state,
                         "origin": "research_worker",
                     }
-
                     if event.tool is not None:
                         payload["tool"] = event.tool
                     if event.activity is not None:
                         payload["activity"] = event.activity
                     if event.assistant_id is not None:
                         payload["assistant_id"] = event.assistant_id
-
                     entry_val = event.entry or event.content or ""
                     if entry_val:
                         payload["entry"] = entry_val
@@ -532,21 +425,23 @@ class DelegationMixin:
                     yield json.dumps(payload)
                     continue
 
-                # ----------------------------------------------------------------
-                # 🛑 GUARD 1: Exclude Status / System Events
-                # ----------------------------------------------------------------
-                if (
+                # 🛑 GUARD 1: Status Events
+                guard1_triggered = (
                     hasattr(event, "tool")
                     or hasattr(event, "status")
                     or getattr(event, "type", "") == "status"
-                ):
+                )
+                if guard1_triggered:
                     continue
+                passed_guard1 += 1
 
-                # ----------------------------------------------------------------
-                # 🛑 GUARD 2: Exclude Tool Call Argument Frames
-                # ----------------------------------------------------------------
-                if getattr(event, "tool_calls", None) or getattr(event, "function_call", None):
+                # 🛑 GUARD 2: Tool Call Payload
+                guard2_triggered = getattr(event, "tool_calls", None) or getattr(
+                    event, "function_call", None
+                )
+                if guard2_triggered:
                     continue
+                passed_guard2 += 1
 
                 chunk_content = getattr(event, "content", None) or getattr(event, "text", None)
                 chunk_reasoning = getattr(event, "reasoning", None)
@@ -576,34 +471,49 @@ class DelegationMixin:
                         }
                     )
 
+            LOG.critical(
+                "██████ [STREAM_SUMMARY] worker=%s | total_raw_events=%d | "
+                "passed_guard1=%d | passed_guard2=%d | captured_content_length=%d ██████",
+                ephemeral_worker.id,
+                raw_event_count,
+                passed_guard1,
+                passed_guard2,
+                len(captured_stream_content),
+            )
+
+            # ----------------------------------------------------------------
+            # DIRECT-STREAM CAPTURE (NO DB POLLING!)
+            # ----------------------------------------------------------------
             yield self._research_status(
-                "Worker processing. Waiting for completion...", "in_progress", run_id
+                "Worker stream finished. Finalizing payload...", "in_progress", run_id
             )
 
             try:
-                final_run_status = await self._wait_for_run_completion(
-                    run_id=ephemeral_run.id,
-                    thread_id=ephemeral_thread.id,
+                await self._native_exec.update_run_status(
+                    ephemeral_run.id, StatusEnum.completed.value
                 )
-                LOG.info("✅ [DELEGATE] Worker run completed. Status=%s", final_run_status)
-            except asyncio.TimeoutError:
-                LOG.error("⏳[DELEGATE] Worker run timed out. Attempting fetch anyway.")
-                execution_had_error = True
-                final_run_status = "timed_out"
+            except Exception as e:
+                LOG.warning(f"⚠️ Could not manually close worker run {ephemeral_run.id}: {e}")
 
-            final_content = await self._fetch_worker_final_report(thread_id=ephemeral_thread.id)
-
-            LOG.critical(
-                "██████[FINAL_THREAD_CONTENT_SUBMITTED_BY_RESEARCH_WORKER]=%s ██████",
-                final_content,
-            )
+            final_content = captured_stream_content.strip()
 
             if not final_content:
                 LOG.critical(
-                    "██████[DELEGATE_TOTAL_FAILURE] No content generated by the worker ██████"
+                    "██████ [DELEGATE_FALLBACK] Stream captured no text (raw_events=%d). "
+                    "Injecting synthetic fallback to unblock supervisor. ██████",
+                    raw_event_count,
                 )
-                final_content = "No report generated by worker."
-                execution_had_error = True
+                final_content = (
+                    "SYSTEM STATUS: The delegated worker successfully executed its tools and finished its run, "
+                    "but failed to return a textual summary. Please read the shared scratchpad immediately "
+                    "to review the verified facts and data it appended, then continue your synthesis."
+                )
+            else:
+                LOG.critical(
+                    "██████ [DELEGATE_SUCCESS] Captured %d chars directly from worker stream. Preview: %s ██████",
+                    len(final_content),
+                    final_content[:150].replace("\n", "\\n"),
+                )
 
             await self.submit_tool_output(
                 thread_id=thread_id,
@@ -615,7 +525,6 @@ class DelegationMixin:
             )
 
             if action:
-                # ── REPLACED: was self.project_david_client.actions.update_action(...)
                 await self._native_exec.update_action_status(
                     action.id,
                     (

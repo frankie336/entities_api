@@ -91,11 +91,11 @@ class AssistantManager:
         return await self._native_exec.create_assistant(
             user_id=user_id,
             name=f"worker_{uuid.uuid4().hex[:8]}",
-            description="Temp assistant for deep research",
-            tools=[{"type": "web_search"}],
+            description="Ephemeral research worker",
+            tools=JUNIOR_ENGINEER_TOOLS,
             web_access=True,
             deep_research=False,
-            meta_data={"research_worker_calling": True},
+            meta_data={"is_research_worker": "true"},
         )
 
     async def create_ephemeral_thread(self, user_id: str):
