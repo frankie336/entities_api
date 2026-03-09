@@ -63,10 +63,13 @@ class SearxNGResult:
         self.url: str = data.get("url", "")
         self.snippet: str = data.get("content", "")
         self.engine: str = data.get("engine", "unknown")
-        self.score: float = data.get("score", 0.0)
 
-    def __repr__(self) -> str:  # pragma: no cover
-        return f"<SearxNGResult title={self.title!r} url={self.url!r}>"
+        # FIX: Safely handle null/None or string scores from SearxNG
+        raw_score = data.get("score")
+        try:
+            self.score: float = float(raw_score) if raw_score is not None else 0.0
+        except (ValueError, TypeError):
+            self.score = 0.0
 
 
 class SearxNGClient:

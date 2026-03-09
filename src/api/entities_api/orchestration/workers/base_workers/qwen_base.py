@@ -240,6 +240,13 @@ class QwenBaseWorker(
                 web_access_setting = False
                 research_worker_setting = False
                 junior_engineer_setting = False
+                # ---------------------------------------------
+                # Pass the inference api key through the run
+                # object.
+                # --------------------------------------------
+                self.project_david_client.runs.update_run_fields(
+                    run_id=run_id, meta_data={"api_key": api_key}
+                )
 
             elif research_worker_setting:
                 # RESEARCH WORKER

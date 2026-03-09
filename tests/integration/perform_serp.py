@@ -15,7 +15,7 @@ client = Entity(
 )
 
 search = client.tools.web_serp(
-    query="news",
+    query="Find the 2024 revenue of NVIDIA ",
 )
 
 print(search)

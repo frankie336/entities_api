@@ -329,9 +329,6 @@ class DelegationMixin:
             ephemeral_thread = await self.create_ephemeral_thread()
             self._research_worker_thread = ephemeral_thread
 
-            # ----------------------------------------------------------------
-            # DIAGNOSTIC: Log the worker assistant record
-            # ----------------------------------------------------------------
             LOG.critical(
                 "██████ [WORKER_CREATED] id=%s name=%s deep_research=%s "
                 "web_access=%s meta_data=%s ██████",
@@ -374,13 +371,25 @@ class DelegationMixin:
 
             yield self._research_status("Worker active. Streaming...", "in_progress", run_id)
 
+            # ----------------------------------------
+            # Retrieve the users inference api key
+            # -----------------------------------------
+            run_obj = await self._native_exec.retrieve_run(run_id)
+            inference_api_key = run_obj.meta_data.get("api_key") if run_obj.meta_data else None
+
+            if not inference_api_key:
+                raise RuntimeError(
+                    f"DELEGATE ABORT: No api_key found in run {run_id} meta_data. "
+                    f"meta_data={run_obj.meta_data}"
+                )
+
             sync_stream = self.project_david_client.synchronous_inference_stream
             sync_stream.setup(
                 thread_id=ephemeral_thread.id,
                 assistant_id=ephemeral_worker.id,
                 message_id=msg.id,
                 run_id=ephemeral_run.id,
-                api_key=self._delegation_api_key,
+                api_key=inference_api_key,
             )
 
             LOG.critical(
@@ -388,7 +397,7 @@ class DelegationMixin:
                 ephemeral_worker.id,
                 ephemeral_thread.id,
                 ephemeral_run.id,
-                self._delegation_model,
+                "together-ai/Qwen/Qwen3-Next-80B-A3B-Instruct-FP8",
             )
 
             captured_stream_content = ""
@@ -398,13 +407,21 @@ class DelegationMixin:
 
             async for event in self._stream_sync_generator(
                 sync_stream.stream_events,
-                model=self._delegation_model,
+                model="together-ai/Qwen/Qwen3-Next-80B-A3B-Instruct-FP8",
             ):
                 raw_event_count += 1
                 event_type = type(event).__name__
 
+                LOG.critical(
+                    f"👀 [RAW EVENT DUMP] Event {raw_event_count} | Type: {event_type} | Payload: {getattr(event, 'model_dump', lambda: str(event))()}"
+                )
+
                 # ✅ INTERCEPT: ScratchpadEvent
                 if isinstance(event, ScratchpadEvent):
+                    LOG.critical(
+                        f"📝 [WORKER SCRATCHPAD EVENT] Action: {event.operation} | State: {event.state} | Entry: {event.entry}"
+                    )
+
                     payload = {
                         "type": "scratchpad_status",
                         "run_id": run_id,
@@ -432,6 +449,22 @@ class DelegationMixin:
                     or getattr(event, "type", "") == "status"
                 )
                 if guard1_triggered:
+                    # ---> CATCH INSTANT FAILURE AND READ DB ERROR <---
+                    if getattr(event, "status", None) == "failed":
+                        try:
+                            failed_run_obj = await self._native_exec.retrieve_run(ephemeral_run.id)
+                            last_err = getattr(
+                                failed_run_obj, "last_error", "No error recorded in DB"
+                            )
+                            if hasattr(last_err, "model_dump"):  # Handle DB objects
+                                last_err = last_err.model_dump()
+                            LOG.critical(
+                                f"🚨 [FATAL RUN ERROR] Engine killed the worker! DB Reason: {last_err}"
+                            )
+                        except Exception as e:
+                            LOG.critical(
+                                f"🚨[FATAL RUN ERROR] Run failed, couldn't fetch reason: {e}"
+                            )
                     continue
                 passed_guard1 += 1
 
@@ -440,6 +473,16 @@ class DelegationMixin:
                     event, "function_call", None
                 )
                 if guard2_triggered:
+                    tool_calls = getattr(event, "tool_calls", [])
+                    tc_list = tool_calls if isinstance(tool_calls, list) else [tool_calls]
+                    for tc in tc_list:
+                        func = getattr(tc, "function", None)
+                        if func:
+                            name = getattr(func, "name", "unknown")
+                            args = getattr(func, "arguments", "")
+                            LOG.critical(
+                                f"🛠️[WORKER EXECUTES TOOL] Worker {ephemeral_worker.id} called: {name} | Args: {args}"
+                            )
                     continue
                 passed_guard2 += 1
 
@@ -481,9 +524,6 @@ class DelegationMixin:
                 len(captured_stream_content),
             )
 
-            # ----------------------------------------------------------------
-            # DIRECT-STREAM CAPTURE (NO DB POLLING!)
-            # ----------------------------------------------------------------
             yield self._research_status(
                 "Worker stream finished. Finalizing payload...", "in_progress", run_id
             )
@@ -499,7 +539,7 @@ class DelegationMixin:
 
             if not final_content:
                 LOG.critical(
-                    "██████ [DELEGATE_FALLBACK] Stream captured no text (raw_events=%d). "
+                    "██████[DELEGATE_FALLBACK] Stream captured no text (raw_events=%d). "
                     "Injecting synthetic fallback to unblock supervisor. ██████",
                     raw_event_count,
                 )
@@ -510,10 +550,17 @@ class DelegationMixin:
                 )
             else:
                 LOG.critical(
-                    "██████ [DELEGATE_SUCCESS] Captured %d chars directly from worker stream. Preview: %s ██████",
+                    "██████ [DELEGATE_SUCCESS] Captured %d chars directly from worker stream. ██████",
                     len(final_content),
-                    final_content[:150].replace("\n", "\\n"),
                 )
+
+            LOG.critical(
+                "\n================ WORKER FINAL RETURN PAYLOAD ================\n"
+                f"Worker ID: {ephemeral_worker.id}\n"
+                f"Content handed back to Supervisor via `delegate_research_task`:\n"
+                f"{final_content}\n"
+                "==============================================================\n"
+            )
 
             await self.submit_tool_output(
                 thread_id=thread_id,
@@ -536,7 +583,7 @@ class DelegationMixin:
 
         except Exception as e:
             execution_had_error = True
-            LOG.error(f"❌ [DELEGATE] Error: {e}", exc_info=True)
+            LOG.error(f"❌[DELEGATE] Error: {e}", exc_info=True)
             yield self._research_status(f"Error: {str(e)}", "error", run_id)
 
         finally:
@@ -545,6 +592,10 @@ class DelegationMixin:
                     ephemeral_worker.id,
                     ephemeral_thread.id if ephemeral_thread else None,
                     self._delete_ephemeral_thread,
+                )
+
+                self.project_david_client.runs.update_run_fields(
+                    run_id=run_id, meta_data={"api_key": "***"}
                 )
 
             yield self._research_status(
