@@ -242,11 +242,9 @@ class QwenBaseWorker(
                 junior_engineer_setting = False
                 # ---------------------------------------------
                 # Pass the inference api key through the run
-                # object.
-                # --------------------------------------------
-                self.project_david_client.runs.update_run_fields(
-                    run_id=run_id, meta_data={"api_key": api_key}
-                )
+                # object — trusted internally write, no ownership check.
+                # ---------------------------------------------
+                await self._native_exec.update_run_fields(run_id, meta_data={"api_key": api_key})
 
             elif research_worker_setting:
                 # RESEARCH WORKER
