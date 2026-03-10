@@ -493,6 +493,14 @@ class WebSearchMixin:
 
         Yields raw JSON strings conforming to the stream EVENT_CONTRACT.
         """
+
+        LOG.critical(
+            "🔧 [TOOL EXECUTION] tool=%s | assistant_id=%s | run_id=%s",
+            tool_name,
+            assistant_id,
+            run_id,
+        )
+
         ts_start = asyncio.get_event_loop().time()
 
         # --- [1] STATUS: VALIDATING ---
