@@ -66,7 +66,6 @@ class QwenBaseWorker(
             "delete_ephemeral_thread"
         )
         self.ephemeral_supervisor_id = None
-        self._delegation_api_key = self.api_key
         self._research_worker_thread = None
         self._worker_thread = None
 
@@ -157,7 +156,6 @@ class QwenBaseWorker(
         self._run_user_id = None
         self.ephemeral_supervisor_id = None
         self._scratch_pad_thread = None
-        self._delegation_api_key = api_key
         redis = self.redis
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)

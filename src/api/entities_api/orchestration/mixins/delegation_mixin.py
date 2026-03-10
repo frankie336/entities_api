@@ -26,7 +26,6 @@ class DelegationMixin:
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._delegation_api_key = None
         self._delete_ephemeral_thread = False
         self._delegation_model = None
         self._research_worker_thread = None
@@ -594,9 +593,10 @@ class DelegationMixin:
                     self._delete_ephemeral_thread,
                 )
 
-                self.project_david_client.runs.update_run_fields(
-                    run_id=run_id, meta_data={"api_key": "***"}
-                )
+                # -------------------------------------------------
+                # Scrub the users inference api key from the db
+                # -------------------------------------------------
+                await self._native_exec.update_run_fields(run_id, meta_data={"api_key": "***"})
 
             yield self._research_status(
                 "Delegation complete.",
