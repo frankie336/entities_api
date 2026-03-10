@@ -67,7 +67,7 @@ class OllamaDefaultBaseWorker(
             "delete_ephemeral_thread", False
         )
         self.ephemeral_supervisor_id: Optional[str] = None
-        self._delegation_api_key = api_key or extra.get("api_key")
+
         self._research_worker_thread: Optional[str] = None
         self._worker_thread: Optional[str] = None
 
@@ -140,7 +140,6 @@ class OllamaDefaultBaseWorker(
         # ── Reset per-run mutable state ───────────────────────────────────
         self._run_user_id = None
         self.ephemeral_supervisor_id = None
-        self._delegation_api_key = api_key
         self._scratch_pad_thread = None
         self._current_tool_call_id = None
         self._decision_payload = None
@@ -212,6 +211,12 @@ class OllamaDefaultBaseWorker(
             elif research_worker_setting:
                 web_access_setting = True
                 junior_engineer_setting = False
+                # ---------------------------------------------
+                # Pass the inference api key through the run
+                # object — trusted internally write, no ownership check.
+                # ---------------------------------------------
+                await self._native_exec.update_run_fields(run_id, meta_data={"api_key": api_key})
+
             elif junior_engineer_setting:
                 web_access_setting = False
                 research_worker_setting = False

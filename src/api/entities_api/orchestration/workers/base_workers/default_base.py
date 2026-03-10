@@ -66,7 +66,6 @@ class DefaultBaseWorker(
             "delete_ephemeral_thread"
         )
         self.ephemeral_supervisor_id = None
-        self._delegation_api_key = self.api_key
 
         # ---[FIX 3] Missing Init Property ---
         self._research_worker_thread = None
@@ -139,7 +138,6 @@ class DefaultBaseWorker(
 
         self._run_user_id = None
         self.ephemeral_supervisor_id = None
-        self._delegation_api_key = api_key
 
         # --- [FIX 1] Scratchpad Variable Initialization ---
         self._scratch_pad_thread = None
@@ -213,6 +211,11 @@ class DefaultBaseWorker(
                 web_access_setting = False
                 research_worker_setting = False
                 junior_engineer_setting = False
+                # ---------------------------------------------
+                # Pass the inference api key through the run
+                # object — trusted internally write, no ownership check.
+                # ---------------------------------------------
+                await self._native_exec.update_run_fields(run_id, meta_data={"api_key": api_key})
 
             elif research_worker_setting:
                 # RESEARCH WORKER
