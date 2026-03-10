@@ -79,6 +79,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
+
+COPY docker/sandbox/computer_shell_netfilter.conf /app/computer_shell_netfilter.conf
+
 # --- Create a restricted sandbox user ---
 RUN useradd -ms /bin/bash sandboxuser && \
     echo 'sandboxuser ALL=(ALL) NOPASSWD: /usr/bin/firejail /bin/bash, /usr/bin/firejail /usr/bin/apt-get *, /usr/bin/firejail /usr/bin/pip' \

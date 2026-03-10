@@ -26,15 +26,25 @@ IDLE_TIMEOUT_SECONDS = 300  # 5 minutes
 
 # Base directory for per-thread session working dirs.
 # Each session gets its own subdirectory: /app/sessions/{room}
-# This is also the firejail --private root, so file writes land here by default.
+# This is also the firejail --private root so file writes land here by default.
 SESSIONS_BASE_DIR = "/app/sessions"
 
 # Files larger than this are skipped during harvest to avoid flooding the
-# file server with accidental bulk data.  Adjust as needed.
+# file server with accidental bulk data.
 MAX_HARVEST_FILE_SIZE_MB = 50
+
+# Netfilter rules file applied by firejail.
+# Blocks all RFC-1918 outbound (Docker-internal) while allowing the public
+# internet.  See docker/sandbox/computer_shell_netfilter.conf.
+NETFILTER_CONF = "/app/computer_shell_netfilter.conf"
 
 # Set DISABLE_FIREJAIL=true in .env to skip sandboxing in local development.
 _DISABLE_FIREJAIL = os.getenv("DISABLE_FIREJAIL", "false").lower() == "true"
+
+# Set COMPUTER_SHELL_ALLOW_NET=true to bypass even the netfilter rules.
+# Only needed for debugging — in normal operation the netfilter handles
+# the internet-yes / internal-Docker-no distinction automatically.
+_ALLOW_NET_UNRESTRICTED = os.getenv("COMPUTER_SHELL_ALLOW_NET", "false").lower() == "true"
 
 # ProjectDavid file server — mirrors the code_interpreter upload pattern.
 _ADMIN_API_KEY = os.getenv("ADMIN_API_KEY")
@@ -53,25 +63,41 @@ def _build_shell_cmd(session_dir: str, elevated: bool) -> list[str]:
     * --private=<session_dir>
         Sets the process HOME to session_dir and bind-mounts it, so relative
         file writes land there by default.  System paths (/bin, /usr, etc.) are
-        still accessible — full filesystem isolation would require --overlay or
-        a separate container and is tracked as a future hardening step.
+        still readable — full filesystem isolation via --overlay is a future
+        hardening step.
 
     * --caps.drop=all + --seccomp + --nogroups
         Strips the most dangerous privilege-escalation vectors.
 
-    * Network isolation
-        By default (COMPUTER_SHELL_ALLOW_NET not set) we pass --net=none, which
-        creates a new network namespace containing only loopback.  This blocks
-        all access to the Docker bridge and therefore to internal services
-        (mysql, redis, qdrant, api container).
+    * Network isolation  (the interesting bit)
+        --net=eth0          Creates a new network namespace bridged to the
+                            container's primary interface.  The shell process
+                            gets its own namespace — other sessions and the
+                            sandbox FastAPI process are unaffected.
 
-        Set COMPUTER_SHELL_ALLOW_NET=true to restore Docker bridge access plus
-        full egress.  A per-process egress allowlist via --netfilter (blocking
-        RFC-1918 while allowing 0.0.0.0/0) is tracked as a follow-up item.
+        --netfilter=<path>  Applies iptables rules inside that namespace.
+                            The rules (see computer_shell_netfilter.conf):
+                              - ALLOW  loopback
+                              - ALLOW  outbound DNS (udp/tcp 53)
+                              - DROP   outbound to 10.0.0.0/8      (Docker bridge)
+                              - DROP   outbound to 172.16.0.0/12   (Docker bridge)
+                              - DROP   outbound to 192.168.0.0/16  (host-mode)
+                              - ALLOW  everything else (public internet)
+
+        Result: pip, curl, wget, public APIs all work.  Internal Docker
+        services (mysql, redis, qdrant, api container) are unreachable.
+
+        COMPUTER_SHELL_ALLOW_NET=true drops the --netfilter arg entirely,
+        giving the shell unrestricted egress.  Only for debugging.
+
+    * SYS_ADMIN capability
+        --net=eth0 requires firejail to create a network namespace, which
+        needs SYS_ADMIN.  The sandbox service already has cap_add: SYS_ADMIN
+        in docker-compose, so no compose changes are needed.
 
     * Elevated sessions
-        sudo /bin/bash is still supported; firejail wraps the entire sudo call
-        so the elevated shell is still jailed to the session directory.
+        sudo /bin/bash is still supported; firejail wraps the sudo call so
+        the elevated shell is still jailed to the session directory.
     """
     if _DISABLE_FIREJAIL:
         logger.warning(
@@ -79,8 +105,6 @@ def _build_shell_cmd(session_dir: str, elevated: bool) -> list[str]:
             "Do not use in production."
         )
         return ["sudo", "/bin/bash"] if elevated else ["/bin/bash"]
-
-    allow_net = os.getenv("COMPUTER_SHELL_ALLOW_NET", "false").lower() == "true"
 
     firejail_args = [
         "firejail",
@@ -91,13 +115,20 @@ def _build_shell_cmd(session_dir: str, elevated: bool) -> list[str]:
         "--notv",
         "--seccomp",
         "--caps.drop=all",
+        # New network namespace bridged to the container's primary interface.
+        # Required for --netfilter to apply rules in an isolated namespace
+        # rather than affecting the whole container.
+        "--net=eth0",
     ]
 
-    if not allow_net:
-        # New network namespace — no Docker bridge, no internal services.
-        # Outbound internet is also blocked; set COMPUTER_SHELL_ALLOW_NET=true
-        # if you need pip / curl / wget to work from the shell.
-        firejail_args.append("--net=none")
+    if not _ALLOW_NET_UNRESTRICTED:
+        # Apply RFC-1918 block rules — allows internet, blocks Docker-internal.
+        firejail_args.append(f"--netfilter={NETFILTER_CONF}")
+    else:
+        logger.warning(
+            "COMPUTER_SHELL_ALLOW_NET=true — netfilter bypassed for room. "
+            "Internal Docker services are reachable from this shell."
+        )
 
     inner_cmd = ["sudo", "/bin/bash"] if elevated else ["/bin/bash"]
     return firejail_args + inner_cmd
@@ -113,31 +144,35 @@ class PersistentShellSession:
     What's new in this version
     ──────────────────────────
     1. Firejail sandboxing — each session is wrapped with capability drops,
-       seccomp filtering, and optional network isolation.  Controlled by the
-       DISABLE_FIREJAIL and COMPUTER_SHELL_ALLOW_NET env vars.
+       seccomp filtering, and per-process network namespace isolation.
 
-    2. Per-thread working directory — /app/sessions/{room} is created at
+    2. Network model — outbound internet allowed (pip, curl, wget, APIs).
+       Docker-internal RFC-1918 ranges blocked via iptables netfilter rules
+       applied inside a per-process network namespace.  COMPUTER_SHELL_ALLOW_NET
+       and DISABLE_FIREJAIL env vars provide escape hatches for development.
+
+    3. Per-thread working directory — /app/sessions/{room} is created at
        session start, passed to firejail as --private, and used as cwd.
        Files generated during the session accumulate there and are harvested
        on session end, mirroring the code_interpreter pattern exactly.
 
-    3. File harvest & upload — on session end (idle timeout OR explicit
+    4. File harvest & upload — on session end (idle timeout OR explicit
        disconnect) any files found in the session directory are uploaded to
        the ProjectDavid file server and broadcast to the room as computer_file
-       events so the frontend can render download links.  The directory is then
-       wiped.
+       events so the frontend can render download links.  The directory is
+       then wiped.
 
-    4. Explicit harvest_files action — the assistant can request a mid-session
+    5. Explicit harvest_files action — the assistant can request a mid-session
        harvest via {"action": "harvest_files"} without terminating the shell.
        Useful after a long-running pipeline completes but the session should
        remain alive.
 
     Plus all improvements from the previous version:
-    5. UUID sentinel per command — immune to output collision and split-read
+    6. UUID sentinel per command — immune to output collision and split-read
        boundary issues.
-    6. Non-blocking process reap via asyncio.to_thread.
-    7. Idle timeout — auto-destructs after IDLE_TIMEOUT_SECONDS of inactivity.
-    8. Session registry — registers with RoomManager so reconnects never spawn
+    7. Non-blocking process reap via asyncio.to_thread.
+    8. Idle timeout — auto-destructs after IDLE_TIMEOUT_SECONDS of inactivity.
+    9. Session registry — registers with RoomManager so reconnects never spawn
        duplicate PTY processes.
     """
 
@@ -278,7 +313,6 @@ class PersistentShellSession:
 
             if sentinel and sentinel in self._read_buffer:
                 completion_detected = True
-                # Strip the sentinel line (including surrounding newlines/prompts)
                 self._read_buffer = self._read_buffer.replace(sentinel, "")
                 self._read_buffer = self._read_buffer.replace("\n\r\n", "\n")
                 self._current_sentinel = None
@@ -307,7 +341,6 @@ class PersistentShellSession:
                 )
 
             if completion_detected:
-                # Flush any remaining buffer now that the sentinel is gone
                 if self._read_buffer:
                     asyncio.create_task(
                         self.room_manager.broadcast(
@@ -522,9 +555,9 @@ class PersistentShellSession:
         asyncio.create_task(self._idle_cleanup())
 
     async def _idle_cleanup(self) -> None:
-        """Harvest first, then tear down — called only from idle timeout path."""
+        """Harvest first, then tear down — called only from the idle timeout path."""
         await self._harvest_and_upload_files(context="idle_timeout", wipe_after=True)
-        await self.cleanup(skip_harvest=True)  # harvest already done
+        await self.cleanup(skip_harvest=True)  # harvest already done above
 
     # ── Cleanup ────────────────────────────────────────────────────────────────
 
@@ -536,9 +569,9 @@ class PersistentShellSession:
         Parameters
         ──────────
         skip_harvest
-            Pass True when cleanup is called from _idle_cleanup to avoid
-            running the harvest twice.  All other callers leave this False so
-            a final harvest runs automatically on explicit disconnect too.
+            Pass True when called from _idle_cleanup to avoid a double-upload.
+            All other callers leave this False so a final harvest runs
+            automatically on explicit disconnect.
         """
         if not self.alive and not self.master_fd and not self.process:
             return  # already cleaned up
