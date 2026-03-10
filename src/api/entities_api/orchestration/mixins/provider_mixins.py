@@ -3,7 +3,7 @@ from src.api.entities_api.orchestration.mixins import (
     ConsumerToolHandlersMixin, ContextMixin, DelegationMixin, FileSearchMixin,
     JsonUtilsMixin, NativeExecMixin, NetworkInventoryMixin,
     PlatformToolHandlersMixin, ScratchpadMixin, ServiceRegistryMixin,
-    ShellExecutionMixin, ToolRoutingMixin, WebSearchMixin)
+    ShellExecutionMixin, StreamingMixin, ToolRoutingMixin, WebSearchMixin)
 
 
 class _ProviderMixins(
@@ -23,5 +23,6 @@ class _ProviderMixins(
     WebSearchMixin,
     ScratchpadMixin,
     NetworkInventoryMixin,
+    StreamingMixin,
 ):
     """Flat bundle for Provider Mixins."""

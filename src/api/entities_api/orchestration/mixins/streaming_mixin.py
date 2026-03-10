@@ -33,39 +33,36 @@ class StreamingMixin:
         stop_event = Event()
 
         def monitor():
-            # Define statuses that mean the run is over
             terminal_statuses = {
                 StatusEnum.completed.value,
                 StatusEnum.failed.value,
                 StatusEnum.cancelled.value,
                 StatusEnum.expired.value,
-                StatusEnum.pending_action.value,  # "action_required"
+                StatusEnum.pending_action.value,
                 StatusEnum.deleted.value,
             }
 
             while not stop_event.is_set():
                 try:
-                    run = self.project_david_client.runs.retrieve_run(run_id)
+                    # ✅ Native DB call — no HTTP SDK
+                    run = asyncio.run(self._native_exec.retrieve_run(run_id))
 
-                    # Case A: External Cancellation detected via API
                     if run.status == StatusEnum.cancelled.value:
                         LOG.warning("Run %s was cancelled via API.", run_id)
-                        stop_event.set()  # Signal the stream to stop
+                        stop_event.set()
                         break
 
-                    # Case B: Run finished naturally (or failed/expired)
                     if run.status in terminal_statuses:
                         LOG.debug(
                             "Run %s reached terminal status (%s). Stopping monitor.",
                             run_id,
                             run.status,
                         )
-                        break  # Exit the thread loop
+                        break
 
                 except Exception as e:
                     LOG.warning("Cancellation monitor error for %s: %s", run_id, e)
 
-                # Wait for next poll, but wake up immediately if stop_event is set elsewhere
                 stop_event.wait(timeout=interval)
 
             LOG.debug("Cancellation monitor thread for %s has exited.", run_id)
