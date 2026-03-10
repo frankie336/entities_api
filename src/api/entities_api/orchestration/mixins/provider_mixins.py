@@ -23,6 +23,5 @@ class _ProviderMixins(
     WebSearchMixin,
     ScratchpadMixin,
     NetworkInventoryMixin,
-    StreamingMixin,
 ):
     """Flat bundle for Provider Mixins."""

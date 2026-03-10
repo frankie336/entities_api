@@ -127,6 +127,8 @@ class ContextMixin:
             else:
                 resolved_user_tools.append(tool)
 
+        LOG.debug("RESOLVED TOOLS: %s", json.dumps(resolved_platform_tools, default=str))
+
         platform_tools_all = mandatory_platform_tools + resolved_platform_tools
 
         seen_names = set()
