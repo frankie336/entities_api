@@ -18,6 +18,8 @@ from projectdavid_common.validation import StatusEnum
 
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
+from entities_api.platform_tools.delegated_model_map.delegation_model_map import \
+    get_delegated_model
 # --- DEPENDENCIES ---
 from src.api.entities_api.dependencies import get_redis_sync
 from src.api.entities_api.orchestration.engine.orchestrator_core import \
@@ -238,11 +240,15 @@ class QwenBaseWorker(
                 web_access_setting = False
                 research_worker_setting = False
                 junior_engineer_setting = False
-                # ---------------------------------------------
+                # --------------------------------------------------------
                 # Pass the inference api key through the run
+                # Pass the delegated research model through the run
                 # object — trusted internally write, no ownership check.
-                # ---------------------------------------------
-                await self._native_exec.update_run_fields(run_id, meta_data={"api_key": api_key})
+                # --------------------------------------------------------
+                delegation_model = get_delegated_model(requested_model=pre_mapped_model)
+                await self._native_exec.update_run_fields(
+                    run_id, meta_data={"api_key": api_key, "delegated_model": delegation_model}
+                )
 
             elif research_worker_setting:
                 # RESEARCH WORKER

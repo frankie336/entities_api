@@ -375,6 +375,9 @@ class DelegationMixin:
             # -----------------------------------------
             run_obj = await self._native_exec.retrieve_run(run_id)
             inference_api_key = run_obj.meta_data.get("api_key") if run_obj.meta_data else None
+            delegated_model = (
+                run_obj.meta_data.get("delegated_model") if run_obj.meta_data else None
+            )
 
             if not inference_api_key:
                 raise RuntimeError(
@@ -406,7 +409,7 @@ class DelegationMixin:
 
             async for event in self._stream_sync_generator(
                 sync_stream.stream_events,
-                model="together-ai/Qwen/Qwen3-Next-80B-A3B-Instruct-FP8",
+                model=delegated_model,
             ):
                 raw_event_count += 1
                 event_type = type(event).__name__
