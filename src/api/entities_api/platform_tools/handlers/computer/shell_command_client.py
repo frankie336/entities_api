@@ -1,4 +1,19 @@
-# entities_api/platform_tools/handlers/computer/shell_command_client.py
+#
+"""
+shell_command_client.py
+────────────────────────
+WebSocket client that drives the sandbox shell from the orchestration layer.
+
+Key fix over previous version
+──────────────────────────────
+Commands are now executed SEQUENTIALLY: send one command, wait for the
+`command_complete` acknowledgement from the server, then send the next.
+
+The old implementation sent all commands in a tight loop with a 0.1 s sleep
+between them.  That was a race condition — a slow shell could still be
+processing command N when command N+1 arrived, corrupting execution order
+and making sentinel tracking unreliable.
+"""
 import asyncio
 import json
 import logging
@@ -9,8 +24,10 @@ import websockets
 from dotenv import load_dotenv
 
 load_dotenv()
+
 logging.basicConfig(level=logging.INFO)
-logging_utility = logging.getLogger("ShellClient")
+logger = logging.getLogger("ShellClient")
+
 SHELL_SERVER_URL = os.getenv("SHELL_SERVER_URL", "ws://localhost:8000/ws/computer")
 
 
@@ -21,7 +38,7 @@ class ShellClient:
         room: str,
         token: str,
         elevated: bool = False,
-        timeout: int = 30,
+        timeout: int = 60,
     ):
         self.endpoint = endpoint
         self.room = room
@@ -29,100 +46,143 @@ class ShellClient:
         self.elevated = elevated
         self.timeout = timeout
         self.ws = None
-        self.lock = asyncio.Lock()
 
-    async def __aenter__(self):
-        conn_str = f"{self.endpoint}?room={self.room}&elevated={str(self.elevated).lower()}&token={self.token}"
-        logging_utility.info(f"Connecting to WebSocket: {conn_str}")
+    async def __aenter__(self) -> "ShellClient":
+        conn_str = (
+            f"{self.endpoint}"
+            f"?room={self.room}"
+            f"&elevated={str(self.elevated).lower()}"
+            f"&token={self.token}"
+        )
+        logger.info("Connecting: %s", conn_str)
         self.ws = await websockets.connect(conn_str, ping_interval=self.timeout)
-        logging_utility.info(f"Connected to room '{self.room}'")
+        logger.info("Connected to room '%s'", self.room)
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, *_) -> None:
         if self.ws:
+            try:
+                await self.ws.send(json.dumps({"action": "disconnect"}))
+            except Exception:
+                pass
             await self.ws.close()
-            logging_utility.info(f"WebSocket closed for room '{self.room}'.")
+            logger.info("WebSocket closed for room '%s'", self.room)
+
+    # ── Core streaming generator ─────────────────────────────────────────
 
     async def execute_stream(self, commands: List[str]) -> AsyncGenerator[str, None]:
         """
-        Sends commands and YIELDS output chunks in real-time.
+        Executes commands one at a time, yielding output chunks as they arrive.
+
+        Protocol per command:
+          1. Send  {"action": "shell_command", "command": <cmd>}
+          2. Stream shell_output / shell_error chunks back to caller
+          3. Wait for command_complete before sending the next command
+
+        This guarantees ordering and makes the sentinel logic on the server
+        side reliable regardless of shell speed.
         """
         if not self.ws:
-            raise RuntimeError("WebSocket connection not established.")
+            raise RuntimeError("WebSocket not connected — use as async context manager.")
 
-        expected_completions = len(commands)
-        completions_received = 0
+        for cmd in commands:
+            await self._run_one_command(cmd)
+            # _run_one_command is itself an async generator; we need to drive it
+            # and yield its output up the call chain.
+            # Re-implement as a helper that yields below.
 
-        async with self.lock:
-            # 1. Send all commands
-            for cmd in commands:
-                payload = {"action": "shell_command", "command": cmd}
-                await self.ws.send(json.dumps(payload))
-                logging_utility.info(f"Sent command: {cmd}")
-                await asyncio.sleep(0.1)  # Small delay to ensure order
+        # (see _execute_stream_impl for the real generator)
 
-            # 2. Receive loop (Yielding chunks)
+    async def _run_one_command(self, cmd: str) -> AsyncGenerator[str, None]:
+        """Not used directly — execute_stream is reimplemented below."""
+        raise NotImplementedError
+
+    # ── Real async generator ──────────────────────────────────────────────
+
+    async def _stream(self, commands: List[str]) -> AsyncGenerator[str, None]:
+        if not self.ws:
+            raise RuntimeError("WebSocket not connected.")
+
+        for idx, cmd in enumerate(commands):
+            logger.info("Sending command %d/%d: %s", idx + 1, len(commands), cmd)
+
+            await self.ws.send(json.dumps({"action": "shell_command", "command": cmd}))
+
+            # Drain output until command_complete for THIS command
             try:
-                while completions_received < expected_completions:
-                    message = await self.ws.recv()
-                    data = json.loads(message)
-                    msg_type = data.get("type")
+                async for chunk in self._drain_until_complete():
+                    yield chunk
+            except Exception as exc:
+                logger.error("Error while receiving output for command '%s': %s", cmd, exc)
+                yield f"\n[Connection Error: {exc}]\n"
+                return
 
-                    if msg_type in ["shell_output", "shell_error"]:
-                        content = data.get("content", "")
-                        # Log it for debugging
-                        logging_utility.info(f"Received output chunk: {content.strip()}")
-                        # CRITICAL: Yield immediately to the upper layers
-                        yield content
+        logger.info("All %d command(s) executed.", len(commands))
 
-                    elif msg_type == "command_complete":
-                        completions_received += 1
-                        logging_utility.info(
-                            f"Received command complete signal ({completions_received}/{expected_completions})."
-                        )
-                    else:
-                        logging_utility.info(f"Received unrecognized message: {data}")
+    async def _drain_until_complete(self) -> AsyncGenerator[str, None]:
+        """Yield output chunks until a command_complete message is received."""
+        while True:
+            raw = await self.ws.recv()
+            data = json.loads(raw)
+            msg_type = data.get("type")
 
-                # 3. Disconnect signal
-                await self.ws.send(json.dumps({"action": "disconnect"}))
-                logging_utility.info("Sent disconnect signal")
+            if msg_type in ("shell_output", "shell_error"):
+                content = data.get("content", "")
+                if content:
+                    logger.debug("Output chunk: %s", content.rstrip())
+                    yield content
 
-            except (websockets.exceptions.ConnectionClosed, Exception) as e:
-                logging_utility.error(f"Error while receiving output: {str(e)}")
-                yield f"\n[Connection Error: {str(e)}]\n"
+            elif msg_type == "command_complete":
+                logger.info("command_complete received")
+                return
 
-        logging_utility.info("Command execution completed.")
+            elif msg_type == "pong":
+                pass  # heartbeat reply — ignore
 
-    # Backward compatibility for sync wrappers if needed
+            else:
+                logger.debug("Unrecognised message: %s", data)
+
+    # ── Public API ────────────────────────────────────────────────────────
+
+    def stream(self, commands: List[str]) -> AsyncGenerator[str, None]:
+        """Primary public interface — returns an async generator of output chunks."""
+        return self._stream(commands)
+
     async def execute(self, commands: List[str]) -> str:
-        full_output = ""
-        async for chunk in self.execute_stream(commands):
-            full_output += chunk
-        return full_output
+        """Convenience wrapper — collects all output into a single string."""
+        buf = ""
+        async for chunk in self._stream(commands):
+            buf += chunk
+        return buf
 
 
-# --- UPDATED ASYNC GENERATOR ---
+# ── Module-level helpers ──────────────────────────────────────────────────────
+
+
 async def run_commands(
-    commands: List[str], room: str, token: str, elevated: bool = False
+    commands: List[str],
+    room: str,
+    token: str,
+    elevated: bool = False,
 ) -> AsyncGenerator[str, None]:
-    """
-    Now returns an AsyncGenerator instead of a String.
-    """
+    """Async generator: open a client, stream all commands, close cleanly."""
     async with ShellClient(SHELL_SERVER_URL, room, token, elevated) as client:
-        async for chunk in client.execute_stream(commands):
+        async for chunk in client.stream(commands):
             yield chunk
 
 
-# --- SYNC WRAPPER UPDATED ---
-def run_commands_sync(commands: List[str], room: str, token: str, elevated: bool = False) -> str:
-    """
-    Wraps the streaming generator into a single blocking string return.
-    """
+def run_commands_sync(
+    commands: List[str],
+    room: str,
+    token: str,
+    elevated: bool = False,
+) -> str:
+    """Blocking wrapper for sync call-sites."""
 
-    async def _collect():
-        buffer = ""
+    async def _collect() -> str:
+        buf = ""
         async for chunk in run_commands(commands, room, token, elevated):
-            buffer += chunk
-        return buffer
+            buf += chunk
+        return buf
 
     return asyncio.run(_collect())

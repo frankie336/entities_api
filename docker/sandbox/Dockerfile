@@ -13,7 +13,7 @@ FROM base AS unhashed_builder
 
 COPY sandbox_reqs_unhashed.txt .
 
-# Add OpenCV headless so cv2 won’t look for libGL.so.1
+# Add OpenCV headless so cv2 won't look for libGL.so.1
 RUN echo "opencv-python-headless" >> sandbox_reqs_unhashed.txt
 
 RUN pip install \
@@ -89,9 +89,20 @@ RUN useradd -ms /bin/bash sandboxuser && \
 RUN mkdir -p /app /var/log/supervisor && \
     chown -R sandboxuser:sandboxuser /app /var/log/supervisor
 
-# --- Copy installed packages ---
+# --- Copy installed packages from both build stages ---
+# NOTE: these two layers are merged into /usr/local sequentially.
+# If both stages resolve different versions of the same package, the compiled
+# C extensions (.so files) and pure-Python files can end up mismatched.
+# The force-reinstall step below fixes any such collisions.
 COPY --from=unhashed_builder /install/packages /usr/local
 COPY --from=hashed_builder   /install/packages /usr/local
+
+# --- Resolve package version conflicts introduced by the two-stage merge ---
+# charset-normalizer is the known offender: pdfminer-six pins 3.4.4 in the
+# hashed stage, but the unhashed stage may pull a newer release whose compiled
+# C extension doesn't match the pure-Python files from the other stage.
+# Force a clean, consistent install of the pinned version last.
+RUN pip install --no-deps --force-reinstall "charset-normalizer==3.4.4"
 
 # --- Copy sandbox app code ---
 COPY src/api/sandbox /app/sandbox
