@@ -101,11 +101,11 @@ COPY --from=unhashed_builder /install/packages /usr/local
 COPY --from=hashed_builder   /install/packages /usr/local
 
 # --- Resolve package version conflicts introduced by the two-stage merge ---
-# charset-normalizer is the known offender: pdfminer-six pins 3.4.4 in the
-# hashed stage, but the unhashed stage may pull a newer release whose compiled
-# C extension doesn't match the pure-Python files from the other stage.
-# Force a clean, consistent install of the pinned version last.
-RUN pip install --no-deps --force-reinstall "charset-normalizer==3.4.4"
+# charset-normalizer is the known offender: the unhashed and hashed stages can
+# resolve different versions whose compiled C extensions (.so) and pure-Python
+# files end up mismatched after the sequential COPY. Force a clean reinstall
+# to get a single coherent wheel.
+RUN pip install --force-reinstall --no-cache-dir charset-normalizer
 
 # --- Copy sandbox app code ---
 COPY src/api/sandbox /app/sandbox

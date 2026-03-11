@@ -14,8 +14,6 @@ from projectdavid_common.validation import StatusEnum
 from entities_api.platform_tools.handlers.computer.shell_command_interface import \
     run_shell_commands_async
 from src.api.entities_api.services.logging_service import LoggingUtility
-from src.api.entities_api.services.native_execution_service import \
-    NativeExecutionService
 
 LOG = LoggingUtility()
 
@@ -24,19 +22,21 @@ class ShellExecutionMixin:
     """
     Executes POSIX-style shell commands inside the Project-David sandbox.
 
-    Changes in this version
-    ────────────────────────
-    * File harvest interleave — computer_file events arriving from the sandbox
-      WebSocket are intercepted, resolved to signed URLs via the ProjectDavid
-      file API, and yielded as computer_file stream chunks so the frontend can
-      render download links.  Pattern mirrors code_interpreter_mixin.py exactly.
+    Stream event types yielded
+    ──────────────────────────
+    shell_status          — bare JSON, no stream_type wrapper.
+                            Routes to ShellStatusEvent → shell status panel.
 
-    * accumulated_content receives only human-readable text output — computer_file
-      JSON blobs are stripped out before the content is submitted to the LLM as
-      tool output, keeping the context clean.
+    stream_type="shell"   — envelope for PTY chunks.
+      inner type="shell_output"   — raw PTY text (xterm reads via WebSocket;
+                                    suppressed from SSE in SDK _map_chunk_to_event)
+      inner type="computer_file"  — file download event (passes through SDK)
 
-    Level 2 self-correction for shell failures (missing binaries, path errors,
-    command syntax issues) retained from previous version.
+    NOTE: The final aggregated content chunk that existed in previous versions
+    has been REMOVED.  It is not needed because:
+      • The LLM receives the full PTY text via submit_tool_output (not SSE).
+      • xterm already has every line via its sandbox WebSocket listener.
+      • Forwarding it via SSE caused it to appear in the main chat / code panel.
     """
 
     # ── Error formatting ───────────────────────────────────────────────────────
@@ -68,7 +68,9 @@ class ShellExecutionMixin:
         }
         return jwt.encode(payload, secret, algorithm="HS256")
 
-    # ── Status helper (mirrors code_interpreter_mixin) ─────────────────────────
+    # ── Status helper ──────────────────────────────────────────────────────────
+    # Yields bare JSON (no stream_type wrapper) so it arrives at the SDK as a
+    # top-level chunk and maps directly to ShellStatusEvent.
 
     def _shell_status(self, activity: str, state: str, run_id: str) -> str:
         return json.dumps(
@@ -95,11 +97,20 @@ class ShellExecutionMixin:
         """
         Async generator handler for shell commands.
 
-        Stream event types yielded
-        ──────────────────────────
-        shell_status        — activity / state notifications (mirrors code_status)
-        stream_type=shell   — text output chunks from the PTY
-        computer_file       — one event per harvested file, includes signed URL
+        Chunks yielded and their SSE fate
+        ──────────────────────────────────
+        _shell_status(...)
+            → bare {"type":"shell_status",...}
+            → SDK: ShellStatusEvent → Flask: "shell_status" → shell status panel ✓
+
+        json.dumps({"stream_type":"shell","chunk":{"type":"shell_output",...}})
+            → SDK step 1 unwraps JSON-in-content, step 2 unwraps shell envelope
+            → c_type="shell_output", _from_shell_envelope=True → suppressed ✓
+            (xterm reads via WebSocket — no SSE copy needed)
+
+        json.dumps({"stream_type":"shell","chunk":{"type":"computer_file",...}})
+            → SDK unwraps → c_type="computer_file" → ComputerGeneratedFileEvent
+            → Flask: "computer_file" → shellFileAttachments ✓
         """
 
         tool_name = "computer"
@@ -170,8 +181,8 @@ class ShellExecutionMixin:
 
         yield self._shell_status("Executing in sandbox shell...", "in_progress", run_id)
 
-        text_chunks: List[str] = []  # human-readable PTY output → LLM
-        harvested_files: List[dict] = []  # computer_file metadata collected
+        text_chunks: List[str] = []
+        harvested_files: List[dict] = []
         execution_had_error: bool = False
 
         try:
@@ -183,22 +194,22 @@ class ShellExecutionMixin:
             async for chunk in run_shell_commands_async(
                 commands, thread_id=thread_id, token=auth_token
             ):
-                # ── Detect typed computer_file chunks ─────────────────────────
-                # The client serialises these as JSON strings with
-                # "type": "computer_file".  Everything else is raw PTY text.
+                # ── computer_file chunks ──────────────────────────────────────
                 if chunk.startswith('{"type": "computer_file"'):
                     try:
                         file_meta = json.loads(chunk)
                         if file_meta.get("type") == "computer_file":
                             harvested_files.append(file_meta)
-                            continue  # don't add to text output
+                            continue
                     except json.JSONDecodeError:
-                        pass  # wasn't JSON after all — fall through
+                        pass
 
-                # ── Plain text output ─────────────────────────────────────────
+                # ── Plain PTY text ────────────────────────────────────────────
+                # Accumulated for LLM tool output (submit_tool_output below).
+                # Forwarded via SSE as stream_type="shell" so the SDK can
+                # identify and suppress it — xterm reads via WebSocket instead.
                 text_chunks.append(chunk)
 
-                # Forward clean stdout to consumer
                 yield json.dumps(
                     {
                         "stream_type": "shell",
@@ -206,7 +217,6 @@ class ShellExecutionMixin:
                     }
                 )
 
-                # Error heuristics — same as previous version
                 if any(
                     marker in chunk.lower()
                     for marker in [
@@ -227,14 +237,7 @@ class ShellExecutionMixin:
                 run_id,
             )
 
-        # ── Process harvested files (mirrors code_interpreter_mixin §5) ───────
-        #
-        # For each file the sandbox uploaded we already have:
-        #   file_id, filename, url (signed URL from sandbox), mime_type
-        #
-        # We re-resolve the signed URL through our own client so the token is
-        # fresh and scoped to this API instance.  If the sandbox URL is still
-        # valid we fall back to it to avoid a second round-trip.
+        # ── Process harvested files ───────────────────────────────────────────
 
         LOG.info("[FILE_DEBUG] Shell harvest queue: %d file(s)", len(harvested_files))
 
@@ -252,8 +255,6 @@ class ShellExecutionMixin:
             )
 
             try:
-                # Prefer a freshly-minted signed URL from our own client.
-                # Fall back to the URL the sandbox already provided.
                 file_url = file_meta.get("url")
                 try:
                     file_url = await asyncio.to_thread(
@@ -292,24 +293,20 @@ class ShellExecutionMixin:
                     run_id,
                 )
 
-        # ── Finalise text output ───────────────────────────────────────────────
+        # ── Finalise ──────────────────────────────────────────────────────────
 
         raw_output = "".join(text_chunks).strip()
 
         if execution_had_error:
             llm_content = self._format_level2_shell_error(raw_output or "Unknown shell failure.")
-            user_content = raw_output or "❌ Shell execution failed."
         else:
             llm_content = raw_output or "[Shell commands executed successfully.]"
-            user_content = llm_content
 
-        # Emit final text content chunk
-        yield json.dumps(
-            {
-                "stream_type": "shell",
-                "chunk": {"type": "content", "content": user_content},
-            }
-        )
+        # NOTE: No final "content" SSE chunk is emitted here.
+        # Previous versions yielded {"stream_type":"shell","chunk":{"type":"content",...}}
+        # which leaked through the SDK as a ContentEvent and appeared as plain
+        # text in the main chat.  The LLM receives llm_content via
+        # submit_tool_output below — no SSE copy is needed.
 
         final_state = "completed" if not execution_had_error else "error"
         yield self._shell_status(
@@ -323,9 +320,6 @@ class ShellExecutionMixin:
         )
 
         # ── Submit tool output to LLM ─────────────────────────────────────────
-        # LLM receives llm_content (with recovery instructions on error).
-        # File metadata is NOT included — the LLM learns about files from the
-        # computer_file stream events above, not from the tool output string.
 
         try:
             await self.submit_tool_output(

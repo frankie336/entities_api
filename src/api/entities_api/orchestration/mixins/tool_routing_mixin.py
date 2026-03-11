@@ -182,16 +182,16 @@ class ToolRoutingMixin:
                     yield chunk
 
             elif name == "computer":
-                # handle_shell_action is a coroutine (async def → None),
-                # NOT an async generator — must be awaited, not iterated.
-                await self.handle_shell_action(
+                # handle_shell_action is an async generator — iterate, don't await.
+                async for chunk in self.handle_shell_action(
                     thread_id=thread_id,
                     run_id=run_id,
                     assistant_id=assistant_id,
                     arguments_dict=args,
                     tool_call_id=current_call_id,
                     decision=decision,
-                )
+                ):
+                    yield chunk
 
             elif name == "file_search":
                 await self.handle_file_search(
