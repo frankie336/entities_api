@@ -118,6 +118,7 @@ async def websocket_endpoint(
     room: str = Query(..., description="The Thread/Room ID"),
     elevated: bool = Query(False),
     token: str = Query(..., description="Signed JWT from Main API"),
+    role: str = Query("executor", description="Role of the client (viewer or executor)"),
 ):
     """
     SECURED: Interactive Shell Session.
@@ -133,7 +134,6 @@ async def websocket_endpoint(
         return
 
     # 2. Validate Room Access (Multi-Tenancy Security)
-    # The token MUST contain a "room" claim matching the requested room
     allowed_room = payload.get("room")
     user_id = payload.get("sub")
 
@@ -144,8 +144,20 @@ async def websocket_endpoint(
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    logging_utility.info(f"Shell session started for User: {user_id} in Room: {room}")
+    # 3. Handle Frontend UI (Viewer)
+    if role == "viewer":
+        logging_utility.info(f"Viewer UI connected to Room: {room}")
+        await room_manager.connect(room, websocket)
+        try:
+            # Keep the connection alive and listen for the client disconnecting
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            await room_manager.disconnect(room, websocket)
+            logging_utility.info(f"Viewer UI disconnected from Room: {room}")
+        return
 
-    # 3. Start Session
+    # 4. Handle AI SDK (Executor)
+    logging_utility.info(f"Shell session started for User: {user_id} in Room: {room}")
     session = PersistentShellSession(websocket, room, room_manager, elevated=elevated)
     await session.start()

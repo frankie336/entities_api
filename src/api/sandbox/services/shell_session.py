@@ -272,12 +272,28 @@ class PersistentShellSession:
                 await self.websocket.send_json({"type": "pong"})
 
             elif action == "harvest_files":
+
                 # Explicit mid-session harvest requested by the assistant.
+
                 # Does NOT terminate the session — shell stays alive.
+
                 self._reset_idle_timer()
+
                 await self._harvest_and_upload_files(
                     context="explicit_harvest",
                     wipe_after=True,
+                )
+
+                # FIX: Broadcast command_complete so the SDK knows the harvest is done!
+
+                asyncio.create_task(
+                    self.room_manager.broadcast(
+                        self.room,
+                        {
+                            "type": "command_complete",
+                            "thread_id": self.room,
+                        },
+                    )
                 )
 
             elif action == "disconnect":
@@ -429,25 +445,38 @@ class PersistentShellSession:
             Delete successfully uploaded files after upload.  Always True in
             normal operation; False only for debugging.
         """
-        if not os.path.isdir(self.session_dir):
-            return
+        # 1. Scan BOTH the room's session directory AND the global generated_files directory
+        directories_to_check = [self.session_dir, "/app/generated_files"]
 
-        # Collect harvestable files, skipping oversized ones
         candidates: list[tuple[str, str]] = []
-        for fname in os.listdir(self.session_dir):
-            fpath = os.path.join(self.session_dir, fname)
-            if not os.path.isfile(fpath):
+        seen_paths = set()
+
+        for target_dir in directories_to_check:
+            if not os.path.isdir(target_dir):
                 continue
-            size_mb = os.path.getsize(fpath) / (1024 * 1024)
-            if size_mb > MAX_HARVEST_FILE_SIZE_MB:
-                logger.warning(
-                    "Skipping %s (%.1f MB exceeds %d MB limit)",
-                    fname,
-                    size_mb,
-                    MAX_HARVEST_FILE_SIZE_MB,
-                )
-                continue
-            candidates.append((fname, fpath))
+
+            for fname in os.listdir(target_dir):
+                fpath = os.path.join(target_dir, fname)
+
+                # Prevent double-processing just in case paths overlap
+                abs_path = os.path.abspath(fpath)
+                if abs_path in seen_paths:
+                    continue
+                seen_paths.add(abs_path)
+
+                if not os.path.isfile(fpath):
+                    continue
+
+                size_mb = os.path.getsize(fpath) / (1024 * 1024)
+                if size_mb > MAX_HARVEST_FILE_SIZE_MB:
+                    logger.warning(
+                        "Skipping %s (%.1f MB exceeds %d MB limit)",
+                        fname,
+                        size_mb,
+                        MAX_HARVEST_FILE_SIZE_MB,
+                    )
+                    continue
+                candidates.append((fname, fpath))
 
         if not candidates:
             logger.info("Harvest [%s] room=%s: no files found.", context, self.room)
@@ -534,6 +563,7 @@ class PersistentShellSession:
         if wipe_after:
             for fpath in uploaded_paths:
                 try:
+                    # We only delete the specific files we successfully uploaded!
                     os.remove(fpath)
                 except Exception:
                     pass

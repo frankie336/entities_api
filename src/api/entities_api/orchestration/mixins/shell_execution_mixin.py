@@ -217,8 +217,13 @@ class ShellExecutionMixin:
                     }
                 )
 
+                # Filter out known benign sandbox startup warnings
+                chunk_lower = chunk.lower()
+                eval_chunk = chunk_lower.replace("bash: /root/.bashrc: permission denied", "")
+                eval_chunk = eval_chunk.replace("warning: an existing sandbox was detected", "")
+
                 if any(
-                    marker in chunk.lower()
+                    marker in eval_chunk
                     for marker in [
                         "not found",
                         "permission denied",
