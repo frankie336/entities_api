@@ -21,6 +21,8 @@ jobs:
     steps:
       - name: "🕺 Checkout repository"
         uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: "🐍 Set up Python"
         uses: actions/setup-python@v5
@@ -80,6 +82,8 @@ jobs:
     steps:
       - name: "🕺 Checkout repository"
         uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: "🐍 Set up Python ${{ matrix.python-version }}"
         uses: actions/setup-python@v5
@@ -121,6 +125,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: true
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: "⚙️ Setup QEMU"
         uses: docker/setup-qemu-action@v3
