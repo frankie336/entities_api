@@ -38,7 +38,6 @@ class ContextMixin:
     # -----------------------------------------------------
     # PURE HELPERS (SYNC — unchanged)
     # -----------------------------------------------------
-
     @staticmethod
     def _normalize_roles(msgs: List[Dict]) -> List[Dict]:
         out: List[Dict] = []
