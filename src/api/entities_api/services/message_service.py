@@ -1,7 +1,7 @@
 # src/api/entities_api/services/message_service.py
 import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from fastapi import HTTPException
 from projectdavid_common import UtilsInterface, ValidationInterface
@@ -21,11 +21,44 @@ class MessageService:
         logging_utility.info(f"Initialized MessageService. Source: {__file__}")
 
     # ──────────────────────────────────────────────────────────────────────────
+    #  Multimodal content helpers
+    #
+    #  The DB column is TEXT. Multimodal content (a list of content blocks) is
+    #  JSON-serialized on write and deserialized on read. Plain string messages
+    #  are stored and returned unchanged — no migration needed.
+    # ──────────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _serialize_content(content: Union[str, list]) -> str:
+        """str → stored as-is.  list → json.dumps() for DB storage."""
+        if isinstance(content, list):
+            return json.dumps(content)
+        return content
+
+    @staticmethod
+    def _deserialize_content(raw: str) -> Union[str, list]:
+        """
+        Reverse of _serialize_content.
+        Tries json.loads(); returns the list if it is one, otherwise
+        falls back to the original string — existing plain-text rows
+        are completely unaffected.
+        """
+        if not raw:
+            return raw
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return raw
+
+    # ──────────────────────────────────────────────────────────────────────────
     #  Internal helpers
     # ──────────────────────────────────────────────────────────────────────────
 
     def _prepare_for_read(self, db_msg: Message) -> Message:
-        """Ensure meta_data is a dict before Pydantic validation."""
+        """Deserialize meta_data and content before Pydantic validation."""
         if isinstance(db_msg.meta_data, str):
             try:
                 db_msg.meta_data = json.loads(db_msg.meta_data)
@@ -33,63 +66,37 @@ class MessageService:
                 db_msg.meta_data = {}
         elif db_msg.meta_data is None:
             db_msg.meta_data = {}
+
+        # Restore multimodal list if this was a vision message
+        db_msg.content = self._deserialize_content(db_msg.content)
         return db_msg
 
     def _assert_thread_owner(self, db: Any, thread_id: str, user_id: str) -> "Thread":
-        """
-        Load thread and enforce ownership.
-
-        Raises:
-            404 if thread does not exist.
-            403 if the calling user is not the thread owner.
-        """
         db_thread = db.query(Thread).filter(Thread.id == thread_id).first()
         if not db_thread:
             raise HTTPException(status_code=404, detail="Thread not found")
         if db_thread.owner_id != user_id:
             raise HTTPException(
-                status_code=403,
-                detail="You do not have permission to access this thread.",
+                status_code=403, detail="You do not have permission to access this thread."
             )
         return db_thread
 
     def _assert_message_owner(self, db: Any, message_id: str, user_id: str) -> "Message":
-        """
-        Load message, resolve its thread, and enforce ownership.
-
-        Raises:
-            404 if message does not exist.
-            403 if the calling user does not own the thread the message belongs to.
-        """
         db_message = db.query(Message).filter(Message.id == message_id).first()
         if not db_message:
             raise HTTPException(status_code=404, detail="Message not found")
-        # Resolve ownership via the parent thread
         db_thread = db.query(Thread).filter(Thread.id == db_message.thread_id).first()
         if not db_thread or db_thread.owner_id != user_id:
             raise HTTPException(
-                status_code=403,
-                detail="You do not have permission to access this message.",
+                status_code=403, detail="You do not have permission to access this message."
             )
         return db_message
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Internal / trusted-caller variants  (NO ownership check)
-    #
-    #  FOR USE BY: NativeExecutionService, MessageCache, and any other server-
-    #  side component that operates inside the trust boundary.
-    #
-    #  DO NOT expose these through any HTTP router endpoint.
     # ──────────────────────────────────────────────────────────────────────────
 
-    def create_message_internal(
-        self,
-        message: validator.MessageCreate,
-    ) -> validator.MessageRead:
-        """
-        Create a message with no ownership check.
-        FOR INTERNAL/TRUSTED CALLERS ONLY — NativeExecutionService, orchestrator.
-        """
+    def create_message_internal(self, message: validator.MessageCreate) -> validator.MessageRead:
         logging_utility.info(
             f"[INTERNAL] Creating message for thread_id={message.thread_id}, role={message.role}."
         )
@@ -103,7 +110,7 @@ class MessageService:
                 assistant_id=message.assistant_id,
                 attachments=[],
                 completed_at=None,
-                content=message.content,
+                content=self._serialize_content(message.content),  # ← serialize
                 created_at=int(time.time()),
                 incomplete_at=None,
                 incomplete_details=None,
@@ -128,14 +135,7 @@ class MessageService:
 
             return validator.MessageRead.model_validate(self._prepare_for_read(db_message))
 
-    def get_formatted_messages_internal(
-        self,
-        thread_id: str,
-    ) -> List[Dict[str, Any]]:
-        """
-        Return formatted messages for a thread with no ownership check.
-        FOR INTERNAL/TRUSTED CALLERS ONLY — NativeExecutionService, MessageCache.
-        """
+    def get_formatted_messages_internal(self, thread_id: str) -> List[Dict[str, Any]]:
         with SessionLocal() as db:
             db_thread = db.query(Thread).filter(Thread.id == thread_id).first()
             if not db_thread:
@@ -152,55 +152,50 @@ class MessageService:
 
             for db_message in messages:
                 role = db_message.role
+                content = self._deserialize_content(db_message.content)  # ← deserialize
 
                 if role == "tool":
                     formatted_messages.append(
                         {
                             "role": "tool",
                             "tool_call_id": db_message.tool_call_id,
-                            "content": db_message.content,
+                            "content": content,
                         }
                     )
                     continue
 
                 if role == "assistant":
-                    try:
-                        parsed = json.loads(db_message.content)
-                        is_tool_list = (
-                            isinstance(parsed, list)
-                            and len(parsed) > 0
-                            and all(isinstance(i, dict) and "function" in i for i in parsed)
-                        )
-                        if is_tool_list:
-                            formatted_messages.append(
-                                {
-                                    "role": "assistant",
-                                    "content": None,
-                                    "tool_calls": parsed,
-                                }
+                    # Tool-call detection only applies to plain string assistant messages
+                    if isinstance(content, str):
+                        try:
+                            parsed = json.loads(content)
+                            is_tool_list = (
+                                isinstance(parsed, list)
+                                and len(parsed) > 0
+                                and all(isinstance(i, dict) and "function" in i for i in parsed)
                             )
-                        else:
-                            formatted_messages.append(
-                                {"role": "assistant", "content": db_message.content}
-                            )
-                    except (json.JSONDecodeError, TypeError):
-                        formatted_messages.append(
-                            {"role": "assistant", "content": db_message.content}
-                        )
+                            if is_tool_list:
+                                formatted_messages.append(
+                                    {
+                                        "role": "assistant",
+                                        "content": None,
+                                        "tool_calls": parsed,
+                                    }
+                                )
+                                continue
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                    formatted_messages.append({"role": "assistant", "content": content})
                     continue
 
-                formatted_messages.append({"role": role, "content": db_message.content})
+                # user / system / platform — pass through as-is (str or multimodal list)
+                formatted_messages.append({"role": role, "content": content})
 
             return formatted_messages
 
     def submit_tool_output_internal(
-        self,
-        message: validator.MessageCreate,
+        self, message: validator.MessageCreate
     ) -> validator.MessageRead:
-        """
-        Submit tool output with no ownership check.
-        FOR INTERNAL/TRUSTED CALLERS ONLY — NativeExecutionService, orchestrator.
-        """
         with SessionLocal() as db:
             db_thread = db.query(Thread).filter(Thread.id == message.thread_id).first()
             if not db_thread:
@@ -209,7 +204,7 @@ class MessageService:
             db_message = Message(
                 id=UtilsInterface.IdentifierService.generate_message_id(),
                 assistant_id=message.assistant_id,
-                content=message.content,
+                content=self._serialize_content(message.content),  # ← serialize
                 created_at=int(time.time()),
                 meta_data=message.meta_data or {},
                 object="message",
@@ -229,19 +224,16 @@ class MessageService:
             return validator.MessageRead.model_validate(self._prepare_for_read(db_message))
 
     # ──────────────────────────────────────────────────────────────────────────
-    #  Public API  (ownership enforced — called from HTTP router only)
+    #  Public API  (ownership enforced)
     # ──────────────────────────────────────────────────────────────────────────
 
     def create_message(
-        self,
-        message: validator.MessageCreate,
-        user_id: str,
+        self, message: validator.MessageCreate, user_id: str
     ) -> validator.MessageRead:
         logging_utility.info(
             f"Creating message for thread_id={message.thread_id}, role={message.role}."
         )
         with SessionLocal() as db:
-            # Ownership enforced: caller must own the target thread
             self._assert_thread_owner(db, message.thread_id, user_id)
 
             db_message = Message(
@@ -249,7 +241,7 @@ class MessageService:
                 assistant_id=message.assistant_id,
                 attachments=[],
                 completed_at=None,
-                content=message.content,
+                content=self._serialize_content(message.content),  # ← serialize
                 created_at=int(time.time()),
                 incomplete_at=None,
                 incomplete_details=None,
@@ -274,27 +266,16 @@ class MessageService:
 
             return validator.MessageRead.model_validate(self._prepare_for_read(db_message))
 
-    def retrieve_message(
-        self,
-        message_id: str,
-        user_id: str,
-    ) -> validator.MessageRead:
+    def retrieve_message(self, message_id: str, user_id: str) -> validator.MessageRead:
         with SessionLocal() as db:
-            # Ownership enforced: resolves thread → owner_id
             db_message = self._assert_message_owner(db, message_id, user_id)
             return validator.MessageRead.model_validate(self._prepare_for_read(db_message))
 
     def list_messages(
-        self,
-        thread_id: str,
-        user_id: str,
-        limit: int = 20,
-        order: str = "asc",
+        self, thread_id: str, user_id: str, limit: int = 20, order: str = "asc"
     ) -> validator.MessagesList:
         with SessionLocal() as db:
-            # Ownership enforced
             self._assert_thread_owner(db, thread_id, user_id)
-
             query = db.query(Message).filter(Message.thread_id == thread_id)
             query = (
                 query.order_by(Message.created_at.asc())
@@ -302,11 +283,9 @@ class MessageService:
                 else query.order_by(Message.created_at.desc())
             )
             db_messages = query.limit(limit).all()
-
             messages = [
                 validator.MessageRead.model_validate(self._prepare_for_read(m)) for m in db_messages
             ]
-
             return validator.MessagesList(
                 data=messages,
                 first_id=messages[0].id if messages else None,
@@ -323,10 +302,7 @@ class MessageService:
         sender_id: str,
         is_last_chunk: bool = False,
     ) -> Optional[validator.MessageRead]:
-        """
-        Internal / trusted-caller path used by the execution engine.
-        No user_id check — caller is the system, not an end-user HTTP request.
-        """
+        # Assistant replies are always plain strings — no serialize needed
         if thread_id not in self.message_chunks:
             self.message_chunks[thread_id] = []
         self.message_chunks[thread_id].append(content)
@@ -360,84 +336,67 @@ class MessageService:
 
             return validator.MessageRead.model_validate(self._prepare_for_read(db_message))
 
-    def get_formatted_messages(
-        self,
-        thread_id: str,
-        user_id: str,
-    ) -> List[Dict[str, Any]]:
-        """
-        Structures messages for LLM consumption.
-        Ownership enforced — caller must own the thread.
-        """
+    def get_formatted_messages(self, thread_id: str, user_id: str) -> List[Dict[str, Any]]:
         with SessionLocal() as db:
-            # Ownership enforced
             self._assert_thread_owner(db, thread_id, user_id)
-
             messages = (
                 db.query(Message)
                 .filter(Message.thread_id == thread_id)
                 .order_by(Message.created_at.asc())
                 .all()
             )
-
             formatted_messages: List[Dict[str, Any]] = []
 
             for db_message in messages:
                 role = db_message.role
+                content = self._deserialize_content(db_message.content)  # ← deserialize
 
                 if role == "tool":
                     formatted_messages.append(
                         {
                             "role": "tool",
                             "tool_call_id": db_message.tool_call_id,
-                            "content": db_message.content,
+                            "content": content,
                         }
                     )
                     continue
 
                 if role == "assistant":
-                    try:
-                        parsed = json.loads(db_message.content)
-                        is_tool_list = (
-                            isinstance(parsed, list)
-                            and len(parsed) > 0
-                            and all(isinstance(i, dict) and "function" in i for i in parsed)
-                        )
-                        if is_tool_list:
-                            formatted_messages.append(
-                                {
-                                    "role": "assistant",
-                                    "content": None,
-                                    "tool_calls": parsed,
-                                }
+                    if isinstance(content, str):
+                        try:
+                            parsed = json.loads(content)
+                            is_tool_list = (
+                                isinstance(parsed, list)
+                                and len(parsed) > 0
+                                and all(isinstance(i, dict) and "function" in i for i in parsed)
                             )
-                        else:
-                            formatted_messages.append(
-                                {"role": "assistant", "content": db_message.content}
-                            )
-                    except (json.JSONDecodeError, TypeError):
-                        formatted_messages.append(
-                            {"role": "assistant", "content": db_message.content}
-                        )
+                            if is_tool_list:
+                                formatted_messages.append(
+                                    {
+                                        "role": "assistant",
+                                        "content": None,
+                                        "tool_calls": parsed,
+                                    }
+                                )
+                                continue
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                    formatted_messages.append({"role": "assistant", "content": content})
                     continue
 
-                formatted_messages.append({"role": role, "content": db_message.content})
+                formatted_messages.append({"role": role, "content": content})
 
             return formatted_messages
 
     def submit_tool_output(
-        self,
-        message: validator.MessageCreate,
-        user_id: str,
+        self, message: validator.MessageCreate, user_id: str
     ) -> validator.MessageRead:
         with SessionLocal() as db:
-            # Ownership enforced: caller must own the target thread
             self._assert_thread_owner(db, message.thread_id, user_id)
-
             db_message = Message(
                 id=UtilsInterface.IdentifierService.generate_message_id(),
                 assistant_id=message.assistant_id,
-                content=message.content,
+                content=self._serialize_content(message.content),  # ← serialize
                 created_at=int(time.time()),
                 meta_data=message.meta_data or {},
                 object="message",
@@ -456,15 +415,9 @@ class MessageService:
 
             return validator.MessageRead.model_validate(self._prepare_for_read(db_message))
 
-    def delete_message(
-        self,
-        message_id: str,
-        user_id: str,
-    ) -> validator.MessageDeleted:
+    def delete_message(self, message_id: str, user_id: str) -> validator.MessageDeleted:
         with SessionLocal() as db:
-            # Ownership enforced: resolves thread → owner_id
             self._assert_message_owner(db, message_id, user_id)
-
             db_msg = db.query(Message).filter(Message.id == message_id).first()
             db.delete(db_msg)
             db.commit()

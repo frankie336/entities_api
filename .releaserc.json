@@ -16,8 +16,7 @@
     [
       "@semantic-release/exec",
       {
-
-        "prepareCmd": "python scripts/update_pyproject_version.py ${nextRelease.version} src/api/entities_api/pyproject.toml && python scripts/update_pyproject_version.py ${nextRelease.version} src/api/sandbox/pyproject.toml"
+        "prepareCmd": "python scripts/update_pyproject_versions.py ${nextRelease.version} pyproject.toml src/api/sandbox/pyproject.toml"
       }
     ],
     "@semantic-release/github",
@@ -26,8 +25,7 @@
       {
         "assets": [
           "CHANGELOG.md",
-
-          "src/api/entities_api/pyproject.toml",
+          "pyproject.toml",
           "src/api/sandbox/pyproject.toml"
         ],
         "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
