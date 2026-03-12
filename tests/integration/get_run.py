@@ -23,4 +23,3 @@ update_run = client.runs.update_run_fields(
 )
 
 run = client.runs.retrieve_run(run_id="run_m7RlewfE0MYRJHL0ZYPKr1")
-print(run.meta_data.get("api_key"))
