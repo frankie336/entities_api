@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: "🕺 Checkout repository"
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: "🐍 Set up Python"
         uses: actions/setup-python@v5
@@ -28,7 +28,7 @@ jobs:
           python-version: "3.11"
 
       - name: "📦 Cache pip dependencies"
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-lint-${{ hashFiles('**/*_reqs_*.txt', '**/pyproject.toml') }}
@@ -79,7 +79,7 @@ jobs:
 
     steps:
       - name: "🕺 Checkout repository"
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: "🐍 Set up Python ${{ matrix.python-version }}"
         uses: actions/setup-python@v5
@@ -87,7 +87,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: "📦 Cache pip dependencies"
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-test-${{ matrix.python-version }}-${{ hashFiles('**/*_reqs_*.txt', '**/pyproject.toml') }}
@@ -107,7 +107,7 @@ jobs:
         run: pytest tests/ --cov=src --cov-report=xml --cov-report=term-missing
 
       - name: "⬆️ Upload coverage to Codecov"
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
@@ -123,7 +123,7 @@ jobs:
 
     steps:
       - name: "🕺 Checkout repository"
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           persist-credentials: true
@@ -211,7 +211,7 @@ jobs:
           tags: ${{ steps.meta_api.outputs.tags }}
           labels: ${{ steps.meta_api.outputs.labels }}
           platforms: linux/amd64
-          cache-from: type=gha           # ← still *reads* from cache
+          cache-from: type=gha
           # no cache-to: export disabled
 
       # ---------------- Build / Push Sandbox --------------
@@ -224,5 +224,5 @@ jobs:
           tags: ${{ steps.meta_sandbox.outputs.tags }}
           labels: ${{ steps.meta_sandbox.outputs.labels }}
           platforms: linux/amd64
-          cache-from: type=gha           # ← still *reads* from cache
+          cache-from: type=gha
           # no cache-to: export disabled
