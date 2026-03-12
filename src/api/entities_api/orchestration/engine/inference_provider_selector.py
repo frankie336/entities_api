@@ -11,6 +11,7 @@ from entities_api.orchestration.handlers.hb_handler import HyperbolicHandler
 from entities_api.orchestration.handlers.ollama_handler import OllamaHandler
 from entities_api.orchestration.handlers.together_handler import \
     TogetherAIHandler
+from entities_api.orchestration.handlers.vllm_handler import VllmHandler
 
 # TODO: Migrate workers to Mixin architecture
 # from src.api.entities_api.inference.azure.azure_handler import AzureHandler
@@ -29,6 +30,7 @@ TOP_LEVEL_ROUTING_MAP: dict[str, Type[Any]] = {
     "hyperbolic/": HyperbolicHandler,
     "together-ai/": TogetherAIHandler,
     "ollama/": OllamaHandler,
+    "vllm/": VllmHandler,
     # "deepseek-ai/": DeepseekHandler,
     # "azure/": AzureHandler,
     # "groq": GroqHandler,

@@ -1,4 +1,4 @@
-# src/api/entities_api/orchestration/workers/togeterai/together_handler.py
+# src/api/entities_api/orchestration/handlers/vllm_handler.py
 
 from typing import Any, AsyncGenerator, Optional, Type
 
@@ -6,22 +6,22 @@ from projectdavid_common.utilities.logging_service import LoggingUtility
 
 from src.api.entities_api.orchestration.engine.inference_arbiter import \
     InferenceArbiter
-from src.api.entities_api.orchestration.workers.ollama.ollama_default import \
-    OllamaDefaultWorker
+from src.api.entities_api.orchestration.workers.vllm.vllm_default import \
+    VllmDefaultWorker
 
 LOG = LoggingUtility()
 
 
-class OllamaHandler:
+class VllmHandler:
     """
     Pure synchronous dispatcher for **TogetherAI** model requests.
     Consolidated to use provider/family prefixes for better maintainability.
     """
 
     SUBMODEL_CLASS_MAP: dict[str, Type[Any]] = {
-        # --- DeepSeek Family ---
-        "ollama/": OllamaDefaultWorker,
-        "": OllamaDefaultWorker,
+        # --- All Families ---
+        "vllm/": VllmDefaultWorker,
+        "": VllmDefaultWorker,
     }
 
     def __init__(self, arbiter: InferenceArbiter):
@@ -35,7 +35,7 @@ class OllamaHandler:
         """
         Resolves the concrete worker instance based on the unified model ID.
         """
-        prefix = "together-ai/"
+        prefix = "vllm/"
         lower_id = unified_model_id.lower()
 
         # Strip the platform prefix if present
@@ -61,8 +61,8 @@ class OllamaHandler:
                 break
 
         if specific_cls is None:
-            LOG.error(f"No handler found for Ollama sub-model: '{sub_model_id}'")
-            raise ValueError(f"Unsupported Ollama model: {unified_model_id}")
+            LOG.error(f"No handler found for Vllm sub-model: '{sub_model_id}'")
+            raise ValueError(f"Unsupported Vllm model: {unified_model_id}")
 
         LOG.debug(f"Routing '{sub_model_id}' to: {specific_cls.__name__}")
         return self.arbiter.get_provider_instance(specific_cls)

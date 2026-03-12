@@ -18,17 +18,6 @@ PLATFORM_TOOLS = [
     "read_scratchpad",
     "update_scratchpad",
     "append_scratchpad",
-    "get_device_info",
-    "search_inventory_by_group",
-    "run_batfish_tool",
-    "get_device_os_inventory",
-    "get_logical_topology_with_mtu",
-    "get_ospf_failures",
-    "get_bgp_failures",
-    "get_undefined_references",
-    "get_unused_structures",
-    "get_acl_shadowing",
-    "get_routing_loop_detection",
 ]
 
 

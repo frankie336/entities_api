@@ -138,6 +138,33 @@ services:
     networks:
       - my_custom_network
 
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: vllm_server
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - ${HF_CACHE_PATH:-~/.cache/huggingface}:/root/.cache/huggingface
+    ports:
+      - "8001:8000"
+    command: >
+      --model ${VLLM_MODEL:-Qwen/Qwen2.5-3B-Instruct}
+      --dtype float16
+      --max-model-len 4096
+      --gpu-memory-utilization 0.85
+    networks:
+      - my_custom_network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
   api:
     build:
       context: .
@@ -162,6 +189,7 @@ services:
       - OTEL_METRICS_EXPORTER=none
       - OTEL_LOGS_EXPORTER=none
       - OLLAMA_BASE_URL=http://ollama:11434/v1
+      - VLLM_BASE_URL=http://vllm_server:8000
       # Override the host-side SHARED_PATH with the container-internal mount point
       # so the purge daemon writes to the same directory the samba container serves
       - SHARED_PATH=/app/shared_data
@@ -190,6 +218,8 @@ services:
       otel-collector:
         condition: service_started
       ollama:
+        condition: service_started
+      vllm:
         condition: service_started
     networks:
       - my_custom_network
