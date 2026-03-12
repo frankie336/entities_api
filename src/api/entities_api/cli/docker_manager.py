@@ -4,6 +4,7 @@
 #   python -m entities_api docker-manager --mode up
 #   python -m entities_api docker-manager --mode both --no-cache --tag v1.0
 #   entities-api docker-manager --mode logs --follow
+#   entities-api docker-manager --mode up --exclude ollama --exclude vllm
 #
 from __future__ import annotations
 
@@ -86,7 +87,7 @@ app = typer.Typer(
 
 
 # ---------------------------------------------------------------------------
-# DockerManager class  (unchanged core logic)
+# DockerManager class
 # ---------------------------------------------------------------------------
 class DockerManager:
     """Manages Docker Compose stack operations, env setup, and optional Ollama integration."""
@@ -326,6 +327,12 @@ class DockerManager:
         except Exception as e:
             self.log.error("Unexpected error reading %s: %s", self._DOCKER_COMPOSE_FILE, e)
             return None
+
+    def _get_all_services(self) -> List[str]:
+        """Return every service name declared in docker-compose.yml."""
+        if not self.compose_config:
+            return []
+        return list(self.compose_config.get("services", {}).keys())
 
     def _get_env_from_compose_service(self, service_name, env_var_name):
         if not self.compose_config:
@@ -927,6 +934,7 @@ class DockerManager:
             )
             raise SystemExit(1)
         load_dotenv(dotenv_path=self._ENV_FILE, override=True)
+
         up_cmd = ["docker", "compose", "-f", self._DOCKER_COMPOSE_FILE, "up"]
         if not self.args.attached:
             up_cmd.append("-d")
@@ -936,8 +944,34 @@ class DockerManager:
                 up_cmd.append("--no-cache")
         if self.args.force_recreate:
             up_cmd.append("--force-recreate")
-        if self.args.services:
-            up_cmd.extend(self.args.services)
+
+        # ── Resolve which services to actually start ───────────────────
+        exclude = set(self.args.exclude or [])
+        target = list(self.args.services or [])
+
+        if exclude:
+            all_svcs = self._get_all_services()
+            unknown = exclude - set(all_svcs)
+            if unknown:
+                self.log.warning(
+                    "Excluded service(s) not found in compose file (typo?): %s",
+                    ", ".join(sorted(unknown)),
+                )
+            if target:
+                # Honour explicit --services list, just filter out excluded ones
+                target = [s for s in target if s not in exclude]
+            else:
+                target = [s for s in all_svcs if s not in exclude]
+            self.log.info(
+                "Starting services (excluding %s): %s",
+                ", ".join(sorted(exclude)),
+                ", ".join(target),
+            )
+        # ───────────────────────────────────────────────────────────────
+
+        if target:
+            up_cmd.extend(target)
+
         try:
             self._run_command(up_cmd, check=True, suppress_logs=self.args.attached)
             self.log.info("docker compose up executed successfully.")
@@ -951,8 +985,8 @@ class DockerManager:
                     "-f",
                     "--tail=50",
                 ]
-                if self.args.services:
-                    logs_hint.extend(self.args.services)
+                if target:
+                    logs_hint.extend(target)
                 self.log.info("To view logs, run: %s", " ".join(logs_hint))
         except subprocess.CalledProcessError as e:
             self.log.critical("'docker compose up' failed (code %s).", e.returncode)
@@ -965,8 +999,8 @@ class DockerManager:
                     "logs",
                     "--tail=100",
                 ]
-                if self.args.services:
-                    logs_cmd.extend(self.args.services)
+                if target:
+                    logs_cmd.extend(target)
                 self._run_command(logs_cmd, check=False)
             except Exception:
                 pass
@@ -1019,7 +1053,7 @@ class DockerManager:
 
 
 # ---------------------------------------------------------------------------
-# CLI entry-point  (typer — mirrors bootstrap_admin pattern)
+# CLI entry-point
 # ---------------------------------------------------------------------------
 
 
@@ -1037,6 +1071,16 @@ def docker_manager(
         None,
         "--services",
         help="Target specific service(s) defined in docker-compose.yml.",
+    ),
+    exclude: Optional[List[str]] = typer.Option(
+        None,
+        "--exclude",
+        "-x",
+        help=(
+            "Exclude one or more services from 'up'. "
+            "Useful to skip heavy services like 'ollama' or 'vllm' locally. "
+            "Repeat for multiple: --exclude ollama --exclude vllm"
+        ),
     ),
     # --- Build ---
     no_cache: bool = typer.Option(False, "--no-cache", help="Build without Docker cache."),
@@ -1090,6 +1134,10 @@ def docker_manager(
 
     Safe for repeated use — generates .env only when missing, never overwrites
     an existing one automatically.
+
+    Examples:
+      entities-api docker-manager --mode up --exclude ollama --exclude vllm
+      entities-api docker-manager --mode up -x ollama -x vllm
     """
     # --- Validate mode choice ---
     valid_modes = {"up", "build", "both", "down_only", "logs"}
@@ -1115,6 +1163,14 @@ def docker_manager(
         )
         raise SystemExit(1)
 
+    # --- Validate --exclude is only meaningful for 'up' / 'both' ---
+    if exclude and mode not in ("up", "both"):
+        typer.echo(
+            f"[error] --exclude is only applicable with --mode=up or --mode=both (got '{mode}').",
+            err=True,
+        )
+        raise SystemExit(1)
+
     # --- Implied behaviours ---
     if clear_volumes:
         down = True  # --clear-volumes implies --down
@@ -1129,6 +1185,7 @@ def docker_manager(
     args = SimpleNamespace(
         mode=mode,
         services=services or [],
+        exclude=exclude or [],
         no_cache=no_cache,
         parallel=parallel,
         tag=tag,

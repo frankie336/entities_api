@@ -111,7 +111,7 @@ class JsonUtilsMixin:
                     inner = json.loads(intermediate_parse)
                     if isinstance(inner, dict):
                         return inner
-                except:
+                except Exception:  # <--- FIXED: Changed from bare 'except:' to 'except Exception:'
                     pass
                 # LOG.warning("Initial parse resulted in string...")
                 processed_text = intermediate_parse

@@ -102,10 +102,10 @@ class ToolRoutingMixin:
         loose = self.extract_function_calls_within_body_of_text(assistant_reply)
         if loose:
             normalized_list = []
-            for l in loose:
-                if not l.get("id"):
-                    l["id"] = f"call_{uuid.uuid4().hex[:8]}"
-                normalized_list.append(self._normalize_arguments(l))
+            for item in loose:
+                if not item.get("id"):
+                    item["id"] = f"call_{uuid.uuid4().hex[:8]}"
+                normalized_list.append(self._normalize_arguments(item))
 
             self.set_tool_response_state(True)
             self.set_function_call_state(normalized_list)

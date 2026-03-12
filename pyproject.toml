@@ -7,12 +7,15 @@ name = "entities_api"
 version = "1.18.1"
 description = "Unified multi vendor AI inference API"
 readme = "README.md"
+
 authors = [
   { name = "Francis Neequaye Armah", email = "francis.neequaye@projectdavid.co.uk" }
 ]
 
 license = { file = "LICENSE" }
+
 keywords = ["AI", "API", "Assistants", "LLM", "RAG", "Vector"]
+
 requires-python = ">=3.9"
 
 dependencies = [
@@ -65,7 +68,7 @@ strict = true
 
 [tool.black]
 line-length = 100
-target-version = ["py38"]
+target-version = ["py39"]
 skip-string-normalization = true
 
 [tool.flake8]
@@ -76,3 +79,11 @@ exclude = [".venv", ".git", "__pycache__", "build", "dist"]
 [tool.semantic_release]
 version_source = "tag"
 upload_to_pypi = false
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint.per-file-ignores]
+"src/api/entities_api/daemons/*.py" = ["E402"]
+"src/api/entities_api/cli/*.py" = ["E402"]
+"migrations/env.py" = ["E402"]
