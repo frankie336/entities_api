@@ -1,7 +1,7 @@
 import os
 import re
 from pathlib import Path
-from typing import Dict, Set
+from typing import Set
 
 from projectdavid_common.constants.ai_model_map import TOGETHER_AI_MODELS
 
@@ -79,7 +79,7 @@ def generate_and_save_candidates():
 
         f.write("}\n")
 
-    print(f"✅ Success! File saved.")
+    print("✅ Success! File saved.")
     print(f"   - Total Candidates: {len(candidate_endpoints)}")
     print(f"   - Dead/Excluded:    {len(known_dead_ids)}")
 

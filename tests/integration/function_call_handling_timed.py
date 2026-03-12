@@ -1,7 +1,7 @@
 import json
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List
 
 from dotenv import load_dotenv
@@ -75,7 +75,7 @@ HYPERBOLIC_API_KEY = os.getenv("HYPERBOLIC_API_KEY")
 # ------------------------------------------------------------------
 def get_flight_times(tool_name: str, arguments) -> str:
     if tool_name != "get_flight_times":
-        return json.dumps({"status": "error", "message": f"unknown tool"})
+        return json.dumps({"status": "error", "message": "unknown tool"})
 
     # Simulate slight processing time
     # time.sleep(0.1)

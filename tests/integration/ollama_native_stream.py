@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from typing import Any, AsyncGenerator, Dict, List, Optional, Union
+from typing import Any, AsyncGenerator, Dict, List
 
 import httpx
 from projectdavid_common.utilities.logging_service import LoggingUtility

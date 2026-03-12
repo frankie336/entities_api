@@ -6,7 +6,6 @@ Standard Inference Test (No Tools)
 3. No tool execution or recursion logic.
 """
 
-import json
 import os
 import time
 

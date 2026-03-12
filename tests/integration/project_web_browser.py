@@ -1,9 +1,8 @@
-import asyncio
 import logging
 import os
 import shutil
 import subprocess
-from typing import List, Optional
+from typing import List
 
 import html2text
 import requests
@@ -159,7 +158,7 @@ class UniversalWebReader:
                 # Optional: Smart wait for text hydration
                 try:
                     await page.wait_for_selector("body", timeout=5000)
-                except:
+                except Exception:
                     pass
 
                 html = await page.content()

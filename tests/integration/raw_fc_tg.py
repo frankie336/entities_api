@@ -1,6 +1,5 @@
 import json
 import os
-import sys
 
 import dotenv
 import requests
@@ -106,7 +105,7 @@ def run_turn(messages):
             try:
                 # Try to print the JSON error message from the provider
                 print(f"Provider Message: {response.json()}")
-            except:
+            except Exception:
                 # Fallback to raw text
                 print(f"Raw Response: {response.text}")
 
@@ -205,13 +204,13 @@ def run_turn(messages):
                     and "name" in parsed_args
                     and "arguments" in parsed_args
                 ):
-                    print(f"\n[FIX] Unwrap recursive JSON detected")
+                    print("\n[FIX] Unwrap recursive JSON detected")
                     inner_args = parsed_args["arguments"]
                     if isinstance(inner_args, dict):
                         final_args_str = json.dumps(inner_args)
                     elif isinstance(inner_args, str):
                         final_args_str = inner_args
-            except:
+            except Exception:
                 pass
 
             # FIX: Ensure we have an ID.
@@ -257,7 +256,7 @@ if __name__ == "__main__":
 
             try:
                 func_args = json.loads(func_args_str)
-            except:
+            except Exception:
                 print(f"[ERROR] Failed to parse args: {func_args_str}")
                 func_args = {}
 

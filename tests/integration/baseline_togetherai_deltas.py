@@ -1,6 +1,5 @@
 import os
 
-from projectdavid_common.constants.ai_model_map import TOGETHER_AI_MODELS
 from together import Together
 
 # Ideally, set this in your environment variables: export TOGETHER_API_KEY="your_key"

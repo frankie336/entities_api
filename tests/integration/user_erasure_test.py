@@ -1,3 +1,17 @@
+from __future__ import annotations
+
+import os
+import tempfile
+import time
+from urllib.parse import urlparse
+
+import httpx
+import pymysql
+from dotenv import find_dotenv, load_dotenv
+from projectdavid import Entity
+
+from src.api.entities_api.services.logging_service import LoggingUtility
+
 """
 user_erasure_test.py
 ────────────────────
@@ -33,18 +47,6 @@ Usage
 python -m tests.integration.user_erasure_test
 """
 
-from __future__ import annotations
-
-import os
-import tempfile
-import time
-
-import httpx
-import pymysql
-from dotenv import find_dotenv, load_dotenv
-from projectdavid import Entity
-
-from src.api.entities_api.services.logging_service import LoggingUtility
 
 load_dotenv(find_dotenv())
 
@@ -79,9 +81,6 @@ def _admin_headers() -> dict:
 
 def _sacrificial_headers() -> dict:
     return {"X-API-Key": SACRIFICIAL_API_KEY}
-
-
-from urllib.parse import urlparse
 
 
 def _db_conn():
@@ -246,7 +245,7 @@ def run_sweep() -> dict:
         )
 
         if resp.status_code != 204:
-            print(f"\n  [ABORT] Erasure endpoint failed — cannot verify cleanup.")
+            print("\n  [ABORT] Erasure endpoint failed — cannot verify cleanup.")
             return _summarise()
 
         # Brief pause for DB to settle

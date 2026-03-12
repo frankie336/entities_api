@@ -10,14 +10,12 @@ INCLUDES GRANULAR PER-EVENT TIMING.
 
 import json
 import os
-import sys
 import time  # <--- Added for timing
 
 from config_orc_fc import config
 from dotenv import load_dotenv
 # Import the new Event classes
-from projectdavid import (ComputerExecutionOutputEvent, ContentEvent,
-                          DecisionEvent, Entity, HotCodeEvent, ReasoningEvent,
+from projectdavid import (ContentEvent, DecisionEvent, Entity, ReasoningEvent,
                           StatusEvent, ToolCallRequestEvent)
 
 # ------------------------------------------------------------------

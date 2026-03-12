@@ -211,7 +211,7 @@ def generate_files(results):
                 f"| {r['provider']} | {r['name']} | {r['protocol']} | {r['latency']}s | {icon} |\n"
             )
 
-    print(f"\n📄 Manifest & Report generated.")
+    print("\n📄 Manifest & Report generated.")
     return alive
 
 
@@ -236,7 +236,7 @@ def inject_python(valid_models):
                 lines.append(f"        \"id\": \"{m['full_id']}\",")
                 lines.append(f"        \"provider\": \"{m['provider']}\",")
                 lines.append(f"        \"protocol\": \"{m['protocol']}\",")
-                lines.append(f"    }},")
+                lines.append("    },")
             lines.append("")
         lines.append("}")
         return "\n".join(lines)

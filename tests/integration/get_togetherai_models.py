@@ -1,4 +1,3 @@
-import json
 import os
 from collections import defaultdict
 
@@ -56,7 +55,7 @@ def main():
         return
 
     print(f"\n{'='*60}")
-    print(f"TOGETHER AI MODEL ENDPOINTS (Formatted for Config)")
+    print("TOGETHER AI MODEL ENDPOINTS (Formatted for Config)")
     print(f"{'='*60}\n")
 
     # Sort organizations alphabetically

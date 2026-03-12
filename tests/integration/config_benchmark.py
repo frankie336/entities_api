@@ -1,7 +1,7 @@
 import os
 
 import dotenv
-from models import HYPERBOLIC_MODELS, TOGETHER_AI_MODELS
+from models import TOGETHER_AI_MODELS
 
 dotenv.load_dotenv()
 

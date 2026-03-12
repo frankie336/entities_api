@@ -123,7 +123,7 @@ def parse_hermes_style(content: str):
                     name = func_match.group(1)
                     args = json.loads(func_match.group(2))
                     tools_found.append({"type": "hermes_text", "name": name, "arguments": args})
-                except:
+                except Exception:
                     pass
 
     return tools_found
@@ -140,7 +140,6 @@ def run_turn(messages):
         "Authorization": f"Bearer {TOGETHER_API_KEY}",
     }
 
-    add_tools = [flight_func_schema]
     # We send the tools definition.
     # Even for Hermes style, the model often needs to 'see' the tools in the schema
     # to know they exist, even if it decides to text-complete the call.
@@ -337,7 +336,7 @@ if __name__ == "__main__":
             # Parse Args
             try:
                 func_args = json.loads(t["args_str"])
-            except:
+            except Exception:
                 print(f"[ERROR] Failed to parse args: {t['args_str']}")
                 func_args = {}
 
@@ -355,7 +354,7 @@ if __name__ == "__main__":
                         "content": result_str,
                     }
                 )
-                print(f"   -> Appended [Native] 'tool' role response.")
+                print("   -> Appended [Native] 'tool' role response.")
 
             elif t["type"] == "hermes":
                 # Hermes Style: <tool_response> JSON </tool_response>
@@ -369,7 +368,7 @@ if __name__ == "__main__":
                         "content": hermes_response_content,
                     }
                 )
-                print(f"   -> Appended [Hermes] XML response wrapper.")
+                print("   -> Appended [Hermes] XML response wrapper.")
 
         # --- TURN 2 (The Reaction) ---
         print("\n[SYSTEM] Sending tool outputs back to model...")

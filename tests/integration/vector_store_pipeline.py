@@ -2,12 +2,12 @@
 import json
 import os
 
+from config_orc_fc import config
 from dotenv import load_dotenv
 from projectdavid import Entity
 
 load_dotenv()
 
-from config_orc_fc import config
 
 client = Entity(
     base_url=os.getenv("BASE_URL", "http://localhost:9000"),

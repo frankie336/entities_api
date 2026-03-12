@@ -1,7 +1,6 @@
 import dotenv
 
 dotenv.load_dotenv()
-import os
 
 config = {
     "together_api_key": "",

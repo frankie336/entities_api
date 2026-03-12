@@ -16,7 +16,6 @@ Or via the compliance runner (exposes run_sweep()).
 """
 
 import os
-from typing import Optional
 
 from dotenv import load_dotenv
 from projectdavid import Entity

@@ -1,4 +1,3 @@
-import json
 import os
 import re
 from collections import defaultdict
@@ -49,7 +48,7 @@ def generate_formatted_dict_string(models_list, provider_label):
             lines.append(f"    \"{m['key']}\": {{")
             lines.append(f"        \"id\": \"{m['id']}\",")
             lines.append(f"        \"provider\": \"{m['provider']}\",")
-            lines.append(f"    }},")
+            lines.append("    },")
         lines.append("")  # Spacer between groups
 
     lines.append("}")

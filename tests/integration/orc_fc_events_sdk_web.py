@@ -15,7 +15,7 @@ from config_orc_fc_web import config
 from dotenv import load_dotenv
 # Import the project classes
 from projectdavid import (ContentEvent, DecisionEvent, Entity, ReasoningEvent,
-                          StatusEvent, ToolCallRequestEvent)
+                          ToolCallRequestEvent)
 
 # ------------------------------------------------------------------
 # 0. CONFIGURATION & SDK INIT

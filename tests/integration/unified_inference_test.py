@@ -72,7 +72,7 @@ def get_flight_times(tool_name: str, arguments) -> str:
     if isinstance(arguments, str):
         try:
             arguments = json.loads(arguments)
-        except:
+        except Exception:
             return json.dumps({"status": "error", "message": "Invalid JSON"})
 
     return json.dumps(
