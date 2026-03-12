@@ -66,8 +66,8 @@ def find_bare_except(lines: list[str], hint: int) -> int | None:
         if BARE_EXCEPT.match(lines[i]):
             return i
     # whole-file fallback — pick closest
-    candidates = [i for i, l in enumerate(lines) if BARE_EXCEPT.match(l)]
-    return min(candidates, key=lambda i: abs(i - hint)) if candidates else None
+    candidates = [item for item, line in enumerate(lines) if BARE_EXCEPT.match(line)]
+    return min(candidates, key=lambda item: abs(item - hint)) if candidates else None
 
 
 def fix_e722_file(path: str, hints: list[int]) -> int:
