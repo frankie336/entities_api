@@ -7,13 +7,11 @@ import tempfile
 import textwrap
 import time
 import traceback
-from typing import List, Optional, Tuple
 
 from dotenv import load_dotenv
 from fastapi import WebSocket
 from projectdavid import Entity
 from sandbox.services.logging_service import LoggingUtility
-from starlette.websockets import WebSocketDisconnect
 
 load_dotenv()
 
@@ -76,16 +74,15 @@ class StreamingCodeExecutionHandler:
 
         # 2. Fix Smart Quotes and Math symbols
         replacements = {
-            '"': '"',
-            "“": "'",
-            "”": "'",
-            "‘": "'",
-            "’": "'",
+            "\u201c": '"',
+            "\u201d": '"',
+            "\u2018": "'",
+            "\u2019": "'",
             "\u00b2": "**2",
             "^": "**",
-            "⇒": "->",
-            "×": "*",
-            "÷": "/",
+            "\u21d2": "->",
+            "\u00d7": "*",
+            "\u00f7": "/",
         }
         for k, v in replacements.items():
             code = code.replace(k, v)
@@ -180,7 +177,7 @@ class StreamingCodeExecutionHandler:
             self.logging_utility.error("Execution failed: %s", str(e))
             try:
                 await websocket.send_json({"error": f"System Error: {str(e)}"})
-            except:
+            except Exception:
                 pass
         finally:
             # Cleanup
@@ -192,7 +189,7 @@ class StreamingCodeExecutionHandler:
             self.last_executed_script_path = None
             try:
                 await websocket.close()
-            except:
+            except Exception:
                 pass
 
     async def _stream_process_output(self, proc, websocket: WebSocket, execution_id: str) -> None:

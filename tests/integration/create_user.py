@@ -1,10 +1,9 @@
 import os
 
 from dotenv import load_dotenv
-
-load_dotenv()
 from projectdavid import Entity
 
+load_dotenv()
 client = Entity(api_key=os.getenv("ADMIN_API_KEY"))
 
 

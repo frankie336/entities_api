@@ -23,8 +23,6 @@ import time
 
 from dotenv import load_dotenv
 
-load_dotenv()
-
 # Bootstrap the app path so we can import from src/
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
@@ -34,6 +32,7 @@ from src.api.entities_api.models.models import (Action, ApiKey, Assistant,
                                                 Message, Run, Thread, User,
                                                 VectorStore, VectorStoreFile)
 
+load_dotenv()
 WIDTH = 68
 results: dict = {}
 
@@ -307,7 +306,7 @@ def check_duplicate_active_api_keys(db) -> None:
 
     rows = (
         db.query(ApiKey.user_id, func.count(ApiKey.id).label("cnt"))
-        .filter(ApiKey.is_active == True)
+        .filter(ApiKey.is_active.is_(True))  # <--- FIXED: Changed from == True
         .group_by(ApiKey.user_id)
         .having(func.count(ApiKey.id) > 20)
         .all()

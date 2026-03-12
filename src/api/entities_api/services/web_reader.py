@@ -173,7 +173,7 @@ class UniversalWebReader:
                 # Handle "Hydration" (wait for body to actually populate)
                 try:
                     await page.wait_for_selector("body", timeout=5000)
-                except:
+                except Exception:
                     pass
 
                 # --- RICH MEDIA EXTRACTION ---

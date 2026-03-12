@@ -240,8 +240,6 @@ class AssistantService:
             if not user:
                 raise HTTPException(404, "User not found")
 
-            associated_ids = {a.id for a in user.assistants if a.deleted_at is None}
-
             # Merge: owned_by_column takes precedence; add any legacy-only entries
             owned_ids = {a.id for a in owned_by_column}
             legacy_only = [

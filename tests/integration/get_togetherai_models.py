@@ -69,7 +69,7 @@ def main():
             # This helps you populate your dictionary keys faster
             try:
                 label = model_id.split("/")[-1]
-            except:
+            except Exception:
                 label = model_id
 
             print(f'    "{label}": "{model_id}",')
