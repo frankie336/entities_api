@@ -1207,8 +1207,9 @@ def docker_manager(
 
     # --- Ensure docker-compose.yml exists before DockerManager initialises ---
     try:
-        from entities_api.cli.generate_docker_compose import \
-            generate_dev_docker_compose  # noqa: PLC0415
+        from entities_api.cli.generate_docker_compose import (
+            generate_dev_docker_compose,
+        )  # noqa: PLC0415
 
         generate_dev_docker_compose()
         time.sleep(0.5)
