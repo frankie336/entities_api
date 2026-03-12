@@ -1,3 +1,11 @@
+## [1.19.1](https://github.com/project-david-ai/platform/compare/v1.19.0...v1.19.1) (2026-03-12)
+
+
+### Bug Fixes
+
+* bump projectdavid to version 1.76.2 in requirements files ([6be28da](https://github.com/project-david-ai/platform/commit/6be28dab4f5c4a007819bac0213f4f732ddeb3a3))
+* cut back multi-modal message change ([6309353](https://github.com/project-david-ai/platform/commit/630935379a2a0355c5688968520058cf92ebb194))
+
 # [1.19.0](https://github.com/project-david-ai/platform/compare/v1.18.1...v1.19.0) (2026-03-12)
 
 
