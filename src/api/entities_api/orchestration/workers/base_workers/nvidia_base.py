@@ -142,7 +142,6 @@ class NvidiaBaseWorker(
             decision_telemetry = self.assistant_config.get("decision_telemetry", True)
             web_access_setting = self.assistant_config.get("decision_telemetry", False)
 
-            test_cache = self.assistant_config.get("agent_mode")
             LOG.debug(f"Test_cache -> Agent: {agent_mode_setting}, Telemetry: {decision_telemetry}")
 
             ctx = await self._set_up_context_window(

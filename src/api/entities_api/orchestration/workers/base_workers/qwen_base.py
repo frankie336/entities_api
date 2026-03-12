@@ -158,8 +158,6 @@ class QwenBaseWorker(
         self._run_user_id = None
         self.ephemeral_supervisor_id = None
         self._scratch_pad_thread = None
-        redis = self.redis
-        stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
         # Capture original assistant_id BEFORE any identity swap —

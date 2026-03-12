@@ -399,7 +399,7 @@ class GptOssBaseWorker(
                                     f"<fc>{original_content}</fc>",
                                     f"<fc>{valid_payload}</fc>",
                                 )
-                            except:
+                            except Exception:
                                 pass
                 except Exception as e:
                     LOG.error(f"Error during tool call sanitization: {e}")

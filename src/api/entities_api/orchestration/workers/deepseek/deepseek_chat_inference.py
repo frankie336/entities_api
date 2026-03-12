@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-"\nDeepSeekChatInference – mixin-driven provider (Hyperbolic-style)\n================================================================\n• Async streaming via **AsyncDeepSeekClient**\n• Emits “started” / “complete” status deltas\n• Buffers <fc> blocks ≤ 80 ms\n• Streams reasoning (<think>) and hot-code\n• Shares the exact mixin/OrchestratorCore contract used by HyperbolicDs1\n"
 import json
 import os
 import re
