@@ -11,8 +11,9 @@ import jwt
 from projectdavid_common.utilities.tool_validator import ToolValidator
 from projectdavid_common.validation import StatusEnum
 
-from entities_api.platform_tools.handlers.computer.shell_command_interface import \
-    run_shell_commands_async
+from entities_api.platform_tools.handlers.computer.shell_command_interface import (
+    run_shell_commands_async,
+)
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 LOG = LoggingUtility()
