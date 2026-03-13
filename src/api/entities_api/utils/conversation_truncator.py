@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
-from typing import List
+from typing import Any, List, Union
 
 from projectdavid_common import LoggingUtility
 from transformers import AutoTokenizer
@@ -19,11 +19,68 @@ def _load_tokenizer(model_name: str):
     return AutoTokenizer.from_pretrained(model_name)
 
 
+def _extract_text(content: Any) -> str:
+    """
+    Safely extract a plain string from any message content for tokenization.
+
+    - str  → returned as-is
+    - list → Qwen/multimodal content array: join all 'text' block values
+    - None → empty string
+
+    IMPORTANT: this is used ONLY for token counting.  The original content
+    structure is never modified — multimodal list payloads must reach vLLM
+    intact.
+    """
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    # Fallback for any unexpected type
+    return str(content)
+
+
+def _merge_content(existing: Union[str, list], incoming: Union[str, list]) -> Union[str, list]:
+    """
+    Merge two message contents that share the same role.
+
+    Rules:
+    - str  + str  → concatenate with newline (original behaviour)
+    - list + list → concatenate the block arrays
+    - list + str  → append the str as a text block to the list
+    - str  + list → promote str to a text block, then append the list blocks
+    """
+    if isinstance(existing, list) and isinstance(incoming, list):
+        return existing + incoming
+
+    if isinstance(existing, list):
+        # incoming is a plain string — wrap and append
+        return existing + [{"type": "text", "text": incoming}]
+
+    if isinstance(incoming, list):
+        # existing is a plain string — promote, then extend
+        return [{"type": "text", "text": existing}] + incoming
+
+    # Both plain strings
+    return existing + "\n" + incoming
+
+
 class ConversationTruncator:
     """
     Utility to trim a conversation to <= `threshold_percentage`
     of `max_context_window` tokens (system messages are never dropped).
     Consecutive messages from the same role are merged.
+
+    Multimodal messages (content is a list of typed blocks) are handled
+    throughout:
+      - Token counting extracts only text blocks for estimation.
+      - Merging concatenates block arrays rather than string-concatenating.
+      - The original list structure is never replaced with a plain string.
     """
 
     FALLBACK_MODEL = os.getenv("TRUNCATOR_MODEL", "gpt2")
@@ -50,8 +107,10 @@ class ConversationTruncator:
 
     def _count_tokens_batch(self, texts: List[str]) -> List[int]:
         """
-        Tokenize a list of strings in one batched call — far cheaper than
-        calling encode() once per message in a loop.
+        Tokenize a list of plain strings in one batched call.
+
+        Callers must pass the output of _extract_text() — never raw content
+        that may be a list.
         """
         if not texts:
             return []
@@ -59,9 +118,8 @@ class ConversationTruncator:
             texts,
             add_special_tokens=False,
             return_attention_mask=False,
-            return_length=True,  # returns lengths directly
+            return_length=True,
         )
-        # `return_length=True` gives us encoded["length"] as a list of ints
         return encoded["length"]
 
     def count_tokens(self, text: str) -> int:
@@ -71,12 +129,15 @@ class ConversationTruncator:
     def truncate(self, conversation: List[dict]) -> List[dict]:
         """
         Trim conversation and merge consecutive same-role messages.
+
+        Multimodal messages are token-counted by extracting their text blocks;
+        the full content structure is preserved in the returned messages.
         """
         system_msgs = [m for m in conversation if m.get("role") == "system"]
         other_msgs = [m for m in conversation if m.get("role") != "system"]
 
-        # Single batched tokenizer call for all messages
-        all_texts = [m["content"] for m in system_msgs + other_msgs]
+        # Extract plain text for tokenisation — never pass raw content lists
+        all_texts = [_extract_text(m["content"]) for m in system_msgs + other_msgs]
         all_counts = self._count_tokens_batch(all_texts)
 
         sys_tokens = sum(all_counts[: len(system_msgs)])
@@ -95,7 +156,7 @@ class ConversationTruncator:
 
         kept_others = [m for m, _ in msg_counts]
 
-        # O(n) restore original order using a pre-built index
+        # Restore original order using a pre-built id-index
         original_index = {id(m): i for i, m in enumerate(conversation)}
         combined = sorted(system_msgs + kept_others, key=lambda m: original_index[id(m)])
 
@@ -103,12 +164,21 @@ class ConversationTruncator:
 
     @staticmethod
     def merge_consecutive_messages(conversation: List[dict]) -> List[dict]:
+        """
+        Merge back-to-back messages from the same role.
+
+        Handles multimodal (list) content correctly via _merge_content().
+        """
         if not conversation:
             return conversation
-        merged = [conversation[0]]
+
+        merged = [dict(conversation[0])]  # shallow copy so we don't mutate original
+
         for msg in conversation[1:]:
-            if msg["role"] == merged[-1]["role"]:
-                merged[-1]["content"] += "\n" + msg["content"]
+            last = merged[-1]
+            if msg["role"] == last["role"]:
+                last["content"] = _merge_content(last["content"], msg["content"])
             else:
-                merged.append(msg)
+                merged.append(dict(msg))
+
         return merged

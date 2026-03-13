@@ -5,34 +5,18 @@ VLLMRawStream
 Drop-in replacement for OllamaNativeStream that targets vLLM's
 /v1/completions endpoint (raw text, no OpenAI chat wrapper).
 
-Pipeline position — identical to Ollama:
+For TEXT-ONLY requests the pipeline is unchanged:
+    vLLM /v1/completions  (prompt string, chat template applied here)
 
-    vLLM /v1/completions
-        ↓  _stream_vllm_raw()       ← THIS FILE
-        ↓  DeltaNormalizer           ← unchanged
-        ↓  OrchestratorCore          ← unchanged
-        ↓  SSE response              ← unchanged
+For MULTIMODAL requests (any message has list content with image blocks)
+the pipeline automatically upgrades to:
+    vLLM /v1/chat/completions  (messages array, vLLM handles the template)
 
-Why /v1/completions and not /v1/chat/completions?
-    /v1/chat/completions  — vLLM applies chat template + tool parser.
-                            Gives you delta.tool_calls already structured.
-                            Defeats the purpose of raw integration.
-
-    /v1/completions       — vLLM passes your prompt straight to the model.
-                            Returns raw generated text token by token.
-                            DeltaNormalizer handles the rest.
-
-The one responsibility of this class:
-    Convert vLLM's  choices[0].text
-    into the shape  choices[0].delta.content
-    that DeltaNormalizer already knows how to consume.
-
-Chat template rendering:
-    /v1/completions does NOT apply a chat template — you own the prompt.
-    This class applies it via the tokenizer's apply_chat_template logic,
-    reconstructed from the CHAT_TEMPLATES registry below.
-    For most deployments, point base_url at a running vLLM server and
-    the template is resolved automatically via /tokenizer/chat_template.
+This is required because /v1/completions is a text-only endpoint —
+serialising base64 image arrays as JSON strings into a prompt string
+tokenises them as raw text (thousands of tokens) and loses the vision
+signal entirely.  /v1/chat/completions passes the typed content blocks
+natively to the model's multimodal processor.
 """
 
 from __future__ import annotations
@@ -49,18 +33,29 @@ load_dotenv()
 LOG = LoggingUtility()
 
 
-# ── Per-family chat templates ─────────────────────────────────────────────────
-# Used to render messages → prompt string before hitting /v1/completions.
-# These mirror what apply_chat_template() produces for each family.
+# ── Multimodal detection ──────────────────────────────────────────────────────
+
+
+def _is_multimodal(messages: List[Dict]) -> bool:
+    """
+    Return True if any message carries a list content payload (i.e. a
+    Qwen/OpenAI multimodal content array with image blocks).
+
+    Plain-text messages always have str content; multimodal messages
+    have list content after hydration.
+    """
+    return any(isinstance(m.get("content"), list) for m in messages)
+
+
+# ── Per-family chat templates (text-only path) ────────────────────────────────
 
 
 def _render_qwen(messages: List[Dict], tools: Optional[List] = None) -> str:
-    """Qwen2.5 / Qwen3 im_start/im_end format."""
+    """Qwen2.5 / Qwen3 im_start/im_end format — TEXT ONLY."""
     parts = []
 
     if tools:
         tool_json = "\n".join(json.dumps(t) for t in tools)
-        # Inject tool schema into system prompt using Qwen's <tools> convention
         system_content = None
         filtered = []
         for m in messages:
@@ -86,6 +81,7 @@ def _render_qwen(messages: List[Dict], tools: Optional[List] = None) -> str:
 
     for m in messages:
         role = m["role"]
+        # TEXT ONLY — list content must never reach this renderer
         content = m["content"] if isinstance(m["content"], str) else json.dumps(m["content"])
         parts.append(f"<|im_start|>{role}\n{content}<|im_end|>")
 
@@ -139,7 +135,6 @@ def _render_llama3(messages: List[Dict], tools: Optional[List] = None) -> str:
     return "".join(parts)
 
 
-# Registry: model_id substring → renderer
 CHAT_TEMPLATE_REGISTRY = [
     ("Qwen", _render_qwen),
     ("qwen", _render_qwen),
@@ -157,17 +152,75 @@ def render_prompt(
 ) -> str:
     """
     Resolve and apply the correct chat template for a given model ID.
-    Falls back to Qwen format (most common for local deployments).
+    Falls back to Qwen format.  Called only on the TEXT-ONLY path.
     """
     for substr, renderer in CHAT_TEMPLATE_REGISTRY:
         if substr in model_id:
             return renderer(messages, tools)
 
     LOG.warning(
-        "VLLMRawStream: no chat template found for model '%s', falling back to Qwen format.",
+        "VLLMRawStream: no chat template for model '%s', falling back to Qwen.",
         model_id,
     )
     return _render_qwen(messages, tools)
+
+
+# ── Multimodal message normalisation (chat/completions path) ──────────────────
+
+
+def _normalise_for_chat(messages: List[Dict]) -> List[Dict]:
+    """
+    Convert hydrated messages into the OpenAI multimodal chat format that
+    vLLM's /v1/chat/completions endpoint expects.
+
+    Hydrated image blocks arrive as:
+        {"type": "image", "image": "data:image/jpeg;base64,<b64>"}
+
+    OpenAI / vLLM chat format expects:
+        {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,<b64>"}}
+
+    Plain text content strings are left unchanged.
+    """
+    normalised = []
+    for m in messages:
+        content = m.get("content")
+
+        if not isinstance(content, list):
+            # Plain text — pass straight through
+            normalised.append(m)
+            continue
+
+        converted_blocks = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+
+            btype = block.get("type")
+
+            if btype == "text":
+                converted_blocks.append({"type": "text", "text": block.get("text", "")})
+
+            elif btype == "image":
+                # Hydrated format → OpenAI image_url format
+                data_uri = block.get("image", "")
+                converted_blocks.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": data_uri},
+                    }
+                )
+
+            elif btype == "image_url":
+                # Already in the right format — pass through
+                converted_blocks.append(block)
+
+            else:
+                # Unknown block type — skip
+                LOG.warning("_normalise_for_chat: unknown block type '%s', skipping.", btype)
+
+        normalised.append({**m, "content": converted_blocks})
+
+    return normalised
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -179,32 +232,11 @@ class VLLMRawStream:
     """
     Mixin / base class that provides _stream_vllm_raw().
 
-    Usage in a worker:
-
-        class VLLMDefaultWorker(
-            VLLMRawStream,
-            _ProviderMixins,
-            OrchestratorCore,
-            ABC,
-        ):
-            ...
-
-        # In stream():
-        async for chunk in DeltaNormalizer.async_iter_deltas(
-            self._stream_vllm_raw(
-                messages=ctx,
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                think=think,
-                base_url=base_url,
-            ),
-            run_id,
-        ):
-            ...
+    Routing logic:
+        • Text-only  → /v1/completions   (prompt string, chat template rendered here)
+        • Multimodal → /v1/chat/completions  (messages array, vLLM owns the template)
     """
 
-    # ── Default config (override via env or constructor kwargs) ───────────────
     VLLM_DEFAULT_BASE_URL: str = os.getenv("VLLM_BASE_URL", "http://localhost:8000")
     VLLM_REQUEST_TIMEOUT: int = int(os.getenv("VLLM_TIMEOUT", "120"))
 
@@ -221,61 +253,134 @@ class VLLMRawStream:
         skip_special_tokens: bool = False,
         **kwargs,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """
-        Async generator — mirrors _stream_ollama_raw() interface.
 
-        Hits vLLM /v1/completions and adapts the response into the
-        dict shape that DeltaNormalizer.async_iter_deltas() expects:
-
-            {"choices": [{"delta": {"content": "..."}, "finish_reason": ...}]}
-
-        Steps:
-            1. Render messages → prompt string via family chat template
-            2. POST to /v1/completions with stream=True
-            3. For each SSE chunk: unwrap choices[0].text
-               → re-wrap as choices[0].delta.content
-            4. Yield the normalised dict — DeltaNormalizer takes over
-        """
         resolved_base = (base_url or self.VLLM_DEFAULT_BASE_URL).rstrip("/")
-        endpoint = f"{resolved_base}/v1/completions"
 
-        # ── 1. Render prompt ──────────────────────────────────────────────
-        # Pull tools from assistant_config if not passed directly
+        # ── Route decision ────────────────────────────────────────────────
+        multimodal = _is_multimodal(messages)
+
+        if multimodal:
+            async for chunk in self._stream_vllm_chat(
+                messages=messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                base_url=resolved_base,
+                tools=tools,
+            ):
+                yield chunk
+        else:
+            async for chunk in self._stream_vllm_completions(
+                messages=messages,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                think=think,
+                base_url=resolved_base,
+                tools=tools,
+                skip_special_tokens=skip_special_tokens,
+            ):
+                yield chunk
+
+    # ── TEXT-ONLY path: /v1/completions ──────────────────────────────────────
+
+    async def _stream_vllm_completions(
+        self,
+        *,
+        messages: List[Dict[str, Any]],
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        think: bool,
+        base_url: str,
+        tools: Optional[List[Dict]],
+        skip_special_tokens: bool,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        endpoint = f"{base_url}/v1/completions"
+
         if tools is None and hasattr(self, "assistant_config"):
             tools = self.assistant_config.get("tools") or self.assistant_config.get(
                 "function_definitions"
             )
 
         prompt = render_prompt(model_id=model, messages=messages, tools=tools)
+        LOG.debug("VLLMRawStream ▸ completions prompt (%d chars)", len(prompt))
 
-        LOG.debug("VLLMRawStream ▸ rendered prompt (%d chars):\n%s", len(prompt), prompt[:500])
-
-        # ── 2. Build payload ──────────────────────────────────────────────
         payload: Dict[str, Any] = {
             "model": model,
             "prompt": prompt,
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": True,
-            "skip_special_tokens": skip_special_tokens,  # False = keep <tool_call> etc.
+            "skip_special_tokens": skip_special_tokens,
             "stream_options": {"include_usage": False},
         }
 
-        # Qwen3 thinking mode: stop generation after </think> opens if not wanted
         if not think:
-            payload["stop"] = ["<think>"] if "Qwen3" in model or "qwen3" in model else None
-            if payload["stop"] is None:
-                del payload["stop"]
+            stop = ["<think>"] if "Qwen3" in model or "qwen3" in model else None
+            if stop:
+                payload["stop"] = stop
+
+        LOG.info("VLLMRawStream ▸ POST %s | model=%s | max_tokens=%d", endpoint, model, max_tokens)
+
+        async for chunk in self._http_stream(endpoint, payload):
+            yield chunk
+
+    # ── MULTIMODAL path: /v1/chat/completions ────────────────────────────────
+
+    async def _stream_vllm_chat(
+        self,
+        *,
+        messages: List[Dict[str, Any]],
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        base_url: str,
+        tools: Optional[List[Dict]],
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        Route multimodal requests through /v1/chat/completions.
+
+        vLLM applies the model's chat template and multimodal processor
+        internally — we send the messages array with properly formatted
+        image_url blocks and receive delta.content chunks back, which is
+        already the shape DeltaNormalizer expects.
+        """
+        endpoint = f"{base_url}/v1/chat/completions"
+
+        normalised_messages = _normalise_for_chat(messages)
+
+        payload: Dict[str, Any] = {
+            "model": model,
+            "messages": normalised_messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+            "stream_options": {"include_usage": False},
+        }
 
         LOG.info(
-            "VLLMRawStream ▸ POST %s | model=%s | max_tokens=%d | temp=%.2f",
+            "VLLMRawStream ▸ MULTIMODAL POST %s | model=%s | messages=%d | max_tokens=%d",
             endpoint,
             model,
+            len(normalised_messages),
             max_tokens,
-            temperature,
         )
 
-        # ── 3. Stream ─────────────────────────────────────────────────────
+        # /v1/chat/completions already returns delta.content — no re-wrapping needed
+        async for chunk in self._http_stream_chat(endpoint, payload):
+            yield chunk
+
+    # ── Shared HTTP streaming helpers ─────────────────────────────────────────
+
+    async def _http_stream(
+        self, endpoint: str, payload: Dict[str, Any]
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        POST `payload` to `endpoint`, stream SSE lines.
+        Adapts /v1/completions  choices[0].text
+             → DeltaNormalizer  choices[0].delta.content
+        """
         try:
             async with httpx.AsyncClient(timeout=self.VLLM_REQUEST_TIMEOUT) as client:
                 async with client.stream(
@@ -287,13 +392,11 @@ class VLLMRawStream:
 
                     if response.status_code != 200:
                         body = await response.aread()
-                        error_msg = body.decode(errors="replace")
                         LOG.error(
-                            "VLLMRawStream ▸ HTTP %d from vLLM: %s",
+                            "VLLMRawStream ▸ HTTP %d: %s",
                             response.status_code,
-                            error_msg[:300],
+                            body.decode(errors="replace")[:300],
                         )
-                        # Yield an error chunk in the same envelope shape
                         yield {
                             "choices": [
                                 {
@@ -305,77 +408,120 @@ class VLLMRawStream:
                         return
 
                     async for line in response.aiter_lines():
-                        if not line:
+                        if not line or not line.startswith("data:"):
                             continue
-
-                        if not line.startswith("data:"):
-                            continue
-
                         raw = line[5:].strip()
-
                         if raw == "[DONE]":
-                            # Signal end of stream — mirrors Ollama's done=True chunk
-                            yield {
-                                "done": True,
-                                "done_reason": "stop",
-                                "message": {"content": ""},
-                            }
+                            yield {"done": True, "done_reason": "stop", "message": {"content": ""}}
                             return
-
-                        # ── 4. Adapt vLLM completions → DeltaNormalizer shape ──
                         try:
                             parsed = json.loads(raw)
                         except json.JSONDecodeError:
-                            LOG.warning("VLLMRawStream ▸ non-JSON SSE line: %s", raw[:100])
                             continue
-
                         choices = parsed.get("choices", [])
                         if not choices:
                             continue
-
                         choice = choices[0]
-
-                        # /v1/completions uses "text", not "delta.content"
-                        text = choice.get("text", "")
-                        finish_reason = choice.get("finish_reason")
-
-                        # ── Re-wrap into DeltaNormalizer's expected shape ──────
                         yield {
                             "choices": [
                                 {
-                                    "delta": {"content": text},
-                                    "finish_reason": finish_reason,
+                                    "delta": {"content": choice.get("text", "")},
+                                    "finish_reason": choice.get("finish_reason"),
                                 }
                             ]
                         }
 
         except httpx.ConnectError as exc:
-            LOG.error("VLLMRawStream ▸ Could not connect to vLLM at %s: %s", endpoint, exc)
+            LOG.error("VLLMRawStream ▸ connect error: %s", exc)
             yield {
                 "choices": [
-                    {
-                        "delta": {"content": "[vLLM connection failed]"},
-                        "finish_reason": "error",
-                    }
+                    {"delta": {"content": "[vLLM connection failed]"}, "finish_reason": "error"}
                 ]
             }
         except httpx.TimeoutException as exc:
-            LOG.error("VLLMRawStream ▸ Timeout waiting for vLLM: %s", exc)
+            LOG.error("VLLMRawStream ▸ timeout: %s", exc)
+            yield {"choices": [{"delta": {"content": "[vLLM timeout]"}, "finish_reason": "error"}]}
+        except Exception as exc:
+            LOG.error("VLLMRawStream ▸ unexpected: %s", exc, exc_info=True)
             yield {
                 "choices": [
-                    {
-                        "delta": {"content": "[vLLM timeout]"},
-                        "finish_reason": "error",
-                    }
+                    {"delta": {"content": f"[vLLM stream error: {exc}]"}, "finish_reason": "error"}
                 ]
             }
-        except Exception as exc:
-            LOG.error("VLLMRawStream ▸ Unexpected error: %s", exc, exc_info=True)
+
+    async def _http_stream_chat(
+        self, endpoint: str, payload: Dict[str, Any]
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        POST `payload` to `endpoint`, stream SSE lines.
+        /v1/chat/completions already returns choices[0].delta.content —
+        pass through unchanged so DeltaNormalizer sees the same shape.
+        """
+        try:
+            async with httpx.AsyncClient(timeout=self.VLLM_REQUEST_TIMEOUT) as client:
+                async with client.stream(
+                    "POST",
+                    endpoint,
+                    json=payload,
+                    headers={"Content-Type": "application/json"},
+                ) as response:
+
+                    if response.status_code != 200:
+                        body = await response.aread()
+                        LOG.error(
+                            "VLLMRawStream ▸ chat HTTP %d: %s",
+                            response.status_code,
+                            body.decode(errors="replace")[:300],
+                        )
+                        yield {
+                            "choices": [
+                                {
+                                    "delta": {"content": f"[vLLM error {response.status_code}]"},
+                                    "finish_reason": "error",
+                                }
+                            ]
+                        }
+                        return
+
+                    async for line in response.aiter_lines():
+                        if not line or not line.startswith("data:"):
+                            continue
+                        raw = line[5:].strip()
+                        if raw == "[DONE]":
+                            yield {"done": True, "done_reason": "stop", "message": {"content": ""}}
+                            return
+                        try:
+                            parsed = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+                        choices = parsed.get("choices", [])
+                        if not choices:
+                            continue
+                        choice = choices[0]
+                        # delta.content already present — pass straight through
+                        yield {
+                            "choices": [
+                                {
+                                    "delta": choice.get("delta", {"content": ""}),
+                                    "finish_reason": choice.get("finish_reason"),
+                                }
+                            ]
+                        }
+
+        except httpx.ConnectError as exc:
+            LOG.error("VLLMRawStream ▸ chat connect error: %s", exc)
             yield {
                 "choices": [
-                    {
-                        "delta": {"content": f"[vLLM stream error: {exc}]"},
-                        "finish_reason": "error",
-                    }
+                    {"delta": {"content": "[vLLM connection failed]"}, "finish_reason": "error"}
+                ]
+            }
+        except httpx.TimeoutException as exc:
+            LOG.error("VLLMRawStream ▸ chat timeout: %s", exc)
+            yield {"choices": [{"delta": {"content": "[vLLM timeout]"}, "finish_reason": "error"}]}
+        except Exception as exc:
+            LOG.error("VLLMRawStream ▸ chat unexpected: %s", exc, exc_info=True)
+            yield {
+                "choices": [
+                    {"delta": {"content": f"[vLLM stream error: {exc}]"}, "finish_reason": "error"}
                 ]
             }

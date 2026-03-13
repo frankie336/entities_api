@@ -4,7 +4,7 @@ import hmac
 import io
 import os
 from datetime import datetime, timedelta
-from typing import Tuple
+from typing import Optional, Tuple
 from urllib.parse import urlencode
 
 from fastapi import HTTPException
@@ -275,6 +275,38 @@ class FileService:
         except Exception as e:
             logging_utility.error(f"Error retrieving BASE64 for file ID {file_id}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to retrieve file: {str(e)}")
+
+    def get_file_as_base64_internal(self, file_id: str) -> Optional[str]:
+        """
+        Trusted internal retrieval — NO ownership check.
+        Called by NativeExecutionService on behalf of the orchestrator,
+        where the caller has already been authenticated upstream.
+        Returns None instead of raising so callers can silently skip
+        missing / expired attachments.
+        """
+        try:
+            file_record = self.db.query(File).filter(File.id == file_id).first()
+            if not file_record:
+                logging_utility.warning(
+                    "get_file_as_base64_internal: file_id=%s not found.", file_id
+                )
+                return None
+
+            file_storage = self.db.query(FileStorage).filter(FileStorage.file_id == file_id).first()
+            if not file_storage:
+                logging_utility.warning(
+                    "get_file_as_base64_internal: no storage record for file_id=%s.", file_id
+                )
+                return None
+
+            file_bytes = self.samba_client.download_file_to_bytes(file_storage.storage_path)
+            return base64.b64encode(file_bytes).decode("utf-8")
+
+        except Exception as e:
+            logging_utility.warning(
+                "get_file_as_base64_internal: failed for file_id=%s — %s", file_id, str(e)
+            )
+            return None
 
     def get_file_with_metadata(self, file_id: str, *, user_id: str) -> Tuple[io.BytesIO, str, str]:
         """

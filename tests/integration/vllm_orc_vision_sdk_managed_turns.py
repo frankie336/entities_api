@@ -34,9 +34,8 @@ RESET = "\033[0m"
 # ------------------------------------------------------------------
 BASE_URL = os.getenv("BASE_URL", "http://localhost:9000")
 API_KEY = os.getenv("ENTITIES_API_KEY")
-ASSISTANT_ID = config.get("assistant_id")
 
-MODEL_ID = "vllm/Qwen/Qwen3.5-4B"  # ← swap to your loaded vision model id
+MODEL_ID = "vllm/Qwen/Qwen2.5-VL-3B-Instruct"  # ← swap to your loaded vision model id
 VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://vllm_server:8000")
 
 VISION_PROMPT = "What are the differences between these two images? Please describe them in detail."
@@ -44,7 +43,6 @@ VISION_PROMPT = "What are the differences between these two images? Please descr
 
 # ------------------------------------------------------------------
 # Optional: encode a local image as base64
-# Uncomment and swap one of the image_url blocks below if needed
 # ------------------------------------------------------------------
 def encode_image(image_path: str) -> str:
     with open(image_path, "rb") as f:
@@ -83,15 +81,21 @@ client = Entity(base_url=BASE_URL, api_key=API_KEY)
 # ------------------------------------------------------------------
 print(f"\n{CYAN}[▶] Setting up thread and uploading images...{RESET}")
 
+assistant = client.assistants.create_assistant(
+    name="Vision Test",
+    instructions="You are a helpful assistant that can answer questions about images.",
+)
+
 thread = client.threads.create_thread()
 
 message = client.messages.create_message(
     thread_id=thread.id,
-    assistant_id=ASSISTANT_ID,
+    assistant_id=assistant.id,
     role="user",
     content=payload_content,
 )
 
+print(f"{GREEN}[✓] Assistant:   {assistant.id}{RESET}")
 print(f"{GREEN}[✓] Thread:      {thread.id}{RESET}")
 print(f"{GREEN}[✓] Message:     {message.id}{RESET}")
 print(f"{GREEN}[✓] Attachments: {message.attachments}{RESET}")
@@ -110,12 +114,12 @@ else:
 # ------------------------------------------------------------------
 # Run + Stream Setup
 # ------------------------------------------------------------------
-run = client.runs.create_run(assistant_id=ASSISTANT_ID, thread_id=thread.id)
+run = client.runs.create_run(assistant_id=assistant.id, thread_id=thread.id)
 
 stream = client.synchronous_inference_stream
 stream.setup(
     thread_id=thread.id,
-    assistant_id=ASSISTANT_ID,
+    assistant_id=assistant.id,
     message_id=message.id,
     run_id=run.id,
 )
@@ -126,11 +130,11 @@ stream.setup(
 print(f"{CYAN}[▶] MODEL:    {MODEL_ID}{RESET}")
 print(f"{CYAN}[▶] VLLM URL: {VLLM_BASE_URL}{RESET}")
 print(f"{CYAN}[▶] PROMPT:   {VISION_PROMPT}{RESET}\n")
-print(f"{'LATENCY':<12} | {'EVENT':<25} | PAYLOAD")
-print("-" * 100)
+print("-" * 60)
 
 last_tick = time.perf_counter()
 global_start = last_tick
+content_started = False
 
 try:
     for event in stream.stream_events(
@@ -148,27 +152,35 @@ try:
             DecisionEvent: MAGENTA,
         }.get(type(event), RESET)
 
-        # For ContentEvents just print the text delta, not the full dict
         if isinstance(event, ContentEvent):
-            print(
-                f"{GREY}[{delta:+.4f}s]{RESET:<4} "
-                f"| {color}{event.__class__.__name__:<25}{RESET} "
-                f"| {event.content}",
-                end="",
-                flush=True,
-            )
+            # Print header once at the start of a content run, then
+            # stream tokens cleanly without repeating the prefix.
+            if not content_started:
+                print(f"\n{GREEN}[Assistant]{RESET} ", end="", flush=True)
+                content_started = True
+            print(event.content, end="", flush=True)
+
         else:
+            # Close off any in-progress content block with a newline
+            if content_started:
+                print()
+                content_started = False
+
             print(
-                f"{GREY}[{delta:+.4f}s]{RESET:<4} "
+                f"{GREY}[{delta:+.4f}s]{RESET} "
                 f"| {color}{event.__class__.__name__:<25}{RESET} "
                 f"| {json.dumps(event.to_dict())}"
             )
 
 except Exception as e:
+    if content_started:
+        print()
     print(f"\n{RED}[ERROR] {e}{RESET}")
 
 finally:
+    if content_started:
+        print()
     total = time.perf_counter() - global_start
-    print(f"\n\n{YELLOW}{'=' * 50}")
+    print(f"\n{YELLOW}{'=' * 50}")
     print(f"  TOTAL: {total:.4f}s")
     print(f"{'=' * 50}{RESET}\n")
