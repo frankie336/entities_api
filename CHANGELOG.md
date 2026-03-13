@@ -1,3 +1,17 @@
+## [1.19.2](https://github.com/project-david-ai/platform/compare/v1.19.1...v1.19.2) (2026-03-13)
+
+
+### Bug Fixes
+
+* bump projectdavid to version 1.76.2 in requirements files ([6fa5489](https://github.com/project-david-ai/platform/commit/6fa5489f44d6d0edc7d576b5a2098b5b876966bc))
+* bump projectdavid to version 1.76.2 in requirements files ([92b5e64](https://github.com/project-david-ai/platform/commit/92b5e64020e7460734dd39c5ccd2460838ce4550))
+* cut back multi-modal message change ([534bc11](https://github.com/project-david-ai/platform/commit/534bc11388bc95ecbc2d86d85f61551f8ca1d69e))
+* cut back multi-modal message change ([8ae8326](https://github.com/project-david-ai/platform/commit/8ae83267b08b135a366054ff1fe064658e0365a5))
+* refactor multimodal handling in vLLMRawStream, improve content merging logic, and enhance conversation truncation ([910ec19](https://github.com/project-david-ai/platform/commit/910ec1920d1586210a9ffdb9572e00f0e882e6e6))
+* refactor multimodal handling in vLLMRawStream, improve content merging logic, and enhance conversation truncation ([3ebc5da](https://github.com/project-david-ai/platform/commit/3ebc5daa44d4df7b567b1890bb8d38708750bd07))
+* remove obsolete SSEManager and cleanup import formatting in multiple files ([86718a2](https://github.com/project-david-ai/platform/commit/86718a2854a48d8d3933432509810382af13ff5f))
+* remove obsolete SSEManager and cleanup import formatting in multiple files ([2728e30](https://github.com/project-david-ai/platform/commit/2728e30c8d20db694c7d93757c52f3ed3b3c9a32))
+
 ## [1.19.1](https://github.com/project-david-ai/platform/compare/v1.19.0...v1.19.1) (2026-03-12)
 
 
