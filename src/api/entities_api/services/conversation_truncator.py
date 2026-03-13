@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from functools import lru_cache
 from typing import List
 
 from projectdavid_common import LoggingUtility
@@ -10,6 +11,12 @@ from transformers.utils import logging as hf_logging
 
 LOG = LoggingUtility()
 hf_logging.set_verbosity_error()
+
+
+@lru_cache(maxsize=8)
+def _load_tokenizer(model_name: str):
+    """Load and cache tokenizer — one load per model name per process."""
+    return AutoTokenizer.from_pretrained(model_name)
 
 
 class ConversationTruncator:
@@ -30,22 +37,35 @@ class ConversationTruncator:
 
     @classmethod
     def _safe_load_tokenizer(cls, model_name: str):
-        """
-        Try to load `model_name`; fall back to a public model if that fails.
-        """
         try:
-            return AutoTokenizer.from_pretrained(model_name)
+            return _load_tokenizer(model_name)
         except Exception as exc:
             LOG.warning(
-                "Tokenizer %s unavailable (%s) – falling back to %s",
+                "Tokenizer %s unavailable (%s) — falling back to %s",
                 model_name,
                 exc.__class__.__name__,
                 cls.FALLBACK_MODEL,
             )
-            return AutoTokenizer.from_pretrained(cls.FALLBACK_MODEL)
+            return _load_tokenizer(cls.FALLBACK_MODEL)
+
+    def _count_tokens_batch(self, texts: List[str]) -> List[int]:
+        """
+        Tokenize a list of strings in one batched call — far cheaper than
+        calling encode() once per message in a loop.
+        """
+        if not texts:
+            return []
+        encoded = self.tokenizer(
+            texts,
+            add_special_tokens=False,
+            return_attention_mask=False,
+            return_length=True,  # returns lengths directly
+        )
+        # `return_length=True` gives us encoded["length"] as a list of ints
+        return encoded["length"]
 
     def count_tokens(self, text: str) -> int:
-        """Return #tokens for `text` (special tokens excluded)."""
+        """Return token count for a single string (special tokens excluded)."""
         return len(self.tokenizer.encode(text or "", add_special_tokens=False))
 
     def truncate(self, conversation: List[dict]) -> List[dict]:
@@ -54,26 +74,35 @@ class ConversationTruncator:
         """
         system_msgs = [m for m in conversation if m.get("role") == "system"]
         other_msgs = [m for m in conversation if m.get("role") != "system"]
-        sys_tokens = sum((self.count_tokens(m["content"]) for m in system_msgs))
-        oth_tokens = sum((self.count_tokens(m["content"]) for m in other_msgs))
-        total_tokens = sys_tokens + oth_tokens
+
+        # Single batched tokenizer call for all messages
+        all_texts = [m["content"] for m in system_msgs + other_msgs]
+        all_counts = self._count_tokens_batch(all_texts)
+
+        sys_tokens = sum(all_counts[: len(system_msgs)])
+        msg_counts = list(zip(other_msgs, all_counts[len(system_msgs) :]))
+        oth_tokens = sum(c for _, c in msg_counts)
+
         threshold_tokens = self.max_context_window * self.threshold_percentage
-        if total_tokens <= threshold_tokens:
+
+        if sys_tokens + oth_tokens <= threshold_tokens:
             return self.merge_consecutive_messages(conversation)
+
         budget = threshold_tokens - sys_tokens
-        truncated = other_msgs.copy()
-        while truncated and oth_tokens > budget:
-            removed = truncated.pop(0)
-            oth_tokens -= self.count_tokens(removed["content"])
-        combined = system_msgs + truncated
-        combined.sort(key=lambda m: conversation.index(m))
+        while msg_counts and oth_tokens > budget:
+            _, cost = msg_counts.pop(0)
+            oth_tokens -= cost
+
+        kept_others = [m for m, _ in msg_counts]
+
+        # O(n) restore original order using a pre-built index
+        original_index = {id(m): i for i, m in enumerate(conversation)}
+        combined = sorted(system_msgs + kept_others, key=lambda m: original_index[id(m)])
+
         return self.merge_consecutive_messages(combined)
 
     @staticmethod
     def merge_consecutive_messages(conversation: List[dict]) -> List[dict]:
-        """
-        Merge consecutive messages from the same role.
-        """
         if not conversation:
             return conversation
         merged = [conversation[0]]

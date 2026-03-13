@@ -4,21 +4,15 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from entities_api.constants.tools import PLATFORM_TOOL_MAP
-from entities_api.orchestration.instructions.assembler import assemble_instructions
-from entities_api.services.native_execution_service import NativeExecutionService
+from entities_api.orchestration.instructions.assembler import \
+    assemble_instructions
 from src.api.entities_api.orchestration.instructions.include_lists import (
-    L2_INSTRUCTIONS,
-    L3_INSTRUCTIONS,
-    L3_WEB_USE_INSTRUCTIONS,
-    L4_JUNIOR_ENGINEER_INSTRUCTIONS,
-    L4_RESEARCH_INSTRUCTIONS,
-    L4_SENIOR_ENGINEER_INSTRUCTIONS,
-    LEVEL_4_SUPERVISOR_INSTRUCTIONS,
-    NO_CORE_INSTRUCTIONS,
-)
-from src.api.entities_api.platform_tools.definitions.record_tool_decision import (
-    record_tool_decision,
-)
+    L2_INSTRUCTIONS, L3_INSTRUCTIONS, L3_WEB_USE_INSTRUCTIONS,
+    L4_JUNIOR_ENGINEER_INSTRUCTIONS, L4_RESEARCH_INSTRUCTIONS,
+    L4_SENIOR_ENGINEER_INSTRUCTIONS, LEVEL_4_SUPERVISOR_INSTRUCTIONS,
+    NO_CORE_INSTRUCTIONS)
+from src.api.entities_api.platform_tools.definitions.record_tool_decision import \
+    record_tool_decision
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 LOG = LoggingUtility()
@@ -30,14 +24,16 @@ class ContextMixin:
     @property
     def message_cache(self):
         if not self._message_cache:
-            from src.api.entities_api.cache.message_cache import get_sync_message_cache
+            from src.api.entities_api.cache.message_cache import \
+                get_sync_message_cache
 
             self._message_cache = get_sync_message_cache()
         return self._message_cache
 
     # -----------------------------------------------------
-    # PURE HELPERS (SYNC — unchanged)
+    # PURE HELPERS (SYNC)
     # -----------------------------------------------------
+
     @staticmethod
     def _normalize_roles(msgs: List[Dict]) -> List[Dict]:
         out: List[Dict] = []
@@ -51,7 +47,16 @@ class ContextMixin:
             )
 
             raw_content = m.get("content")
-            content = str(raw_content).strip() if raw_content is not None else None
+
+            # ── Multimodal content arrays must pass through untouched ──────
+            # If content is already a list (Qwen base64 array from hydration)
+            # do NOT stringify it — the LLM needs the list structure intact.
+            if isinstance(raw_content, list):
+                content = raw_content
+            elif raw_content is not None:
+                content = str(raw_content).strip()
+            else:
+                content = None
 
             normalized_msg = {"role": role, "content": content}
             has_tool_calls = False
@@ -104,7 +109,6 @@ class ContextMixin:
             mandatory_platform_tools.append(record_tool_decision)
 
         tools = tools or []
-
         resolved_platform_tools = []
         resolved_user_tools = []
 
@@ -120,8 +124,6 @@ class ContextMixin:
                 and "function" not in tool
             ):
                 platform_def = PLATFORM_TOOL_MAP[tool_type]
-
-                # --- FIX: Check for BOTH list and tuple ---
                 if isinstance(platform_def, (list, tuple)):
                     resolved_platform_tools.extend(platform_def)
                 else:
@@ -138,11 +140,9 @@ class ContextMixin:
 
         for tool in platform_tools_all:
             try:
-                # If tool is somehow a tuple/list, catching TypeError prevents a crash
                 name = tool["function"]["name"]
             except (KeyError, TypeError):
                 continue
-
             if name not in seen_names:
                 seen_names.add(name)
                 deduped_platform_tools.append(tool)
@@ -171,7 +171,6 @@ class ContextMixin:
         )
 
         platform_instructions = assemble_instructions(include_keys=instruction_keys)
-
         raw_tools_list = list(cfg.get("tools") or [])
 
         if web_access:
@@ -218,13 +217,11 @@ class ContextMixin:
                 [
                     *(["TOOL_DECISION_PROTOCOL"] if decision_telemetry else []),
                     *LEVEL_4_SUPERVISOR_INSTRUCTIONS,
-                    # *(L3_WEB_USE_INSTRUCTIONS if web_access else []),
                 ]
             )
         )
 
         platform_instructions = assemble_instructions(include_keys=instruction_keys)
-
         raw_tools_list = list(cfg.get("tools") or [])
 
         if web_access:
@@ -271,13 +268,11 @@ class ContextMixin:
                 [
                     *(["TOOL_DECISION_PROTOCOL"] if decision_telemetry else []),
                     *L4_RESEARCH_INSTRUCTIONS,
-                    # *(L3_WEB_USE_INSTRUCTIONS if web_access else []),
                 ]
             )
         )
 
         platform_instructions = assemble_instructions(include_keys=instruction_keys)
-
         raw_tools_list = list(cfg.get("tools") or [])
 
         if web_access:
@@ -324,13 +319,11 @@ class ContextMixin:
                 [
                     *(["TOOL_DECISION_PROTOCOL"] if decision_telemetry else []),
                     *L4_SENIOR_ENGINEER_INSTRUCTIONS,
-                    # *(L3_WEB_USE_INSTRUCTIONS if web_access else []),
                 ]
             )
         )
 
         platform_instructions = assemble_instructions(include_keys=instruction_keys)
-
         raw_tools_list = list(cfg.get("tools") or [])
 
         if web_access:
@@ -376,16 +369,14 @@ class ContextMixin:
             dict.fromkeys(
                 [
                     *(["TOOL_DECISION_PROTOCOL"] if decision_telemetry else []),
-                    *L4_JUNIOR_ENGINEER_INSTRUCTIONS,  # ← FIXED
+                    *L4_JUNIOR_ENGINEER_INSTRUCTIONS,
                 ]
             )
         )
 
         platform_instructions = assemble_instructions(include_keys=instruction_keys)
-
         raw_tools_list = list(cfg.get("tools") or [])
 
-        # Junior never gets web access
         final_tools = self._resolve_and_prioritize_platform_tools(
             tools=raw_tools_list,
             decision_telemetry=decision_telemetry,
@@ -428,7 +419,6 @@ class ContextMixin:
         )
 
         platform_instructions = assemble_instructions(include_keys=instruction_keys)
-
         raw_tools_list = list(cfg.get("tools") or [])
 
         if web_access:
@@ -459,8 +449,9 @@ class ContextMixin:
         }
 
     # -----------------------------------------------------
-    # ASYNC CONTEXT WINDOW (FIXED)
+    # ASYNC CONTEXT WINDOW
     # -----------------------------------------------------
+
     async def _set_up_context_window(
         self,
         assistant_id: str,
@@ -478,7 +469,6 @@ class ContextMixin:
     ) -> List[Dict]:
 
         # 1. Build the System Message
-        # PRIORITY: Senior Engineer > Research Supervisor > Research Worker > Junior Engineer > Structured Tool Call > Standard
         if engineer:
             system_msg = await self._build_senior_engineer_message(
                 assistant_id=assistant_id,
@@ -527,29 +517,38 @@ class ContextMixin:
 
         # 2. Retrieve Message History
         if force_refresh:
-            LOG.debug(f"[CTX-REFRESH] 🔄 Force Refresh Active for {thread_id}")
+            LOG.debug(f"[CTX-REFRESH] Force Refresh Active for {thread_id}")
             try:
-                full_hist = await self._native_exec.get_formatted_messages(thread_id)
+                # Fetch lean messages (file_ids, no base64) and store in Redis
+                lean_hist = await self._native_exec.get_raw_messages(thread_id)
             except Exception as e:
                 LOG.warning(
-                    "[CTX-REFRESH] get_formatted_messages failed for %s: %s. "
-                    "Returning empty history.",
+                    "[CTX-REFRESH] get_raw_messages failed for %s: %s. " "Returning empty history.",
                     thread_id,
                     e,
                 )
-                full_hist = []
-            self.message_cache.set_history_sync(thread_id, full_hist)
-            msgs = full_hist
-        else:
-            msgs = self.message_cache.get_history_sync(thread_id)
-            LOG.debug(f"[CTX-CACHE] Redis Hit for {thread_id}")
+                lean_hist = []
 
-        # 3. Filter, Prepend, and Normalize
+            # Store lean in Redis — never store hydrated base64
+            self.message_cache.set_history_sync(thread_id, lean_hist)
+            msgs = lean_hist
+
+        else:
+            # Hot path — Redis returns lean messages with file_id refs
+            msgs = self.message_cache.get_history_sync(thread_id)
+            LOG.debug(f"[CTX-CACHE] Redis hit for {thread_id}")
+
+        # 3. Hydrate images just-in-time — resolve file_ids → base64 right
+        #    before LLM dispatch. Expired files are skipped gracefully.
+        #    Plain text messages pass through untouched.
+        msgs = await self._native_exec.hydrate_messages(msgs)
+
+        # 4. Filter system messages, prepend fresh system msg, normalize
         msgs = [m for m in msgs if m.get("role") != "system"]
         full_context = [system_msg] + msgs
         normalized = self._normalize_roles(full_context)
 
-        LOG.info(f"=== 🚀 OUTBOUND CONTEXT (Size: {len(normalized)}) ===")
+        LOG.info(f"=== OUTBOUND CONTEXT (Size: {len(normalized)}) ===")
 
         if trunk:
             return self.conversation_truncator.truncate(normalized)
@@ -559,6 +558,7 @@ class ContextMixin:
     # -----------------------------------------------------
     # REMAINING SYNC UTILITIES
     # -----------------------------------------------------
+
     def replace_system_message(
         self, context_window: list[dict], new_system_message: str | None = None
     ) -> list[dict]:

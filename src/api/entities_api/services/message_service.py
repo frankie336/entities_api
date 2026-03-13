@@ -36,13 +36,6 @@ class MessageService:
         return db_msg
 
     def _assert_thread_owner(self, db: Any, thread_id: str, user_id: str) -> "Thread":
-        """
-        Load thread and enforce ownership.
-
-        Raises:
-            404 if thread does not exist.
-            403 if the calling user is not the thread owner.
-        """
         db_thread = db.query(Thread).filter(Thread.id == thread_id).first()
         if not db_thread:
             raise HTTPException(status_code=404, detail="Thread not found")
@@ -54,17 +47,9 @@ class MessageService:
         return db_thread
 
     def _assert_message_owner(self, db: Any, message_id: str, user_id: str) -> "Message":
-        """
-        Load message, resolve its thread, and enforce ownership.
-
-        Raises:
-            404 if message does not exist.
-            403 if the calling user does not own the thread the message belongs to.
-        """
         db_message = db.query(Message).filter(Message.id == message_id).first()
         if not db_message:
             raise HTTPException(status_code=404, detail="Message not found")
-        # Resolve ownership via the parent thread
         db_thread = db.query(Thread).filter(Thread.id == db_message.thread_id).first()
         if not db_thread or db_thread.owner_id != user_id:
             raise HTTPException(
@@ -73,23 +58,158 @@ class MessageService:
             )
         return db_message
 
+    def _hydrate_attachments(
+        self,
+        db: Any,
+        text_content: str,
+        attachments: List[Dict[str, Any]],
+    ) -> Any:
+        """
+        Resolve file_ids → base64 and return a Qwen multimodal content array:
+
+            [
+                {"type": "text",  "text":  "<original message text>"},
+                {"type": "image", "image": "data:image/jpeg;base64,..."},
+                ...
+            ]
+
+        Expired / deleted files are silently skipped.
+        If every attachment has expired the original plain text string is
+        returned so the message still reaches the model.
+
+        NOTE: called ONLY at LLM consumption time — never when populating Redis.
+        """
+        from src.api.entities_api.services.file_service import FileService
+
+        image_attachments = [a for a in (attachments or []) if a.get("type") == "image"]
+        if not image_attachments:
+            return text_content
+
+        file_svc = FileService(db)
+        content_blocks: List[Dict[str, Any]] = [{"type": "text", "text": text_content}]
+
+        resolved = 0
+        for attachment in image_attachments:
+            file_id = attachment.get("file_id")
+            if not file_id:
+                continue
+
+            b64 = file_svc.get_file_as_base64_internal(file_id)
+            if b64 is None:
+                logging_utility.warning(
+                    "_hydrate_attachments: file_id=%s not found or expired, skipping.",
+                    file_id,
+                )
+                continue
+
+            mime = _detect_mime_from_b64(b64)
+            content_blocks.append({"type": "image", "image": f"data:{mime};base64,{b64}"})
+            resolved += 1
+
+        if resolved == 0:
+            logging_utility.warning(
+                "_hydrate_attachments: all attachments expired, returning plain text."
+            )
+            return text_content
+
+        return content_blocks
+
+    def _format_messages_from_db(
+        self,
+        messages: List[Message],
+        hydrate_images: bool = False,
+        include_attachments: bool = False,
+        db: Any = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Shared formatting loop used by all three paths:
+
+        hydrate_images=False, include_attachments=False
+            → plain text content, no attachment metadata
+            → used by legacy callers that don't need image support
+
+        hydrate_images=False, include_attachments=True
+            → plain text content + attachments:[{type, file_id}] preserved
+            → CACHE PATH — Redis stores lean file_id refs, never base64
+
+        hydrate_images=True, include_attachments=False
+            → file_ids resolved to base64 Qwen content arrays
+            → LLM PATH — called at LLM consumption time only
+            → db must be provided
+        """
+        formatted_messages: List[Dict[str, Any]] = []
+
+        for db_message in messages:
+            role = db_message.role
+
+            if role == "tool":
+                formatted_messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": db_message.tool_call_id,
+                        "content": db_message.content,
+                    }
+                )
+                continue
+
+            if role == "assistant":
+                try:
+                    parsed = json.loads(db_message.content)
+                    is_tool_list = (
+                        isinstance(parsed, list)
+                        and len(parsed) > 0
+                        and all(isinstance(i, dict) and "function" in i for i in parsed)
+                    )
+                    if is_tool_list:
+                        formatted_messages.append(
+                            {
+                                "role": "assistant",
+                                "content": None,
+                                "tool_calls": parsed,
+                            }
+                        )
+                    else:
+                        formatted_messages.append(
+                            {"role": "assistant", "content": db_message.content}
+                        )
+                except (json.JSONDecodeError, TypeError):
+                    formatted_messages.append({"role": "assistant", "content": db_message.content})
+                continue
+
+            # ── User / system / platform messages ─────────────────────────
+            attachments = db_message.attachments or []
+
+            if hydrate_images and attachments and db is not None:
+                # LLM path: resolve file_ids → base64 content array
+                content = self._hydrate_attachments(db, db_message.content, attachments)
+                formatted_messages.append({"role": role, "content": content})
+
+            elif include_attachments and attachments:
+                # Cache path: keep plain text + preserve attachment metadata
+                # so the mixin can hydrate just-in-time before LLM dispatch
+                formatted_messages.append(
+                    {
+                        "role": role,
+                        "content": db_message.content,
+                        "attachments": attachments,  # ← lean file_id refs only
+                    }
+                )
+
+            else:
+                # Plain text — no attachments or not needed
+                formatted_messages.append({"role": role, "content": db_message.content})
+
+        return formatted_messages
+
     # ──────────────────────────────────────────────────────────────────────────
     #  Internal / trusted-caller variants  (NO ownership check)
-    #
-    #  FOR USE BY: NativeExecutionService, MessageCache, and any other server-
-    #  side component that operates inside the trust boundary.
-    #
-    #  DO NOT expose these through any HTTP router endpoint.
     # ──────────────────────────────────────────────────────────────────────────
 
     def create_message_internal(
         self,
         message: validator.MessageCreate,
     ) -> validator.MessageRead:
-        """
-        Create a message with no ownership check.
-        FOR INTERNAL/TRUSTED CALLERS ONLY — NativeExecutionService, orchestrator.
-        """
+        """FOR INTERNAL/TRUSTED CALLERS ONLY."""
         logging_utility.info(
             f"[INTERNAL] Creating message for thread_id={message.thread_id}, role={message.role}."
         )
@@ -101,7 +221,7 @@ class MessageService:
             db_message = Message(
                 id=UtilsInterface.IdentifierService.generate_message_id(),
                 assistant_id=message.assistant_id,
-                attachments=[],
+                attachments=message.attachments or [],
                 completed_at=None,
                 content=message.content,
                 created_at=int(time.time()),
@@ -128,13 +248,24 @@ class MessageService:
 
             return validator.MessageRead.model_validate(self._prepare_for_read(db_message))
 
-    def get_formatted_messages_internal(
+    def get_raw_messages_internal(
         self,
         thread_id: str,
     ) -> List[Dict[str, Any]]:
         """
-        Return formatted messages for a thread with no ownership check.
-        FOR INTERNAL/TRUSTED CALLERS ONLY — NativeExecutionService, MessageCache.
+        Return lean formatted messages — plain text content with attachment
+        metadata (file_id refs) preserved as a sibling key.
+
+        FOR CACHE USE ONLY — MessageCache cold-load path.
+
+        Output shape for messages with images:
+            {"role": "user", "content": "...", "attachments": [{"type": "image", "file_id": "..."}]}
+
+        Output shape for plain messages:
+            {"role": "user", "content": "..."}
+
+        Redis stores these lean dicts. The mixin hydrates images just before
+        LLM dispatch — base64 bytes are never written to Redis.
         """
         with SessionLocal() as db:
             db_thread = db.query(Thread).filter(Thread.id == thread_id).first()
@@ -148,59 +279,46 @@ class MessageService:
                 .all()
             )
 
-            formatted_messages: List[Dict[str, Any]] = []
+            return self._format_messages_from_db(
+                messages,
+                hydrate_images=False,
+                include_attachments=True,  # ← preserve file_id refs for mixin
+            )
 
-            for db_message in messages:
-                role = db_message.role
+    def get_formatted_messages_internal(
+        self,
+        thread_id: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Return fully hydrated messages — image attachments resolved to base64.
 
-                if role == "tool":
-                    formatted_messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": db_message.tool_call_id,
-                            "content": db_message.content,
-                        }
-                    )
-                    continue
+        FOR LLM CONSUMPTION ONLY — NativeExecutionService / orchestrator.
+        DO NOT use this to populate Redis.
+        """
+        with SessionLocal() as db:
+            db_thread = db.query(Thread).filter(Thread.id == thread_id).first()
+            if not db_thread:
+                raise HTTPException(status_code=404, detail="Thread not found")
 
-                if role == "assistant":
-                    try:
-                        parsed = json.loads(db_message.content)
-                        is_tool_list = (
-                            isinstance(parsed, list)
-                            and len(parsed) > 0
-                            and all(isinstance(i, dict) and "function" in i for i in parsed)
-                        )
-                        if is_tool_list:
-                            formatted_messages.append(
-                                {
-                                    "role": "assistant",
-                                    "content": None,
-                                    "tool_calls": parsed,
-                                }
-                            )
-                        else:
-                            formatted_messages.append(
-                                {"role": "assistant", "content": db_message.content}
-                            )
-                    except (json.JSONDecodeError, TypeError):
-                        formatted_messages.append(
-                            {"role": "assistant", "content": db_message.content}
-                        )
-                    continue
+            messages = (
+                db.query(Message)
+                .filter(Message.thread_id == thread_id)
+                .order_by(Message.created_at.asc())
+                .all()
+            )
 
-                formatted_messages.append({"role": role, "content": db_message.content})
-
-            return formatted_messages
+            return self._format_messages_from_db(
+                messages,
+                hydrate_images=True,
+                include_attachments=False,
+                db=db,
+            )
 
     def submit_tool_output_internal(
         self,
         message: validator.MessageCreate,
     ) -> validator.MessageRead:
-        """
-        Submit tool output with no ownership check.
-        FOR INTERNAL/TRUSTED CALLERS ONLY — NativeExecutionService, orchestrator.
-        """
+        """FOR INTERNAL/TRUSTED CALLERS ONLY."""
         with SessionLocal() as db:
             db_thread = db.query(Thread).filter(Thread.id == message.thread_id).first()
             if not db_thread:
@@ -229,7 +347,7 @@ class MessageService:
             return validator.MessageRead.model_validate(self._prepare_for_read(db_message))
 
     # ──────────────────────────────────────────────────────────────────────────
-    #  Public API  (ownership enforced — called from HTTP router only)
+    #  Public API  (ownership enforced)
     # ──────────────────────────────────────────────────────────────────────────
 
     def create_message(
@@ -241,13 +359,12 @@ class MessageService:
             f"Creating message for thread_id={message.thread_id}, role={message.role}."
         )
         with SessionLocal() as db:
-            # Ownership enforced: caller must own the target thread
             self._assert_thread_owner(db, message.thread_id, user_id)
 
             db_message = Message(
                 id=UtilsInterface.IdentifierService.generate_message_id(),
                 assistant_id=message.assistant_id,
-                attachments=[],
+                attachments=message.attachments or [],
                 completed_at=None,
                 content=message.content,
                 created_at=int(time.time()),
@@ -274,13 +391,8 @@ class MessageService:
 
             return validator.MessageRead.model_validate(self._prepare_for_read(db_message))
 
-    def retrieve_message(
-        self,
-        message_id: str,
-        user_id: str,
-    ) -> validator.MessageRead:
+    def retrieve_message(self, message_id: str, user_id: str) -> validator.MessageRead:
         with SessionLocal() as db:
-            # Ownership enforced: resolves thread → owner_id
             db_message = self._assert_message_owner(db, message_id, user_id)
             return validator.MessageRead.model_validate(self._prepare_for_read(db_message))
 
@@ -292,9 +404,7 @@ class MessageService:
         order: str = "asc",
     ) -> validator.MessagesList:
         with SessionLocal() as db:
-            # Ownership enforced
             self._assert_thread_owner(db, thread_id, user_id)
-
             query = db.query(Message).filter(Message.thread_id == thread_id)
             query = (
                 query.order_by(Message.created_at.asc())
@@ -302,11 +412,9 @@ class MessageService:
                 else query.order_by(Message.created_at.desc())
             )
             db_messages = query.limit(limit).all()
-
             messages = [
                 validator.MessageRead.model_validate(self._prepare_for_read(m)) for m in db_messages
             ]
-
             return validator.MessagesList(
                 data=messages,
                 first_id=messages[0].id if messages else None,
@@ -323,10 +431,6 @@ class MessageService:
         sender_id: str,
         is_last_chunk: bool = False,
     ) -> Optional[validator.MessageRead]:
-        """
-        Internal / trusted-caller path used by the execution engine.
-        No user_id check — caller is the system, not an end-user HTTP request.
-        """
         if thread_id not in self.message_chunks:
             self.message_chunks[thread_id] = []
         self.message_chunks[thread_id].append(content)
@@ -365,65 +469,21 @@ class MessageService:
         thread_id: str,
         user_id: str,
     ) -> List[Dict[str, Any]]:
-        """
-        Structures messages for LLM consumption.
-        Ownership enforced — caller must own the thread.
-        """
+        """Public API — ownership enforced. Hydrates images for LLM consumption."""
         with SessionLocal() as db:
-            # Ownership enforced
             self._assert_thread_owner(db, thread_id, user_id)
-
             messages = (
                 db.query(Message)
                 .filter(Message.thread_id == thread_id)
                 .order_by(Message.created_at.asc())
                 .all()
             )
-
-            formatted_messages: List[Dict[str, Any]] = []
-
-            for db_message in messages:
-                role = db_message.role
-
-                if role == "tool":
-                    formatted_messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": db_message.tool_call_id,
-                            "content": db_message.content,
-                        }
-                    )
-                    continue
-
-                if role == "assistant":
-                    try:
-                        parsed = json.loads(db_message.content)
-                        is_tool_list = (
-                            isinstance(parsed, list)
-                            and len(parsed) > 0
-                            and all(isinstance(i, dict) and "function" in i for i in parsed)
-                        )
-                        if is_tool_list:
-                            formatted_messages.append(
-                                {
-                                    "role": "assistant",
-                                    "content": None,
-                                    "tool_calls": parsed,
-                                }
-                            )
-                        else:
-                            formatted_messages.append(
-                                {"role": "assistant", "content": db_message.content}
-                            )
-                    except (json.JSONDecodeError, TypeError):
-                        formatted_messages.append(
-                            {"role": "assistant", "content": db_message.content}
-                        )
-                    continue
-
-                formatted_messages.append({"role": role, "content": db_message.content})
-
-            return formatted_messages
+            return self._format_messages_from_db(
+                messages,
+                hydrate_images=True,
+                include_attachments=False,
+                db=db,
+            )
 
     def submit_tool_output(
         self,
@@ -431,9 +491,7 @@ class MessageService:
         user_id: str,
     ) -> validator.MessageRead:
         with SessionLocal() as db:
-            # Ownership enforced: caller must own the target thread
             self._assert_thread_owner(db, message.thread_id, user_id)
-
             db_message = Message(
                 id=UtilsInterface.IdentifierService.generate_message_id(),
                 assistant_id=message.assistant_id,
@@ -456,16 +514,34 @@ class MessageService:
 
             return validator.MessageRead.model_validate(self._prepare_for_read(db_message))
 
-    def delete_message(
-        self,
-        message_id: str,
-        user_id: str,
-    ) -> validator.MessageDeleted:
+    def delete_message(self, message_id: str, user_id: str) -> validator.MessageDeleted:
         with SessionLocal() as db:
-            # Ownership enforced: resolves thread → owner_id
             self._assert_message_owner(db, message_id, user_id)
-
             db_msg = db.query(Message).filter(Message.id == message_id).first()
             db.delete(db_msg)
             db.commit()
             return validator.MessageDeleted(id=message_id)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  Module-level helper
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _detect_mime_from_b64(b64_string: str) -> str:
+    """Peek at first decoded bytes to detect image MIME type."""
+    import base64 as _base64
+
+    try:
+        header = _base64.b64decode(b64_string[:16])
+        if header[:2] == b"\xff\xd8":
+            return "image/jpeg"
+        if header[:8] == b"\x89PNG\r\n\x1a\n":
+            return "image/png"
+        if header[:4] == b"RIFF" and header[8:12] == b"WEBP":
+            return "image/webp"
+        if header[:6] in (b"GIF87a", b"GIF89a"):
+            return "image/gif"
+    except Exception:
+        pass
+    return "image/jpeg"

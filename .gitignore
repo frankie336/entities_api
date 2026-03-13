@@ -7,8 +7,12 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+
+
 # C extensions
 *.so
+*.pyd
+src/api/c_extensions/build/
 
 # Distribution / packaging
 .Python
