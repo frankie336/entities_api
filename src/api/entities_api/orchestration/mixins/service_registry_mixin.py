@@ -21,10 +21,9 @@ from projectdavid.clients.vectors import VectorStoreClient
 from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.platform_tools.handlers.code_interpreter.code_execution_client import \
     StreamOutput
+from entities_api.utils.conversation_truncator import ConversationTruncator
 from src.api.entities_api.orchestration.mixins.client_factory_mixin import \
     ClientFactoryMixin
-from src.api.entities_api.services.conversation_truncator import \
-    ConversationTruncator
 from src.api.entities_api.services.logging_service import LoggingUtility
 
 load_dotenv()
