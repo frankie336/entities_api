@@ -22,6 +22,8 @@ from entities_api.clients.delta_normalizer import DeltaNormalizer
 from entities_api.platform_tools.delegated_model_map.delegation_model_map import \
     get_delegated_model
 # --- DEPENDENCIES ---
+from src.api.entities_api.clients.multimodal_utils import (is_multimodal,
+                                                           normalise_for_chat)
 from src.api.entities_api.dependencies import get_redis, get_redis_sync
 from src.api.entities_api.orchestration.engine.orchestrator_core import \
     OrchestratorCore
@@ -41,6 +43,12 @@ class GptOssBaseWorker(
     """
     Async Base for GPT-OSS Providers.
     Corrects Turn 2 latency by terminating consumer tool streams immediately.
+
+    Vision support:
+        Multimodal messages (hydrated image blocks) are automatically detected
+        and normalised to the OpenAI image_url format before dispatch.
+        Normalisation is applied to cleaned_ctx AFTER prepare_native_tool_context
+        so the tool extraction step is unaffected.
     """
 
     def __init__(
@@ -56,15 +64,11 @@ class GptOssBaseWorker(
         **extra,
     ) -> None:
 
-        # 1. Config & Dependencies
         self.api_key = api_key or extra.get("api_key")
-        # ephemeral worker config
-        # These objects are used for deep search and engineering flows
         self.is_deep_research = None
         self._scratch_pad_thread = None
         self._batfish_owner_user_id: str | None = None
 
-        # --- NEW: Engineer flow tracking variables ---
         self.is_engineer = None
 
         self._delete_ephemeral_thread = delete_ephemeral_thread or extra.get(
@@ -72,20 +76,16 @@ class GptOssBaseWorker(
         )
         self.ephemeral_supervisor_id = None
 
-        # ---[FIX 3] Missing Init Property ---
         self._research_worker_thread = None
         self._worker_thread = None
 
-        # 1. Setup Redis
         self.redis = redis or get_redis_sync()
 
-        # 2. Setup Cache Service
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
         elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
             self._assistant_cache = extra["assistant_cache"]
 
-        # 3. Setup Config
         legacy_config = extra.get("assistant_config") or extra.get("assistant_cache")
         self.assistant_config: Dict[str, Any] = (
             legacy_config if isinstance(legacy_config, dict) else {}
@@ -132,23 +132,16 @@ class GptOssBaseWorker(
         **kwargs,
     ) -> AsyncGenerator[Union[str, StreamEvent], None]:
 
-        # -----------------------------------
-        # Ephemeral supervisor
-        # -----------------------------------
         self._run_user_id = None
         self.ephemeral_supervisor_id = None
-
-        # ---[FIX 1] Scratchpad Variable Initialization ---
         self._scratch_pad_thread = None
 
         redis = self.redis
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
-        # --- [FIX] Capture original assistant_id BEFORE any identity swap ---
         _original_assistant_id = assistant_id
 
-        # 1. State Initialization
         self._current_tool_call_id = None
         self._pending_tool_payload = None
         self._decision_payload = None
@@ -169,7 +162,6 @@ class GptOssBaseWorker(
 
             # ------------------------------------------------------------------
             # 3. ROLE FLAG EXTRACTION
-            # Read all role signals from the assistant's normalized config.
             # ------------------------------------------------------------------
             self.is_deep_research = self.assistant_config.get("deep_research", False)
             self.is_engineer = self.assistant_config.get("is_engineer", False)
@@ -177,13 +169,10 @@ class GptOssBaseWorker(
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", True)
 
-            # Default web_access from config
             web_access_setting = self.assistant_config.get("web_access", False)
 
-            # Extract from meta_data for dynamic ephemeral flags
             raw_meta = self.assistant_config.get("meta_data", {})
 
-            # Worker role flags
             is_worker_val = raw_meta.get(
                 "is_research_worker", raw_meta.get("research_worker_calling", False)
             )
@@ -191,7 +180,6 @@ class GptOssBaseWorker(
                 is_worker_val
             ).lower() == "true" or self.assistant_config.get("is_research_worker", False)
 
-            # Check for "junior_engineer"
             is_junior_val = raw_meta.get(
                 "junior_engineer", raw_meta.get("junior_engineer_calling", False)
             )
@@ -199,37 +187,27 @@ class GptOssBaseWorker(
 
             # ------------------------------------------------------------------
             # 4. ROLE CONFLICT RESOLUTION
-            # Exactly one role is active per invocation.
             # ------------------------------------------------------------------
             if self.is_engineer:
-                # SENIOR ENGINEER (SUPERVISOR)
                 web_access_setting = False
                 research_worker_setting = False
                 junior_engineer_setting = False
                 self.is_deep_research = False
 
             elif self.is_deep_research:
-                # RESEARCH SUPERVISOR
                 web_access_setting = False
                 research_worker_setting = False
                 junior_engineer_setting = False
-                # --------------------------------------------------------
-                # Pass the inference api key through the run
-                # Pass the delegated research model through the run
-                # object — trusted internally write, no ownership check.
-                # --------------------------------------------------------
                 delegation_model = get_delegated_model(requested_model=pre_mapped_model)
                 await self._native_exec.update_run_fields(
                     run_id, meta_data={"api_key": api_key, "delegated_model": delegation_model}
                 )
 
             elif research_worker_setting:
-                # RESEARCH WORKER
                 web_access_setting = True
                 junior_engineer_setting = False
 
             elif junior_engineer_setting:
-                # JUNIOR NETWORK ENGINEER
                 web_access_setting = False
                 research_worker_setting = False
 
@@ -248,7 +226,7 @@ class GptOssBaseWorker(
             )
 
             # ------------------------------------------------------------------
-            # CAPTURE REAL USER ID — before any identity swap mutates state.
+            # CAPTURE REAL USER ID
             # ------------------------------------------------------------------
             try:
                 run = await self._native_exec.retrieve_run(run_id)
@@ -276,11 +254,10 @@ class GptOssBaseWorker(
                 LOG.warning("STREAM ▸ Could not resolve run_user_id: %s", e)
 
             # ------------------------------------------------------------------
-            # 5. IDENTITY SWAP & RELOAD (Supervisor roles only)
+            # 5. IDENTITY SWAP & RELOAD
             # ------------------------------------------------------------------
             await self._handle_role_based_identity_swap(requested_model=pre_mapped_model)
 
-            # --- CRITICAL FIX: Reload config if identity was swapped! ---
             if self.assistant_id != _original_assistant_id:
                 LOG.info(
                     f"Identity swapped from {_original_assistant_id} to {self.assistant_id}. Reloading config."
@@ -295,7 +272,9 @@ class GptOssBaseWorker(
 
             LOG.info("STREAM ▸ Scratchpad thread pinned to: %s", self._scratch_pad_thread)
 
-            # 2. Context Setup
+            # ------------------------------------------------------------------
+            # 6. CONTEXT WINDOW CONSTRUCTION
+            # ------------------------------------------------------------------
             raw_ctx = await self._set_up_context_window(
                 assistant_id=self.assistant_id,
                 thread_id=thread_id,
@@ -311,8 +290,22 @@ class GptOssBaseWorker(
                 junior_engineer=junior_engineer_setting,
             )
 
-            # GPT-OSS Specific: Prepare native tool context
+            # GPT-OSS specific: extract tool definitions from system prompt
             cleaned_ctx, extracted_tools = self.prepare_native_tool_context(raw_ctx)
+
+            # ------------------------------------------------------------------
+            # 7. MULTIMODAL NORMALISATION
+            # Applied to cleaned_ctx AFTER tool extraction so the system prompt
+            # parsing in prepare_native_tool_context is unaffected.
+            # Hydrated image blocks {"type": "image", "image": "data:..."} are
+            # converted to OpenAI format {"type": "image_url", "image_url": {...}}.
+            # Plain text contexts pass through untouched.
+            # ------------------------------------------------------------------
+            if is_multimodal(cleaned_ctx):
+                LOG.info(
+                    "GptOssBaseWorker ▸ multimodal context detected — normalising to OpenAI image_url format."
+                )
+                cleaned_ctx = normalise_for_chat(cleaned_ctx)
 
             if not api_key:
                 yield json.dumps({"type": "error", "content": "Missing API key."})
@@ -332,12 +325,13 @@ class GptOssBaseWorker(
 
             yield json.dumps({"type": "status", "status": "started", "run_id": run_id})
 
-            # 3. Stream Loop (Using Helper)
+            # ------------------------------------------------------------------
+            # 8. STREAM LOOP
+            # ------------------------------------------------------------------
             async for chunk in DeltaNormalizer.async_iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
                     break
 
-                # Delegate state management to helper
                 (
                     current_block,
                     accumulated,
@@ -357,11 +351,9 @@ class GptOssBaseWorker(
             if current_block:
                 accumulated += f"</{current_block}>"
 
-            # =========================================================================
-            # POST-STREAM PROCESSING
-            # =========================================================================
-
-            # --- SYNC-REPLICA 2: Validate Decision Payload ---
+            # ------------------------------------------------------------------
+            # 9. POST-STREAM PROCESSING
+            # ------------------------------------------------------------------
             if decision_buffer:
                 try:
                     self._decision_payload = json.loads(decision_buffer.strip())
@@ -369,11 +361,9 @@ class GptOssBaseWorker(
                 except Exception as e:
                     LOG.error(f"Failed to parse decision payload: {e}")
 
-            # Keep-Alive Heartbeat
             yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
-            # --- SYNC-REPLICA 3: Post-Stream Sanitization ---
-            # (Preserved specifically for GPT-OSS malformed tags)
+            # GPT-OSS specific: sanitize malformed <fc> tags
             if "<fc>" in accumulated:
                 try:
                     fc_pattern = r"<fc>(.*?)</fc>"
@@ -408,18 +398,13 @@ class GptOssBaseWorker(
             message_to_save = assistant_reply
             final_status = StatusEnum.completed.value
 
-            # --- SYNC-REPLICA 5: Structure and Override Save Message ---
             if tool_calls_batch:
-                # 1. Update the internal queue for the dispatcher (process_tool_calls)
                 self._tool_queue = tool_calls_batch
                 final_status = StatusEnum.pending_action.value
 
-                # 2. Build the Hermes/OpenAI Structured Envelope for the Dialogue
-                # This is what makes Turn 2 contextually consistent.
                 tool_calls_structure = []
                 for tool in tool_calls_batch:
                     tool_id = tool.get("id") or f"call_{uuid.uuid4().hex[:8]}"
-
                     tool_calls_structure.append(
                         {
                             "id": tool_id,
@@ -435,17 +420,13 @@ class GptOssBaseWorker(
                         }
                     )
 
-                # CRITICAL: We overwrite message_to_save with the standard tool structure
                 message_to_save = json.dumps(tool_calls_structure)
 
-                # [LOGGING] Verify ID Parity
                 LOG.info(f"\n🚀[L3 AGENT MANIFEST] Turn 1 Batch of {len(tool_calls_structure)}")
                 for item in tool_calls_structure:
                     LOG.info(f"   ▸ Tool: {item['function']['name']} | ID: {item['id']}")
 
-            # Persistence: Assistant Plan/Actions saved to Thread
             if message_to_save:
-                # [FIX]: Use self.assistant_id to save under the supervisor's ID
                 await self.finalize_conversation(
                     message_to_save, thread_id, self.assistant_id, run_id
                 )
@@ -462,7 +443,6 @@ class GptOssBaseWorker(
             await self._shunt_to_redis_stream(redis, stream_key, err)
 
         finally:
-            # 1. Ensure cancellation monitor is stopped
             stop_event.set()
 
     def stream_sync(
@@ -561,7 +541,6 @@ class GptOssBaseWorker(
         t = threading.Thread(target=_run_in_thread, daemon=True)
         t.start()
 
-        # Spin until the background thread has created and registered the queue
         while not queue_ref:
             time.sleep(0.001)
 
