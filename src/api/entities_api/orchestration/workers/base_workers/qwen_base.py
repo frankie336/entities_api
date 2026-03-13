@@ -21,6 +21,8 @@ from entities_api.clients.delta_normalizer import DeltaNormalizer
 from entities_api.platform_tools.delegated_model_map.delegation_model_map import \
     get_delegated_model
 # --- DEPENDENCIES ---
+from src.api.entities_api.clients.multimodal_utils import (is_multimodal,
+                                                           normalise_for_chat)
 from src.api.entities_api.dependencies import get_redis_sync
 from src.api.entities_api.orchestration.engine.orchestrator_core import \
     OrchestratorCore
@@ -40,6 +42,11 @@ class QwenBaseWorker(
     """
     Async Base for Qwen Providers (Hyperbolic, Together, etc.).
     Handles QwQ-32B/Qwen2.5/Kimi specific stream parsing using DeltaNormalizer.
+
+    Vision support:
+        Multimodal messages (hydrated image blocks) are automatically detected
+        and normalised to the OpenAI image_url format before dispatch.
+        Both TogetherAI and Hyperbolic accept base64 data URIs in this format.
     """
 
     def __init__(
@@ -371,9 +378,24 @@ class QwenBaseWorker(
 
             client = self._get_client_instance(api_key=api_key)
 
-            LOG.info(f"\nRAW_CTX_DUMP_QUEN:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}")
             # ------------------------------------------------------------------
-            # 7. THE STREAM LOOP
+            # 7. MULTIMODAL NORMALISATION
+            # Hydrated image blocks arrive as {"type": "image", "image": "data:..."}
+            # (internal format from NativeExecutionService.hydrate_messages).
+            # TogetherAI, Hyperbolic, and all OpenAI-compatible providers require
+            # {"type": "image_url", "image_url": {"url": "data:..."}} instead.
+            # Plain text contexts pass through this block untouched.
+            # ------------------------------------------------------------------
+            if is_multimodal(ctx):
+                LOG.info(
+                    "QwenBaseWorker ▸ multimodal context detected — normalising to OpenAI image_url format."
+                )
+                ctx = normalise_for_chat(ctx)
+
+            LOG.info(f"\nRAW_CTX_DUMP_QUEN:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}")
+
+            # ------------------------------------------------------------------
+            # 8. THE STREAM LOOP
             # DeltaNormalizer handles Qwen/Kimi-specific tag parsing and yields
             # normalized chunks. Accumulation is handled by _handle_chunk_accumulation.
             # ------------------------------------------------------------------
@@ -412,26 +434,26 @@ class QwenBaseWorker(
                 accumulated += f"</{current_block}>"
 
             # ------------------------------------------------------------------
-            # 8. POST-STREAM PROCESSING
+            # 9. POST-STREAM PROCESSING
             # Kept inside the try block to ensure we finalize and persist using
             # the correct (possibly swapped) assistant_id before the finally
             # block has any opportunity to restore state.
             # ------------------------------------------------------------------
-            # 8a. Extract Decision Payload from buffered XML block (if any)
+            # 9a. Extract Decision Payload from buffered XML block (if any)
             if decision_buffer:
                 try:
                     self._decision_payload = json.loads(decision_buffer.strip())
                 except Exception:
                     LOG.warning(f"Failed to parse decision buffer: {decision_buffer[:50]}...")
 
-            # 8b. Extract Tool Calls from accumulated stream output
+            # 9b. Extract Tool Calls from accumulated stream output
             tool_calls_batch = self.parse_and_set_function_calls(accumulated, assistant_reply)
 
             message_to_save = assistant_reply
             final_status = StatusEnum.completed.value
 
             # ------------------------------------------------------------------
-            # 9. TOOL CALL ENVELOPE CONSTRUCTION
+            # 10. TOOL CALL ENVELOPE CONSTRUCTION
             # If the assistant emitted tool calls, build the standardised envelope
             # and flag the run as pending_action so the orchestrator picks it up.
             # ------------------------------------------------------------------
@@ -459,7 +481,7 @@ class QwenBaseWorker(
             yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
             # ------------------------------------------------------------------
-            # 10. FINALIZE & PERSIST
+            # 11. FINALIZE & PERSIST
             # self.assistant_id is the correct ID at this point —
             # either the original assistant or the swapped supervisor ID.
             # ------------------------------------------------------------------

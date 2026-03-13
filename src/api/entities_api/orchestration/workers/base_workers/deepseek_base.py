@@ -19,8 +19,9 @@ from entities_api.cache.assistant_cache import AssistantCache
 from entities_api.clients.delta_normalizer import DeltaNormalizer
 from entities_api.platform_tools.delegated_model_map.delegation_model_map import \
     get_delegated_model
-# ---[FIX 1] ADDED MISSING IMPORT ---
 # --- DEPENDENCIES ---
+from src.api.entities_api.clients.multimodal_utils import (is_multimodal,
+                                                           normalise_for_chat)
 from src.api.entities_api.dependencies import get_redis_sync
 from src.api.entities_api.orchestration.engine.orchestrator_core import (
     OrchestratorCore, StreamState)
@@ -40,6 +41,11 @@ class DeepSeekBaseWorker(
     """
     Async Base for DeepSeek Providers.
     Migrated to Async-First Architecture.
+
+    Vision support:
+        Multimodal messages (hydrated image blocks) are automatically detected
+        and normalised to the OpenAI image_url format before dispatch.
+        Hyperbolic accepts base64 data URIs in this format.
     """
 
     def __init__(
@@ -60,7 +66,6 @@ class DeepSeekBaseWorker(
         self._scratch_pad_thread = None
         self._batfish_owner_user_id: str | None = None
 
-        # --- NEW: Engineer flow tracking variables ---
         self.is_engineer = None
 
         self._delete_ephemeral_thread = delete_ephemeral_thread or extra.get(
@@ -68,20 +73,16 @@ class DeepSeekBaseWorker(
         )
         self.ephemeral_supervisor_id = None
 
-        # --- [FIX 3] Missing Init Property ---
         self._research_worker_thread = None
         self._worker_thread = None
 
         self.redis = redis or get_redis_sync()
 
-        # 3. Setup the Cache Service (The "New Way")
         if assistant_cache_service:
             self._assistant_cache = assistant_cache_service
         elif "assistant_cache" in extra and isinstance(extra["assistant_cache"], AssistantCache):
-            # Handle case where it might be passed via **extra
             self._assistant_cache = extra["assistant_cache"]
 
-        # 4. Setup the Data/Config (The "Old Way" renamed)
         legacy_config = extra.get("assistant_config") or extra.get("assistant_cache")
         self.assistant_config: Dict[str, Any] = (
             legacy_config if isinstance(legacy_config, dict) else {}
@@ -102,7 +103,6 @@ class DeepSeekBaseWorker(
 
         self.setup_services()
 
-        # Ensure mixin stubs exist if failed to load (Standardized from GptOss)
         if not hasattr(self, "get_function_call_state"):
             LOG.error("CRITICAL: ToolRoutingMixin failed to load.")
             self.get_function_call_state = lambda: None
@@ -136,23 +136,18 @@ class DeepSeekBaseWorker(
 
         self._run_user_id = None
         self.ephemeral_supervisor_id = None
-
-        # ---[FIX 1] Scratchpad Variable Initialization ---
         self._scratch_pad_thread = None
 
         redis = self.redis
         stream_key = f"stream:{run_id}"
         stop_event = self.start_cancellation_monitor(run_id)
 
-        # --- [FIX] Capture original assistant_id BEFORE any identity swap ---
         _original_assistant_id = assistant_id
 
-        # Early Variable Initialization
         self._current_tool_call_id = None
         self._decision_payload = None
         self._tool_queue: List[Dict] = []
 
-        # Initialize the State Machine Container
         state = StreamState()
 
         pre_mapped_model = model
@@ -160,13 +155,11 @@ class DeepSeekBaseWorker(
             if hasattr(self, "_get_model_map") and (mapped := self._get_model_map(model)):
                 model = mapped
 
-            # Ensure cache is hot before starting
             self.assistant_id = assistant_id
             await self._ensure_config_loaded()
 
             # ------------------------------------------------------------------
             # 3. ROLE FLAG EXTRACTION
-            # Read all role signals from the assistant's normalized config.
             # ------------------------------------------------------------------
             self.is_deep_research = self.assistant_config.get("deep_research", False)
             self.is_engineer = self.assistant_config.get("is_engineer", False)
@@ -174,13 +167,10 @@ class DeepSeekBaseWorker(
             agent_mode_setting = self.assistant_config.get("agent_mode", False)
             decision_telemetry = self.assistant_config.get("decision_telemetry", False)
 
-            # Default web_access from config
             web_access_setting = self.assistant_config.get("web_access", False)
 
-            # Extract from meta_data for dynamic ephemeral flags
             raw_meta = self.assistant_config.get("meta_data", {})
 
-            # Worker role flags
             is_worker_val = raw_meta.get(
                 "is_research_worker", raw_meta.get("research_worker_calling", False)
             )
@@ -188,7 +178,6 @@ class DeepSeekBaseWorker(
                 is_worker_val
             ).lower() == "true" or self.assistant_config.get("is_research_worker", False)
 
-            # Check for "junior_engineer"
             is_junior_val = raw_meta.get(
                 "junior_engineer", raw_meta.get("junior_engineer_calling", False)
             )
@@ -196,37 +185,27 @@ class DeepSeekBaseWorker(
 
             # ------------------------------------------------------------------
             # 4. ROLE CONFLICT RESOLUTION
-            # Exactly one role is active per invocation.
             # ------------------------------------------------------------------
             if self.is_engineer:
-                # SENIOR ENGINEER (SUPERVISOR)
                 web_access_setting = False
                 research_worker_setting = False
                 junior_engineer_setting = False
                 self.is_deep_research = False
 
             elif self.is_deep_research:
-                # RESEARCH SUPERVISOR
                 web_access_setting = False
                 research_worker_setting = False
                 junior_engineer_setting = False
-                # --------------------------------------------------------
-                # Pass the inference api key through the run
-                # Pass the delegated research model through the run
-                # object — trusted internally write, no ownership check.
-                # --------------------------------------------------------
                 delegation_model = get_delegated_model(requested_model=pre_mapped_model)
                 await self._native_exec.update_run_fields(
                     run_id, meta_data={"api_key": api_key, "delegated_model": delegation_model}
                 )
 
             elif research_worker_setting:
-                # RESEARCH WORKER
                 web_access_setting = True
                 junior_engineer_setting = False
 
             elif junior_engineer_setting:
-                # JUNIOR NETWORK ENGINEER
                 web_access_setting = False
                 research_worker_setting = False
 
@@ -245,7 +224,7 @@ class DeepSeekBaseWorker(
             )
 
             # ------------------------------------------------------------------
-            # CAPTURE REAL USER ID — before any identity swap mutates state.
+            # CAPTURE REAL USER ID
             # ------------------------------------------------------------------
             try:
                 run = await self._native_exec.retrieve_run(run_id)
@@ -273,11 +252,10 @@ class DeepSeekBaseWorker(
                 LOG.warning("STREAM ▸ Could not resolve run_user_id: %s", e)
 
             # ------------------------------------------------------------------
-            # 5. IDENTITY SWAP & RELOAD (Supervisor roles only)
+            # 5. IDENTITY SWAP & RELOAD
             # ------------------------------------------------------------------
             await self._handle_role_based_identity_swap(requested_model=pre_mapped_model)
 
-            # --- CRITICAL FIX: Reload config if identity was swapped! ---
             if self.assistant_id != _original_assistant_id:
                 LOG.info(
                     f"Identity swapped from {_original_assistant_id} to {self.assistant_id}. Reloading config."
@@ -292,7 +270,9 @@ class DeepSeekBaseWorker(
 
             LOG.info("STREAM ▸ Scratchpad thread pinned to: %s", self._scratch_pad_thread)
 
-            # Updated to use self.assistant_id (handles identity swap) and pass all flags
+            # ------------------------------------------------------------------
+            # 6. CONTEXT WINDOW CONSTRUCTION
+            # ------------------------------------------------------------------
             ctx = await self._set_up_context_window(
                 assistant_id=self.assistant_id,
                 thread_id=thread_id,
@@ -315,9 +295,25 @@ class DeepSeekBaseWorker(
 
             client = self._get_client_instance(api_key=api_key)
 
-            # --- [DEBUG] RAW CONTEXT DUMP ---
+            # ------------------------------------------------------------------
+            # 7. MULTIMODAL NORMALISATION
+            # Hydrated image blocks arrive as {"type": "image", "image": "data:..."}
+            # (internal format from NativeExecutionService.hydrate_messages).
+            # Hyperbolic and all OpenAI-compatible providers require
+            # {"type": "image_url", "image_url": {"url": "data:..."}} instead.
+            # Plain text contexts pass through this block untouched.
+            # ------------------------------------------------------------------
+            if is_multimodal(ctx):
+                LOG.info(
+                    "DeepSeekBaseWorker ▸ multimodal context detected — normalising to OpenAI image_url format."
+                )
+                ctx = normalise_for_chat(ctx)
+
             LOG.info(f"\nRAW_CTX_DUMP:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}")
 
+            # ------------------------------------------------------------------
+            # 8. THE STREAM LOOP
+            # ------------------------------------------------------------------
             raw_stream = client.stream_chat_completion(
                 messages=ctx,
                 model=model,
@@ -330,10 +326,8 @@ class DeepSeekBaseWorker(
                 if stop_event.is_set():
                     break
 
-                # --- REAL-TIME STATE MACHINE UPDATE ---
                 self._update_stream_state(chunk, state)
 
-                # Handle Control Flow
                 ctype = chunk.get("type")
                 if ctype == "call_arguments":
                     continue
@@ -348,13 +342,9 @@ class DeepSeekBaseWorker(
             elif state.current_block == "plan":
                 state.accumulated += "</plan>"
 
-            # =========================================================================
-            # [FIXED] POST-STREAM PROCESSING MOVED INSIDE TRY BLOCK
-            # This ensures we finalize/persist using the SUPERVISOR ID
-            # before the 'finally' block restores the Original ID.
-            # =========================================================================
-
-            # --- POST-STREAM: BATCH VALIDATION ---
+            # ------------------------------------------------------------------
+            # 9. POST-STREAM PROCESSING
+            # ------------------------------------------------------------------
             if state.decision_buffer:
                 try:
                     self._decision_payload = json.loads(state.decision_buffer.strip())
@@ -363,27 +353,19 @@ class DeepSeekBaseWorker(
 
             yield json.dumps({"type": "status", "status": "processing", "run_id": run_id})
 
-            # --- [LEVEL 3] NATIVE PERSISTENCE (PRESERVED AS REQUESTED) ---
-            # The parser finds the tools to drive the backend (Action records).
             tool_calls_batch = self.parse_and_set_function_calls(
                 state.accumulated, state.assistant_reply
             )
 
-            # [ORIGINAL LOGIC]: Saving the RAW text (state.accumulated)
             message_to_save = state.accumulated
             final_status = StatusEnum.completed.value
 
             if tool_calls_batch:
-                # We still keep the tool_queue so the dispatcher knows what to execute
                 self._tool_queue = tool_calls_batch
                 final_status = StatusEnum.pending_action.value
-
-                # [LOGGING]
                 LOG.info(f"🚀[L3 NATIVE MODE] Turn 1 Batch size: {len(tool_calls_batch)}")
 
-            # Persistence: Save the raw <plan> and <fc> text exactly as Llama intended
             if message_to_save:
-                # [FIX]: Use self.assistant_id to save under the supervisor's ID (if applicable)
                 await self.finalize_conversation(
                     message_to_save, thread_id, self.assistant_id, run_id
                 )
@@ -400,7 +382,6 @@ class DeepSeekBaseWorker(
             await self._shunt_to_redis_stream(redis, stream_key, err)
 
         finally:
-            # 1. Ensure cancellation monitor is stopped
             stop_event.set()
 
     def stream_sync(
@@ -499,7 +480,6 @@ class DeepSeekBaseWorker(
         t = threading.Thread(target=_run_in_thread, daemon=True)
         t.start()
 
-        # Spin until the background thread has created and registered the queue
         while not queue_ref:
             time.sleep(0.001)
 
