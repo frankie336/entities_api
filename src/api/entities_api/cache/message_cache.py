@@ -4,9 +4,8 @@ import json
 import os
 from typing import Any, Dict, List, Union
 
+from projectdavid_common.utilities.logging_service import LoggingUtility
 from redis import Redis as SyncRedis
-
-from src.api.entities_api.services.logging_service import LoggingUtility
 
 try:
     from redis.asyncio import Redis as AsyncRedis
@@ -24,41 +23,42 @@ class MessageCache:
     """
     Redis-backed message history cache.
 
-    SDK Entity client removed — all cold-load paths now go directly through
-    MessageService (sync) or NativeExecutionService (async), eliminating the
-    internal HTTP round-trip and the user-identity mismatch that caused 403s
-    after ownership primitives were tightened.
+    CONTRACT — what the cache stores vs what the LLM receives:
+
+    Redis stores LEAN messages:
+        {"role": "user", "content": "...", "attachments": [{"type": "image", "file_id": "file_xxx"}]}
+
+    The "attachments" key carries only file_id references — never base64 bytes.
+    Image hydration (file_id → base64 Qwen array) happens in ContextMixin
+    just before LLM dispatch via NativeExecutionService.hydrate_messages().
+
+    This means:
+      - Redis stays small regardless of how many images a thread has
+      - Expired-file handling is always fresh (hydration at dispatch time)
+      - No TTL mismatch between Redis and Samba file expiry
     """
 
     def __init__(self, redis: Union[SyncRedis, "AsyncRedis"]):
         self.redis = redis
 
     # ------------------------------------------------------------------
-    # Lazy service accessors (avoids circular imports at module load time)
+    # Lazy service accessors
     # ------------------------------------------------------------------
 
     @property
     def _message_svc(self):
-        """
-        Synchronous MessageService — used by the sync cold-load path.
-        Instantiated once and cached on the instance.
-        """
         if not hasattr(self, "_message_svc_instance") or self._message_svc_instance is None:
-            from src.api.entities_api.services.message_service import MessageService
+            from src.api.entities_api.services.message_service import \
+                MessageService
 
             self._message_svc_instance = MessageService()
         return self._message_svc_instance
 
     @property
     def _native_exec(self):
-        """
-        NativeExecutionService — used by the async cold-load path.
-        Instantiated once and cached on the instance.
-        """
         if not hasattr(self, "_native_exec_instance") or self._native_exec_instance is None:
-            from src.api.entities_api.services.native_execution_service import (
-                NativeExecutionService,
-            )
+            from src.api.entities_api.services.native_execution_service import \
+                NativeExecutionService
 
             self._native_exec_instance = NativeExecutionService()
         return self._native_exec_instance
@@ -76,11 +76,11 @@ class MessageCache:
 
     async def get_history(self, thread_id: str) -> List[Dict]:
         """
-        Retrieve history from Redis, falling back to DB on a cache miss.
+        Retrieve lean message history from Redis, falling back to DB on a
+        cache miss.
 
-        Cold-load uses NativeExecutionService.get_formatted_messages which
-        calls MessageService.get_formatted_messages_internal directly —
-        no ownership check needed (internal orchestration path).
+        Returns lean dicts — attachment file_ids preserved, no base64.
+        Callers must hydrate images before LLM dispatch.
         """
         key = self._cache_key(thread_id)
 
@@ -95,7 +95,7 @@ class MessageCache:
         LOG.debug(f"[CACHE] Miss for thread {thread_id}. Performing async cold load.")
 
         try:
-            full_hist = await self._native_exec.get_formatted_messages(thread_id)
+            full_hist = await self._native_exec.get_raw_messages(thread_id)
         except Exception as e:
             LOG.warning(
                 "[CACHE] Async cold load failed for thread %s (%s). Returning empty history.",
@@ -148,15 +148,16 @@ class MessageCache:
             await asyncio.to_thread(self.redis.delete, key)
 
     # ------------------------------------------------------------------
-    # Synchronous Methods (hot path for context building)
+    # Synchronous Methods
     # ------------------------------------------------------------------
 
     def get_history_sync(self, thread_id: str) -> List[Dict]:
         """
-        Retrieve history from Redis, falling back to DB on a cache miss.
+        Retrieve lean message history from Redis, falling back to DB on a
+        cache miss.
 
-        Cold-load uses MessageService.get_formatted_messages_internal —
-        no SDK client, no HTTP hop, no ownership check (trusted internal path).
+        Returns lean dicts — attachment file_ids preserved, no base64.
+        Callers must hydrate images before LLM dispatch.
         """
         if not isinstance(self.redis, SyncRedis):
             return []
@@ -170,8 +171,7 @@ class MessageCache:
         LOG.debug(f"[CACHE-SYNC] Miss for thread {thread_id}. Performing sync cold load.")
 
         try:
-            # _internal variant: no user_id required, no ownership check
-            full_hist = self._message_svc.get_formatted_messages_internal(thread_id)
+            full_hist = self._message_svc.get_raw_messages_internal(thread_id)
             if full_hist:
                 self.set_history_sync(thread_id, full_hist)
             return full_hist or []
@@ -184,7 +184,6 @@ class MessageCache:
             return []
 
     def set_history_sync(self, thread_id: str, messages: List[Dict]):
-        """Synchronous wrapper to initialise the cache."""
         if isinstance(self.redis, SyncRedis):
             key = self._cache_key(thread_id)
             serialized = [json.dumps(m) for m in messages[-200:]]
@@ -214,12 +213,9 @@ class MessageCache:
 
 
 # ------------------------------------------------------------------
-# Standalone factory (imported by mixins and services)
+# Standalone factory
 # ------------------------------------------------------------------
 def get_sync_message_cache() -> MessageCache:
-    """
-    Create a synchronous MessageCache instance backed by a SyncRedis client.
-    """
     redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     client = SyncRedis.from_url(redis_url, decode_responses=True)
     return MessageCache(redis=client)

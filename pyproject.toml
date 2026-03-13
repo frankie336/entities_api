@@ -62,6 +62,8 @@ package-dir = { "" = "src/api" }
 where = ["src/api"]
 exclude = ["tests", "docs"]
 
+# ── Tooling ───────────────────────────────────────────────────────────────────
+
 [tool.mypy]
 python_version = "3.9"
 strict = true
@@ -85,8 +87,8 @@ line-length = 100
 
 [tool.ruff.lint.per-file-ignores]
 "src/api/entities_api/daemons/*.py" = ["E402"]
-"src/api/entities_api/cli/*.py" = ["E402"]
-"migrations/env.py" = ["E402"]
+"src/api/entities_api/cli/*.py"     = ["E402"]
+"migrations/env.py"                 = ["E402"]
 
 [tool.pytest.ini_options]
 addopts = "--ignore=tests/integration"

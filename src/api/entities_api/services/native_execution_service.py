@@ -30,6 +30,8 @@ class NativeExecutionService:
       - Assistant CRUD                         (create_assistant, retrieve_assistant,
                                                 delete_assistant)
       - Action and Message operations          (create, update, submit)
+      - File retrieval                         (get_file_as_base64_internal_sync,
+                                                get_file_as_base64_internal)
       - Vector store lookups                   (get_vector_store)
       - Web reading and SERP search            (read_url, scroll_url,
                                                 search_url, serp_search)
@@ -151,22 +153,6 @@ class NativeExecutionService:
         return await asyncio.to_thread(self.assistant_svc.create_assistant, req, user_id)
 
     async def retrieve_assistant(self, assistant_id: str) -> Any:
-        """
-        Fetch a single assistant directly from the DB via AssistantService,
-        bypassing the HTTP SDK.
-
-        Uses the internal (no-ownership-check) variant because NativeExecutionService
-        operates inside the trust boundary — ownership is enforced once at the HTTP
-        boundary when the run is created, and by assert_assistant_access when the
-        orchestrator validates access before inference begins.
-
-        Returns a validated AssistantRead object — identical shape to what the
-        SDK call produced, so all downstream consumers (AssistantCache,
-        OrchestratorCore config loaders) are drop-in compatible.
-
-        Raises HTTPException(404) if the assistant does not exist or has been
-        soft-deleted (propagated from AssistantService unchanged).
-        """
         return await asyncio.to_thread(self.assistant_svc.retrieve_assistant_internal, assistant_id)
 
     async def delete_assistant(
@@ -175,21 +161,51 @@ class NativeExecutionService:
         user_id: str,
         permanent: bool = False,
     ) -> None:
-        """
-        Delete an assistant via AssistantService, bypassing the HTTP SDK.
-
-        user_id must match the owner_id on the record — the ownership guard
-        in AssistantService.delete_assistant enforces this.
-
-        Used by AssistantManager for ephemeral cleanup and by
-        _ephemeral_clean_up in OrchestratorCore.
-        """
         return await asyncio.to_thread(
             self.assistant_svc.delete_assistant,
             assistant_id,
             user_id,
             permanent,
         )
+
+    # ------------------------------------------------------------------
+    # File retrieval  (trusted internal path — no ownership check)
+    # ------------------------------------------------------------------
+
+    def get_file_as_base64_internal_sync(self, file_id: str) -> Optional[str]:
+        """
+        Synchronous internal file retrieval — returns a BASE64 string or None.
+
+        Called by MessageService._hydrate_attachments which runs in a sync
+        context inside get_formatted_messages_internal.
+
+        FileService is lazy-imported here to avoid a circular import:
+          NativeExecutionService → MessageService → NativeExecutionService
+
+        Returns None (never raises) when the file is missing, expired, or the
+        Samba download fails.  Callers should treat None as "skip this attachment".
+        """
+        # Lazy import: FileService → SambaClient → heavy deps; also avoids
+        # the NativeExec → MessageService → NativeExec circular import chain.
+        from src.api.entities_api.services.file_service import FileService
+
+        try:
+            with SessionLocal() as db:
+                file_svc = FileService(db)
+                return file_svc.get_file_as_base64_internal(file_id)
+        except Exception as e:
+            LOG.warning(
+                "NativeExec ▸ get_file_as_base64_internal_sync: file_id=%s failed (%s).",
+                file_id,
+                str(e),
+            )
+            return None
+
+    async def get_file_as_base64_internal(self, file_id: str) -> Optional[str]:
+        """
+        Async wrapper — use this from async orchestrator contexts.
+        """
+        return await asyncio.to_thread(self.get_file_as_base64_internal_sync, file_id)
 
     # ------------------------------------------------------------------
     # Vector Store
@@ -200,18 +216,12 @@ class NativeExecutionService:
         Fetch a vector store by ID for internal use.
 
         Returns None if the store does not exist OR has been soft-deleted.
-        Callers should treat a None return as "store unavailable" and surface
-        an appropriate error — never proceed to query a deleted collection in
-        Qdrant, as the underlying data may have been purged.
         """
 
         def _fetch():
             with SessionLocal() as db:
                 svc = VectorStoreDBService(db)
                 store = svc.get_vector_store_by_id(vector_store_id)
-                # Treat soft-deleted stores as non-existent for all internal
-                # callers — querying a deleted collection produces undefined
-                # results and may surface data the user believed was removed.
                 if store and store.status == StatusEnum.deleted:
                     LOG.warning(
                         "NativeExec ▸ get_vector_store: store '%s' is soft-deleted, returning None.",
@@ -228,16 +238,6 @@ class NativeExecutionService:
 
     @staticmethod
     def _coerce_function_args(function_args: Any) -> Dict[str, Any]:
-        """
-        Normalise function_args to a plain dict regardless of how the caller
-        provided it.
-
-        Callers in the delegation layer receive arguments_dict from the
-        platform's tool-call parser, which may hand them a JSON string, an
-        already-decoded dict, or None.  ActionCreate requires a dict, so we
-        normalise here rather than letting a Pydantic ValidationError propagate
-        and leave `action` as None in the caller.
-        """
         if function_args is None:
             return {}
         if isinstance(function_args, dict):
@@ -258,19 +258,7 @@ class NativeExecutionService:
         function_args: Optional[Any] = None,
         decision: Optional[Dict] = None,
     ) -> Any:
-        """
-        Create an action record via the local ActionService.
-
-        function_args is normalised to a dict before validation so that
-        callers passing a raw JSON string (as the delegation mixin does) do not
-        trigger a Pydantic ValidationError that would leave the caller holding
-        a None action object.
-
-        Raises on unrecoverable errors so the caller's existing try/except
-        can decide how to handle the failure.
-        """
         normalised_args = self._coerce_function_args(function_args)
-
         req = self.val_interface.ActionCreate(
             tool_name=tool_name,
             run_id=run_id,
@@ -281,14 +269,6 @@ class NativeExecutionService:
         return await asyncio.to_thread(self.action_svc.create_action, req)
 
     async def update_action_status(self, action_id: str, status: str) -> Any:
-        """
-        Update only the status field of an action record.
-
-        ActionService.update_action_status also writes action_update.result
-        back to the DB.  We deliberately omit result here so that a status-only
-        update does not overwrite previously stored result data with None.
-        """
-
         def _update():
             existing = self.action_svc.get_action(action_id)
             req = self.val_interface.ActionUpdate(
@@ -306,9 +286,6 @@ class NativeExecutionService:
         user_id: str,
         meta_data: Optional[Dict] = None,
     ) -> Any:
-        """
-        Create a run record via the local RunService, bypassing the HTTP SDK.
-        """
         import types
 
         req = types.SimpleNamespace(
@@ -332,11 +309,6 @@ class NativeExecutionService:
         return await asyncio.to_thread(_create)
 
     async def retrieve_run(self, run_id: str) -> Any:
-        """
-        Internal run lookup — user_id intentionally omitted.
-        Ownership is enforced at the HTTP boundary (runs router).
-        Internal orchestration callers poll any run regardless of ownership.
-        """
         return await asyncio.to_thread(self.run_svc.retrieve_run, run_id)
 
     async def create_thread(self, user_id: str) -> Any:
@@ -352,10 +324,6 @@ class NativeExecutionService:
         content: str,
         role: str = "user",
     ) -> Any:
-        """
-        Create a message on a thread via the local MessageService,
-        bypassing the HTTP SDK.
-        """
         req = self.val_interface.MessageCreate(
             thread_id=thread_id,
             assistant_id=assistant_id,
@@ -367,12 +335,115 @@ class NativeExecutionService:
     async def delete_thread(self, thread_id: str, user_id: str) -> Any:
         return await asyncio.to_thread(self.thread_svc.delete_thread, thread_id, user_id)
 
+    # ------------------------------------------------------------------
+    # Message history — three distinct paths, use the right one
+    # ------------------------------------------------------------------
+
+    async def get_raw_messages(self, thread_id: str) -> list:
+        """
+        Fetch LEAN message history — plain text content with attachment
+        file_id refs preserved as a sibling "attachments" key.
+
+        FOR CACHE USE ONLY — MessageCache async cold-load path calls this.
+        Output shape for image messages:
+            {"role": "user", "content": "...", "attachments": [{"type": "image", "file_id": "..."}]}
+
+        Never pass this output directly to the LLM — call hydrate_messages() first.
+        """
+        return await asyncio.to_thread(self.message_svc.get_raw_messages_internal, thread_id)
+
     async def get_formatted_messages(self, thread_id: str) -> list:
         """
-        Fetch all messages for a thread formatted for LLM consumption,
-        bypassing the HTTP SDK.
+        Fetch fully hydrated messages — image attachments resolved to base64
+        Qwen content arrays at call time.
+
+        FOR ORCHESTRATOR / LLM USE ONLY.
+        Do NOT use this to populate Redis — use get_raw_messages() instead.
         """
         return await asyncio.to_thread(self.message_svc.get_formatted_messages_internal, thread_id)
+
+    async def hydrate_messages(self, msgs: list) -> list:
+        """
+        Resolve image attachments in a list of lean cache messages to base64
+        Qwen content arrays, in-place.
+
+        Called by ContextMixin._set_up_context_window() just before LLM
+        dispatch on the normal (non-force-refresh) hot cache path.
+
+        Messages without attachments pass through unchanged.
+        Expired files are silently skipped — if all attachments on a message
+        expire, its content remains the original plain string.
+
+        Input (from Redis / cache):
+            [
+                {"role": "user", "content": "hello"},
+                {"role": "user", "content": "look at these", "attachments": [{"type": "image", "file_id": "file_xxx"}]},
+            ]
+
+        Output (ready for LLM):
+            [
+                {"role": "user", "content": "hello"},
+                {"role": "user", "content": [
+                    {"type": "text",  "text":  "look at these"},
+                    {"type": "image", "image": "data:image/jpeg;base64,..."},
+                ]},
+            ]
+        """
+        from src.api.entities_api.db.database import SessionLocal
+        from src.api.entities_api.services.file_service import FileService
+        from src.api.entities_api.services.message_service import \
+            _detect_mime_from_b64
+
+        def _do_hydrate(msgs):
+            hydrated = []
+            with SessionLocal() as db:
+                file_svc = FileService(db)
+
+                for msg in msgs:
+                    attachments = msg.get("attachments") or []
+                    image_attachments = [a for a in attachments if a.get("type") == "image"]
+
+                    if not image_attachments:
+                        # No images — pass through, strip attachments key if present
+                        clean = {k: v for k, v in msg.items() if k != "attachments"}
+                        hydrated.append(clean)
+                        continue
+
+                    content_blocks = [{"type": "text", "text": msg.get("content", "")}]
+                    resolved = 0
+
+                    for attachment in image_attachments:
+                        file_id = attachment.get("file_id")
+                        if not file_id:
+                            continue
+
+                        b64 = file_svc.get_file_as_base64_internal(file_id)
+                        if b64 is None:
+                            LOG.warning(
+                                "hydrate_messages: file_id=%s expired or missing, skipping.",
+                                file_id,
+                            )
+                            continue
+
+                        mime = _detect_mime_from_b64(b64)
+                        content_blocks.append(
+                            {"type": "image", "image": f"data:{mime};base64,{b64}"}
+                        )
+                        resolved += 1
+
+                    if resolved == 0:
+                        # All expired — keep plain text, drop attachments key
+                        LOG.warning(
+                            "hydrate_messages: all attachments expired for a message, using plain text."
+                        )
+                        clean = {k: v for k, v in msg.items() if k != "attachments"}
+                        hydrated.append(clean)
+                    else:
+                        hydrated.append({"role": msg["role"], "content": content_blocks})
+
+            return hydrated
+
+        return await asyncio.to_thread(_do_hydrate, msgs)
 
     async def submit_tool_output(
         self,
@@ -428,30 +499,9 @@ class NativeExecutionService:
         )
 
     async def update_run_status(self, run_id: str, new_status: str) -> Any:
-        """
-        Update a run's status via the local RunService, bypassing the HTTP SDK.
-        Ownership is NOT checked — this is an internal lifecycle write.
-        """
         return await asyncio.to_thread(self.run_svc.update_run_status, run_id, new_status)
 
     async def update_run_fields(self, run_id: str, **fields) -> Any:
-        """
-        Update arbitrary lifecycle fields on a run record via RunService,
-        bypassing the HTTP SDK.
-
-        Accepts any keyword arguments that RunService.update_run_fields
-        supports, e.g.:
-            current_turn, started_at, completed_at, failed_at,
-            last_error, incomplete_details
-
-        user_id intentionally omitted — internal orchestration callers write
-        lifecycle fields on behalf of the run engine without re-checking ownership.
-        Ownership is enforced once at the HTTP boundary when the run is created.
-
-        Used exclusively by OrchestratorCore.process_conversation for
-        turn-by-turn lifecycle stamping. Non-fatal callers should wrap
-        this in try/except and log warnings on failure.
-        """
         return await asyncio.to_thread(self.run_svc.update_run_fields, run_id, **fields)
 
     async def save_assistant_message_chunk(
@@ -463,10 +513,6 @@ class NativeExecutionService:
         sender_id: str,
         is_last_chunk: bool = True,
     ) -> Any:
-        """
-        Persist an assistant message chunk via the local MessageService,
-        bypassing the HTTP SDK.
-        """
         return await asyncio.to_thread(
             self.message_svc.save_assistant_message_chunk,
             thread_id,
@@ -482,21 +528,17 @@ class NativeExecutionService:
     # ------------------------------------------------------------------
 
     async def read_url(self, url: str, force_refresh: bool = False) -> str:
-        """Scrape a URL via the remote browserless container."""
         LOG.info(f"NativeExec ▸ read_url: {url} (force_refresh={force_refresh})")
         return await self.web_reader.read(url, force_refresh=force_refresh)
 
     async def scroll_url(self, url: str, page: int) -> str:
-        """Return a specific page of a previously cached URL."""
         LOG.info(f"NativeExec ▸ scroll_url: {url} page={page}")
         return await self.web_reader.scroll(url, page)
 
     async def search_url(self, url: str, query: str) -> str:
-        """Full-text search within the cached content of a URL."""
         LOG.info(f"NativeExec ▸ search_url: '{query}' in {url}")
         return await self.web_reader.search(url, query)
 
     async def serp_search(self, query: str) -> str:
-        """Perform a live DuckDuckGo SERP search via the browser service."""
         LOG.info(f"NativeExec ▸ serp_search: '{query}'")
         return await self.web_reader.perform_serp_search(query)
