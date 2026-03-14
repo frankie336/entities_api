@@ -11,7 +11,9 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import mysql
 
-from migrations.utils.safe_ddl import has_table, safe_alter_column
+from migrations.utils.safe_ddl import (create_fk_if_not_exists,
+                                       drop_fk_if_exists, has_table,
+                                       safe_alter_column)
 
 # revision identifiers, used by Alembic.
 revision: str = "b50938f6bd99"
@@ -24,6 +26,11 @@ def upgrade() -> None:
     """Upgrade schema safely."""
 
     # --- Table: batfish_snapshots ---
+    # The FK to users is intentionally NOT declared inline in create_table.
+    # MySQL InnoDB enforces FK references at CREATE TABLE time — if users doesn't
+    # exist yet in this session (fresh container), the statement fails with
+    # ER_NO_REFERENCED_ROW (1824). The FK is added separately below via
+    # create_fk_if_not_exists, which checks has_table("users") before acting.
     if not has_table("batfish_snapshots"):
         op.create_table(
             "batfish_snapshots",
@@ -89,7 +96,6 @@ def upgrade() -> None:
                 nullable=True,
                 comment="Unix timestamp of last successful config ingest",
             ),
-            sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
             sa.PrimaryKeyConstraint("id"),
             sa.UniqueConstraint(
                 "user_id",
@@ -98,24 +104,9 @@ def upgrade() -> None:
             ),
         )
 
-        op.create_index(
-            "idx_batfish_status",
-            "batfish_snapshots",
-            ["status"],
-            unique=False,
-        )
-        op.create_index(
-            "idx_batfish_user_id",
-            "batfish_snapshots",
-            ["user_id"],
-            unique=False,
-        )
-        op.create_index(
-            op.f("ix_batfish_snapshots_id"),
-            "batfish_snapshots",
-            ["id"],
-            unique=False,
-        )
+        op.create_index("idx_batfish_status", "batfish_snapshots", ["status"], unique=False)
+        op.create_index("idx_batfish_user_id", "batfish_snapshots", ["user_id"], unique=False)
+        op.create_index(op.f("ix_batfish_snapshots_id"), "batfish_snapshots", ["id"], unique=False)
         op.create_index(
             op.f("ix_batfish_snapshots_snapshot_key"),
             "batfish_snapshots",
@@ -123,20 +114,22 @@ def upgrade() -> None:
             unique=True,
         )
         op.create_index(
-            op.f("ix_batfish_snapshots_user_id"),
-            "batfish_snapshots",
-            ["user_id"],
-            unique=False,
+            op.f("ix_batfish_snapshots_user_id"), "batfish_snapshots", ["user_id"], unique=False
         )
 
-    # --- Table: messages ---
-    safe_alter_column(
-        "messages",
-        "content",
-        existing_type=mysql.TEXT(),
-        nullable=False,
+    # Add FK to users as a separate deferred step — safe on fresh containers
+    # where users may not exist yet, and idempotent on existing databases.
+    create_fk_if_not_exists(
+        "batfish_snapshots_ibfk_1",
+        "batfish_snapshots",
+        "users",
+        ["user_id"],
+        ["id"],
+        ondelete="CASCADE",
     )
 
+    # --- Table: messages ---
+    safe_alter_column("messages", "content", existing_type=mysql.TEXT(), nullable=False)
     safe_alter_column(
         "messages",
         "reasoning",
@@ -157,15 +150,13 @@ def downgrade() -> None:
         type_=mysql.LONGTEXT(),
         nullable=True,
     )
-
-    safe_alter_column(
-        "messages",
-        "content",
-        existing_type=mysql.TEXT(),
-        nullable=True,
-    )
+    safe_alter_column("messages", "content", existing_type=mysql.TEXT(), nullable=True)
 
     # --- Table: batfish_snapshots ---
+    # Drop FK before indexes and table — MySQL requires this ordering.
+    # drop_fk_if_exists checks has_table internally.
+    drop_fk_if_exists("batfish_snapshots", "batfish_snapshots_ibfk_1")
+
     if has_table("batfish_snapshots"):
         op.drop_index(op.f("ix_batfish_snapshots_user_id"), table_name="batfish_snapshots")
         op.drop_index(op.f("ix_batfish_snapshots_snapshot_key"), table_name="batfish_snapshots")
