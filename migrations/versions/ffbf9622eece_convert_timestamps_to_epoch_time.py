@@ -68,30 +68,38 @@ def _change_to_integer_if_needed(table: str, col: str, nullable: bool = True) ->
 def upgrade() -> None:
     """Upgrade schema."""
     # messages.function_call → NOT NULL (only if messages table exists)
-    safe_alter_column("messages", "function_call", existing_type=sa.Text(), nullable=False)
+    if has_table("messages"):
+        safe_alter_column("messages", "function_call", existing_type=sa.Text(), nullable=False)
+    else:
+        print("[Alembic-safeDDL] ⚠️ Skipped alter – table does not exist: messages")
 
     # runs.* timestamps → Integer epoch seconds (conditionally)
+    # The helper already checks has_table("runs") internally, so this is safe to call
     _change_to_integer_if_needed("runs", "cancelled_at", nullable=True)
     _change_to_integer_if_needed("runs", "completed_at", nullable=True)
     _change_to_integer_if_needed("runs", "failed_at", nullable=True)
     _change_to_integer_if_needed("runs", "started_at", nullable=True)
 
     # These were dropped in this revision originally. Keep the safe pattern:
-    # (If they don't exist, drop_column_if_exists no-ops.)
-    drop_column_if_exists("runs", "temperature")
-    drop_column_if_exists("runs", "top_p")
+    # (If they don't exist, drop_column_if_exists no-ops, but we guard against missing 'runs' table completely)
+    if has_table("runs"):
+        drop_column_if_exists("runs", "temperature")
+        drop_column_if_exists("runs", "top_p")
+    else:
+        print("[Alembic-safeDDL] ⚠️ Skipped drop – table does not exist: runs")
 
 
 def downgrade() -> None:
     """Downgrade schema."""
-    # Re-add dropped columns if missing
-    add_column_if_missing("runs", sa.Column("temperature", sa.Integer(), nullable=True))
-    add_column_if_missing("runs", sa.Column("top_p", sa.Integer(), nullable=True))
-
-    # Convert back to DATETIME only if the columns exist and aren't already datetime.
-    # For simplicity, we always attempt the alter when column exists; most MySQL servers
-    # will no-op if already DATETIME, otherwise they'll convert int→datetime (may zero).
+    # Operations on the 'runs' table
     if has_table("runs"):
+        # Re-add dropped columns if missing
+        add_column_if_missing("runs", sa.Column("temperature", sa.Integer(), nullable=True))
+        add_column_if_missing("runs", sa.Column("top_p", sa.Integer(), nullable=True))
+
+        # Convert back to DATETIME only if the columns exist and aren't already datetime.
+        # For simplicity, we always attempt the alter when column exists; most MySQL servers
+        # will no-op if already DATETIME, otherwise they'll convert int→datetime (may zero).
         if has_column("runs", "started_at"):
             safe_alter_column("runs", "started_at", type_=sa.DateTime(), nullable=True)
         if has_column("runs", "failed_at"):
@@ -100,6 +108,11 @@ def downgrade() -> None:
             safe_alter_column("runs", "completed_at", type_=sa.DateTime(), nullable=True)
         if has_column("runs", "cancelled_at"):
             safe_alter_column("runs", "cancelled_at", type_=sa.DateTime(), nullable=True)
+    else:
+        print("[Alembic-safeDDL] ⚠️ Skipped downgrade – table does not exist: runs")
 
     # messages.function_call → back to nullable if table exists
-    safe_alter_column("messages", "function_call", existing_type=sa.Text(), nullable=True)
+    if has_table("messages"):
+        safe_alter_column("messages", "function_call", existing_type=sa.Text(), nullable=True)
+    else:
+        print("[Alembic-safeDDL] ⚠️ Skipped downgrade – table does not exist: messages")

@@ -40,14 +40,12 @@ Design notes
 * messages.thread_id has NO FK constraint at all — orphaned messages are
   handled by the application-level erase_user() method and the
   purge_orphaned_threads daemon (separate concern).
-* All FK operations follow the safe pattern:
-    1. drop existing constraint by name
-    2. recreate with the desired delete rule
-  Constraint names are taken directly from information_schema output to
-  guarantee correctness.
+* All FK operations use replace_fk which atomically drops and recreates
+  each constraint with full existence guards — safe on clean databases
+  and safe to re-run.
 """
 
-from alembic import op
+from migrations.utils.safe_ddl import replace_fk
 
 # ── Revision identifiers ────────────────────────────────────────────────────
 revision = "222cafa3baac"
@@ -59,8 +57,7 @@ depends_on = None
 def upgrade() -> None:
 
     # ── files.user_id → CASCADE ──────────────────────────────────────────────
-    op.drop_constraint("files_ibfk_1", "files", type_="foreignkey")
-    op.create_foreign_key(
+    replace_fk(
         "files_ibfk_1",
         "files",
         "users",
@@ -70,8 +67,7 @@ def upgrade() -> None:
     )
 
     # ── vector_stores.user_id → CASCADE ──────────────────────────────────────
-    op.drop_constraint("vector_stores_ibfk_1", "vector_stores", type_="foreignkey")
-    op.create_foreign_key(
+    replace_fk(
         "vector_stores_ibfk_1",
         "vector_stores",
         "users",
@@ -81,8 +77,7 @@ def upgrade() -> None:
     )
 
     # ── vector_store_files.vector_store_id → CASCADE ─────────────────────────
-    op.drop_constraint("vector_store_files_ibfk_1", "vector_store_files", type_="foreignkey")
-    op.create_foreign_key(
+    replace_fk(
         "vector_store_files_ibfk_1",
         "vector_store_files",
         "vector_stores",
@@ -92,8 +87,7 @@ def upgrade() -> None:
     )
 
     # ── sandboxes.user_id → CASCADE ───────────────────────────────────────────
-    op.drop_constraint("sandboxes_ibfk_1", "sandboxes", type_="foreignkey")
-    op.create_foreign_key(
+    replace_fk(
         "sandboxes_ibfk_1",
         "sandboxes",
         "users",
@@ -103,8 +97,7 @@ def upgrade() -> None:
     )
 
     # ── thread_participants.user_id → CASCADE ─────────────────────────────────
-    op.drop_constraint("thread_participants_ibfk_2", "thread_participants", type_="foreignkey")
-    op.create_foreign_key(
+    replace_fk(
         "thread_participants_ibfk_2",
         "thread_participants",
         "users",
@@ -114,8 +107,7 @@ def upgrade() -> None:
     )
 
     # ── user_assistants.user_id → CASCADE ─────────────────────────────────────
-    op.drop_constraint("user_assistants_ibfk_1", "user_assistants", type_="foreignkey")
-    op.create_foreign_key(
+    replace_fk(
         "user_assistants_ibfk_1",
         "user_assistants",
         "users",
@@ -125,8 +117,7 @@ def upgrade() -> None:
     )
 
     # ── audit_logs.user_id → SET NULL (compliance records must survive) ───────
-    op.drop_constraint("audit_logs_ibfk_1", "audit_logs", type_="foreignkey")
-    op.create_foreign_key(
+    replace_fk(
         "audit_logs_ibfk_1",
         "audit_logs",
         "users",
@@ -138,8 +129,7 @@ def upgrade() -> None:
     # ── actions.run_id → CASCADE ──────────────────────────────────────────────
     # runs already cascade-delete when a user is deleted; without this fix,
     # their child actions become orphans that block the run deletion.
-    op.drop_constraint("actions_ibfk_1", "actions", type_="foreignkey")
-    op.create_foreign_key(
+    replace_fk(
         "actions_ibfk_1",
         "actions",
         "runs",
@@ -152,25 +142,17 @@ def upgrade() -> None:
 def downgrade() -> None:
     # Restore all constraints to NO ACTION (pre-migration state)
 
-    op.drop_constraint("actions_ibfk_1", "actions", type_="foreignkey")
-    op.create_foreign_key("actions_ibfk_1", "actions", "runs", ["run_id"], ["id"])
+    replace_fk("actions_ibfk_1", "actions", "runs", ["run_id"], ["id"])
 
-    op.drop_constraint("audit_logs_ibfk_1", "audit_logs", type_="foreignkey")
-    op.create_foreign_key("audit_logs_ibfk_1", "audit_logs", "users", ["user_id"], ["id"])
+    replace_fk("audit_logs_ibfk_1", "audit_logs", "users", ["user_id"], ["id"])
 
-    op.drop_constraint("user_assistants_ibfk_1", "user_assistants", type_="foreignkey")
-    op.create_foreign_key("user_assistants_ibfk_1", "user_assistants", "users", ["user_id"], ["id"])
+    replace_fk("user_assistants_ibfk_1", "user_assistants", "users", ["user_id"], ["id"])
 
-    op.drop_constraint("thread_participants_ibfk_2", "thread_participants", type_="foreignkey")
-    op.create_foreign_key(
-        "thread_participants_ibfk_2", "thread_participants", "users", ["user_id"], ["id"]
-    )
+    replace_fk("thread_participants_ibfk_2", "thread_participants", "users", ["user_id"], ["id"])
 
-    op.drop_constraint("sandboxes_ibfk_1", "sandboxes", type_="foreignkey")
-    op.create_foreign_key("sandboxes_ibfk_1", "sandboxes", "users", ["user_id"], ["id"])
+    replace_fk("sandboxes_ibfk_1", "sandboxes", "users", ["user_id"], ["id"])
 
-    op.drop_constraint("vector_store_files_ibfk_1", "vector_store_files", type_="foreignkey")
-    op.create_foreign_key(
+    replace_fk(
         "vector_store_files_ibfk_1",
         "vector_store_files",
         "vector_stores",
@@ -178,8 +160,6 @@ def downgrade() -> None:
         ["id"],
     )
 
-    op.drop_constraint("vector_stores_ibfk_1", "vector_stores", type_="foreignkey")
-    op.create_foreign_key("vector_stores_ibfk_1", "vector_stores", "users", ["user_id"], ["id"])
+    replace_fk("vector_stores_ibfk_1", "vector_stores", "users", ["user_id"], ["id"])
 
-    op.drop_constraint("files_ibfk_1", "files", type_="foreignkey")
-    op.create_foreign_key("files_ibfk_1", "files", "users", ["user_id"], ["id"])
+    replace_fk("files_ibfk_1", "files", "users", ["user_id"], ["id"])

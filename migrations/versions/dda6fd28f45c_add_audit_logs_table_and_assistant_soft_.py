@@ -26,6 +26,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema safely."""
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
 
     # 1. Create Audit Logs Table (Idempotent Check)
     if not has_table("audit_logs"):
@@ -60,79 +62,113 @@ def upgrade() -> None:
             ),
             sa.PrimaryKeyConstraint("id"),
         )
-
-        # Create indexes only if table was just created
-        op.create_index(op.f("ix_audit_logs_action"), "audit_logs", ["action"], unique=False)
-        op.create_index(op.f("ix_audit_logs_entity_id"), "audit_logs", ["entity_id"], unique=False)
-        op.create_index(
-            op.f("ix_audit_logs_entity_type"),
-            "audit_logs",
-            ["entity_type"],
-            unique=False,
-        )
-        op.create_index(op.f("ix_audit_logs_id"), "audit_logs", ["id"], unique=False)
-        op.create_index(op.f("ix_audit_logs_timestamp"), "audit_logs", ["timestamp"], unique=False)
-        op.create_index(op.f("ix_audit_logs_user_id"), "audit_logs", ["user_id"], unique=False)
-
         print("[Alembic-safeDDL] ✅ Created table: audit_logs")
     else:
         print("[Alembic-safeDDL] ⚠️ Skipped – table already exists: audit_logs")
 
+    # Guard index creation by making sure the table exists, and then check index list
+    if has_table("audit_logs"):
+        indexes = [idx["name"] for idx in insp.get_indexes("audit_logs")]
+        if "ix_audit_logs_action" not in indexes:
+            op.create_index(op.f("ix_audit_logs_action"), "audit_logs", ["action"], unique=False)
+        if "ix_audit_logs_entity_id" not in indexes:
+            op.create_index(
+                op.f("ix_audit_logs_entity_id"), "audit_logs", ["entity_id"], unique=False
+            )
+        if "ix_audit_logs_entity_type" not in indexes:
+            op.create_index(
+                op.f("ix_audit_logs_entity_type"),
+                "audit_logs",
+                ["entity_type"],
+                unique=False,
+            )
+        if "ix_audit_logs_id" not in indexes:
+            op.create_index(op.f("ix_audit_logs_id"), "audit_logs", ["id"], unique=False)
+        if "ix_audit_logs_timestamp" not in indexes:
+            op.create_index(
+                op.f("ix_audit_logs_timestamp"), "audit_logs", ["timestamp"], unique=False
+            )
+        if "ix_audit_logs_user_id" not in indexes:
+            op.create_index(op.f("ix_audit_logs_user_id"), "audit_logs", ["user_id"], unique=False)
+
     # 2. Add deleted_at to Assistants
-    add_column_if_missing(
-        "assistants",
-        sa.Column(
-            "deleted_at",
-            sa.Integer(),
-            nullable=True,
-            comment="Unix timestamp of soft-deletion. If present, entity is in 'Recycle Bin'.",
-        ),
-    )
+    # Guard against missing assistants table, as add_column_if_missing might inspect columns
+    if has_table("assistants"):
+        add_column_if_missing(
+            "assistants",
+            sa.Column(
+                "deleted_at",
+                sa.Integer(),
+                nullable=True,
+                comment="Unix timestamp of soft-deletion. If present, entity is in 'Recycle Bin'.",
+            ),
+        )
+    else:
+        print("[Alembic-safeDDL] ⚠️ Skipped – table does not exist: assistants")
 
     # 3. Message Table Updates (Type hardening)
-    # Ensure content is not null
-    safe_alter_column("messages", "content", existing_type=mysql.TEXT(), nullable=False)
+    # Guard against missing messages table
+    if has_table("messages"):
+        # Ensure content is not null
+        safe_alter_column("messages", "content", existing_type=mysql.TEXT(), nullable=False)
 
-    # Ensure reasoning uses the correct Large Text type
-    safe_alter_column(
-        "messages",
-        "reasoning",
-        existing_type=mysql.LONGTEXT(),
-        type_=sa.Text(length=4294967295),
-        existing_comment="Stores the internal 'thinking' or reasoning tokens from the model.",
-        existing_nullable=True,
-    )
+        # Ensure reasoning uses the correct Large Text type
+        safe_alter_column(
+            "messages",
+            "reasoning",
+            existing_type=mysql.LONGTEXT(),
+            type_=sa.Text(length=4294967295),
+            existing_comment="Stores the internal 'thinking' or reasoning tokens from the model.",
+            existing_nullable=True,
+        )
+    else:
+        print("[Alembic-safeDDL] ⚠️ Skipped – table does not exist: messages")
 
 
 def downgrade() -> None:
     """Downgrade schema safely."""
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
 
     # 1. Revert Message types
-    safe_alter_column(
-        "messages",
-        "reasoning",
-        existing_type=sa.Text(length=4294967295),
-        type_=mysql.LONGTEXT(),
-        existing_comment="Stores the internal 'thinking' or reasoning tokens from the model.",
-        existing_nullable=True,
-    )
+    if has_table("messages"):
+        safe_alter_column(
+            "messages",
+            "reasoning",
+            existing_type=sa.Text(length=4294967295),
+            type_=mysql.LONGTEXT(),
+            existing_comment="Stores the internal 'thinking' or reasoning tokens from the model.",
+            existing_nullable=True,
+        )
 
-    safe_alter_column("messages", "content", existing_type=mysql.TEXT(), nullable=True)
+        safe_alter_column("messages", "content", existing_type=mysql.TEXT(), nullable=True)
+    else:
+        print("[Alembic-safeDDL] ⚠️ Skipped downgrade – table does not exist: messages")
 
     # 2. Drop deleted_at column
-    drop_column_if_exists("assistants", "deleted_at")
+    if has_table("assistants"):
+        drop_column_if_exists("assistants", "deleted_at")
+    else:
+        print("[Alembic-safeDDL] ⚠️ Skipped downgrade – table does not exist: assistants")
 
     # 3. Drop Audit Log table
-    # Standard drop_table is usually safe enough in downgrade,
-    # but we can check existence to prevent errors if manually dropped.
+    # Check existence to prevent errors if manually dropped.
     if has_table("audit_logs"):
-        # Drop indexes first (though drop_table usually handles this, explicit is safer in some dialects)
-        op.drop_index(op.f("ix_audit_logs_user_id"), table_name="audit_logs")
-        op.drop_index(op.f("ix_audit_logs_timestamp"), table_name="audit_logs")
-        op.drop_index(op.f("ix_audit_logs_id"), table_name="audit_logs")
-        op.drop_index(op.f("ix_audit_logs_entity_type"), table_name="audit_logs")
-        op.drop_index(op.f("ix_audit_logs_entity_id"), table_name="audit_logs")
-        op.drop_index(op.f("ix_audit_logs_action"), table_name="audit_logs")
+        indexes = [idx["name"] for idx in insp.get_indexes("audit_logs")]
+
+        # Safely drop indexes first
+        if "ix_audit_logs_user_id" in indexes:
+            op.drop_index(op.f("ix_audit_logs_user_id"), table_name="audit_logs")
+        if "ix_audit_logs_timestamp" in indexes:
+            op.drop_index(op.f("ix_audit_logs_timestamp"), table_name="audit_logs")
+        if "ix_audit_logs_id" in indexes:
+            op.drop_index(op.f("ix_audit_logs_id"), table_name="audit_logs")
+        if "ix_audit_logs_entity_type" in indexes:
+            op.drop_index(op.f("ix_audit_logs_entity_type"), table_name="audit_logs")
+        if "ix_audit_logs_entity_id" in indexes:
+            op.drop_index(op.f("ix_audit_logs_entity_id"), table_name="audit_logs")
+        if "ix_audit_logs_action" in indexes:
+            op.drop_index(op.f("ix_audit_logs_action"), table_name="audit_logs")
 
         op.drop_table("audit_logs")
         print("[Alembic-safeDDL] ✅ Dropped table: audit_logs")

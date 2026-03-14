@@ -26,6 +26,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema safely."""
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
 
     # --- Table: assistants ---
 
@@ -42,10 +44,12 @@ def upgrade() -> None:
     )
 
     # 2. DATA SANITIZATION (Critical for Type Conversion)
-    # We must convert strings like 'standard' to '0' so MySQL can cast to Boolean/TINYINT.
-    op.execute("UPDATE assistants SET agent_mode = '0' WHERE agent_mode = 'standard'")
-    # Catch-all for any other strings to ensure they are truthy (1)
-    op.execute("UPDATE assistants SET agent_mode = '1' WHERE agent_mode != '0'")
+    # Guard against clean database runs where the table doesn't exist yet
+    if insp.has_table("assistants"):
+        # We must convert strings like 'standard' to '0' so MySQL can cast to Boolean/TINYINT.
+        op.execute("UPDATE assistants SET agent_mode = '0' WHERE agent_mode = 'standard'")
+        # Catch-all for any other strings to ensure they are truthy (1)
+        op.execute("UPDATE assistants SET agent_mode = '1' WHERE agent_mode != '0'")
 
     # 3. Convert agent_mode from String/Enum to Boolean
     safe_alter_column(
@@ -60,6 +64,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema safely."""
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
 
     # --- Table: assistants ---
 
@@ -73,7 +79,9 @@ def downgrade() -> None:
     )
 
     # 2. DATA REVERSION (Optional: Restore the 'standard' string)
-    op.execute("UPDATE assistants SET agent_mode = 'standard' WHERE agent_mode = '0'")
+    # Guard against clean database runs where the table doesn't exist
+    if insp.has_table("assistants"):
+        op.execute("UPDATE assistants SET agent_mode = 'standard' WHERE agent_mode = '0'")
 
     # 3. Drop the decision_telemetry column
     drop_column_if_exists("assistants", "decision_telemetry")

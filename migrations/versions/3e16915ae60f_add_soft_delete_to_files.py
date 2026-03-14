@@ -12,7 +12,9 @@ import sqlalchemy as sa
 from alembic import op
 
 from migrations.utils.safe_ddl import (add_column_if_missing,
-                                       drop_column_if_exists)
+                                       create_index_if_missing,
+                                       drop_column_if_exists,
+                                       drop_index_if_exists)
 
 # revision identifiers, used by Alembic.
 revision: str = '3e16915ae60f'
@@ -32,18 +34,12 @@ def upgrade() -> None:
         ),
     )
 
-    # Index is guarded by the column check above — only created when the column
-    # is genuinely new.  op.f() keeps the name consistent with Alembic's
-    # naming convention so future autogenerate diffs stay clean.
-    op.create_index(
-        op.f("ix_files_deleted_at"),
-        "files",
-        ["deleted_at"],
-        unique=False,
-    )
+    # Safe index creation — guards against missing table and duplicate index
+    create_index_if_missing("ix_files_deleted_at", "files", ["deleted_at"])
 
 
 def downgrade() -> None:
-    op.drop_index(op.f("ix_files_deleted_at"), table_name="files")
+    # Safe index drop — guards against missing table and absent index
+    drop_index_if_exists("ix_files_deleted_at", "files")
 
     drop_column_if_exists("files", "deleted_at")
