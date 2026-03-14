@@ -1,3 +1,10 @@
+## [1.19.5](https://github.com/project-david-ai/platform/compare/v1.19.4...v1.19.5) (2026-03-14)
+
+
+### Bug Fixes
+
+* add guards for missing tables/columns in migrations and enhance safe-DDL usage for indices, constraints, and FKs ([ff59ebd](https://github.com/project-david-ai/platform/commit/ff59ebd2a58b0af96b590359a910e946dd9a0d22))
+
 ## [1.19.4](https://github.com/project-david-ai/platform/compare/v1.19.3...v1.19.4) (2026-03-14)
 
 
