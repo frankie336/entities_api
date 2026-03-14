@@ -4,6 +4,8 @@
 #   python -m entities_api bootstrap-admin
 #   python -m entities_api bootstrap-admin --email admin@example.com --db-url mysql+pymysql://...
 #
+
+
 from __future__ import annotations
 
 import sys
