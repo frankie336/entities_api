@@ -14,7 +14,7 @@ from sqlalchemy.dialects import mysql
 
 # Import the safe DDL helpers
 from migrations.utils.safe_ddl import (add_column_if_missing,
-                                       drop_column_if_exists,
+                                       drop_column_if_exists, has_table,
                                        safe_alter_column)
 
 # revision identifiers, used by Alembic.
@@ -26,8 +26,6 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema safely."""
-    bind = op.get_bind()
-    insp = sa.inspect(bind)
 
     # --- Table: assistants ---
 
@@ -44,11 +42,13 @@ def upgrade() -> None:
     )
 
     # 2. DATA SANITIZATION (Critical for Type Conversion)
-    # Guard against clean database runs where the table doesn't exist yet
-    if insp.has_table("assistants"):
-        # We must convert strings like 'standard' to '0' so MySQL can cast to Boolean/TINYINT.
+    # Guard against fresh-container runs where the table doesn't exist yet.
+    # Uses safe_ddl.has_table() — consistent with the rest of the codebase and
+    # avoids the deprecated sa.inspect(bind) pattern.
+    if has_table("assistants"):
+        # Convert strings like 'standard' → '0' so MySQL can cast to TINYINT/Boolean.
         op.execute("UPDATE assistants SET agent_mode = '0' WHERE agent_mode = 'standard'")
-        # Catch-all for any other strings to ensure they are truthy (1)
+        # Catch-all: any remaining non-'0' string is treated as truthy (1).
         op.execute("UPDATE assistants SET agent_mode = '1' WHERE agent_mode != '0'")
 
     # 3. Convert agent_mode from String/Enum to Boolean
@@ -64,8 +64,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema safely."""
-    bind = op.get_bind()
-    insp = sa.inspect(bind)
 
     # --- Table: assistants ---
 
@@ -78,9 +76,9 @@ def downgrade() -> None:
         nullable=True,
     )
 
-    # 2. DATA REVERSION (Optional: Restore the 'standard' string)
-    # Guard against clean database runs where the table doesn't exist
-    if insp.has_table("assistants"):
+    # 2. DATA REVERSION — restore the 'standard' string for any '0' rows.
+    # Guard against fresh-container runs where the table doesn't exist yet.
+    if has_table("assistants"):
         op.execute("UPDATE assistants SET agent_mode = 'standard' WHERE agent_mode = '0'")
 
     # 3. Drop the decision_telemetry column

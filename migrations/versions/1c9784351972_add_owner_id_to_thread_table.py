@@ -13,12 +13,13 @@ from alembic import op
 from sqlalchemy.dialects import mysql
 
 from migrations.utils.safe_ddl import (add_column_if_missing,
+                                       create_index_if_missing,
                                        drop_column_if_exists,
-                                       safe_alter_column)
+                                       drop_index_if_exists, safe_alter_column)
 
 # revision identifiers, used by Alembic.
-revision: str = '1c9784351972'
-down_revision: Union[str, None] = '1e55188b6b26'
+revision: str = "1c9784351972"
+down_revision: Union[str, None] = "1e55188b6b26"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -47,7 +48,7 @@ def upgrade() -> None:
 
     # ── threads.owner_id ────────────────────────────────────────────────────
     # Canonical ownership column — mirrors the pattern introduced for
-    # assistants.owner_id.  Nullable during the back-fill window; tighten
+    # assistants.owner_id. Nullable during the back-fill window; tighten
     # to NOT NULL once every existing thread row has been back-filled.
     add_column_if_missing(
         "threads",
@@ -56,14 +57,25 @@ def upgrade() -> None:
             sa.String(length=64),
             sa.ForeignKey("users.id", ondelete="SET NULL"),
             nullable=True,
-            index=True,
+            # index=True is intentionally omitted: it is a metadata-level hint
+            # only honoured by create_all(), not by Alembic batch migrations.
+            # The index is created explicitly below.
             comment="Canonical creator/owner of this thread. Used for row-level access control.",
         ),
+    )
+
+    # Create the index explicitly so it is reliably present on all environments,
+    # including fresh containers where the table did not previously exist.
+    create_index_if_missing(
+        "ix_threads_owner_id",
+        "threads",
+        ["owner_id"],
     )
 
 
 def downgrade() -> None:
     # ── threads.owner_id ────────────────────────────────────────────────────
+    drop_index_if_exists("ix_threads_owner_id", "threads")
     drop_column_if_exists("threads", "owner_id")
 
     # ── messages.reasoning ──────────────────────────────────────────────────

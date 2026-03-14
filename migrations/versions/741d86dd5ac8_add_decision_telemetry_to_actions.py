@@ -11,12 +11,12 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import mysql
-from sqlalchemy.engine.reflection import Inspector
 
 # Import the safe DDL helpers
 from migrations.utils.safe_ddl import (add_column_if_missing,
+                                       create_index_if_missing,
                                        drop_column_if_exists,
-                                       safe_alter_column)
+                                       drop_index_if_exists, safe_alter_column)
 
 # revision identifiers, used by Alembic.
 revision: str = "741d86dd5ac8"
@@ -51,23 +51,12 @@ def upgrade() -> None:
         ),
     )
 
-    # 3. Create Index safely (Check if exists first)
-    # Note: add_column_if_missing handles the column, but we need to handle the index explicitly
-    bind = op.get_bind()
-    inspector = Inspector.from_engine(bind)
-    indexes = inspector.get_indexes("actions")
-    index_names = [idx["name"] for idx in indexes]
-
-    if "ix_actions_confidence_score" not in index_names:
-        op.create_index(
-            op.f("ix_actions_confidence_score"),
-            "actions",
-            ["confidence_score"],
-            unique=False,
-        )
-        print("[Alembic-safeDDL] ✅ Created index: ix_actions_confidence_score")
-    else:
-        print("[Alembic-safeDDL] ⚠️ Skipped – index already exists: ix_actions_confidence_score")
+    # 3. Create index safely via helper (guards against missing table)
+    create_index_if_missing(
+        "ix_actions_confidence_score",
+        "actions",
+        ["confidence_score"],
+    )
 
     # --- Table: messages ---
     # 4. Enforce non-nullable content (Maintenance from auto-gen)
@@ -100,14 +89,9 @@ def downgrade() -> None:
     safe_alter_column("messages", "content", existing_type=mysql.TEXT(), nullable=True)
 
     # --- Table: actions ---
-    # 1. Drop Index safely
-    # Note: drop_column_if_exists usually drops associated indexes in MySQL/PG,
-    # but explicitly dropping it prevents warnings in some drivers.
-    try:
-        op.drop_index(op.f("ix_actions_confidence_score"), table_name="actions")
-    except Exception:
-        pass  # Index likely missing or dropped by column drop below
+    # 1. Drop index safely via helper (guards against missing table/index)
+    drop_index_if_exists("ix_actions_confidence_score", "actions")
 
-    # 2. Drop Columns
+    # 2. Drop columns
     drop_column_if_exists("actions", "confidence_score")
     drop_column_if_exists("actions", "decision_payload")

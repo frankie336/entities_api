@@ -12,11 +12,13 @@ import sqlalchemy as sa
 from alembic import op
 
 from migrations.utils.safe_ddl import (add_column_if_missing,
-                                       drop_column_if_exists)
+                                       create_index_if_missing,
+                                       drop_column_if_exists,
+                                       drop_index_if_exists)
 
 # revision identifiers, used by Alembic.
-revision: str = 'ba35b4620058'
-down_revision: Union[str, None] = '3e16915ae60f'
+revision: str = "ba35b4620058"
+down_revision: Union[str, None] = "3e16915ae60f"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -32,27 +34,13 @@ def upgrade() -> None:
         ),
     )
 
-    bind = op.get_bind()
-    insp = sa.inspect(bind)
-
-    if insp.has_table("vector_stores"):
-        indexes = [idx["name"] for idx in insp.get_indexes("vector_stores")]
-        if "ix_vector_stores_deleted_at" not in indexes:
-            op.create_index(
-                op.f("ix_vector_stores_deleted_at"),
-                "vector_stores",
-                ["deleted_at"],
-                unique=False,
-            )
+    create_index_if_missing(
+        "ix_vector_stores_deleted_at",
+        "vector_stores",
+        ["deleted_at"],
+    )
 
 
 def downgrade() -> None:
-    bind = op.get_bind()
-    insp = sa.inspect(bind)
-
-    if insp.has_table("vector_stores"):
-        indexes = [idx["name"] for idx in insp.get_indexes("vector_stores")]
-        if "ix_vector_stores_deleted_at" in indexes:
-            op.drop_index(op.f("ix_vector_stores_deleted_at"), table_name="vector_stores")
-
+    drop_index_if_exists("ix_vector_stores_deleted_at", "vector_stores")
     drop_column_if_exists("vector_stores", "deleted_at")
