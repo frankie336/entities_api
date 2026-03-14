@@ -277,7 +277,6 @@ class DeltaNormalizer:
 
             # 2. Buffer → state machine
             if _C_AVAILABLE:
-                # ── C fast path ───────────────────────────────────────────
                 events, buffer, state, json_depth, has_emitted_text, xml_tool_buffer = (
                     cls._process_buffer_c(
                         buffer,
@@ -289,6 +288,11 @@ class DeltaNormalizer:
                     )
                 )
                 for ev in events:
+                    LOG.warning(
+                        "C_EVENT: type=%s content=%s",
+                        ev.get("type"),
+                        str(ev.get("content", ""))[:80],
+                    )
                     yield ev
             else:
                 # ── Pure-Python fallback ───────────────────────────────────

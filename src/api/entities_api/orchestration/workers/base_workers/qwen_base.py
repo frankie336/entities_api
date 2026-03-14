@@ -47,7 +47,20 @@ class QwenBaseWorker(
         Multimodal messages (hydrated image blocks) are automatically detected
         and normalised to the OpenAI image_url format before dispatch.
         Both TogetherAI and Hyperbolic accept base64 data URIs in this format.
+
+    Provider image limits:
+        VISION_MAX_IMAGES controls how many images are passed per request.
+        Default is None (unlimited) — suitable for TogetherAI and vLLM.
+        Hyperbolic subclasses must override this to 1:
+
+            class HyperbolicQwenWorker(QwenBaseWorker):
+                VISION_MAX_IMAGES = 1  # Hyperbolic hard limit per request
     """
+
+    # Override in subclasses for providers with per-request image caps.
+    # None = unlimited (TogetherAI, vLLM).
+    # 1    = Hyperbolic (documented hard limit).
+    VISION_MAX_IMAGES: Optional[int] = None
 
     def __init__(
         self,
@@ -388,9 +401,11 @@ class QwenBaseWorker(
             # ------------------------------------------------------------------
             if is_multimodal(ctx):
                 LOG.info(
-                    "QwenBaseWorker ▸ multimodal context detected — normalising to OpenAI image_url format."
+                    "QwenBaseWorker ▸ multimodal context detected — normalising to OpenAI "
+                    "image_url format (max_images=%s).",
+                    self.VISION_MAX_IMAGES,
                 )
-                ctx = normalise_for_chat(ctx)
+                ctx = normalise_for_chat(ctx, max_images=self.VISION_MAX_IMAGES)
 
             LOG.info(f"\nRAW_CTX_DUMP_QUEN:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}")
 
@@ -409,6 +424,7 @@ class QwenBaseWorker(
             async for chunk in DeltaNormalizer.async_iter_deltas(raw_stream, run_id):
                 if stop_event.is_set():
                     break
+                LOG.debug("PRE_ACCUM chunk: %s", json.dumps(chunk)[:150])
 
                 (
                     current_block,
@@ -423,7 +439,8 @@ class QwenBaseWorker(
                     assistant_reply,
                     decision_buffer,
                 )
-
+                LOG.warning("PRE_ACCUM chunk: %s", json.dumps(chunk)[:150])
+                LOG.warning("POST_ACCUM skip=%s reply_len=%d", should_skip, len(assistant_reply))
                 if should_skip:
                     continue
 

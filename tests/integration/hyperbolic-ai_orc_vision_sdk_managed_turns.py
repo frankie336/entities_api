@@ -1,9 +1,13 @@
 """
-vLLM Vision Inference Test
+Hyperbolic Vision Inference Test
 ---------------------------------------------------
-Tests multimodal (image + text) streaming via vLLM using
-the unified SDK stream. Sends two Picsum images alongside
-a text prompt and streams the model's visual response.
+Tests multimodal (image + text) streaming via Hyperbolic using
+the unified SDK stream. Sends ONE image alongside a text prompt
+and streams the model's visual response.
+
+NOTE: Hyperbolic enforces a hard limit of 1 image per request.
+      The worker enforces this via VISION_MAX_IMAGES=1, but the
+      test payload is kept to 1 image to keep the sanity check honest.
 """
 
 import base64
@@ -36,8 +40,7 @@ API_KEY = os.getenv("ENTITIES_API_KEY")
 
 MODEL_ID = "hyperbolic/Qwen/Qwen2.5-VL-7B-Instruct"
 
-
-VISION_PROMPT = "What are the differences between these two images? Please describe them in detail."
+VISION_PROMPT = "What do you see in this image? Please describe it in detail."
 
 
 # ------------------------------------------------------------------
@@ -48,11 +51,8 @@ def encode_image(image_path: str) -> str:
         return base64.b64encode(f.read()).decode("utf-8")
 
 
-# base64_image = encode_image("local_chart.png")
-
 # ------------------------------------------------------------------
-# Multimodal payload — OpenAI spec format
-# MessagesClient handles download, upload to Samba, and DB storage
+# Multimodal payload — single image (Hyperbolic limit: 1 per request)
 # ------------------------------------------------------------------
 payload_content = [
     {
@@ -60,14 +60,6 @@ payload_content = [
         "text": VISION_PROMPT,
     },
     {"type": "image_url", "image_url": {"url": "https://picsum.photos/id/1015/800/600"}},
-    {"type": "image_url", "image_url": {"url": "https://picsum.photos/id/1016/800/600"}},
-    # Uncomment to also send a local base64 image:
-    # {
-    #     "type": "image_url",
-    #     "image_url": {
-    #         "url": f"data:image/png;base64,{base64_image}"
-    #     }
-    # },
 ]
 
 # ------------------------------------------------------------------
@@ -78,7 +70,7 @@ client = Entity(base_url=BASE_URL, api_key=API_KEY)
 # ------------------------------------------------------------------
 # Thread + Message Setup
 # ------------------------------------------------------------------
-print(f"\n{CYAN}[▶] Setting up thread and uploading images...{RESET}")
+print(f"\n{CYAN}[▶] Setting up thread and uploading image...{RESET}")
 
 assistant = client.assistants.create_assistant(
     name="Vision Test",
@@ -151,15 +143,12 @@ try:
         }.get(type(event), RESET)
 
         if isinstance(event, ContentEvent):
-            # Print header once at the start of a content run, then
-            # stream tokens cleanly without repeating the prefix.
             if not content_started:
                 print(f"\n{GREEN}[Assistant]{RESET} ", end="", flush=True)
                 content_started = True
             print(event.content, end="", flush=True)
 
         else:
-            # Close off any in-progress content block with a newline
             if content_started:
                 print()
                 content_started = False
