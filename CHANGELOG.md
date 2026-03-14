@@ -1,3 +1,15 @@
+## [1.19.4](https://github.com/project-david-ai/platform/compare/v1.19.3...v1.19.4) (2026-03-14)
+
+
+### Bug Fixes
+
+* add automatic multimodal message normalization for OpenAI compatibility in DefaultBase and GptOssBase workers ([b3f5647](https://github.com/project-david-ai/platform/commit/b3f5647b2df61b9e9e633a88a3ff21c9c39ed4c3))
+* add interactive `configure` command, improve HF_TOKEN handling, and eliminate static placeholder secrets ([a89bea2](https://github.com/project-david-ai/platform/commit/a89bea2d73f4225f1fe0293b59d0a46aa32c639a))
+* enforce Hyperbolic's single-image constraint, update integration tests, refactor multimodal normalization, and bump projectdavid to 1.77.6 ([568c03a](https://github.com/project-david-ai/platform/commit/568c03a6f0e6655ac4de85dc36ec5da972adf62f))
+* enforce secure secret generation, add HF_TOKEN validation, and improve HuggingFace cache path resolution ([de579c3](https://github.com/project-david-ai/platform/commit/de579c32a939d42a88251e48f0a339d3114bdc1d))
+* migrate `generate_docker_compose.py` to `docker_manager.py`, add interactive .env management, validate secrets, improve Docker configuration and HuggingFace support ([7adad40](https://github.com/project-david-ai/platform/commit/7adad40de814c04d9eec9d00ab56145660b853f1))
+* restructure integration tests, add Ollama and Hyperbolic multimodal SDK tests, and enhance Qwen worker NLP support ([0c8f71e](https://github.com/project-david-ai/platform/commit/0c8f71edaff870cc03ea8b3944d5c5b4baea6b91))
+
 ## [1.19.3](https://github.com/project-david-ai/platform/compare/v1.19.2...v1.19.3) (2026-03-14)
 
 
