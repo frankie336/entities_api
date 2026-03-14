@@ -16,7 +16,10 @@ __all__ = [
     "safe_alter_column",
     "rename_column_if_exists",
     "safe_execute_sql",
-    # FK helpers (new)
+    # Index helpers
+    "create_index_if_missing",
+    "drop_index_if_exists",
+    # FK helpers
     "has_fk",
     "drop_fk_if_exists",
     "create_fk_if_not_exists",
@@ -49,7 +52,59 @@ column_exists = has_column
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FK inspection helpers (new)
+# Index-level operations
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def create_index_if_missing(
+    index_name: str,
+    table_name: str,
+    columns: List[str],
+    **kwargs: Any,
+) -> None:
+    """
+    Create an index only if the table exists and the index is not already present.
+    Safe to call on a fresh database where the table may not yet exist.
+    kwargs are passed directly to op.create_index (e.g., unique=True).
+    """
+    if not has_table(table_name):
+        _log(f"⚠️  Skipped create index – table not found: {table_name}")
+        return
+
+    bind = op.get_bind()
+    insp = inspect(bind)
+    existing = {idx["name"] for idx in insp.get_indexes(table_name)}
+
+    if index_name not in existing:
+        op.create_index(index_name, table_name, columns, **kwargs)
+        _log(f"✅  Created index: {index_name} on {table_name}({', '.join(columns)})")
+    else:
+        _log(f"⚠️  Skipped create index – already exists: {index_name}")
+
+
+def drop_index_if_exists(index_name: str, table_name: str) -> None:
+    """
+    Drop an index only if both the table and the index currently exist.
+    Safe to call during downgrade on a schema that may already be partially
+    rolled back.
+    """
+    if not has_table(table_name):
+        _log(f"⚠️  Skipped drop index – table not found: {table_name}")
+        return
+
+    bind = op.get_bind()
+    insp = inspect(bind)
+    existing = {idx["name"] for idx in insp.get_indexes(table_name)}
+
+    if index_name in existing:
+        op.drop_index(index_name, table_name=table_name)
+        _log(f"🗑️  Dropped index: {index_name} from {table_name}")
+    else:
+        _log(f"⚠️  Skipped drop index – not found: {index_name}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FK inspection helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -103,7 +158,10 @@ def create_fk_if_not_exists(
         return
 
     if has_fk(source_table, constraint_name):
-        _log(f"⚠️  Skipped create FK – constraint already exists: {source_table}.{constraint_name}")
+        _log(
+            f"⚠️  Skipped create FK – constraint already exists: "
+            f"{source_table}.{constraint_name}"
+        )
         return
 
     op.create_foreign_key(
