@@ -151,10 +151,17 @@ def create_fk_if_not_exists(
 ) -> None:
     """
     Create a foreign-key constraint only if it does not already exist.
-    Safe to call on a table that has already been migrated.
+    Guards against missing source table, missing referent table, and
+    duplicate constraint — safe to call on any schema state.
     """
     if not has_table(source_table):
         _log(f"⚠️  Skipped create FK – source table not found: {source_table}")
+        return
+
+    # Guard against the referent table not yet existing.
+    # Without this check MySQL raises (1824) "Failed to open the referenced table".
+    if not has_table(referent_table):
+        _log(f"⚠️  Skipped create FK – referenced table not found: {referent_table}")
         return
 
     if has_fk(source_table, constraint_name):
