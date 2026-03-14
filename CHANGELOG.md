@@ -1,3 +1,10 @@
+## [1.19.8](https://github.com/project-david-ai/platform/compare/v1.19.7...v1.19.8) (2026-03-14)
+
+
+### Bug Fixes
+
+* enhance migrations with deferred FK creation, safe column alterations, and improved table guards ([85aed8e](https://github.com/project-david-ai/platform/commit/85aed8e4e2059c1a74855c51ce669e605dffd4dc))
+
 ## [1.19.7](https://github.com/project-david-ai/platform/compare/v1.19.6...v1.19.7) (2026-03-14)
 
 
