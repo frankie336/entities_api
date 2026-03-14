@@ -5,6 +5,8 @@
 #   python -m entities_api docker-manager --mode both --no-cache --tag v1.0
 #   entities-api docker-manager --mode logs --follow
 #   entities-api docker-manager --mode up --exclude ollama --exclude vllm
+#   entities-api docker-manager configure --interactive
+#   entities-api docker-manager configure --set HF_TOKEN=hf_abc123
 #
 from __future__ import annotations
 
@@ -116,8 +118,8 @@ class DockerManager:
 
     # -------------------------------------------------------------------------
     # Secrets that are ALWAYS force-generated — never hardcoded, never default.
-    # Adding DEFAULT_SECRET_KEY and SMBCLIENT_PASSWORD here removes the last
-    # two static fallback values that previously shipped with known strings.
+    # DEFAULT_SECRET_KEY and SMBCLIENT_PASSWORD moved here from _DEFAULT_VALUES
+    # to eliminate the last two static placeholder strings.
     # -------------------------------------------------------------------------
     _GENERATED_SECRETS = [
         "SIGNED_URL_SECRET",
@@ -126,8 +128,8 @@ class DockerManager:
         "MYSQL_PASSWORD",
         "SECRET_KEY",
         "SANDBOX_AUTH_SECRET",
-        "DEFAULT_SECRET_KEY",  # FIX: was hardcoded "your_secret_key_here"
-        "SMBCLIENT_PASSWORD",  # FIX: was hardcoded "default"
+        "DEFAULT_SECRET_KEY",
+        "SMBCLIENT_PASSWORD",
     ]
 
     _GENERATED_TOOL_IDS = [
@@ -138,16 +140,25 @@ class DockerManager:
     ]
 
     # -------------------------------------------------------------------------
-    # Variables that MUST be supplied by the user — cannot be auto-generated.
-    # The script will warn (not error) if these are absent so the stack can
-    # still start without vLLM/HuggingFace features enabled.
+    # Variables that must be supplied by the user — cannot be auto-generated.
+    # The stack starts fine without these; they only gate vLLM / HF features.
+    #
+    # Format:  KEY -> (prompt_label, help_text, hide_input)
     # -------------------------------------------------------------------------
-    _USER_REQUIRED = [
-        "HF_TOKEN",  # HuggingFace personal access token — gated model downloads
-    ]
+    _USER_REQUIRED = {
+        "HF_TOKEN": (
+            "HF_TOKEN",
+            (
+                "HuggingFace personal access token.\n"
+                "  Required only for downloading gated models via vLLM.\n"
+                "  Get one at: https://huggingface.co/settings/tokens"
+            ),
+            True,  # hide_input — token must not echo to terminal
+        ),
+    }
 
     # -------------------------------------------------------------------------
-    # Known insecure placeholder values used as a blocklist during validation.
+    # Known insecure placeholder values — blocklist used during startup validation.
     # -------------------------------------------------------------------------
     _INSECURE_VALUES = {
         "default",
@@ -166,7 +177,7 @@ class DockerManager:
         "TOGETHER_BASE_URL": "https://api.together.xyz/v1",
         "OLLAMA_BASE_URL": "http://ollama:11434",
         # AI model configuration
-        "HF_TOKEN": "",  # User must supply — warned at startup
+        "HF_TOKEN": "",  # User supplies — warned at startup, skippable
         "HF_CACHE_PATH": "",  # Resolved per-platform in _configure_hf_cache_path
         "VLLM_MODEL": "Qwen/Qwen2.5-VL-3B-Instruct",
         # External API keys — user supplies post-install
@@ -194,7 +205,7 @@ class DockerManager:
         "ADMIN_USER_EMAIL": "admin@example.com",
         "ADMIN_USER_ID": "",
         "ADMIN_KEY_PREFIX": "",
-        # SMB — password removed from here; now force-generated in _GENERATED_SECRETS
+        # SMB — password is force-generated, not defaulted here
         "SMBCLIENT_SERVER": "samba_server",
         "SMBCLIENT_SHARE": "cosmic_share",
         "SMBCLIENT_USERNAME": "samba_user",
@@ -449,6 +460,56 @@ class DockerManager:
     # .env generation
     # ------------------------------------------------------------------
 
+    def _prompt_user_required(self, env_values: dict, generation_log: dict):
+        """
+        Interactively prompt for values that cannot be auto-generated.
+
+        - Each prompt clearly states it is optional and skippable with Enter.
+        - Token/secret inputs are hidden as the user types.
+        - Skipped entirely in non-interactive environments (CI, piped stdin)
+          so automated deployments are never blocked.
+        """
+        if not sys.stdin.isatty():
+            self.log.warning(
+                "Non-interactive environment detected. "
+                "User-required variables left blank: %s. "
+                "Edit .env manually or use 'configure --set KEY=VALUE' before enabling these features.",
+                ", ".join(self._USER_REQUIRED.keys()),
+            )
+            return
+
+        typer.echo("\n" + "=" * 60)
+        typer.echo("  Optional: User-Supplied Configuration")
+        typer.echo("=" * 60)
+        typer.echo(
+            "  The following values cannot be auto-generated.\n"
+            "  Press Enter to skip — the stack will start fine without\n"
+            "  them, but related features will be unavailable until set.\n"
+            "\n"
+            "  Set them any time later with:\n"
+            "    entities-api docker-manager configure --interactive\n"
+            "    entities-api docker-manager configure --set KEY=value\n"
+        )
+
+        for key, (label, help_text, hide) in self._USER_REQUIRED.items():
+            typer.echo(f"  {help_text}\n")
+            value = typer.prompt(
+                f"  {label} (press Enter to skip)",
+                default="",
+                show_default=False,
+                hide_input=hide,
+            )
+            if value.strip():
+                env_values[key] = value.strip()
+                generation_log[key] = "Provided interactively by user"
+                typer.echo(f"  ✓ {key} saved.\n")
+            else:
+                self.log.warning(
+                    "'%s' skipped. Run 'configure --set %s=<value>' when ready.", key, key
+                )
+
+        typer.echo("=" * 60 + "\n")
+
     def _generate_dot_env_file(self):
         self.log.info("Generating '%s'...", self._ENV_FILE)
         env_values = dict(self._DEFAULT_VALUES)
@@ -512,19 +573,19 @@ class DockerManager:
 
         # Step 5 — resolve HF_CACHE_PATH if not already set
         if not env_values.get("HF_CACHE_PATH"):
-            base = os.path.expanduser("~")
-            hf_path = {
-                "windows": os.path.join(base, ".cache", "huggingface"),
-                "linux": os.path.join(base, ".cache", "huggingface"),
-                "darwin": os.path.join(base, ".cache", "huggingface"),
-            }.get(platform.system().lower(), os.path.abspath("./.cache/huggingface"))
+            hf_path = os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
             env_values["HF_CACHE_PATH"] = hf_path
             generation_log["HF_CACHE_PATH"] = f"Auto-resolved for {platform.system()}"
 
-        # Step 6 — write
+        # Step 6 — interactively prompt for user-required values (fully skippable)
+        self._prompt_user_required(env_values, generation_log)
+
+        # Step 7 — write
         env_lines = [
             f"# Auto-generated .env file by entities-api docker-manager at {time.strftime('%Y-%m-%d %H:%M:%S %Z')}",
-            "# !! IMPORTANT: Set HF_TOKEN to your HuggingFace token before starting vLLM. !!",
+            "# Optional values (HF_TOKEN etc.) can be set any time with:",
+            "#   entities-api docker-manager configure --set HF_TOKEN=<your_token>",
+            "#   entities-api docker-manager configure --interactive",
             "",
         ]
         processed_keys: set = set()
@@ -613,21 +674,24 @@ class DockerManager:
         """
         hf_path = os.environ.get("HF_CACHE_PATH", "").strip()
         if not hf_path:
-            base = os.path.expanduser("~")
-            hf_path = os.path.join(base, ".cache", "huggingface")
+            hf_path = os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
             os.environ["HF_CACHE_PATH"] = hf_path
             self.log.info("Defaulting HF_CACHE_PATH to: %s", hf_path)
         else:
             self.log.info("Using existing HF_CACHE_PATH: %s", hf_path)
 
     # ------------------------------------------------------------------
-    # Secret validation — called in _handle_up before stack starts
+    # Secret validation — called in _handle_up before the stack starts
     # ------------------------------------------------------------------
 
     def _validate_secrets(self):
         """
         Block startup if any auto-generated secret still holds a known-insecure
-        placeholder value. Warn (but do not block) if user-required tokens are absent.
+        placeholder value.
+
+        Warn (but never block) if user-required tokens are absent — users who
+        are not using vLLM / HuggingFace features should start the stack
+        unimpeded.
         """
         failed = False
         for key in self._GENERATED_SECRETS:
@@ -645,8 +709,10 @@ class DockerManager:
         for key in self._USER_REQUIRED:
             if not os.environ.get(key, "").strip():
                 self.log.warning(
-                    "'%s' is not set. vLLM / HuggingFace gated-model features will be "
-                    "unavailable until you add it to .env and restart.",
+                    "'%s' is not set — vLLM / HuggingFace gated-model features will be "
+                    "unavailable. Set it any time with: "
+                    "entities-api docker-manager configure --set %s=<value>",
+                    key,
                     key,
                 )
 
@@ -1034,7 +1100,8 @@ class DockerManager:
             raise SystemExit(1)
         load_dotenv(dotenv_path=self._ENV_FILE, override=True)
 
-        # Validate all secrets are properly set before allowing the stack to start
+        # Validate all auto-generated secrets are secure before the stack starts.
+        # User-required values (HF_TOKEN etc.) only emit warnings — never block.
         self._validate_secrets()
 
         up_cmd = ["docker", "compose", "-f", self._DOCKER_COMPOSE_FILE, "up"]
@@ -1154,12 +1221,13 @@ class DockerManager:
 
 
 # ---------------------------------------------------------------------------
-# CLI entry-point
+# CLI entry-points
 # ---------------------------------------------------------------------------
 
 
 @app.callback(invoke_without_command=True)
 def docker_manager(
+    ctx: typer.Context,
     # --- Mode ---
     mode: str = typer.Option(
         "up",
@@ -1239,7 +1307,13 @@ def docker_manager(
     Examples:
       entities-api docker-manager --mode up --exclude ollama --exclude vllm
       entities-api docker-manager --mode up -x ollama -x vllm
+      entities-api docker-manager configure --interactive
+      entities-api docker-manager configure --set HF_TOKEN=hf_abc123
     """
+    # Let subcommands (e.g. configure) handle themselves
+    if ctx.invoked_subcommand is not None:
+        return
+
     # --- Validate mode choice ---
     valid_modes = {"up", "build", "both", "down_only", "logs"}
     if mode not in valid_modes:
@@ -1341,6 +1415,111 @@ def docker_manager(
     except Exception as exc:
         typer.echo(f"[error] Unexpected error: {exc}", err=True)
         raise SystemExit(1)
+
+
+@app.command()
+def configure(
+    set_var: Optional[List[str]] = typer.Option(
+        None,
+        "--set",
+        "-s",
+        help="Set a variable in .env. Format: KEY=VALUE. Repeat for multiple.",
+        metavar="KEY=VALUE",
+    ),
+    interactive: bool = typer.Option(
+        False,
+        "--interactive",
+        "-i",
+        help="Interactively prompt for all user-required variables.",
+    ),
+) -> None:
+    """
+    Update specific variables in an existing .env without regenerating secrets.
+
+    Useful for setting optional values like HF_TOKEN after initial setup,
+    or for switching the active vLLM model. Existing auto-generated secrets
+    are never touched.
+
+    Examples:
+      entities-api docker-manager configure --set HF_TOKEN=hf_abc123
+      entities-api docker-manager configure --set HF_TOKEN=hf_abc123 --set VLLM_MODEL=Qwen/Qwen2.5-VL-7B-Instruct
+      entities-api docker-manager configure --interactive
+    """
+    env_path = Path(DockerManager._ENV_FILE)
+    if not env_path.exists():
+        typer.echo(
+            f"[error] '{DockerManager._ENV_FILE}' not found. "
+            "Run 'docker-manager --mode up' first to generate it.",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    load_dotenv(dotenv_path=env_path, override=True)
+    updates: dict = {}
+
+    # --set KEY=VALUE pairs
+    if set_var:
+        for item in set_var:
+            if "=" not in item:
+                typer.echo(f"[error] Invalid format '{item}'. Expected KEY=VALUE.", err=True)
+                raise SystemExit(1)
+            key, _, value = item.partition("=")
+            updates[key.strip()] = value.strip()
+
+    # --interactive: walk through every user-required key
+    if interactive:
+        typer.echo("\n" + "=" * 60)
+        typer.echo("  Interactive Configuration")
+        typer.echo("=" * 60)
+        typer.echo("  Press Enter to skip any item and leave its current value unchanged.\n")
+        for key, (label, help_text, hide) in DockerManager._USER_REQUIRED.items():
+            current = os.environ.get(key, "")
+            status = "(currently set)" if current else "(currently blank — press Enter to skip)"
+            typer.echo(f"  {help_text}\n")
+            value = typer.prompt(
+                f"  {label} {status}",
+                default="",
+                show_default=False,
+                hide_input=hide,
+            )
+            if value.strip():
+                updates[key] = value.strip()
+                typer.echo(f"  ✓ {key} will be updated.\n")
+            else:
+                typer.echo(f"  — {key} unchanged.\n")
+        typer.echo("=" * 60 + "\n")
+
+    if not updates:
+        typer.echo(
+            "Nothing to update. Use --set KEY=VALUE or --interactive.\n"
+            "Example: entities-api docker-manager configure --set HF_TOKEN=hf_abc123"
+        )
+        raise SystemExit(0)
+
+    # Patch the existing .env in-place — only touch the lines we need to change
+    content = env_path.read_text(encoding="utf-8")
+    for key, value in updates.items():
+        if any(c in value for c in [" ", "#", "="]):
+            escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+            new_line = f'{key}="{escaped}"'
+        else:
+            new_line = f"{key}={value}"
+
+        pattern = re.compile(rf"^{re.escape(key)}=.*$", re.MULTILINE)
+        if pattern.search(content):
+            content = pattern.sub(new_line, content)
+            log.info("Updated existing key: %s", key)
+        else:
+            # Key not present yet — append under a clear marker
+            content += f"\n# Added by configure command\n{new_line}\n"
+            log.info("Appended new key: %s", key)
+
+    env_path.write_text(content, encoding="utf-8")
+    typer.echo(
+        f"✓ {len(updates)} variable(s) updated in .env: {', '.join(updates.keys())}\n"
+        "Restart the stack for changes to take effect:\n"
+        "  entities-api docker-manager --mode up --force-recreate"
+    )
 
 
 # ---------------------------------------------------------------------------
