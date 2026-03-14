@@ -1,3 +1,13 @@
+## [1.19.6](https://github.com/project-david-ai/platform/compare/v1.19.5...v1.19.6) (2026-03-14)
+
+
+### Bug Fixes
+
+* add safe index creation and deletion helpers to safe_ddl utilities ([8c5fc91](https://github.com/project-david-ai/platform/commit/8c5fc91c0f2b6efa90dcb945880a3ca2e75e15b4))
+* expand CI workflow to include testing, coverage, and Docker image build/publish steps ([289c984](https://github.com/project-david-ai/platform/commit/289c984425425a6a54ad62b12a3f624d31bd7427))
+* simplify CI workflow, consolidate dependency installation, and clean up comments ([cc76525](https://github.com/project-david-ai/platform/commit/cc7652543eae733d879f73f6cd2b25b0d666f8ea))
+* streamline workflows for linting, testing, releasing, and publishing to PyPI ([0d8be0b](https://github.com/project-david-ai/platform/commit/0d8be0b8e25d8ccf3ef9ce90df70ddc9bc19ad22))
+
 ## [1.19.5](https://github.com/project-david-ai/platform/compare/v1.19.4...v1.19.5) (2026-03-14)
 
 
