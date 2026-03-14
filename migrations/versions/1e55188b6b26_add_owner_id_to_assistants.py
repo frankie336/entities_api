@@ -18,8 +18,11 @@ from alembic import op
 from sqlalchemy.dialects import mysql
 
 from migrations.utils.safe_ddl import (add_column_if_missing,
+                                       create_fk_if_not_exists,
+                                       create_index_if_missing,
                                        drop_column_if_exists,
-                                       safe_alter_column)
+                                       drop_fk_if_exists, drop_index_if_exists,
+                                       has_table, safe_alter_column)
 
 # --- Revision identifiers ---
 revision: str = "1e55188b6b26"
@@ -34,7 +37,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def _constraint_exists(constraint_name: str, table_name: str) -> bool:
-    """Return True if a named constraint already exists on the given table."""
+    """
+    Return True if a named constraint already exists on the given table.
+    Used for unique constraints, which safe_ddl does not yet cover.
+    """
     bind = op.get_bind()
     result = bind.execute(
         sa.text(
@@ -46,22 +52,6 @@ def _constraint_exists(constraint_name: str, table_name: str) -> bool:
             """
         ),
         {"table": table_name, "name": constraint_name},
-    )
-    return result.scalar() > 0
-
-
-def _index_exists(index_name: str, table_name: str) -> bool:
-    bind = op.get_bind()
-    result = bind.execute(
-        sa.text(
-            """
-            SELECT COUNT(*) FROM information_schema.STATISTICS
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = :table
-              AND INDEX_NAME  = :name
-            """
-        ),
-        {"table": table_name, "name": index_name},
     )
     return result.scalar() > 0
 
@@ -88,18 +78,18 @@ def upgrade() -> None:
         ),
     )
 
-    if not _index_exists("ix_assistants_owner_id", "assistants"):
-        op.create_index("ix_assistants_owner_id", "assistants", ["owner_id"], unique=False)
+    # Safe index + FK creation via helpers — guard against missing table,
+    # duplicate index, and duplicate constraint
+    create_index_if_missing("ix_assistants_owner_id", "assistants", ["owner_id"])
 
-    if not _constraint_exists("fk_assistants_owner_id_users", "assistants"):
-        op.create_foreign_key(
-            "fk_assistants_owner_id_users",
-            "assistants",
-            "users",
-            ["owner_id"],
-            ["id"],
-            ondelete="SET NULL",
-        )
+    create_fk_if_not_exists(
+        "fk_assistants_owner_id_users",
+        "assistants",
+        "users",
+        ["owner_id"],
+        ["id"],
+        ondelete="SET NULL",
+    )
 
     # ── batfish_snapshots: comment-only column updates ──────────────────────
     safe_alter_column(
@@ -160,6 +150,8 @@ def upgrade() -> None:
     )
 
     # ── batfish_snapshots: rename unique constraint ─────────────────────────
+    # Unique constraints are not yet covered by safe_ddl — using local
+    # _constraint_exists guard for these operations only
     if _constraint_exists("uq_batfish_user_snapshot", "batfish_snapshots"):
         op.drop_constraint("uq_batfish_user_snapshot", "batfish_snapshots", type_="unique")
 
@@ -281,10 +273,7 @@ def downgrade() -> None:
     )
 
     # ── assistants: owner_id ────────────────────────────────────────────────
-    if _constraint_exists("fk_assistants_owner_id_users", "assistants"):
-        op.drop_constraint("fk_assistants_owner_id_users", "assistants", type_="foreignkey")
-
-    if _index_exists("ix_assistants_owner_id", "assistants"):
-        op.drop_index("ix_assistants_owner_id", table_name="assistants")
-
+    # Safe FK + index drop via helpers, then column removal
+    drop_fk_if_exists("assistants", "fk_assistants_owner_id_users")
+    drop_index_if_exists("ix_assistants_owner_id", "assistants")
     drop_column_if_exists("assistants", "owner_id")

@@ -10,13 +10,13 @@ from typing import Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy import inspect
 from sqlalchemy.dialects import mysql
 
 # Import the safe DDL helpers
 from migrations.utils.safe_ddl import (add_column_if_missing,
+                                       create_index_if_missing,
                                        drop_column_if_exists,
-                                       safe_alter_column)
+                                       drop_index_if_exists, safe_alter_column)
 
 # revision identifiers, used by Alembic.
 revision: str = "9314d4058f78"
@@ -48,12 +48,8 @@ def upgrade() -> None:
         ),
     )
 
-    # Safe index creation: only if missing
-    bind = op.get_bind()
-    insp = inspect(bind)
-    indexes = [idx["name"] for idx in insp.get_indexes("actions")]
-    if "ix_actions_tool_call_id" not in indexes:
-        op.create_index(op.f("ix_actions_tool_call_id"), "actions", ["tool_call_id"], unique=False)
+    # Safe index creation via helper — guards against missing table and duplicate index
+    create_index_if_missing("ix_actions_tool_call_id", "actions", ["tool_call_id"])
 
     # --- Table: assistants ---
     add_column_if_missing(
@@ -177,12 +173,8 @@ def downgrade() -> None:
     drop_column_if_exists("assistants", "max_turns")
 
     # --- Table: actions ---
-    # Safe index drop
-    bind = op.get_bind()
-    insp = inspect(bind)
-    indexes = [idx["name"] for idx in insp.get_indexes("actions")]
-    if "ix_actions_tool_call_id" in indexes:
-        op.drop_index(op.f("ix_actions_tool_call_id"), table_name="actions")
+    # Safe index drop via helper — guards against missing table and absent index
+    drop_index_if_exists("ix_actions_tool_call_id", "actions")
 
     drop_column_if_exists("actions", "turn_index")
     drop_column_if_exists("actions", "tool_call_id")

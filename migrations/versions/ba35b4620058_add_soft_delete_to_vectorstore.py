@@ -31,14 +31,28 @@ def upgrade() -> None:
             comment="Unix timestamp of soft-deletion. Non-null = store is in Recycle Bin.",
         ),
     )
-    op.create_index(
-        op.f("ix_vector_stores_deleted_at"),
-        "vector_stores",
-        ["deleted_at"],
-        unique=False,
-    )
+
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+
+    if insp.has_table("vector_stores"):
+        indexes = [idx["name"] for idx in insp.get_indexes("vector_stores")]
+        if "ix_vector_stores_deleted_at" not in indexes:
+            op.create_index(
+                op.f("ix_vector_stores_deleted_at"),
+                "vector_stores",
+                ["deleted_at"],
+                unique=False,
+            )
 
 
 def downgrade() -> None:
-    op.drop_index(op.f("ix_vector_stores_deleted_at"), table_name="vector_stores")
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+
+    if insp.has_table("vector_stores"):
+        indexes = [idx["name"] for idx in insp.get_indexes("vector_stores")]
+        if "ix_vector_stores_deleted_at" in indexes:
+            op.drop_index(op.f("ix_vector_stores_deleted_at"), table_name="vector_stores")
+
     drop_column_if_exists("vector_stores", "deleted_at")

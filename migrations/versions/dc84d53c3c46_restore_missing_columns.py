@@ -25,6 +25,9 @@ except Exception:
 
     def column_exists(table: str, col: str) -> bool:
         insp = _insp()
+        # GUARD: Check if table exists before inspecting columns
+        if not insp.has_table(table):
+            return False
         return col in {c["name"] for c in insp.get_columns(table)}
 
     def add_column_if_missing(table: str, column: sa.Column) -> None:
@@ -36,7 +39,10 @@ except Exception:
             op.drop_column(table, col_name)
 
     def safe_alter_column(table: str, col_name: str, **kw) -> None:
-        op.alter_column(table, col_name, **kw)
+        insp = _insp()
+        # GUARD: Check if table and column exist before altering
+        if insp.has_table(table) and column_exists(table, col_name):
+            op.alter_column(table, col_name, **kw)
 
     def rename_column_if_exists(
         table: str,
