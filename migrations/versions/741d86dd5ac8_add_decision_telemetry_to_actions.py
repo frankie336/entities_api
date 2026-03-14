@@ -12,7 +12,6 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import mysql
 
-# Import the safe DDL helpers
 from migrations.utils.safe_ddl import (add_column_if_missing,
                                        create_index_if_missing,
                                        drop_column_if_exists,
@@ -29,6 +28,10 @@ def upgrade() -> None:
     """Upgrade schema safely."""
 
     # --- Table: actions ---
+    # All three operations below use safe_ddl helpers that check has_table
+    # internally — no crash if the actions table doesn't exist yet on a
+    # fresh container running migrations in order for the first time.
+
     # 1. Add the Decision Payload (JSON)
     add_column_if_missing(
         "actions",
@@ -51,7 +54,9 @@ def upgrade() -> None:
         ),
     )
 
-    # 3. Create index safely via helper (guards against missing table)
+    # 3. Create index safely — guards against missing table AND duplicate index.
+    # Replaces the previous raw inspector.get_indexes("actions") call which
+    # crashed with NoSuchTableError on fresh databases.
     create_index_if_missing(
         "ix_actions_confidence_score",
         "actions",
@@ -59,10 +64,10 @@ def upgrade() -> None:
     )
 
     # --- Table: messages ---
-    # 4. Enforce non-nullable content (Maintenance from auto-gen)
+    # 4. Enforce non-nullable content
     safe_alter_column("messages", "content", existing_type=mysql.TEXT(), nullable=False)
 
-    # 5. Standardize reasoning type (Maintenance from auto-gen)
+    # 5. Standardize reasoning type
     safe_alter_column(
         "messages",
         "reasoning",
@@ -89,9 +94,6 @@ def downgrade() -> None:
     safe_alter_column("messages", "content", existing_type=mysql.TEXT(), nullable=True)
 
     # --- Table: actions ---
-    # 1. Drop index safely via helper (guards against missing table/index)
     drop_index_if_exists("ix_actions_confidence_score", "actions")
-
-    # 2. Drop columns
     drop_column_if_exists("actions", "confidence_score")
     drop_column_if_exists("actions", "decision_payload")
