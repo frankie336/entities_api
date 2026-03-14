@@ -4,6 +4,20 @@
 ### Bug Fixes
 
 * add guards for missing tables in FK creation and enhance safe-DDL logic for constraints ([c4a569d](https://github.com/project-david-ai/platform/commit/c4a569dc9b2a390fcef1c2705141cc81648d0033))
+* remove redundant blank lines in `bootstrap_admin.py` ([73d1fd9](https://github.com/project-david-ai/platform/commit/73d1fd9f582499b94da3df1f7aff840172b4673a))
+* replace `docker_manager` with simplified `generate_docker_compose` for dev-friendly configurations ([e4a6d4f](https://github.com/project-david-ai/platform/commit/e4a6d4fb7f286f9bf32d2935648d90bec6074af1))
+
+
+### Features
+
+* add initial NGINX configuration for FastAPI upstream, WebSocket support, and Jaeger UI proxy ([c697385](https://github.com/project-david-ai/platform/commit/c697385d2f0d83029c3fd0234ca6b3ea1e58a645))
+
+# [1.20.0](https://github.com/project-david-ai/platform/compare/v1.19.8...v1.20.0) (2026-03-14)
+
+
+### Bug Fixes
+
+* add guards for missing tables in FK creation and enhance safe-DDL logic for constraints ([c4a569d](https://github.com/project-david-ai/platform/commit/c4a569dc9b2a390fcef1c2705141cc81648d0033))
 * replace `docker_manager` with simplified `generate_docker_compose` for dev-friendly configurations ([e4a6d4f](https://github.com/project-david-ai/platform/commit/e4a6d4fb7f286f9bf32d2935648d90bec6074af1))
 
 
