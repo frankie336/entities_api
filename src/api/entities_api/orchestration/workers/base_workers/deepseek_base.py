@@ -302,12 +302,15 @@ class DeepSeekBaseWorker(
             # Hyperbolic and all OpenAI-compatible providers require
             # {"type": "image_url", "image_url": {"url": "data:..."}} instead.
             # Plain text contexts pass through this block untouched.
+            #
+            # HYPERBOLIC LIMIT: max 1 image per request (documented constraint).
+            # Excess images are dropped with a warning rather than crashing.
             # ------------------------------------------------------------------
             if is_multimodal(ctx):
                 LOG.info(
-                    "DeepSeekBaseWorker ▸ multimodal context detected — normalising to OpenAI image_url format."
+                    "DeepSeekBaseWorker ▸ multimodal context detected — normalising to OpenAI image_url format (max_images=1 for Hyperbolic)."
                 )
-                ctx = normalise_for_chat(ctx)
+                ctx = normalise_for_chat(ctx, max_images=1)
 
             LOG.info(f"\nRAW_CTX_DUMP:\n{json.dumps(ctx, indent=2, ensure_ascii=False)}")
 
