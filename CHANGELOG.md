@@ -1,3 +1,10 @@
+## [1.19.7](https://github.com/project-david-ai/platform/compare/v1.19.6...v1.19.7) (2026-03-14)
+
+
+### Bug Fixes
+
+* enhance migrations with safe helpers, remove deprecated patterns, and guard against missing resources ([f66ec23](https://github.com/project-david-ai/platform/commit/f66ec239930c9d5c71439a629330646e31afde79))
+
 ## [1.19.6](https://github.com/project-david-ai/platform/compare/v1.19.5...v1.19.6) (2026-03-14)
 
 
