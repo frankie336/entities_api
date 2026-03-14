@@ -1,3 +1,12 @@
+## [1.19.3](https://github.com/project-david-ai/platform/compare/v1.19.2...v1.19.3) (2026-03-14)
+
+
+### Bug Fixes
+
+* add automatic multimodal message normalization for OpenAI compatibility in DefaultBase and GptOssBase workers ([680c059](https://github.com/project-david-ai/platform/commit/680c05999ab63dc2ee3cc5ddab850d53cafcd178))
+* enforce Hyperbolic's single-image constraint, update integration tests, refactor multimodal normalization, and bump projectdavid to 1.77.6 ([4af8512](https://github.com/project-david-ai/platform/commit/4af85127558af8b213075d0c0743ff0f2d3b364a))
+* restructure integration tests, add Ollama and Hyperbolic multimodal SDK tests, and enhance Qwen worker NLP support ([82cd1ff](https://github.com/project-david-ai/platform/commit/82cd1ff51a17e0670b00a1ab6b171ab108831637))
+
 ## [1.19.2](https://github.com/project-david-ai/platform/compare/v1.19.1...v1.19.2) (2026-03-13)
 
 
