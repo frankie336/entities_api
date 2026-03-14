@@ -39,8 +39,14 @@ depends_on: Union[str, Sequence[str], None] = None
 def _constraint_exists(constraint_name: str, table_name: str) -> bool:
     """
     Return True if a named constraint already exists on the given table.
+    Returns False immediately if the table itself does not exist — prevents
+    op.drop_constraint / op.create_unique_constraint from being called on a
+    missing table in fresh-container scenarios.
     Used for unique constraints, which safe_ddl does not yet cover.
     """
+    if not has_table(table_name):
+        return False
+
     bind = op.get_bind()
     result = bind.execute(
         sa.text(
@@ -92,6 +98,7 @@ def upgrade() -> None:
     )
 
     # ── batfish_snapshots: comment-only column updates ──────────────────────
+    # All safe_alter_column calls check has_table internally — safe on fresh containers.
     safe_alter_column(
         "batfish_snapshots",
         "id",
@@ -150,17 +157,22 @@ def upgrade() -> None:
     )
 
     # ── batfish_snapshots: rename unique constraint ─────────────────────────
-    # Unique constraints are not yet covered by safe_ddl — using local
-    # _constraint_exists guard for these operations only
+    # _constraint_exists now returns False when the table is absent, so both
+    # branches below are safe on a fresh container (neither op will fire).
     if _constraint_exists("uq_batfish_user_snapshot", "batfish_snapshots"):
         op.drop_constraint("uq_batfish_user_snapshot", "batfish_snapshots", type_="unique")
 
     if not _constraint_exists("uq_batfish_user_snapshot_name", "batfish_snapshots"):
-        op.create_unique_constraint(
-            "uq_batfish_user_snapshot_name",
-            "batfish_snapshots",
-            ["user_id", "snapshot_name"],
-        )
+        # Only attempt to create if the table actually exists; the has_table
+        # check inside _constraint_exists already gates this when the table is
+        # missing (it returns False, making `not False` = True, which would
+        # incorrectly enter this branch on a missing table).
+        if has_table("batfish_snapshots"):
+            op.create_unique_constraint(
+                "uq_batfish_user_snapshot_name",
+                "batfish_snapshots",
+                ["user_id", "snapshot_name"],
+            )
 
     # ── messages ────────────────────────────────────────────────────────────
     safe_alter_column(
@@ -207,12 +219,13 @@ def downgrade() -> None:
         op.drop_constraint("uq_batfish_user_snapshot_name", "batfish_snapshots", type_="unique")
 
     if not _constraint_exists("uq_batfish_user_snapshot", "batfish_snapshots"):
-        op.create_index(
-            "uq_batfish_user_snapshot",
-            "batfish_snapshots",
-            ["user_id", "snapshot_name"],
-            unique=True,
-        )
+        if has_table("batfish_snapshots"):
+            op.create_index(
+                "uq_batfish_user_snapshot",
+                "batfish_snapshots",
+                ["user_id", "snapshot_name"],
+                unique=True,
+            )
 
     # ── batfish_snapshots: restore original comments ────────────────────────
     safe_alter_column(
@@ -273,7 +286,6 @@ def downgrade() -> None:
     )
 
     # ── assistants: owner_id ────────────────────────────────────────────────
-    # Safe FK + index drop via helpers, then column removal
     drop_fk_if_exists("assistants", "fk_assistants_owner_id_users")
     drop_index_if_exists("ix_assistants_owner_id", "assistants")
     drop_column_if_exists("assistants", "owner_id")
