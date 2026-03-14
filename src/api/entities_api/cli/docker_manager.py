@@ -114,6 +114,11 @@ class DockerManager:
         "DISABLE_FIREJAIL": ("sandbox_api", "DISABLE_FIREJAIL"),
     }
 
+    # -------------------------------------------------------------------------
+    # Secrets that are ALWAYS force-generated — never hardcoded, never default.
+    # Adding DEFAULT_SECRET_KEY and SMBCLIENT_PASSWORD here removes the last
+    # two static fallback values that previously shipped with known strings.
+    # -------------------------------------------------------------------------
     _GENERATED_SECRETS = [
         "SIGNED_URL_SECRET",
         "API_KEY",
@@ -121,6 +126,8 @@ class DockerManager:
         "MYSQL_PASSWORD",
         "SECRET_KEY",
         "SANDBOX_AUTH_SECRET",
+        "DEFAULT_SECRET_KEY",  # FIX: was hardcoded "your_secret_key_here"
+        "SMBCLIENT_PASSWORD",  # FIX: was hardcoded "default"
     ]
 
     _GENERATED_TOOL_IDS = [
@@ -130,40 +137,69 @@ class DockerManager:
         "TOOL_VECTOR_STORE_SEARCH",
     ]
 
+    # -------------------------------------------------------------------------
+    # Variables that MUST be supplied by the user — cannot be auto-generated.
+    # The script will warn (not error) if these are absent so the stack can
+    # still start without vLLM/HuggingFace features enabled.
+    # -------------------------------------------------------------------------
+    _USER_REQUIRED = [
+        "HF_TOKEN",  # HuggingFace personal access token — gated model downloads
+    ]
+
+    # -------------------------------------------------------------------------
+    # Known insecure placeholder values used as a blocklist during validation.
+    # -------------------------------------------------------------------------
+    _INSECURE_VALUES = {
+        "default",
+        "your_secret_key_here",
+        "changeme",
+        "changeme_use_a_real_secret",
+        "",
+    }
+
     _DEFAULT_VALUES = {
+        # Base URLs
         "ASSISTANTS_BASE_URL": "http://localhost:9000",
         "SANDBOX_SERVER_URL": "http://localhost:9000",
         "DOWNLOAD_BASE_URL": "http://localhost:9000/v1/files/download",
         "HYPERBOLIC_BASE_URL": "https://api.hyperbolic.xyz/v1",
         "TOGETHER_BASE_URL": "https://api.together.xyz/v1",
         "OLLAMA_BASE_URL": "http://ollama:11434",
+        # AI model configuration
+        "HF_TOKEN": "",  # User must supply — warned at startup
+        "HF_CACHE_PATH": "",  # Resolved per-platform in _configure_hf_cache_path
+        "VLLM_MODEL": "Qwen/Qwen2.5-VL-3B-Instruct",
+        # External API keys — user supplies post-install
         "TOGETHER_API_KEY": "",
         "HYPERBOLIC_API_KEY": "",
         "ADMIN_API_KEY": "",
         "ENTITIES_API_KEY": "",
         "ENTITIES_USER_ID": "",
         "DEEP_SEEK_API_KEY": "",
+        # Platform settings
         "BASE_URL_HEALTH": "http://localhost:9000/v1/health",
         "SHELL_SERVER_URL": "ws://sandbox_api:8000/ws/computer",
         "SHELL_SERVER_EXTERNAL_URL": "ws://localhost:8000/ws/computer",
         "CODE_EXECUTION_URL": "ws://sandbox_api:8000/ws/execute",
         "DISABLE_FIREJAIL": "true",
-        "DEFAULT_SECRET_KEY": "your_secret_key_here",
         "SHARED_PATH": "./shared_data",
         "AUTO_MIGRATE": "1",
+        # Database
         "MYSQL_HOST": DEFAULT_DB_SERVICE_NAME,
         "MYSQL_PORT": DEFAULT_DB_CONTAINER_PORT,
         "MYSQL_DATABASE": "entities_db",
         "MYSQL_USER": "api_user",
         "REDIS_URL": "redis://redis:6379/0",
+        # Admin
         "ADMIN_USER_EMAIL": "admin@example.com",
         "ADMIN_USER_ID": "",
         "ADMIN_KEY_PREFIX": "",
+        # SMB — password removed from here; now force-generated in _GENERATED_SECRETS
         "SMBCLIENT_SERVER": "samba_server",
         "SMBCLIENT_SHARE": "cosmic_share",
         "SMBCLIENT_USERNAME": "samba_user",
-        "SMBCLIENT_PASSWORD": "default",
         "SMBCLIENT_PORT": "445",
+        # Misc
         "LOG_LEVEL": "INFO",
         "PYTHONUNBUFFERED": "1",
     }
@@ -176,6 +212,11 @@ class DockerManager:
             "HYPERBOLIC_BASE_URL",
             "TOGETHER_BASE_URL",
             "OLLAMA_BASE_URL",
+        ],
+        "AI Model Configuration": [
+            "HF_TOKEN",
+            "HF_CACHE_PATH",
+            "VLLM_MODEL",
         ],
         "Database Configuration": [
             "DATABASE_URL",
@@ -247,6 +288,7 @@ class DockerManager:
         self.compose_config = self._load_compose_config()
         self._check_for_required_env_file()
         self._configure_shared_path()
+        self._configure_hf_cache_path()
         self._ensure_dockerignore()
 
     # ------------------------------------------------------------------
@@ -412,7 +454,7 @@ class DockerManager:
         env_values = dict(self._DEFAULT_VALUES)
         generation_log = {k: "Default value" for k in env_values}
 
-        # Step 2 — compose overrides
+        # Step 1 — compose overrides
         for env_key, (service_name, compose_key) in self._COMPOSE_ENV_MAPPING.items():
             value = self._get_env_from_compose_service(service_name, compose_key)
             if value is not None and not str(value).startswith("${"):
@@ -422,19 +464,19 @@ class DockerManager:
                     )
                 env_values[env_key] = str(value)
 
-        # Step 3 — force-generate secrets
+        # Step 2 — force-generate all secrets (always fresh, never default)
         for key in self._GENERATED_SECRETS:
             token_length = 16 if key == "API_KEY" else 32
             env_values[key] = secrets.token_hex(token_length)
             generation_log[key] = "Generated new secret (forced)"
 
-        # Step 4 — tool IDs
+        # Step 3 — tool IDs
         for key in self._GENERATED_TOOL_IDS:
             if key not in env_values:
                 env_values[key] = f"tool_{secrets.token_hex(10)}"
                 generation_log[key] = "Generated new tool ID"
 
-        # Step 5 — composite DB URLs
+        # Step 4 — composite DB URLs
         db_user = env_values.get("MYSQL_USER")
         db_pass = env_values.get("MYSQL_PASSWORD")
         db_host = env_values.get("MYSQL_HOST", DEFAULT_DB_SERVICE_NAME)
@@ -468,9 +510,21 @@ class DockerManager:
                     "Error constructing database URLs: %s", e, exc_info=self.args.verbose
                 )
 
+        # Step 5 — resolve HF_CACHE_PATH if not already set
+        if not env_values.get("HF_CACHE_PATH"):
+            base = os.path.expanduser("~")
+            hf_path = {
+                "windows": os.path.join(base, ".cache", "huggingface"),
+                "linux": os.path.join(base, ".cache", "huggingface"),
+                "darwin": os.path.join(base, ".cache", "huggingface"),
+            }.get(platform.system().lower(), os.path.abspath("./.cache/huggingface"))
+            env_values["HF_CACHE_PATH"] = hf_path
+            generation_log["HF_CACHE_PATH"] = f"Auto-resolved for {platform.system()}"
+
         # Step 6 — write
         env_lines = [
             f"# Auto-generated .env file by entities-api docker-manager at {time.strftime('%Y-%m-%d %H:%M:%S %Z')}",
+            "# !! IMPORTANT: Set HF_TOKEN to your HuggingFace token before starting vLLM. !!",
             "",
         ]
         processed_keys: set = set()
@@ -550,6 +604,51 @@ class DockerManager:
             self.log.info("Ensured shared directory exists: %s", shared_path)
         except OSError as e:
             self.log.error("Failed to create shared directory %s: %s", shared_path, e)
+
+    def _configure_hf_cache_path(self):
+        """
+        Resolve HF_CACHE_PATH to the platform-standard HuggingFace cache directory
+        if the user has not already set it. Does NOT mkdir — HuggingFace creates
+        this itself on first download.
+        """
+        hf_path = os.environ.get("HF_CACHE_PATH", "").strip()
+        if not hf_path:
+            base = os.path.expanduser("~")
+            hf_path = os.path.join(base, ".cache", "huggingface")
+            os.environ["HF_CACHE_PATH"] = hf_path
+            self.log.info("Defaulting HF_CACHE_PATH to: %s", hf_path)
+        else:
+            self.log.info("Using existing HF_CACHE_PATH: %s", hf_path)
+
+    # ------------------------------------------------------------------
+    # Secret validation — called in _handle_up before stack starts
+    # ------------------------------------------------------------------
+
+    def _validate_secrets(self):
+        """
+        Block startup if any auto-generated secret still holds a known-insecure
+        placeholder value. Warn (but do not block) if user-required tokens are absent.
+        """
+        failed = False
+        for key in self._GENERATED_SECRETS:
+            val = os.environ.get(key, "")
+            if val in self._INSECURE_VALUES:
+                self.log.error(
+                    "Insecure or missing value detected for '%s'. "
+                    "Delete .env and re-run the docker-manager to regenerate secrets.",
+                    key,
+                )
+                failed = True
+        if failed:
+            raise SystemExit(1)
+
+        for key in self._USER_REQUIRED:
+            if not os.environ.get(key, "").strip():
+                self.log.warning(
+                    "'%s' is not set. vLLM / HuggingFace gated-model features will be "
+                    "unavailable until you add it to .env and restart.",
+                    key,
+                )
 
     # ------------------------------------------------------------------
     # Docker helpers
@@ -935,6 +1034,9 @@ class DockerManager:
             raise SystemExit(1)
         load_dotenv(dotenv_path=self._ENV_FILE, override=True)
 
+        # Validate all secrets are properly set before allowing the stack to start
+        self._validate_secrets()
+
         up_cmd = ["docker", "compose", "-f", self._DOCKER_COMPOSE_FILE, "up"]
         if not self.args.attached:
             up_cmd.append("-d")
@@ -958,7 +1060,6 @@ class DockerManager:
                     ", ".join(sorted(unknown)),
                 )
             if target:
-                # Honour explicit --services list, just filter out excluded ones
                 target = [s for s in target if s not in exclude]
             else:
                 target = [s for s in all_svcs if s not in exclude]
