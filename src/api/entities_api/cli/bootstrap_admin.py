@@ -41,7 +41,7 @@ DEFAULT_ADMIN_EMAIL = "admin@example.com"
 DEFAULT_ADMIN_NAME = "Default Admin"
 DEFAULT_ADMIN_KEY_NAME = "Admin Bootstrap Key"
 ADMIN_API_KEY_ENV_VAR = "ADMIN_API_KEY"
-DB_URL_ENV_VAR = "SPECIAL_DB_URL"
+DB_URL_ENV_VAR = "DATABASE_URL"
 
 # ---------------------------------------------------------------------------
 # Utilities
