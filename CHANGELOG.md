@@ -1,3 +1,10 @@
+# [1.22.0](https://github.com/project-david-ai/platform/compare/v1.21.1...v1.22.0) (2026-03-15)
+
+
+### Features
+
+* implement admin check utility and enhance access control logic ([57ac673](https://github.com/project-david-ai/platform/commit/57ac6739e9dfdc8365eeccc7b852fd5d823c1d6a))
+
 ## [1.21.1](https://github.com/project-david-ai/platform/compare/v1.21.0...v1.21.1) (2026-03-15)
 
 
