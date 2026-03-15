@@ -1,3 +1,10 @@
+# [1.21.0](https://github.com/project-david-ai/platform/compare/v1.20.0...v1.21.0) (2026-03-15)
+
+
+### Features
+
+* Resolve issue in n 741d86dd5ac8. ([e2b6a36](https://github.com/project-david-ai/platform/commit/e2b6a367fb6bbe77ca7171d906548d5ae5aaab0f))
+
 # [1.20.0](https://github.com/project-david-ai/platform/compare/v1.19.8...v1.20.0) (2026-03-14)
 
 
