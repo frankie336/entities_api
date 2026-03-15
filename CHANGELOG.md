@@ -1,3 +1,10 @@
+## [1.22.1](https://github.com/project-david-ai/platform/compare/v1.22.0...v1.22.1) (2026-03-15)
+
+
+### Bug Fixes
+
+* enable Docker build cache export and remove redundant prune step in CI workflow ([b07c3bf](https://github.com/project-david-ai/platform/commit/b07c3bfb1ee7711750e968d23b93178ff915d1fd))
+
 # [1.22.0](https://github.com/project-david-ai/platform/compare/v1.21.1...v1.22.0) (2026-03-15)
 
 
