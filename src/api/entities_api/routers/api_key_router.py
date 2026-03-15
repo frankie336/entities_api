@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from src.api.entities_api.dependencies import get_api_key, get_db
 from src.api.entities_api.models.models import ApiKey as ApiKeyModel
 from src.api.entities_api.services.api_key_service import ApiKeyService
+from src.api.entities_api.utils.check_admin_status import _is_admin
 
 router = APIRouter(
     prefix="/users/{user_id}/apikeys",
@@ -16,13 +17,24 @@ router = APIRouter(
 )
 
 
-def verify_user_access(requested_user_id: str, authenticated_key: ApiKeyModel):
-    """Checks if the authenticated user matches the requested user ID."""
-    if authenticated_key.user_id != requested_user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to manage API keys for this user.",
-        )
+def verify_user_access(
+    requested_user_id: str,
+    authenticated_key: ApiKeyModel,
+    db: Session,
+):
+    """
+    Allow access if:
+      - The authenticated key belongs to the requested user (self-service), OR
+      - The authenticated key's owner is an admin (elevated access).
+    """
+    if authenticated_key.user_id == requested_user_id:
+        return
+    if _is_admin(authenticated_key.user_id, db):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Not authorized to manage API keys for this user.",
+    )
 
 
 @router.post(
@@ -40,11 +52,11 @@ def create_api_key(
 ):
     """
     Creates an API key for the user specified in the path (`user_id`).
-    - **Authorization**: Request must be authenticated with an API key belonging to the *same* `user_id`.
+    - **Authorization**: Authenticated user must match `user_id`, or be an admin.
     - **Input**: Optional key name and expiration days.
     - **Output**: The generated plain API key and its details. **Store the key immediately.**
     """
-    verify_user_access(requested_user_id=user_id, authenticated_key=auth_key)
+    verify_user_access(requested_user_id=user_id, authenticated_key=auth_key, db=db)
     service = ApiKeyService(db=db)
     try:
         plain_key, created_key_record = service.create_key(
@@ -77,11 +89,11 @@ def list_api_keys(
 ):
     """
     Lists API keys for the user specified in the path (`user_id`).
-    - **Authorization**: Request must be authenticated with an API key belonging to the *same* `user_id`.
+    - **Authorization**: Authenticated user must match `user_id`, or be an admin.
     - **Query Param**: `include_inactive` (default False) to show revoked keys.
-    - **Output**: A list of API key details (prefix, name, dates, status). **Does not include the key itself.**
+    - **Output**: A list of API key details (prefix, name, dates, status).
     """
-    verify_user_access(requested_user_id=user_id, authenticated_key=auth_key)
+    verify_user_access(requested_user_id=user_id, authenticated_key=auth_key, db=db)
     service = ApiKeyService(db=db)
     try:
         keys_orm = service.list_keys_for_user(user_id=user_id, include_inactive=include_inactive)
@@ -110,10 +122,10 @@ def get_api_key_details(
 ):
     """
     Gets details for a specific API key identified by its `key_prefix` for the given `user_id`.
-    - **Authorization**: Request must be authenticated with an API key belonging to the *same* `user_id`.
-    - **Output**: API key details (prefix, name, dates, status). **Does not include the key itself.**
+    - **Authorization**: Authenticated user must match `user_id`, or be an admin.
+    - **Output**: API key details (prefix, name, dates, status).
     """
-    verify_user_access(requested_user_id=user_id, authenticated_key=auth_key)
+    verify_user_access(requested_user_id=user_id, authenticated_key=auth_key, db=db)
     service = ApiKeyService(db=db)
     try:
         key_orm = service.get_key_details_by_prefix(user_id=user_id, key_prefix=key_prefix)
@@ -146,10 +158,10 @@ def revoke_api_key(
 ):
     """
     Revokes (sets `is_active=False`) an API key identified by its `key_prefix` for the given `user_id`.
-    - **Authorization**: Request must be authenticated with an API key belonging to the *same* `user_id`.
-    - **Output**: `204 No Content` on success. Returns `404` if the key prefix is not found for the user.
+    - **Authorization**: Authenticated user must match `user_id`, or be an admin.
+    - **Output**: `204 No Content` on success.
     """
-    verify_user_access(requested_user_id=user_id, authenticated_key=auth_key)
+    verify_user_access(requested_user_id=user_id, authenticated_key=auth_key, db=db)
     service = ApiKeyService(db=db)
     try:
         revoked = service.revoke_key(user_id=user_id, key_prefix=key_prefix)

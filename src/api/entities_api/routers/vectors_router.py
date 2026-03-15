@@ -9,17 +9,12 @@ from sqlalchemy.orm import Session
 
 from src.api.entities_api.dependencies import get_api_key, get_db
 from src.api.entities_api.models.models import ApiKey as ApiKeyModel
-from src.api.entities_api.models.models import User as UserModel
 from src.api.entities_api.services.vectors_service import (
     DatabaseConflictError, VectorStoreDBError, VectorStoreDBService)
+from src.api.entities_api.utils.check_admin_status import _is_admin
 
 router = APIRouter()
 log = UtilsInterface.LoggingUtility()
-
-
-def _is_admin(user_id: str, db: Session) -> bool:
-    user = db.query(UserModel).filter(UserModel.id == user_id).first()
-    return bool(user and user.is_admin)
 
 
 def _require_store_access(

@@ -16,6 +16,7 @@ from src.api.entities_api.orchestration.mixins.web_search_mixin import \
     SearxNGClient
 from src.api.entities_api.services.logging_service import LoggingUtility
 from src.api.entities_api.services.web_reader import UniversalWebReader
+from src.api.entities_api.utils.check_admin_status import _is_admin
 
 # --- Router Setup ---
 router = APIRouter()
@@ -65,16 +66,17 @@ class ScratchpadAppendRequest(BaseModel):
 
 def verify_admin_privileges(db: Session, auth_key: ApiKeyModel) -> UserModel:
     """
-    Helper to enforce Admin-only access, mimicking the logic in users_router.
+    Enforce admin-only access. Raises 403 if the authenticated user is not an admin.
+    Returns the admin UserModel on success.
     """
-    requesting_admin = db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
-    if not requesting_admin or not requesting_admin.is_admin:
+    if not _is_admin(auth_key.user_id, db):
         logging_utility.warning(f"Unauthorized web access attempt by user ID: {auth_key.user_id}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required to use Web Tools.",
         )
-    return requesting_admin
+    # Return the user object for logging purposes
+    return db.query(UserModel).filter(UserModel.id == auth_key.user_id).first()
 
 
 # -----------------------------------------------------------------------------
@@ -94,9 +96,7 @@ async def read_url(
     **Security:** Admin Only.
     """
     admin_user = verify_admin_privileges(db, auth_key)
-
     logging_utility.info(f"Admin '{admin_user.email}' requesting to read URL: {payload.url}")
-
     try:
         result = await reader.read(payload.url, force_refresh=payload.force_refresh)
         return {"content": result}
@@ -117,11 +117,9 @@ async def scroll_url(
     **Security:** Admin Only.
     """
     admin_user = verify_admin_privileges(db, auth_key)
-
     logging_utility.info(
         f"Admin '{admin_user.email}' requesting scroll on URL: {payload.url} (Page {payload.page})"
     )
-
     try:
         result = await reader.scroll(payload.url, payload.page)
         return {"content": result}
@@ -139,11 +137,9 @@ async def search_url(
 ):
     """
     **Agent Action:** Search for a specific term across ALL cached pages of a URL.
-    **Benefit:** Saves context window by not reading every page manually.
     **Security:** Admin Only.
     """
     verify_admin_privileges(db, auth_key)
-
     try:
         result = await reader.search(payload.url, payload.query)
         return {"content": result}
@@ -159,27 +155,13 @@ async def serp_search(
 ):
     """
     **Agent Action:** Perform a web discovery search via the internal SearxNG container.
-
-    - Hits SearxNG **directly** over internal HTTP — no browserless, no SDK round-trip.
-    - SearxNG fans out to DuckDuckGo, Bing, Google simultaneously.
-    - Returns deduplicated results ranked by score.
-    - Optionally pin specific engines via the `engines` field.
-
-    **Examples:**
-    ```json
-    { "query": "bgp route reflector design", "count": 10 }
-    { "query": "python async patterns", "count": 5, "engines": ["duckduckgo", "bing"] }
-    ```
-
     **Security:** Admin Only.
     """
     admin_user = verify_admin_privileges(db, auth_key)
-
     logging_utility.info(
         f"Admin '{admin_user.email}' SERP search: '{payload.query}' "
         f"engines={payload.engines or 'default'} count={payload.count}"
     )
-
     try:
         searxng = SearxNGClient()
         result = await searxng.format_for_agent(
@@ -205,11 +187,8 @@ async def read_scratchpad(
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    """
-    **Agent Action:** Retrieve the current state of the scratchpad.
-    """
+    """**Agent Action:** Retrieve the current state of the scratchpad."""
     verify_admin_privileges(db, auth_key)
-
     try:
         content = await service.get_formatted_view(payload.thread_id)
         return {"content": content}
@@ -225,11 +204,8 @@ async def update_scratchpad(
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    """
-    **Agent Action:** Rewrite the scratchpad (e.g., updating the plan after a step is done).
-    """
+    """**Agent Action:** Rewrite the scratchpad."""
     verify_admin_privileges(db, auth_key)
-
     try:
         msg = await service.update_content(payload.thread_id, payload.content)
         return {"status": "success", "message": msg}
@@ -245,11 +221,8 @@ async def append_scratchpad(
     db: Session = Depends(get_db),
     auth_key: ApiKeyModel = Depends(get_api_key),
 ):
-    """
-    **Agent Action:** Quick-add a finding (e.g., a URL or fact) without rewriting everything.
-    """
+    """**Agent Action:** Quick-add a finding without rewriting everything."""
     verify_admin_privileges(db, auth_key)
-
     try:
         msg = await service.append_note(payload.thread_id, payload.note)
         return {"status": "success", "message": msg}
