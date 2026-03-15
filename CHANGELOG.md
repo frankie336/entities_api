@@ -1,3 +1,10 @@
+## [1.21.1](https://github.com/project-david-ai/platform/compare/v1.21.0...v1.21.1) (2026-03-15)
+
+
+### Bug Fixes
+
+* rename `SPECIAL_DB_URL` to `DATABASE_URL` for consistency ([a86e353](https://github.com/project-david-ai/platform/commit/a86e3533b0b8d7599a8693616954c669f135e8d0))
+
 # [1.21.0](https://github.com/project-david-ai/platform/compare/v1.20.0...v1.21.0) (2026-03-15)
 
 
